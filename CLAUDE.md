@@ -41,8 +41,13 @@ One human (Burhan) + one LLM (Claude), across many sessions. These rules exist
 because LLMs hallucinate and humans paste prompts into wrong windows and get tired.
 **The repo is the only memory either of us trusts.**
 
+> Shortcut: `/session-start`, `/session-end`, `/probe`, `/idea`,
+> `/review-issue`, `/explain-issue`, `/promote` (in `.claude/commands/`)
+> encode these rituals — prefer them over doing the steps by hand.
+
 ### Session start ritual (every session, before any work)
 1. `pwd` must be this repo. Read `STATE.md`, then `NEXT-SESSION.md`.
+   Work happens on `staging` (D-010) — `main` only moves via `/promote`.
 2. Verify the pasted prompt's session number matches `NEXT-SESSION.md`.
    **Mismatch or missing → STOP and tell the human "wrong window / wrong session,
    expected S<N>" — do not improvise.**

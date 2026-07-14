@@ -46,6 +46,12 @@ Burhan's call. Revisit before anything public.
 agents, no billing, no i18n, no admin console until Phase 4. SARA's 16-mode/
 16-agent surface is the cautionary tale, not the target.
 
+**D-010 (2026-07-14) — Branch model: staging → main via /promote only.**
+All session work lands on `staging`. `main` is only ever updated by the
+`/promote` command (full checks fresh, PR when a remote exists, guarded
+`--no-ff` merge before that). `main` = always-demoable; never commit to it
+directly after S0. Custom commands live in `.claude/commands/`.
+
 **D-008 (2026-07-14) — Workspace isolation from day one.** `workspace_id` on
 every table and every index mapping, even while single-tenant. Retrofitting
 tenancy is how SARA earned nine Tier-0 invariants the hard way.
