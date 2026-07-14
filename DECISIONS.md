@@ -52,6 +52,17 @@ All session work lands on `staging`. `main` is only ever updated by the
 `--no-ff` merge before that). `main` = always-demoable; never commit to it
 directly after S0. Custom commands live in `.claude/commands/`.
 
+**D-011 (2026-07-14) — Personal GitHub identity only.** Auspex is Burhan's
+personal project. Commits: `bh3082336888-cell
+<bh3082336888-cell@users.noreply.github.com>` (set as repo-local git config;
+the 3 pre-decision commits were rewritten before any push). Git transport: SSH
+alias `github-personal` (~/.ssh/config → `~/.ssh/personal_git` key); remote
+URLs use `git@github-personal:bh3082336888-cell/<repo>.git`. `gh` CLI: active
+account must be `bh3082336888-cell` for this repo (`gh auth switch`); one-time
+interactive `gh auth login` (SSH + personal_git) required before first PR.
+Work identity (SIRP-Burhan / burhan@sirp.io) never touches this repo.
+Session-start and /promote enforce this.
+
 **D-008 (2026-07-14) — Workspace isolation from day one.** `workspace_id` on
 every table and every index mapping, even while single-tenant. Retrofitting
 tenancy is how SARA earned nine Tier-0 invariants the hard way.

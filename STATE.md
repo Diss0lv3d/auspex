@@ -24,6 +24,10 @@ _Last updated: 2026-07-14 (S0 bootstrap, done in the sara-open-copy study sessio
    (D-009), so server-side ML deployment is possible but heavy for a dev box;
    probe in S6, fallback in-process MiniLM (decided, not a blocker).
 3. **Northflank endpoint unauthenticated** (D-006, accepted for testing).
+4. **One-time manual step pending**: `gh auth login` for the personal account
+   (bh3082336888-cell, choose SSH + ~/.ssh/personal_git) — needed before the
+   first `gh pr create`/`/promote` against a remote. SSH transport + git
+   identity are already configured (D-011); only the gh API token is missing.
 
 ## Reference intelligence (from the SARA Open architecture study, 2026-07-14)
 The full 5-part study lives in the sara-open-copy session; the distilled

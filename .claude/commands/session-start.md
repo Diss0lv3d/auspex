@@ -11,6 +11,14 @@ Run the session-start ritual from CLAUDE.md, strictly:
    "wrong window / wrong session, expected S<N>". Do not improvise a session.
 3. Verify we're on `staging` (D-010). On main or detached → switch to staging
    and say so.
+3b. Identity guard (D-011 — personal project): `git config user.email` must be
+   `bh3082336888-cell@users.noreply.github.com` (fix with the local git config
+   if not), and if `gh` will be used this session, `gh auth status` must show
+   the ACTIVE account as `bh3082336888-cell` — otherwise run
+   `gh auth switch --user bh3082336888-cell` (if that account isn't logged in
+   yet, tell the human to run `gh auth login` once, choosing SSH +
+   `~/.ssh/personal_git`). Never let work identity (SIRP-Burhan / burhan@sirp.io)
+   author commits or API calls in this repo.
 4. Reality check: `git log --oneline -5`, `git status`, and (once compose
    exists) `docker compose up -d && docker compose ps` + `/api/health`.
    Divergence from STATE.md → fix STATE.md first, report the divergence.
