@@ -6,7 +6,7 @@ may not grow mid-session (IDEAS.md exists for that).
 
 ## Phase 0 — Foundations & de-risk
 
-- [ ] **S1 — Scaffold.** FastAPI app factory, config module (env-driven,
+- [x] **S1 — Scaffold.** FastAPI app factory, config module (env-driven,
   `.env.example` + `docs/ENV_VARS.md`), docker-compose (app + Postgres),
   Postgres schema v0 (workspaces, users, api_keys, chat_sessions, messages —
   `workspace_id` on EVERY table from day one), Google OAuth + JWT + hashed API
