@@ -1,0 +1,70 @@
+# Auspex local stack (D-003: docker-first; D-009: our OWN OpenSearch, never SARA's).
+# Host ports: app 8000, postgres 55432 (5432 is taken on this host), opensearch 9200.
+name: auspex
+
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    # This is the LOCAL dev stack (D-003): APP_ENV=dev is fixed here so the stack
+    # is always dev regardless of whether a .env exists. .env is optional so a fresh
+    # clone (no .env) still comes up green on config.py's in-compose defaults.
+    environment:
+      APP_ENV: dev
+    env_file:
+      - path: .env
+        required: false
+    depends_on:
+      postgres:
+        condition: service_healthy
+      opensearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: auspex
+      POSTGRES_PASSWORD: auspex  # local dev container only; prod overrides via DATABASE_URL
+      POSTGRES_DB: auspex
+    ports:
+      - "55432:5432"
+    volumes:
+      - auspex-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auspex -d auspex"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  opensearch:
+    image: opensearchproject/opensearch:2.19.4
+    environment:
+      - discovery.type=single-node
+      - OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g
+      - DISABLE_SECURITY_PLUGIN=true      # local dev only; real clusters use basic auth
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+    ports:
+      - "9200:9200"
+    volumes:
+      - auspex-osdata:/usr/share/opensearch/data
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 30s
+
+volumes:
+  auspex-pgdata:
+  auspex-osdata:

@@ -1,0 +1,20 @@
+FROM python:3.12-slim
+
+WORKDIR /srv/auspex
+
+# Dependency layer: install deps from pyproject against an empty package skeleton so
+# this layer is cached and only re-runs when pyproject changes — not on every code edit.
+# Deps still come solely from pyproject (no hand-maintained requirements to drift).
+COPY pyproject.toml ./
+RUN mkdir -p auspex/routes \
+    && touch auspex/__init__.py auspex/routes/__init__.py server.py \
+    && pip install --no-cache-dir . \
+    && rm -rf auspex server.py
+
+# App layer: real source, reinstall the package only (deps already satisfied above).
+COPY auspex ./auspex
+COPY server.py ./
+RUN pip install --no-cache-dir --no-deps .
+
+EXPOSE 8000
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
