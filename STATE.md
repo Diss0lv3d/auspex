@@ -51,8 +51,11 @@ _Last updated: 2026-07-14 (S2 — attempted, blocked on dead LLM endpoint; offli
 4. **Northflank endpoint unauthenticated** (D-006, accepted for testing).
 5. **TD-001 (OAuth identity keyed on email)** — must fix before any
    GOOGLE_CLIENT_ID is configured. Not reachable today.
-6. **One-time manual step pending**: `gh auth login` for bh3082336888-cell —
-   needed before first `/promote` against a remote. No remote yet.
+6. ~~gh auth login~~ **RESOLVED (2026-07-14, post-S2)**: personal account
+   logged in; private repo `bh3082336888-cell/auspex` created; remote is
+   `origin = git@github-personal:...` (SSH alias → `~/.ssh/personal_git`;
+   the bare `github.com` host uses the WORK key — never use it for this repo).
+   `main` + `staging` pushed; default branch `main`. `/promote` can now PR.
 
 ## Host notes (reality snapshot)
 - Postgres on host port **55432** (5432 taken); in-network `postgres:5432`.
