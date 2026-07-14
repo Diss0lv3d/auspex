@@ -11,7 +11,7 @@ source "$VENV/bin/activate"
 pip install -q -e ".[dev]"
 
 echo "== ruff =="
-ruff check auspex tests server.py
+ruff check auspex tests scripts server.py
 
 echo "== deps up (postgres + opensearch) =="
 # --wait blocks until healthchecks pass; no hardcoded container names to drift.

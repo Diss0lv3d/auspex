@@ -40,3 +40,5 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Tests use hardcoded local dev URLs/creds by design.
 "tests/*" = ["S105", "S106", "S107"]
+# Harness task prompts are one-line data strings; wrapping them hurts readability.
+"scripts/harness_tasks.py" = ["E501"]
