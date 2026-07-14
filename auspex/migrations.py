@@ -72,6 +72,27 @@ SCHEMA_V0: list[str] = [
         created_at    timestamptz NOT NULL DEFAULT now()
     )
     """,
+    # S2: one row per capability-probe run of a customer LLM endpoint (D-005).
+    # endpoint_fingerprint = sha256(base_url|model) — identifies the endpoint
+    # without ever storing its API key. agent_mode is what the runtime compiles
+    # to (code picks the mode from the typed scorecard, not the prompt).
+    """
+    CREATE TABLE IF NOT EXISTS llm_endpoint_scorecards (
+        id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id          uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        endpoint_fingerprint  text NOT NULL,
+        base_url              text NOT NULL,
+        model                 text NOT NULL,
+        agent_mode            text NOT NULL
+            CHECK (agent_mode IN ('native_tools', 'prompted_tools', 'plan_only')),
+        scorecard             jsonb NOT NULL,
+        probed_at             timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_llm_scorecards_ws_fp
+        ON llm_endpoint_scorecards (workspace_id, endpoint_fingerprint, probed_at DESC)
+    """,
     "CREATE INDEX IF NOT EXISTS idx_users_workspace ON users (workspace_id)",
     "CREATE INDEX IF NOT EXISTS idx_api_keys_workspace ON api_keys (workspace_id)",
     "CREATE INDEX IF NOT EXISTS idx_chat_sessions_ws_user ON chat_sessions (workspace_id, user_id)",
