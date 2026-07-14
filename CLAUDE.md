@@ -26,9 +26,10 @@ destructive-always-gates, DEFERRED rail), not its code.
 - **FastAPI + asyncpg**, async throughout. Docker-compose for everything.
 - **Postgres** — transactional data (users, workspaces, sessions, messages,
   verdicts, approvals, jobs via SKIP LOCKED). ACID matters here.
-- **OpenSearch 2.19.4** (existing DO managed cluster, port 25060) — KB/RAG,
-  observables search, telemetry. Our indices use the `auspex-*` prefix ONLY.
-  **Never touch `sara-*`, `himaya-*`, `omniintel-*`, `staging-*` indices.**
+- **OpenSearch 2.19.x — our own container in docker-compose** (D-009). KB/RAG,
+  observables search, telemetry; `auspex-*` index prefix. SARA's DO cluster was
+  probed read-only for schema conventions and is **never** used by Auspex at
+  runtime — its creds stay out of Auspex config.
 - **LLM**: dev endpoint = Northflank vLLM (Llama-4-Scout-17B, OpenAI-compatible
   `/v1/chat/completions` with `tools`). Prod = whatever the customer configures.
 - Embeddings: probe server-side (OpenSearch ML) first; fallback = in-process

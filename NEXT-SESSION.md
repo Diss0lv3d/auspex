@@ -9,10 +9,12 @@ git log). If anything mismatches, STOP and tell me.
 Goal (scope-locked, from ROADMAP.md S1 — Scaffold):
 1. FastAPI app factory (`auspex/app.py`, `server.py`), async throughout.
 2. Config module: env-driven, every var in `.env.example` AND `docs/ENV_VARS.md`.
-   Real values already exist in `.env` (gitignored) — OpenSearch + LLM endpoint.
-3. docker-compose: `app` + `postgres` services. `docker compose up` must serve
-   `GET /api/health` (liveness) and `/api/health/ready` (checks Postgres AND
-   OpenSearch connectivity) before the session ends.
+   Real values already exist in `.env` (gitignored) — own-container OpenSearch + dev LLM endpoint.
+3. docker-compose: `app` + `postgres` + `opensearch` (opensearchproject/
+   opensearch:2.19.4, single-node, 1g heap) services. `docker compose up` must
+   serve `GET /api/health` (liveness) and `/api/health/ready` (checks Postgres
+   AND our OpenSearch container) before the session ends. (D-009: never SARA's
+   cluster.)
 4. Postgres schema v0 via idempotent startup migration: workspaces, users,
    api_keys, chat_sessions, messages. `workspace_id` on EVERY table (D-008).
 5. Auth: Google OAuth endpoint (config-stubbed is fine if no client ID yet),

@@ -22,10 +22,16 @@ exists).
 **D-003 (2026-07-14) — Docker-first.** Everything runs via docker-compose from
 S1. `docker compose up` green = session may end.
 
-**D-004 (2026-07-14) — Shared OpenSearch cluster, strict prefix isolation.**
-Dev uses the existing DO cluster (see docs/probes/2026-07-14-opensearch-cluster.md)
-with `auspex-*` index prefix only. sara-*/himaya-*/omniintel-*/staging-* indices
-are read-never-write-never. Before any real customer data: dedicated cluster.
+**D-004 (2026-07-14) — ~~Shared OpenSearch cluster, strict prefix isolation.~~**
+OVERTURNED same day by D-009.
+
+**D-009 (2026-07-14) — Own OpenSearch, never SARA's.** Burhan's call: the shared
+DO cluster is SARA's production telemetry and was probed read-only for schema
+conventions ONLY (docs/probes/2026-07-14-opensearch-cluster.md stays as
+reference). Auspex runs its own `opensearchproject/opensearch:2.19.x` container
+in docker-compose (version-matched to the probe so behavior transfers). SARA's
+cluster creds must not appear in Auspex runtime config. Managed/dedicated
+cluster when we deploy beyond local.
 
 **D-005 (2026-07-14) — Customer-supplied LLM, capability-negotiated runtime.**
 No platform-paid inference. Every endpoint is probed at connect time; the agent

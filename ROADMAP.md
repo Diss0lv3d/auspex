@@ -35,7 +35,7 @@ may not grow mid-session (IDEAS.md exists for that).
   breaker, `verdicts` table **with decay curve fields from day one**
   (first Living Verdicts brick), observables table keyed by normalized IOC.
 - [ ] **S6 — KB/RAG on OpenSearch.** `auspex-knowledge` index design (mapping
-  probe first), chunking, embeddings (probe DO ML-plugin server-side; fallback
+  probe first), chunking, embeddings (probe own-container ML-plugin server-side; fallback
   in-process MiniLM), BM25 + kNN + client-side RRF, CVE/MITRE ID-query neural
   bypass, regime-aware score floors.
 - [ ] **S7 — Ingestion 1.** NVD delta + CISA KEV + FIRST EPSS merged into one

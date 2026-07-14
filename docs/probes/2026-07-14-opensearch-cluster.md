@@ -1,5 +1,9 @@
 # Probe: OpenSearch cluster (dev/shared) — 2026-07-14
 
+> **Reference-only (D-009):** this is SARA's production cluster, probed read-only
+> for schema conventions. Auspex runs its own OpenSearch container and never
+> connects to this cluster at runtime.
+
 Probed live with creds from `.env` (`OPENSEARCH_LOGS_HOST/USER/PASS`).
 
 ## Cluster

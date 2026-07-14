@@ -8,7 +8,9 @@ _Last updated: 2026-07-14 (S0 bootstrap, done in the sara-open-copy study sessio
   root-owned; symlink optional: `sudo ln -s /home/burhan/new-sara /home/new-sara`).
 - Protocol, roadmap, decisions, brand: written and ratified.
 - OpenSearch cluster probed and documented (docs/probes/2026-07-14-opensearch-cluster.md).
-- `.env` seeded (gitignored) with OpenSearch creds + Northflank LLM endpoint.
+- `.env` seeded (gitignored): own-container OpenSearch + Northflank LLM endpoint.
+- D-009: Auspex runs its OWN OpenSearch container; SARA's cluster was probed
+  read-only for conventions and is never used at runtime.
 - No application code yet.
 
 ## In-flight
@@ -18,9 +20,9 @@ _Last updated: 2026-07-14 (S0 bootstrap, done in the sara-open-copy study sessio
 1. **Llama-4-Scout tool-calling quality unproven** — the existential risk.
    S2's harness answers it. Until then, don't build anything that assumes
    reliable multi-step native tool calls.
-2. **DO OpenSearch ML plugin capability unverified** — can we deploy a
-   server-side embedding model on a managed cluster? Probe in S6; fallback is
-   in-process MiniLM (decided, not a blocker — just unmeasured).
+2. **Embeddings approach unmeasured** — we run our own OpenSearch container
+   (D-009), so server-side ML deployment is possible but heavy for a dev box;
+   probe in S6, fallback in-process MiniLM (decided, not a blocker).
 3. **Northflank endpoint unauthenticated** (D-006, accepted for testing).
 
 ## Reference intelligence (from the SARA Open architecture study, 2026-07-14)

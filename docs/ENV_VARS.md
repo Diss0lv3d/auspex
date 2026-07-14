@@ -2,8 +2,7 @@
 | Var | Purpose | Since |
 |---|---|---|
 | APP_ENV | dev/staging/prod | S0 |
-| OPENSEARCH_LOGS_HOST / _USER / _PASS | DO OpenSearch cluster (probe doc: docs/probes/2026-07-14-opensearch-cluster.md) | S0 |
-| OPENSEARCH_PORT | 25060 on DO managed | S0 |
+| OPENSEARCH_URL / _USER / _PASS | Own OpenSearch container (D-009); SARA's cluster is reference-only | S0 |
 | DATABASE_URL | Postgres DSN | S1 |
 | LLM_BASE_URL / LLM_MODEL / LLM_API_KEY | Customer-supplied OpenAI-compatible endpoint (D-005) | S0 |
 | SECRET_KEY | JWT + crypto | S1 |
