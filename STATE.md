@@ -1,54 +1,67 @@
 # STATE — Auspex
 
-_Last updated: 2026-07-14 (S1 — Scaffold, complete)_
+_Last updated: 2026-07-14 (S2 — attempted, blocked on dead LLM endpoint; offline half shipped)_
 
 ## Where we are
-- **Current session: S1 complete → next is S2** (see NEXT-SESSION.md).
-- The application scaffold exists, runs under docker-compose, and is CI-green.
-  `docker compose up` serves `/api/health` (liveness) and `/api/health/ready`
-  (checks Postgres AND our own OpenSearch container). Verified end-to-end.
-- FastAPI app factory (`auspex/app.py`, `server.py`), async throughout; state on
-  `app.state`, pool + idempotent migration run in the lifespan.
-- Config: env-driven (`auspex/config.py`); every var in `.env.example` +
-  `docs/ENV_VARS.md`. `.env` gitignored, SECRET_KEY generated locally.
-- Postgres schema v0 (idempotent startup migration, advisory-locked):
-  workspaces, users, api_keys, chat_sessions, messages — `workspace_id` on every
-  table (D-008), enforced by a schema test. `workspaces.name` is UNIQUE.
-- Auth: single `resolve_user` chokepoint (JWT or `X-API-Key`); JWT issuance via
-  Google OAuth callback (config-stubbed → 503 until a client ID exists) and a
-  dev-login endpoint (dev-only). API keys stored as SHA-256 hash + prefix; raw
-  key shown once. Key creation requires a JWT session (a key can't mint keys).
-- Tooling: pytest (23 tests: health incl. degraded-503, auth, schema), ruff
-  (E/F/W/I/UP/B/ASYNC/S), `./ci.sh` = lint + tests + real container liveness
-  build; `make check`.
-- **S1 adversarial review done** (4 dimensions × 2 skeptics, 38 agents): 17
-  confirmed findings. 12 fixed this session (see git); 2 deferred with records
-  (IDEAS.md: API-key mgmt endpoints; TECHNICAL_DEBT.md TD-001: OAuth sub-binding,
-  hard-gated before any GOOGLE_CLIENT_ID). Remaining were duplicates of these.
+- **Current session: S2 partially done → next session RESUMES S2** (see
+  NEXT-SESSION.md). The live-endpoint half is blocked (see Blockers #1).
+- S2 shipped (offline, all CI-green):
+  - **Typed capability scorecard** (`auspex/llm/scorecard.py`):
+    `CapabilityScorecard` (pydantic), `decide_agent_mode()` — code picks
+    native_tools / prompted_tools / plan_only from measured rates; thresholds
+    are module constants, not prompts. `endpoint_fingerprint()` =
+    sha256(base_url|model), never the API key.
+  - **Postgres persistence**: `llm_endpoint_scorecards` table in the idempotent
+    migration (workspace_id + FK, agent_mode CHECK, jsonb scorecard, probed_at
+    history), `save_scorecard`/`load_latest_scorecard`. Schema test enforces the
+    CHECK; D-008 test still passes (table carries workspace_id).
+  - **Harness task battery** (`scripts/harness_tasks.py`): 40 deterministic
+    multi-step SOC tasks (8 single / 10 chain2 / 10 chain3 / 6 parallel /
+    4 no-tool restraint / 2 enum stress) + mock tool executors (documentation-
+    range IPs only). Runner NOT written yet (gated on client).
+  - Tests: 32 total (23 from S1 + 9 scorecard). `scripts/` added to CI lint.
+  - Probe doc started: `docs/probes/2026-07-14-llm-endpoint.md` — Finding 0:
+    Northflank edge returns **503 text/plain (non-JSON)** when the pod is down;
+    client must parse errors defensively.
+- NEXT-SESSION.md's stale path (`/home/burhan/new-sara`) fixed → `auspex-new`.
 
-## In-flight
-- Nothing. Clean end-state.
+## In-flight (gated, do NOT redo the done parts)
+- S2 live half, strictly in this order once the endpoint is up:
+  1. `/probe` battery against live endpoint → complete the probe doc + save raw
+     responses to `tests/fixtures/llm/` (they become pytest fixtures).
+  2. `auspex/llm/client.py` coded against the snapshot (async httpx,
+     non-streaming + streaming + tool-call delta accumulation).
+  3. Offline client tests from the saved fixtures (pytest stays hermetic).
+  4. Harness runner (`scripts/llm_harness.py`) using the client + the 40-task
+     battery → valid-call rate + loop-completion rate → `save_scorecard` row
+     + results into the probe doc. **These numbers are the S2 deliverable.**
 
 ## Blockers / open risks
-1. **Llama-4-Scout tool-calling quality unproven** — the existential risk.
-   S2's harness answers it. Until then, don't build anything that assumes
-   reliable multi-step native tool calls.
-2. **Embeddings approach unmeasured** — own OpenSearch container (D-009) makes
-   server-side ML possible but heavy for a dev box; probe in S6, fallback
-   in-process MiniLM (decided, not a blocker).
-3. **Northflank endpoint unauthenticated** (D-006, accepted for testing).
-4. **TD-001 (OAuth identity keyed on email)** — must be fixed before any
-   `GOOGLE_CLIENT_ID` is configured. Not reachable today (OAuth 503-stubbed).
-5. **One-time manual step pending**: `gh auth login` for the personal account
-   (bh3082336888-cell, SSH + ~/.ssh/personal_git) — needed before the first
-   `gh pr create` / `/promote` against a remote. There is no remote yet.
+1. **🔴 Northflank LLM endpoint is DOWN** (2026-07-14 22:24–22:47+, probed
+   continuously): istio-envoy 503 "connection refused" on every path — pod not
+   listening; NOT a cold start (23 min of polling, would have woken). Can't be
+   fixed from this host: personal Northflank CLI context has no projects; all
+   three team-context tokens expired (401). **Human step: restart the service
+   in the Northflank UI (or `northflank login` fresh), then verify
+   `curl -s -o /dev/null -w '%{http_code}' "$LLM_BASE_URL/v1/models"` → 200
+   before pasting the next session prompt.**
+2. **Llama-4-Scout tool-calling quality still unproven** — the existential
+   risk. S2's harness answers it; blocked behind #1.
+3. **Embeddings approach unmeasured** — probe in S6 (decided, not a blocker).
+4. **Northflank endpoint unauthenticated** (D-006, accepted for testing).
+5. **TD-001 (OAuth identity keyed on email)** — must fix before any
+   GOOGLE_CLIENT_ID is configured. Not reachable today.
+6. ~~gh auth login~~ **RESOLVED (2026-07-14, post-S2)**: personal account
+   logged in; private repo `bh3082336888-cell/auspex` created; remote is
+   `origin = git@github-personal:...` (SSH alias → `~/.ssh/personal_git`;
+   the bare `github.com` host uses the WORK key — never use it for this repo).
+   `main` + `staging` pushed; default branch `main`. `/promote` can now PR.
 
 ## Host notes (reality snapshot)
-- Host port 5432 is taken by other stacks, so compose maps Postgres to **55432**
-  on the host (`postgresql://auspex:auspex@localhost:55432/auspex`); inside the
-  compose network it's `postgres:5432`. App 8000, OpenSearch 9200.
-- Tests run from the host against 55432 / 9200 (conftest pins these before import,
-  because `.env` uses compose-internal hostnames that don't resolve from the host).
+- Postgres on host port **55432** (5432 taken); in-network `postgres:5432`.
+  App 8000, OpenSearch 9200. Tests run from host against 55432/9200
+  (conftest pins these before import).
+- Northflank CLI v0.10.12 installed; only `main-context` authenticates (empty).
 
 ## Reference intelligence (from the SARA Open architecture study, 2026-07-14)
 Distilled patterns-to-reuse/avoid live in ROADMAP.md session descriptions.
@@ -61,5 +74,5 @@ Key file references if we ever re-check a pattern:
 - Capability shape: sara-open-copy/sara/core/unified_registry.py:37
 
 ## Next session should
-Run S2 exactly as written in NEXT-SESSION.md (LLM provider layer + capability
-probe — de-risks the #1 blocker).
+Resume S2 exactly as written in NEXT-SESSION.md — but ONLY after the human has
+restarted the Northflank service and the readiness curl returns 200.

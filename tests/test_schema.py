@@ -5,7 +5,14 @@ import asyncpg
 from auspex.db import create_pool
 from auspex.migrations import run_migrations
 
-EXPECTED_TABLES = {"workspaces", "users", "api_keys", "chat_sessions", "messages"}
+EXPECTED_TABLES = {
+    "workspaces",
+    "users",
+    "api_keys",
+    "chat_sessions",
+    "messages",
+    "llm_endpoint_scorecards",
+}
 
 # D-008: workspace_id on EVERY table. `workspaces` is the sole exception —
 # its primary key IS the workspace id.
@@ -59,6 +66,36 @@ async def test_migration_is_idempotent(client, settings):
         await run_migrations(pool)
     finally:
         await pool.close()
+
+
+async def test_llm_scorecard_agent_mode_is_constrained(client, settings):
+    """S2: agent_mode must be one of the three runtime modes; scorecard is jsonb."""
+    conn = await _connect(settings)
+    try:
+        workspace_id = await conn.fetchval(
+            "INSERT INTO workspaces (name) VALUES ('t-scorecard') RETURNING id"
+        )
+        # valid row round-trips
+        await conn.execute(
+            "INSERT INTO llm_endpoint_scorecards"
+            " (workspace_id, endpoint_fingerprint, base_url, model, agent_mode, scorecard)"
+            " VALUES ($1, 'fp-test', 'http://example.test', 'test-model',"
+            " 'native_tools', '{\"ok\": true}')",
+            workspace_id,
+        )
+        try:
+            await conn.execute(
+                "INSERT INTO llm_endpoint_scorecards"
+                " (workspace_id, endpoint_fingerprint, base_url, model, agent_mode, scorecard)"
+                " VALUES ($1, 'fp-test', 'http://example.test', 'test-model', 'vibes_only', '{}')",
+                workspace_id,
+            )
+            raise AssertionError("CHECK constraint on agent_mode did not fire")
+        except asyncpg.CheckViolationError:
+            pass
+    finally:
+        await conn.execute("DELETE FROM workspaces WHERE name = 't-scorecard'")
+        await conn.close()
 
 
 async def test_messages_role_is_constrained(client, settings):
