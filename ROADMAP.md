@@ -12,7 +12,10 @@ may not grow mid-session (IDEAS.md exists for that).
   `workspace_id` on EVERY table from day one), Google OAuth + JWT + hashed API
   keys, pytest + ruff CI script, health endpoints. `docker compose up` serves
   `/api/health`.
-- [ ] **S2 — LLM provider layer + capability probe.** ⚠ De-risks the #1 blocker.
+- [x] **S2 — LLM provider layer + capability probe.** ⚠ De-risks the #1 blocker.
+  _Done 2026-07-15 against interim local endpoint (D-012): 98.7 % valid calls,
+  52.5 % loop completion, mode → prompted_tools. Scout numbers still owed when
+  the Northflank endpoint returns (one command: `scripts/llm_harness.py`)._
   OpenAI-compat client (base_url + model + api_key, streaming, streaming
   tool-call deltas). Probe battery: native tools? parallel calls? JSON mode?
   schema adherence? usable context? tok/s? Persisted capability scorecard per

@@ -1,0 +1,33 @@
+{
+  "id": "chatcmpl-437",
+  "object": "chat.completion",
+  "created": 1784104868,
+  "model": "llama3.1:8b",
+  "system_fingerprint": "fp_ollama",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "call_lpb3rp33",
+            "index": 0,
+            "type": "function",
+            "function": {
+              "name": "get_weather",
+              "arguments": "{\"city\":\"Riyadh\",\"unit\":\"celsius\"}"
+            }
+          }
+        ]
+      },
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 175,
+    "completion_tokens": 26,
+    "total_tokens": 201
+  }
+}

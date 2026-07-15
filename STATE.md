@@ -1,71 +1,89 @@
 # STATE — Auspex
 
-_Last updated: 2026-07-14 (S2 — attempted, blocked on dead LLM endpoint; offline half shipped)_
+_Last updated: 2026-07-15 (S2 complete against interim endpoint; next is S3)_
 
 ## Where we are
-- **Current session: S2 partially done → next session RESUMES S2** (see
-  NEXT-SESSION.md). The live-endpoint half is blocked (see Blockers #1).
-- S2 shipped (offline, all CI-green):
-  - **Typed capability scorecard** (`auspex/llm/scorecard.py`):
-    `CapabilityScorecard` (pydantic), `decide_agent_mode()` — code picks
-    native_tools / prompted_tools / plan_only from measured rates; thresholds
-    are module constants, not prompts. `endpoint_fingerprint()` =
-    sha256(base_url|model), never the API key.
-  - **Postgres persistence**: `llm_endpoint_scorecards` table in the idempotent
-    migration (workspace_id + FK, agent_mode CHECK, jsonb scorecard, probed_at
-    history), `save_scorecard`/`load_latest_scorecard`. Schema test enforces the
-    CHECK; D-008 test still passes (table carries workspace_id).
-  - **Harness task battery** (`scripts/harness_tasks.py`): 40 deterministic
-    multi-step SOC tasks (8 single / 10 chain2 / 10 chain3 / 6 parallel /
-    4 no-tool restraint / 2 enum stress) + mock tool executors (documentation-
-    range IPs only). Runner NOT written yet (gated on client).
-  - Tests: 32 total (23 from S1 + 9 scorecard). `scripts/` added to CI lint.
-  - Probe doc started: `docs/probes/2026-07-14-llm-endpoint.md` — Finding 0:
-    Northflank edge returns **503 text/plain (non-JSON)** when the pod is down;
-    client must parse errors defensively.
-- NEXT-SESSION.md's stale path (`/home/burhan/new-sara`) fixed → `auspex-new`.
+- **S2 COMPLETE** (against the D-012 interim endpoint) → **next is S3**
+  (Agent loop v1 + chat SSE, see NEXT-SESSION.md).
+- **Primary dev LLM (D-013):** local Ollama `http://localhost:11434`,
+  model **`qwen3:14b`** (thinking model, native_tools verdict). `llama3.1:8b`
+  stays pulled as the "weak endpoint" test case. **Northflank (Llama-4-Scout)
+  is now BACKUP/validation only** — values in `.env.bak-northflank`
+  (gitignored); Burhan will signal when it's back; its harness run validates,
+  no longer gates.
+- **S2 shipped, all CI-green (43 tests):**
+  - `auspex/llm/client.py` — async httpx OpenAI-compat client coded against
+    the 2026-07-15 probe snapshot: non-streaming + streaming, tool-call delta
+    accumulation BY INDEX (handles Ollama complete-per-chunk AND vLLM
+    fragmented styles), include_usage chunk, `[DONE]`, defensive error parsing
+    (Finding 0: bodies may be text/plain), `check_reachable()`.
+  - `auspex/llm/capability.py` — connect-time battery (~15 requests) filling
+    the typed CapabilityScorecard; endpoint-agnostic (OpenAI surface only).
+  - `auspex/llm/scorecard.py` — CapabilityScorecard + decide_agent_mode
+    (code picks native_tools/prompted_tools/plan_only) + Postgres save/load
+    (`llm_endpoint_scorecards`, per-endpoint fingerprint, D-008 workspace_id).
+  - `scripts/llm_harness.py` + `scripts/harness_tasks.py` — 40-task live
+    harness; measures valid-call + loop-completion; writes raw run JSON +
+    scorecard row.
+  - Tests: 11 client fixture tests (offline, from live-captured fixtures in
+    `tests/fixtures/llm/ollama/`) + 9 scorecard + schema tests.
+- **The S2 numbers (both models, identical 40-task harness, 2026-07-15):**
+  | | llama3.1:8b | qwen3:14b |
+  |---|---|---|
+  | valid-call | 98.7 % | **100 %** |
+  | loop-completion | 52.5 % | **87.5 %** |
+  | no-tool restraint | 0/4 | 4/4 |
+  | fabricated actions | 3 | 0 |
+  | mode | prompted_tools | **native_tools** |
+  Full taxonomy + comparison in `docs/probes/2026-07-15-ollama-endpoint.md`.
+  Scorecard rows in workspace `dev`: `f86da0f3-…` (8B), `37b4b02e-…` (14B;
+  earlier `604a72b0-…` superseded — pre-fix battery false-negatives).
+  **Thinking-model lessons encoded in code:** harness + battery need
+  ≥2000-token budgets; `reasoning` field (separate from content) captured in
+  fixtures + parser tests.
+- **S3 design inputs from the harness (cite the probe doc):**
+  1. Pass observable IDs, not raw 64-char strings, in tool args — fails at
+     BOTH model sizes.
+  2. Don't offer tools on conversational turns (92/8 fast path) — critical
+     for weak endpoints (8B: 0/4 restraint; 14B: 4/4).
+  3. Hard-gate writes on ACTUAL tool calls — 8B fabricated "ticket created"
+     claims (SOAR-critical), scorecard can't predict which endpoints will.
+  4. Thinking models: stream the `reasoning` field to the UI, budget
+     ≥2000 tokens/turn, expect ~10× wall clock (943 s vs 88 s per 40 tasks).
+  5. Mode-ladder refinement idea parked in IDEAS.md (syntax vs competence).
+- Remote: `origin = git@github-personal:bh3082336888-cell/auspex.git`;
+  main promoted through PR #1. **Never use plain `github.com` for this repo**
+  (work SSH key). Default branch `main`.
 
-## In-flight (gated, do NOT redo the done parts)
-- S2 live half, strictly in this order once the endpoint is up:
-  1. `/probe` battery against live endpoint → complete the probe doc + save raw
-     responses to `tests/fixtures/llm/` (they become pytest fixtures).
-  2. `auspex/llm/client.py` coded against the snapshot (async httpx,
-     non-streaming + streaming + tool-call delta accumulation).
-  3. Offline client tests from the saved fixtures (pytest stays hermetic).
-  4. Harness runner (`scripts/llm_harness.py`) using the client + the 40-task
-     battery → valid-call rate + loop-completion rate → `save_scorecard` row
-     + results into the probe doc. **These numbers are the S2 deliverable.**
+## In-flight
+- Nothing mid-code. One standing follow-up (NOT blocking, D-013): when Burhan
+  signals Northflank is back, run
+  `.venv/bin/python scripts/llm_harness.py` against it (LLM values in
+  `.env.bak-northflank`) → Scout scorecard row + probe-doc note. Validation
+  of the capability-negotiated runtime on a second real endpoint.
 
 ## Blockers / open risks
-1. **🔴 Northflank LLM endpoint is DOWN** (2026-07-14 22:24–22:47+, probed
-   continuously): istio-envoy 503 "connection refused" on every path — pod not
-   listening; NOT a cold start (23 min of polling, would have woken). Can't be
-   fixed from this host: personal Northflank CLI context has no projects; all
-   three team-context tokens expired (401). **Human step: restart the service
-   in the Northflank UI (or `northflank login` fresh), then verify
-   `curl -s -o /dev/null -w '%{http_code}' "$LLM_BASE_URL/v1/models"` → 200
-   before pasting the next session prompt.**
-2. **Llama-4-Scout tool-calling quality still unproven** — the existential
-   risk. S2's harness answers it; blocked behind #1.
-3. **Embeddings approach unmeasured** — probe in S6 (decided, not a blocker).
-4. **Northflank endpoint unauthenticated** (D-006, accepted for testing).
-5. **TD-001 (OAuth identity keyed on email)** — must fix before any
-   GOOGLE_CLIENT_ID is configured. Not reachable today.
-6. ~~gh auth login~~ **RESOLVED (2026-07-14, post-S2)**: personal account
-   logged in; private repo `bh3082336888-cell/auspex` created; remote is
-   `origin = git@github-personal:...` (SSH alias → `~/.ssh/personal_git`;
-   the bare `github.com` host uses the WORK key — never use it for this repo).
-   `main` + `staging` pushed; default branch `main`. `/promote` can now PR.
+1. **~~Llama-4-Scout quality unproven~~ RESOLVED BY D-013** — the #1
+   existential risk is closed: we build against qwen3:14b (native_tools,
+   87.5 % completion, measured). Scout becomes a validation data point.
+2. **Northflank endpoint still down** — backup only now. Human step when
+   convenient: restart in Northflank UI or fresh `northflank login`.
+3. **Embeddings approach unmeasured** — probe in S6 (decided).
+4. **TD-001 (OAuth identity keyed on email)** — before any GOOGLE_CLIENT_ID.
+5. Compose app can't reach `localhost:11434` (host Ollama) from inside the
+   container — needs `host.docker.internal` host-gateway wiring when the APP
+   starts calling the LLM (S3, first time the loop runs server-side).
 
 ## Host notes (reality snapshot)
-- Postgres on host port **55432** (5432 taken); in-network `postgres:5432`.
-  App 8000, OpenSearch 9200. Tests run from host against 55432/9200
-  (conftest pins these before import).
-- Northflank CLI v0.10.12 installed; only `main-context` authenticates (empty).
+- Postgres host port **55432**; app 8000; OpenSearch 9200. Host-run scripts
+  and tests pin `DATABASE_URL` to localhost:55432 before importing config.
+- Ollama 0.24.0 (snap) on :11434 with `llama3.1:8b` + `mistral:latest`.
+  GPU: RTX 5070 Ti Laptop 12 GB.
+- Host rebooted between sessions — `docker compose up -d` needed at start
+  (session-start ritual already covers this).
 
 ## Reference intelligence (from the SARA Open architecture study, 2026-07-14)
-Distilled patterns-to-reuse/avoid live in ROADMAP.md session descriptions.
-Key file references if we ever re-check a pattern:
+Patterns-to-reuse/avoid live in ROADMAP.md session descriptions. Key refs:
 - ReACT loop: sara-open-copy/sara/core/agent_loop.py:60
 - Plan→DAG→Judge loop: sara-open-copy/sara/core/orchestrator_loop/runner.py:39
 - Permission hard-rails: sara-open-copy/sara/core/permissions.py:65-176
@@ -74,5 +92,5 @@ Key file references if we ever re-check a pattern:
 - Capability shape: sara-open-copy/sara/core/unified_registry.py:37
 
 ## Next session should
-Resume S2 exactly as written in NEXT-SESSION.md — but ONLY after the human has
-restarted the Northflank service and the readiness curl returns 200.
+Run S3 exactly as written in NEXT-SESSION.md (Agent loop v1 + chat SSE),
+optionally preceded by the Northflank re-run if the endpoint is back.

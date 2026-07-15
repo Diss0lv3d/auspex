@@ -1,75 +1,65 @@
 # NEXT-SESSION — paste everything below the line into a fresh Claude Code window opened in /home/burhan/auspex-new
 
-⚠ **BEFORE PASTING — one-time human step (Blocker #1 in STATE.md):**
-The Northflank LLM service was DOWN on 2026-07-14 (pod not listening; CLI
-tokens on this host are expired). Restart it in the Northflank UI (or
-`northflank login` fresh, then start the service), wait for vLLM to finish
-loading, and confirm:
-
-```bash
-source <(grep -E '^LLM_' /home/burhan/auspex-new/.env | sed 's/^/export /')
-curl -s -o /dev/null -w '%{http_code}\n' "$LLM_BASE_URL/v1/models"   # must print 200
-```
-
-If it prints 503, the model is still loading (or the service is still down) —
-wait and retry before starting the session.
+_Backup-endpoint note (D-013, not a gate): whenever Burhan says the Northflank
+service is back, run the harness against it once
+(`.venv/bin/python scripts/llm_harness.py` with the LLM values from
+`.env.bak-northflank`) and record the Scout scorecard row — validation data
+for the capability-negotiated runtime, nothing blocks on it. Primary dev LLM
+is local Ollama `qwen3:14b`._
 
 ---
 
-SESSION S2 (RESUME) of Auspex. Working dir must be /home/burhan/auspex-new —
-run the CLAUDE.md session-start ritual first (`/session-start S2`): read
-STATE.md, verify this is the S2 resume, confirm branch `staging`, git identity
-bh3082336888-cell, reality check (`git log`, `docker compose up -d && docker
-compose ps`, `/api/health/ready` 200). **Extra gate for this session:**
-`curl "$LLM_BASE_URL/v1/models"` must return 200 — if it doesn't, STOP and
-tell me to restart the Northflank service; do not start coding.
+SESSION S3 of Auspex. Working dir must be /home/burhan/auspex-new — run the
+CLAUDE.md session-start ritual first (`/session-start S3`): read STATE.md,
+verify this is S3, confirm branch `staging`, git identity bh3082336888-cell,
+reality check (`git log`, `docker compose up -d && docker compose ps`,
+`/api/health/ready` 200, and `curl -s localhost:11434/api/version` — local
+Ollama is the dev LLM per D-012; model is **qwen3:14b**, a THINKING model:
+native_tools verdict, 87.5 % loop completion, ~33 tok/s). Any mismatch →
+STOP and tell me.
 
-⚠ This session finishes de-risking the #1 project blocker (Llama-4-Scout
-tool-calling quality). The go/no-go numbers are the deliverable.
+Goal (scope-locked, from ROADMAP.md S3 — Agent loop v1 + chat SSE):
+1. **ReACT agent loop v1** (`auspex/agent/`): drive `LLMClient` in a
+   tool-use loop. Native tools primary; the mode comes from the persisted
+   scorecard (`load_latest_scorecard` → decide_agent_mode), NEVER hardcoded.
+   Prompted `<tool_call>` fallback can be a stub this session if time is short
+   (scorecard abstraction must allow it).
+2. **Tool registry** with read/write/destructive levels (SARA pattern,
+   permissions.py:65-176 as reference — reuse the *pattern*, not the code).
+   Destructive always gates; write requires approval-pending records.
+3. **Permission gate skeleton**: proposals table (approve/deny later),
+   write-actions create proposals instead of executing (S2 harness finding 3:
+   the model FABRICATES "ticket created" claims — never trust model text,
+   gate on actual tool-call execution results).
+4. **SSE chat endpoint** (`/api/chat`): single-key JSON event protocol,
+   stream agent progress (content deltas, tool events) to the client.
+   Auth via existing resolve_user chokepoint; session + messages persisted
+   (tables exist since S1).
+5. **Minimal functional UI shell** (dark-first, brand palette from CLAUDE.md,
+   no provider/model names anywhere user-visible).
+6. Tests ship with the feature: loop unit tests against a FAKE client
+   (fixtures/replay — no live LLM in pytest), registry level tests,
+   SSE endpoint test, proposals schema test.
+7. Session-end ritual (`/session-end`).
 
-Already DONE last session (S2 first half — do NOT redo; see STATE.md):
-- `auspex/llm/scorecard.py`: typed CapabilityScorecard + decide_agent_mode
-  (code-picks-the-mode) + save/load; `llm_endpoint_scorecards` table in the
-  idempotent migration (workspace_id, agent_mode CHECK, jsonb, history).
-- `scripts/harness_tasks.py`: 40-task deterministic battery + mock tools.
-- Tests: 32 green (incl. 9 scorecard + schema CHECK test). CI lints scripts/.
-- `docs/probes/2026-07-14-llm-endpoint.md`: Finding 0 — edge 503s are
-  text/plain, NOT JSON; client must parse errors defensively.
-
-Goal (scope-locked, ROADMAP S2 second half — strictly in this order):
-1. **Probe FIRST (CLAUDE.md rule 4).** `/probe` the live endpoint: /v1/models,
-   non-streaming + streaming chat, native tools, parallel tools, streaming
-   tool-call deltas, tool-role round-trip, tool_choice named/required,
-   response_format json_object + json_schema, error shapes (bad model,
-   context overflow → reveals max context, missing fields), tok/s. Save raw
-   responses verbatim to `tests/fixtures/llm/` AND complete the probe doc.
-   A probe script draft exists from last session at the scratchpad path in
-   git history — rewrite it fresh if gone (it crashed on non-JSON 503; keep
-   the defensive parsing fix).
-2. `auspex/llm/client.py` — async httpx OpenAI-compatible client coded against
-   the snapshot: non-streaming + streaming `/v1/chat/completions`, streaming
-   tool-call delta accumulation, defensive error parsing (Finding 0), bounded
-   connect-time reachability retry. Config from LLM_BASE_URL/LLM_MODEL/
-   LLM_API_KEY (already in config.py).
-3. Capability battery (`auspex/llm/capability.py`): probe → fill
-   CapabilityScorecard (native tools, parallel, tool_choice, streaming deltas,
-   json modes, schema adherence, max context, tok/s).
-4. Harness runner (`scripts/llm_harness.py`): run the 40-task battery through
-   the client against the live endpoint; measure valid-call rate +
-   loop-completion rate (per category too); write results into the probe doc,
-   `save_scorecard` a row (workspace: get-or-create by name, e.g. 'dev'),
-   and print the go/no-go verdict from decide_agent_mode.
-5. Tests ship with the feature (rule 8): client request/response + streaming
-   delta parsing unit tests against the SAVED fixtures — pytest stays offline.
-6. Session-end ritual (`/session-end`): STATE.md, NEXT-SESSION.md → S3 (Agent
-   loop v1 + chat SSE, per ROADMAP), tick ROADMAP S2, TECHNICAL_DEBT.md,
-   commit on `staging`.
+S2 findings that MUST shape this session (docs/probes/2026-07-15-ollama-endpoint.md):
+- Tool args: pass observable IDs, never raw 64-char strings (fails at BOTH
+  model sizes tested).
+- Conversational turns get NO tools (92/8 split is S4, but the loop API should
+  accept tools=None cleanly now). Weak endpoints have zero restraint.
+- Writes gate on ACTUAL tool execution, never model claims (8B fabricated
+  "ticket created" — SOAR-critical).
+- Thinking models: `reasoning` arrives as a separate field in stream deltas —
+  design the SSE event protocol with a reasoning event type; budget ≥2000
+  tokens/turn; expect ~10× wall clock vs non-thinking.
+- Loop cap + step budget (harness used max 8; pick from scorecard data).
+- Compose app → host Ollama needs `host.docker.internal` host-gateway wiring
+  in docker-compose.yml (STATE.md blocker 5) — first session where the SERVER
+  calls the LLM.
 
 Constraints:
-- Live LLM calls in probe/battery/harness ONLY; pytest hermetic (fixtures).
-- Endpoint is keyless (D-006) — no secrets in code; placeholders in examples.
-- No OpenSearch index creation (still S6).
-- Brand: no model/provider name in any user-visible string (CLAUDE.md).
-- Every claim about endpoint behavior cites the probe file.
-- If the endpoint dies mid-session: save whatever fixtures were captured,
-  update the probe doc status log, and fall back to fixture-driven work.
+- Live LLM calls: dev endpoint is local Ollama (D-012). pytest stays offline.
+- No OpenSearch index creation (S6). No enrichment providers (S5).
+- Brand: engine is unnamed in user-visible strings (CLAUDE.md).
+- Reality over memory: any new endpoint behavior → probe file first.
+- New ideas → IDEAS.md, one line, move on.

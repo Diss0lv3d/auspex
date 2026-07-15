@@ -1,0 +1,22 @@
+{
+  "id": "chatcmpl-471",
+  "object": "chat.completion",
+  "created": 1784104867,
+  "model": "llama3.1:8b",
+  "system_fingerprint": "fp_ollama",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "pong"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 26,
+    "completion_tokens": 2,
+    "total_tokens": 28
+  }
+}

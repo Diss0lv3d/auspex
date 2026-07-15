@@ -1,0 +1,22 @@
+{
+  "id": "chatcmpl-930",
+  "object": "chat.completion",
+  "created": 1784104871,
+  "model": "llama3.1:8b",
+  "system_fingerprint": "fp_ollama",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{ \"observable\": \"IP address\", \"verdict\": \"malicious\" , \"confidence\": 90 }"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 26,
+    "completion_tokens": 26,
+    "total_tokens": 52
+  }
+}

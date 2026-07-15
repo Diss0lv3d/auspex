@@ -1,0 +1,20 @@
+{
+  "capabilities": [
+    "completion",
+    "tools"
+  ],
+  "model_info": {
+    "general.parameter_count": 8030261312,
+    "llama.context_length": 131072
+  },
+  "details": {
+    "parent_model": "",
+    "format": "gguf",
+    "family": "llama",
+    "families": [
+      "llama"
+    ],
+    "parameter_size": "8.0B",
+    "quantization_level": "Q4_K_M"
+  }
+}

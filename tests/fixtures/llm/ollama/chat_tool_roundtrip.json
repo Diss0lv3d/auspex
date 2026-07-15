@@ -1,0 +1,22 @@
+{
+  "id": "chatcmpl-303",
+  "object": "chat.completion",
+  "created": 1784104870,
+  "model": "llama3.1:8b",
+  "system_fingerprint": "fp_ollama",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "The current temperature in Riyadh is 43\u00b0C and the weather condition is sunny."
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 114,
+    "completion_tokens": 17,
+    "total_tokens": 131
+  }
+}

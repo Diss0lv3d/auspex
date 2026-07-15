@@ -66,3 +66,30 @@ Session-start and /promote enforce this.
 **D-008 (2026-07-14) — Workspace isolation from day one.** `workspace_id` on
 every table and every index mapping, even while single-tenant. Retrofitting
 tenancy is how SARA earned nine Tier-0 invariants the hard way.
+
+**D-012 (2026-07-15) — Interim dev LLM = local Ollama while Northflank is down.**
+Burhan's call (Northflank service down for days, restart is a human step).
+Dev endpoint until then: local Ollama (`http://localhost:11434`, OpenAI-compat
+`/v1`), model `llama3.1:8b` — closest same-family tool-capable fit for 12 GB
+VRAM; free, keyless, no cloud signup. Purpose: unblock the S2 second half
+(client-vs-snapshot, battery, harness). **The Llama-4-Scout go/no-go numbers
+are still owed** — re-run battery + harness against the Northflank endpoint
+when it returns; scorecards are keyed per endpoint fingerprint, so both
+coexist. Live calls still probe/harness-only from the HOST (the compose app
+can't reach localhost:11434 without host-gateway wiring — S3 concern, noted).
+
+**D-012 addendum (2026-07-15).** Interim dev model bumped `llama3.1:8b` →
+`qwen3:14b` after the S2 harness comparison (52.5 % vs 87.5 % loop completion,
+native_tools verdict; docs/probes/2026-07-15-ollama-endpoint.md). 8B stays
+pulled as the "weak endpoint" test case for the scorecard-driven mode ladder.
+
+**D-013 (2026-07-15) — qwen3:14b is the primary dev LLM; Northflank demoted to backup.**
+Burhan's call after the S2 comparison (100 % valid calls, 87.5 % loop
+completion, native_tools verdict vs 8B's 52.5 %/prompted_tools — see
+docs/probes/2026-07-15-ollama-endpoint.md). All building from S3 onward
+targets local Ollama + qwen3:14b. The Northflank vLLM (Llama-4-Scout) is a
+BACKUP/validation endpoint: when Burhan signals it's back up, re-run
+`scripts/llm_harness.py` against it for a second scorecard row — its numbers
+validate the capability-negotiated runtime against a second real endpoint,
+they no longer gate anything. Product framing unchanged (D-005): customers
+bring their own endpoint; the runtime compiles to the per-endpoint scorecard.

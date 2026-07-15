@@ -1,0 +1,8 @@
+{
+  "error": {
+    "message": "model 'nonexistent-model' not found",
+    "type": "not_found_error",
+    "param": null,
+    "code": null
+  }
+}

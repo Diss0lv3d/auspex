@@ -1,0 +1,23 @@
+{
+  "id": "chatcmpl-910",
+  "object": "chat.completion",
+  "created": 1784106833,
+  "model": "qwen3:14b",
+  "system_fingerprint": "fp_ollama",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "pong",
+        "reasoning": "Okay, the user wants me to reply with exactly \"pong\". Let me make sure I understand the request correctly. They probably want a simple, direct response without any extra text. Maybe they're testing if I can follow instructions precisely. I should check if there's any hidden context, but the query seems straightforward. The user might be looking for a confirmation that I can adhere to specific commands. Since the instruction is clear, I'll just respond with \"pong\" as requested. No need for any additional information or explanations. Just a single word. Let me make sure there are no typos or extra spaces. Yep, looks good. Alright, sending the response.\n"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 15,
+    "completion_tokens": 140,
+    "total_tokens": 155
+  }
+}
