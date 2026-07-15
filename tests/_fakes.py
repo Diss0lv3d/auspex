@@ -53,6 +53,37 @@ class StreamingFakeLLMClient:
     async def aclose(self) -> None:
         self.closed = True
 
+    @property
+    def turns(self) -> int:
+        return len(self.stream_calls)
+
+    def last_messages(self) -> list[dict]:
+        return self.stream_calls[-1]["messages"]
+
+
+class SequencedStreamingFakeLLMClient:
+    """Like StreamingFakeLLMClient but takes a LIST of scripts (one per
+    chat_stream call) so the two-pass reasoning path can script pass-1 then
+    pass-2 distinctly. Records every call's messages/kwargs in `stream_calls`."""
+
+    def __init__(self, scripts: list[list[StreamEvent]], *, raise_on_call: int | None = None):
+        self._scripts = [list(s) for s in scripts]
+        self._raise_on_call = raise_on_call  # 0-indexed call that raises LLMError
+        self.closed = False
+        self.stream_calls: list[dict[str, Any]] = []
+
+    async def chat_stream(self, messages: list[dict], **kwargs: Any) -> AsyncIterator[StreamEvent]:
+        idx = len(self.stream_calls)
+        self.stream_calls.append({"messages": [dict(m) for m in messages], "kwargs": kwargs})
+        if self._raise_on_call == idx:
+            raise LLMError(500, "simulated endpoint failure")
+        script = self._scripts[idx] if idx < len(self._scripts) else []
+        for event in script:
+            yield event
+
+    async def aclose(self) -> None:
+        self.closed = True
+
 
 class InMemoryProposalStore(ProposalStore):
     """Records proposals in a list; returns a synthetic id."""
