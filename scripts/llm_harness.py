@@ -133,12 +133,18 @@ async def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--no-db", action="store_true", help="skip the scorecard insert")
     parser.add_argument("--limit", type=int, default=0, help="run only the first N tasks")
+    parser.add_argument("--model", default="", help="override LLM_MODEL for this run")
     cli = parser.parse_args()
 
     settings = get_settings()
     tasks = TASKS[: cli.limit] if cli.limit else TASKS
 
-    async with LLMClient.from_settings(settings) as client:
+    client_ctx = LLMClient(
+        settings.llm_base_url,
+        cli.model or settings.llm_model,
+        settings.llm_api_key,
+    )
+    async with client_ctx as client:
         ok, detail = await client.check_reachable()
         if not ok:
             print(f"endpoint unreachable ({detail}) — aborting, nothing measured")
@@ -209,7 +215,8 @@ async def main() -> None:
 
         run_blob = {"summary": {**summary, "violations": dict(summary["violations"])},
                     "scorecard": sc.model_dump(), "results": results}
-        out_path = REPO / "docs" / "probes" / "2026-07-15-ollama-harness-run.json"
+        model_slug = "".join(c if c.isalnum() else "-" for c in client.model)
+        out_path = REPO / "docs" / "probes" / f"harness-run-{model_slug}.json"
         out_path.write_text(json.dumps(run_blob, indent=2) + "\n")
         print(f"\nraw run -> {out_path.relative_to(REPO)}")
 

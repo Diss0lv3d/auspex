@@ -65,7 +65,7 @@
 
 ## Harness run (2026-07-15, scripts/llm_harness.py — 40 tasks, 76 tool calls)
 
-Raw run: `2026-07-15-ollama-harness-run.json`. Scorecard row
+Raw run: `harness-run-llama3-1-8b.json`. Scorecard row
 `f86da0f3-c438-43dc-85d8-8bfe04815b45` (workspace `dev`).
 
 | Metric | Value |
