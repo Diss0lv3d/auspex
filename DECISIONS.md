@@ -105,3 +105,18 @@ completed action. Enforced in code (permission gate, S3+), not prompts
 (ADR 0006), with a pinned regression fixture using the exact fabricated
 string from the harness run shipping alongside the first gate code.
 Applies to every future action surface (S17 Actions SDK, S18 approvals).
+
+**D-015 (2026-07-16) — Primary dev LLM switched to Llama-4-Scout (Northflank);
+qwen3:14b demoted to secondary/offline.** Supersedes D-013's primary/backup
+assignment (D-013's evidence + framing otherwise stand). Burhan's call: with
+Northflank restored and Scout re-measured `native_tools` (100 % valid / 77.5 %
+completion / ~90 tok/s, row `153e221a-…`), Scout is the primary dev endpoint —
+it also matches CLAUDE.md's original stack (dev = Northflank vLLM Scout) and is
+a second *real* endpoint for exercising the capability-negotiated runtime.
+`.env` (gitignored) now points at Scout; the local Ollama `qwen3:14b` stays
+pulled as the SECONDARY/offline endpoint (flip the commented block in `.env`).
+Consequences: the LLM endpoint is now a public URL that resolves identically
+from host and container, so `auspex.devhost` no longer pins `LLM_BASE_URL`
+(.env is the single source of truth; DB/OpenSearch pins remain). The
+session-start local-Ollama gate now validates the *secondary*. Product framing
+unchanged (D-005): customers still bring their own endpoint.

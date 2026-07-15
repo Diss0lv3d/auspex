@@ -7,10 +7,11 @@ end-to-end on 2026-07-16 — docs/probes/2026-07-16-server-to-ollama-networking.
 ---
 
 SESSION S4 of Auspex. Working dir must be /home/burhan/auspex-new — run
-`/session-start S4` first (full ritual, incl. the D-013 dev-LLM gate: local
-Ollama + `qwen3:14b`). Any mismatch → STOP and tell me. Note: S4's shortcut
-path uses NO LLM; the gate matters only for the deep-path stub + any optional
-live check.
+`/session-start S4` first (full ritual). Primary dev LLM is now **Llama-4-Scout
+via Northflank (D-015)**; local Ollama `qwen3:14b` is the secondary/offline
+endpoint (D-013) and is what the session-start local-Ollama gate validates.
+Any mismatch → STOP and tell me. Note: S4's shortcut path uses NO LLM; the LLM
+endpoint matters only for the deep-path stub + any optional live check.
 
 Goal (scope-locked, from ROADMAP.md S4 — Fast classifier / 92-8 split).
 The 92/8 principle (SARA pattern): ~92% of queries take a deterministic,

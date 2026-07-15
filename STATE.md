@@ -5,10 +5,13 @@ _Last updated: 2026-07-16 (S3 complete — agent runtime v1 + chat SSE + UI shel
 ## Where we are
 - **S3 COMPLETE** (all steps 0–5 shipped with tests) → **next is S4**
   (Fast classifier / 92-8 split — see NEXT-SESSION.md).
-- **Primary dev LLM (D-013):** local Ollama `http://localhost:11434`,
-  model **`qwen3:14b`** (thinking model, native_tools). `llama3.1:8b` stays
-  pulled as the "weak endpoint" case. Northflank (Llama-4-Scout) is
-  backup/validation only.
+- **Primary dev LLM (D-015, was D-013):** **Llama-4-Scout-17B via Northflank**
+  (remote vLLM, `native_tools`, ~90 tok/s; verified reachable + streaming a real
+  `/api/chat` through the containerized app 2026-07-16). **Secondary/offline:**
+  local Ollama `qwen3:14b` (D-013) — still pulled; flip the commented block in
+  `.env` to use it. `llama3.1:8b` remains the local "weak endpoint" case.
+  `.env` is gitignored; `auspex.devhost` no longer pins `LLM_BASE_URL` (the
+  endpoint URL now resolves the same from host and container).
 - **CI-green: 79 tests** (was 47 at S2 end; +32 this session). `./ci.sh`
   passes: ruff clean, pytest, real container build + liveness.
 
