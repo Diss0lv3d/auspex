@@ -10,7 +10,7 @@ from auspex import __version__
 from auspex.config import Settings, get_settings
 from auspex.db import create_pool
 from auspex.migrations import run_migrations
-from auspex.routes import auth, chat, health
+from auspex.routes import auth, chat, health, ui
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
@@ -40,4 +40,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(chat.router)
+    app.include_router(ui.router)
     return app
