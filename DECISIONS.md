@@ -66,3 +66,14 @@ Session-start and /promote enforce this.
 **D-008 (2026-07-14) — Workspace isolation from day one.** `workspace_id` on
 every table and every index mapping, even while single-tenant. Retrofitting
 tenancy is how SARA earned nine Tier-0 invariants the hard way.
+
+**D-012 (2026-07-15) — Interim dev LLM = local Ollama while Northflank is down.**
+Burhan's call (Northflank service down for days, restart is a human step).
+Dev endpoint until then: local Ollama (`http://localhost:11434`, OpenAI-compat
+`/v1`), model `llama3.1:8b` — closest same-family tool-capable fit for 12 GB
+VRAM; free, keyless, no cloud signup. Purpose: unblock the S2 second half
+(client-vs-snapshot, battery, harness). **The Llama-4-Scout go/no-go numbers
+are still owed** — re-run battery + harness against the Northflank endpoint
+when it returns; scorecards are keyed per endpoint fingerprint, so both
+coexist. Live calls still probe/harness-only from the HOST (the compose app
+can't reach localhost:11434 without host-gateway wiring — S3 concern, noted).
