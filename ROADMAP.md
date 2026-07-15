@@ -28,8 +28,8 @@ may not grow mid-session (IDEAS.md exists for that).
   (single-key JSON event protocol), minimal functional UI shell.
   _(Done 2026-07-16: `auspex/agent/{registry,permissions,loop}.py`,
   `auspex/routes/{chat,ui}.py`; D-014 gate + proposals; 79 tests;
-  live-verified vs qwen3:14b. Step 0 networking repo-half done, host-bind
-  pending — STATE.md Blocker #1.)_
+  live-verified vs qwen3:14b. Step 0 networking fully closed — containerized
+  app streams real /api/chat over host.docker.internal.)_
 
 ## Phase 1 — Intelligence core
 

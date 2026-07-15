@@ -1,10 +1,8 @@
 # NEXT-SESSION — paste everything below the line into a fresh Claude Code window opened in /home/burhan/auspex-new
 
-_(Standing follow-up carried from S3: the container can't reach host Ollama
-until a one-time HOST command runs — `sudo snap set ollama host=0.0.0.0 &&
-sudo snap restart ollama.listener`. Not needed for S4's core (the shortcut path
-is LLM-free) or CI. If you've run it, S4 step 0 closes it; otherwise it stays
-parked. Detail: docs/probes/2026-07-16-server-to-ollama-networking.md.)_
+_(No standing follow-ups. The S3 Ollama-networking blocker is closed: host
+Ollama binds `*:11434` and the containerized app streamed a real /api/chat
+end-to-end on 2026-07-16 — docs/probes/2026-07-16-server-to-ollama-networking.md.)_
 
 ---
 

@@ -66,6 +66,25 @@ docker compose exec app python -c "import urllib.request, json; \
 ## Status
 
 - Repo wiring: **DONE** (host-gateway + container URL + devhost host pin).
-- End-to-end container→Ollama reachability: **PENDING the host command above**
-  (sudo; not runnable from the non-interactive session). Does NOT gate S3
-  steps 1–3 (offline/FAKE-client tested) or CI (hermetic).
+- End-to-end container→Ollama reachability: **RESOLVED 2026-07-16.**
+
+### Resolution (verified after Burhan restarted Ollama)
+
+```
+$ ss -tlnp | grep 11434
+LISTEN 0 4096 *:11434 *:*                    # now binds ALL interfaces ✅
+
+$ docker compose exec app python -c "import urllib.request,json; \
+    print(json.load(urllib.request.urlopen('http://host.docker.internal:11434/v1/models',timeout=8)))"
+HTTP 200 | models: ['qwen3:14b', 'llama3.1:8b', 'mistral:latest']   ✅
+
+# real POST /api/chat against the CONTAINERIZED app (host :8000 → container →
+# host.docker.internal Ollama), 414 SSE frames:
+frame kinds: session ... done | reasoning chars: 1597
+content: "A SHA-256 hash is a cryptographic hash function generating a 256-bit
+          (64-character hexadecimal) digest for data integrity and security."
+done: {'finish_reason': 'stop', 'usage': {..., 'total_tokens': 483}}   ✅
+```
+
+Step 0 goal fully met: the app container drives the host LLM and streams real
+responses. No standing follow-up remains.

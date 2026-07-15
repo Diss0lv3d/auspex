@@ -17,7 +17,8 @@ _Last updated: 2026-07-16 (S3 complete — agent runtime v1 + chat SSE + UI shel
   service got `extra_hosts: host.docker.internal:host-gateway`; container uses
   `LLM_BASE_URL=http://host.docker.internal:11434`, host runs pin localhost via
   `auspex.devhost`. Probe `docs/probes/2026-07-16-server-to-ollama-networking.md`.
-  **Remaining: a one-time HOST command — see Blockers #1.**
+  **DONE end-to-end (2026-07-16):** host Ollama rebound to `*:11434`; the
+  containerized app streams real `/api/chat` responses (Blocker #1 closed).
 - **Step 2 — tool registry** (`auspex/agent/registry.py`): `ToolLevel`
   (read/write/destructive, StrEnum), `Tool` (builds its OpenAI envelope via the
   shared `tool_spec()`), `ToolRegistry`. 8 tests.
@@ -56,19 +57,17 @@ real native tool calls; read executes; **write is PROPOSED, not executed**
 `reasoning`→`content`→`done` correctly.
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-- **[STANDING] Ollama host-bind** (see Blockers #1) — event-triggered: needs
-  Burhan to run one sudo command on the host. Until then the *container* can't
-  reach Ollama (host runs can). Dies only when done, not by omission.
+- Nothing. The Ollama host-bind follow-up is DONE (2026-07-16): Burhan restarted
+  Ollama bound to `*:11434`; the container now reaches host Ollama and a real
+  `/api/chat` streamed end-to-end through the containerized app (Blocker #1
+  closed below).
 
 ## Blockers / open risks
-1. **Container→Ollama needs a one-time HOST command (sudo).** Repo wiring is
-   done + proven (host.docker.internal resolves, container routes to host), but
-   Ollama binds `127.0.0.1` only. Fix on the host:
-   `sudo snap set ollama host=0.0.0.0 && sudo snap restart ollama.listener`
-   then re-verify:
-   `docker compose exec app python -c "import urllib.request,json; print(json.load(urllib.request.urlopen('http://host.docker.internal:11434/v1/models',timeout=5)))"`
-   Not runnable from the non-interactive session (no passwordless sudo). Does
-   NOT block CI/pytest (hermetic) or host-run live drives. Detail:
+1. **~~Container→Ollama host command~~ RESOLVED (2026-07-16).** Ollama now binds
+   `*:11434`; `docker compose exec app` reaches `http://host.docker.internal:11434/v1/models`
+   → 200 (all three models), and a real `POST /api/chat` against the
+   *containerized* app streamed `session→reasoning(1597 chars)→content→done`
+   from qwen3:14b. Step 0 goal fully met. Verification appended to
    `docs/probes/2026-07-16-server-to-ollama-networking.md`.
 2. **Embeddings approach unmeasured** — probe in S6 (decided).
 3. **TD-001 (OAuth identity keyed on email)** — before any GOOGLE_CLIENT_ID.
@@ -101,5 +100,4 @@ Base: `/home/burhan/sara-open/` (paths re-verified 2026-07-15):
 
 ## Next session should
 Run S4 exactly as written in NEXT-SESSION.md (Fast classifier / 92-8 split).
-Optionally first: if Burhan has run the Ollama host-bind command (Blocker #1),
-re-verify container→Ollama and close the standing follow-up.
+(The S3 Ollama-networking follow-up is closed — no standing carry-over.)
