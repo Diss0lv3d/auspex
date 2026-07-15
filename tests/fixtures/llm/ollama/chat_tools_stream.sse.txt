@@ -1,0 +1,10 @@
+data: {"id":"chatcmpl-50","object":"chat.completion.chunk","created":1784104870,"model":"llama3.1:8b","system_fingerprint":"fp_ollama","choices":[{"index":0,"delta":{"role":"assistant","content":"","tool_calls":[{"id":"call_nmze1pj6","index":0,"type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Riyadh\",\"unit\":\"celsius\"}"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-50","object":"chat.completion.chunk","created":1784104870,"model":"llama3.1:8b","system_fingerprint":"fp_ollama","choices":[{"index":0,"delta":{"role":"assistant","content":"","tool_calls":[{"id":"call_gbnn7gl2","index":1,"type":"function","function":{"name":"lookup_ip","arguments":"{\"ip\":\"8.8.8.8\"}"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-50","object":"chat.completion.chunk","created":1784104870,"model":"llama3.1:8b","system_fingerprint":"fp_ollama","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":"tool_calls"}]}
+
+data: {"id":"chatcmpl-50","object":"chat.completion.chunk","created":1784104870,"model":"llama3.1:8b","system_fingerprint":"fp_ollama","choices":[],"usage":{"prompt_tokens":236,"completion_tokens":48,"total_tokens":284}}
+
+data: [DONE]
+

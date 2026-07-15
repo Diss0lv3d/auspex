@@ -1,0 +1,17 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "llama3.1:8b",
+      "object": "model",
+      "created": 1784104804,
+      "owned_by": "library"
+    },
+    {
+      "id": "mistral:latest",
+      "object": "model",
+      "created": 1767276904,
+      "owned_by": "library"
+    }
+  ]
+}

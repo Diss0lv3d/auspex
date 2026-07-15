@@ -1,0 +1,22 @@
+{
+  "id": "chatcmpl-141",
+  "object": "chat.completion",
+  "created": 1784104871,
+  "model": "llama3.1:8b",
+  "system_fingerprint": "fp_ollama",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"name\": \"Emily Chen\", \"age\": 32}"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 31,
+    "completion_tokens": 14,
+    "total_tokens": 45
+  }
+}
