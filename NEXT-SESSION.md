@@ -13,7 +13,9 @@ CLAUDE.md session-start ritual first (`/session-start S3`): read STATE.md,
 verify this is S3, confirm branch `staging`, git identity bh3082336888-cell,
 reality check (`git log`, `docker compose up -d && docker compose ps`,
 `/api/health/ready` 200, and `curl -s localhost:11434/api/version` — local
-Ollama is the dev LLM per D-012). Any mismatch → STOP and tell me.
+Ollama is the dev LLM per D-012; model is **qwen3:14b**, a THINKING model:
+native_tools verdict, 87.5 % loop completion, ~33 tok/s). Any mismatch →
+STOP and tell me.
 
 Goal (scope-locked, from ROADMAP.md S3 — Agent loop v1 + chat SSE):
 1. **ReACT agent loop v1** (`auspex/agent/`): drive `LLMClient` in a
@@ -40,9 +42,15 @@ Goal (scope-locked, from ROADMAP.md S3 — Agent loop v1 + chat SSE):
 7. Session-end ritual (`/session-end`).
 
 S2 findings that MUST shape this session (docs/probes/2026-07-15-ollama-endpoint.md):
-- Tool args: pass observable IDs, never raw 64-char strings (models truncate).
+- Tool args: pass observable IDs, never raw 64-char strings (fails at BOTH
+  model sizes tested).
 - Conversational turns get NO tools (92/8 split is S4, but the loop API should
-  accept tools=None cleanly now).
+  accept tools=None cleanly now). Weak endpoints have zero restraint.
+- Writes gate on ACTUAL tool execution, never model claims (8B fabricated
+  "ticket created" — SOAR-critical).
+- Thinking models: `reasoning` arrives as a separate field in stream deltas —
+  design the SSE event protocol with a reasoning event type; budget ≥2000
+  tokens/turn; expect ~10× wall clock vs non-thinking.
 - Loop cap + step budget (harness used max 8; pick from scorecard data).
 - Compose app → host Ollama needs `host.docker.internal` host-gateway wiring
   in docker-compose.yml (STATE.md blocker 5) — first session where the SERVER

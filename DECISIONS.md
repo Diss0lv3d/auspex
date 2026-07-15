@@ -77,3 +77,8 @@ are still owed** — re-run battery + harness against the Northflank endpoint
 when it returns; scorecards are keyed per endpoint fingerprint, so both
 coexist. Live calls still probe/harness-only from the HOST (the compose app
 can't reach localhost:11434 without host-gateway wiring — S3 concern, noted).
+
+**D-012 addendum (2026-07-15).** Interim dev model bumped `llama3.1:8b` →
+`qwen3:14b` after the S2 harness comparison (52.5 % vs 87.5 % loop completion,
+native_tools verdict; docs/probes/2026-07-15-ollama-endpoint.md). 8B stays
+pulled as the "weak endpoint" test case for the scorecard-driven mode ladder.

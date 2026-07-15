@@ -107,6 +107,56 @@ consider splitting "call syntax" vs "task competence" thresholds so the
 runtime can pick native calls + tighter orchestration. Scout (109B) numbers
 from the real endpoint remain the decisive data.
 
+## Second model: qwen3:14b (2026-07-15, same endpoint)
+
+Pulled after the 8B verdict; biggest tool-capable model that fits 12 GB VRAM
+entirely on GPU. **Thinking model** — new wire shape captured: reasoning rides
+a separate `reasoning` field in messages AND stream deltas; `content` stays
+clean; tool-call shapes unchanged (fixtures `chat_reasoning.json`,
+`chat_reasoning_stream.sse.txt`; parser needed no change, tests pin it).
+
+**Battery bug found & fixed by this run:** probes capped at 40–300 tokens
+false-negatived every content-bearing capability for thinking models (the
+model spent the whole budget on reasoning). Fixed: `_PROBE_MAX_TOKENS = 2000`
+(harness had the same fix already). Corrected battery: ALL capabilities true,
+schema adherence 5/5, ~33 tok/s, ctx metadata 40960.
+
+### Side-by-side (40 tasks, identical harness, temperature 0)
+
+| Metric | llama3.1:8b | qwen3:14b |
+|---|---|---|
+| valid-call rate | 98.7 % (75/76) | **100 % (73/73)** |
+| loop-completion | 52.5 % (21/40) | **87.5 % (35/40)** |
+| single / chain2 / chain3 | 75 / 30 / 70 % | 100 / **70** / **100** % |
+| parallel / no-tool / enum | 50 / **0** / 100 % | 66.7 / **100** / 100 % |
+| throughput | ~61 tok/s | ~33 tok/s (thinking) |
+| wall clock (40 tasks) | 88 s | 943 s |
+| **agent mode** | prompted_tools | **native_tools** |
+
+Runs: `harness-run-llama3-1-8b.json`, `harness-run-qwen3-14b.json`.
+Scorecard rows: `f86da0f3-…` (8B), `37b4b02e-…` (14B corrected; the earlier
+`604a72b0-…` row carries the pre-fix false-negative battery flags — superseded,
+kept as history).
+
+### qwen3:14b remaining failures (5)
+
+- 2× long-string fidelity (64-char hash mangled in args → "unknown" verdicts) —
+  same signature as 8B; observable-ID tool design (IDEAS.md) fixes this class.
+- 1× wrong argument value then self-corrected narrative (C208).
+- 1× search query returned 0 (arg-value fidelity, C205).
+- 1× combined two searches into one OR-query (P06) — arguably task-design
+  punishment, not model failure.
+- Fabricated actions: **zero** (8B had 3). No-tool restraint: perfect.
+
+### Reading
+
+A 14B thinking model on the same endpoint jumps completion +35 pts and earns
+`native_tools` — the S3 loop should be built native-first. Thinking costs
+~10× wall clock; S3 must stream (reasoning field available for UI) and budget
+tokens generously (min 2000/turn for thinking models). Long-string arg
+fidelity fails at BOTH sizes → observable IDs in tool args are mandatory
+(S3 design input, IDEAS.md).
+
 ## Caveat
 
 These fixtures characterize **Ollama's** OpenAI-compat layer + llama3.1:8b.

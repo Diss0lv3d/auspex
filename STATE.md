@@ -5,10 +5,10 @@ _Last updated: 2026-07-15 (S2 complete against interim endpoint; next is S3)_
 ## Where we are
 - **S2 COMPLETE** (against the D-012 interim endpoint) → **next is S3**
   (Agent loop v1 + chat SSE, see NEXT-SESSION.md).
-- **Interim dev LLM (D-012):** local Ollama `http://localhost:11434`,
-  `llama3.1:8b` (131k ctx, tools-capable), keyless, GPU-local (~61 tok/s).
-  `.env` switched; Northflank values preserved in `.env.bak-northflank`
-  (gitignored). Northflank vLLM still down — Scout numbers still owed.
+- **Interim dev LLM (D-012 + addendum):** local Ollama `http://localhost:11434`,
+  model **`qwen3:14b`** (thinking model, native_tools verdict). `llama3.1:8b`
+  stays pulled as the "weak endpoint" test case. Northflank values preserved
+  in `.env.bak-northflank` (gitignored); vLLM still down — Scout numbers owed.
 - **S2 shipped, all CI-green (43 tests):**
   - `auspex/llm/client.py` — async httpx OpenAI-compat client coded against
     the 2026-07-15 probe snapshot: non-streaming + streaming, tool-call delta
@@ -25,20 +25,30 @@ _Last updated: 2026-07-15 (S2 complete against interim endpoint; next is S3)_
     scorecard row.
   - Tests: 11 client fixture tests (offline, from live-captured fixtures in
     `tests/fixtures/llm/ollama/`) + 9 scorecard + schema tests.
-- **The S2 numbers (llama3.1:8b, full run 2026-07-15):**
-  valid-call **98.7 %** (75/76) · loop-completion **52.5 %** (21/40) ·
-  per-cat: single 75 / chain2 30 / chain3 70 / parallel 50 / **no-tool 0** /
-  enum 100 · **mode → `prompted_tools`**. Failure taxonomy in
-  `docs/probes/2026-07-15-ollama-endpoint.md` (long-string truncation in args,
-  zero no-tool restraint, fabricated actions, evidence-threading errors;
-  verdict robust to grading noise). Scorecard row
-  `f86da0f3-…` in workspace `dev`.
+- **The S2 numbers (both models, identical 40-task harness, 2026-07-15):**
+  | | llama3.1:8b | qwen3:14b |
+  |---|---|---|
+  | valid-call | 98.7 % | **100 %** |
+  | loop-completion | 52.5 % | **87.5 %** |
+  | no-tool restraint | 0/4 | 4/4 |
+  | fabricated actions | 3 | 0 |
+  | mode | prompted_tools | **native_tools** |
+  Full taxonomy + comparison in `docs/probes/2026-07-15-ollama-endpoint.md`.
+  Scorecard rows in workspace `dev`: `f86da0f3-…` (8B), `37b4b02e-…` (14B;
+  earlier `604a72b0-…` superseded — pre-fix battery false-negatives).
+  **Thinking-model lessons encoded in code:** harness + battery need
+  ≥2000-token budgets; `reasoning` field (separate from content) captured in
+  fixtures + parser tests.
 - **S3 design inputs from the harness (cite the probe doc):**
-  1. Pass observable IDs, not raw 64-char strings, in tool args.
-  2. Don't offer tools on conversational turns (92/8 fast path).
-  3. Hard-gate writes on ACTUAL tool calls — the model fabricates
-     "ticket created" claims (SOAR-critical).
-  4. Mode-ladder refinement idea parked in IDEAS.md (syntax vs competence).
+  1. Pass observable IDs, not raw 64-char strings, in tool args — fails at
+     BOTH model sizes.
+  2. Don't offer tools on conversational turns (92/8 fast path) — critical
+     for weak endpoints (8B: 0/4 restraint; 14B: 4/4).
+  3. Hard-gate writes on ACTUAL tool calls — 8B fabricated "ticket created"
+     claims (SOAR-critical), scorecard can't predict which endpoints will.
+  4. Thinking models: stream the `reasoning` field to the UI, budget
+     ≥2000 tokens/turn, expect ~10× wall clock (943 s vs 88 s per 40 tasks).
+  5. Mode-ladder refinement idea parked in IDEAS.md (syntax vs competence).
 - Remote: `origin = git@github-personal:bh3082336888-cell/auspex.git`;
   main promoted through PR #1. **Never use plain `github.com` for this repo**
   (work SSH key). Default branch `main`.
