@@ -12,6 +12,7 @@ EXPECTED_TABLES = {
     "chat_sessions",
     "messages",
     "llm_endpoint_scorecards",
+    "proposals",
 }
 
 # D-008: workspace_id on EVERY table. `workspaces` is the sole exception —
@@ -95,6 +96,50 @@ async def test_llm_scorecard_agent_mode_is_constrained(client, settings):
             pass
     finally:
         await conn.execute("DELETE FROM workspaces WHERE name = 't-scorecard'")
+        await conn.close()
+
+
+async def test_proposals_check_constraints(client, settings):
+    """S3/D-014: proposals.tool_level ∈ {write,destructive} and status is a
+    closed set. A read-level action must never reach this table — the gate
+    auto-executes reads, so 'read' is intentionally not a legal tool_level."""
+    conn = await _connect(settings)
+    try:
+        workspace_id = await conn.fetchval(
+            "INSERT INTO workspaces (name) VALUES ('t-proposals') RETURNING id"
+        )
+        # a valid write proposal round-trips at the default status
+        pid = await conn.fetchval(
+            "INSERT INTO proposals (workspace_id, tool_name, tool_level, tool_input)"
+            " VALUES ($1, 'create_ticket', 'write', '{\"title\": \"x\"}') RETURNING id",
+            workspace_id,
+        )
+        status = await conn.fetchval("SELECT status FROM proposals WHERE id = $1", pid)
+        assert status == "pending_approval"
+
+        # 'read' is not a legal proposal level (reads auto-execute, never propose)
+        try:
+            await conn.execute(
+                "INSERT INTO proposals (workspace_id, tool_name, tool_level, tool_input)"
+                " VALUES ($1, 'lookup_ip', 'read', '{}')",
+                workspace_id,
+            )
+            raise AssertionError("CHECK on proposals.tool_level did not fire for 'read'")
+        except asyncpg.CheckViolationError:
+            pass
+
+        # bogus status rejected
+        try:
+            await conn.execute(
+                "INSERT INTO proposals (workspace_id, tool_name, tool_level, tool_input, status)"
+                " VALUES ($1, 'create_ticket', 'write', '{}', 'totally_done')",
+                workspace_id,
+            )
+            raise AssertionError("CHECK on proposals.status did not fire")
+        except asyncpg.CheckViolationError:
+            pass
+    finally:
+        await conn.execute("DELETE FROM workspaces WHERE name = 't-proposals'")
         await conn.close()
 
 
