@@ -1,0 +1,21 @@
+{
+  "_comment": "INTERNAL/dev-only model switcher (D-016). Copy to dev-endpoints.json (gitignored), point DEV_LLM_REGISTRY_FILE at it, and run APP_ENV=dev. Keys are referenced by ENV-VAR NAME (api_key_env) and read from the process env — never inline a key here. `label` is the only user-visible string: keep it brand-safe (no engine/provider names). `native_reasoning` drives the chat Thinking pane (true = stream native reasoning; false = two-pass fallback).",
+  "endpoints": [
+    {
+      "id": "scout",
+      "label": "Fast",
+      "base_url": "https://<your-openai-compatible-host>",
+      "model": "<model-name>",
+      "api_key_env": "SCOUT_API_KEY",
+      "native_reasoning": false
+    },
+    {
+      "id": "qwen",
+      "label": "Deep — shows reasoning",
+      "base_url": "http://host.docker.internal:11434",
+      "model": "qwen3:14b",
+      "api_key_env": null,
+      "native_reasoning": true
+    }
+  ]
+}
