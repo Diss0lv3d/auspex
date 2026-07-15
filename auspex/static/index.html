@@ -112,6 +112,7 @@
         if (!r.ok) { setStatus("sign-in unavailable", "err"); return; }
         token = (await r.json()).access_token;
         setStatus("signed in", "ok");
+        $("email").style.display = "none"; $("signin").style.display = "none";
         $("prompt").disabled = false; $("send").disabled = false; $("prompt").focus();
         loadEndpoints();
       } catch (e) { setStatus("network error", "err"); }
