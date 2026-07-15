@@ -74,7 +74,10 @@ async def run_task(client: LLMClient, task: Task) -> dict:
     for _ in range(task.max_steps):
         steps += 1
         try:
-            result = await client.chat(messages, tools=tools, temperature=0, max_tokens=500)
+            # 2000, not 500: thinking models spend >100 tokens of `reasoning`
+            # before the first tool call (qwen3 mini-probe) — a tight cap would
+            # cut them off mid-think and unfairly zero their completion rate.
+            result = await client.chat(messages, tools=tools, temperature=0, max_tokens=2000)
         except LLMError as err:
             return {"task": task.id, "category": task.category, "error": str(err),
                     "valid": valid, "invalid": invalid, "completed": False,

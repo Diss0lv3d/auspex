@@ -125,6 +125,22 @@ def test_sse_parser_tolerates_noise():
     assert parse_sse_line("data: {not json") == []
 
 
+def test_reasoning_field_does_not_pollute_content():
+    """Thinking models emit a separate `reasoning` field (message + deltas) —
+    content must stay clean and the parser must not choke (qwen3 fixture)."""
+    result = LLMClient.parse_completion(load("chat_reasoning.json"))
+    assert result.content == "pong"
+    assert "reasoning" not in result.content
+
+
+async def test_reasoning_stream_content_stays_clean():
+    events = events_from_sse_fixture("chat_reasoning_stream.sse.txt")
+    result = await accumulate_stream(as_stream(events))
+    assert result.content == "pong"
+    assert result.finish_reason == "stop"
+    assert result.usage is not None
+
+
 # -- errors (Finding 0: bodies may be JSON envelopes OR raw text) ------------
 
 
