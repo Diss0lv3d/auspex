@@ -29,6 +29,7 @@ class CapabilityScorecard(BaseModel):
     model: str
 
     reachable: bool = False
+    native_reasoning: bool = False  # emits a separate `reasoning` field (thinking model)
     native_tool_calling: bool = False
     parallel_tool_calls: bool = False
     tool_choice_named: bool = False  # tool_choice={"type":"function",...} honored

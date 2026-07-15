@@ -136,6 +136,10 @@ async def probe_capabilities(
     if basic is None:
         sc.notes.append("basic chat failed — endpoint reachable but not usable")
         return sc
+    # Native reasoning: thinking models return a separate `reasoning` field. Read
+    # it off the basic probe (no extra request). Drives the chat two-pass fallback
+    # (D-016): endpoints without it get platform-generated reasoning instead.
+    sc.native_reasoning = bool(basic.reasoning)
 
     # native tool calling
     result = await probe("native_tools", _WEATHER_QUESTION, tools=[_PROBE_TOOL])
