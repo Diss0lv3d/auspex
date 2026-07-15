@@ -1,10 +1,11 @@
 # NEXT-SESSION — paste everything below the line into a fresh Claude Code window opened in /home/burhan/auspex-new
 
-_Optional pre-step (any time the Northflank service is restarted): swap `.env`
-LLM values back from `.env.bak-northflank`, verify `curl "$LLM_BASE_URL/v1/models"`
-→ 200, run `.venv/bin/python scripts/llm_harness.py`, and paste the summary into
-docs/probes/ — that's the owed Scout go/no-go data. Then swap `.env` back to
-Ollama if the session continues locally._
+_Backup-endpoint note (D-013, not a gate): whenever Burhan says the Northflank
+service is back, run the harness against it once
+(`.venv/bin/python scripts/llm_harness.py` with the LLM values from
+`.env.bak-northflank`) and record the Scout scorecard row — validation data
+for the capability-negotiated runtime, nothing blocks on it. Primary dev LLM
+is local Ollama `qwen3:14b`._
 
 ---
 

@@ -5,10 +5,12 @@ _Last updated: 2026-07-15 (S2 complete against interim endpoint; next is S3)_
 ## Where we are
 - **S2 COMPLETE** (against the D-012 interim endpoint) → **next is S3**
   (Agent loop v1 + chat SSE, see NEXT-SESSION.md).
-- **Interim dev LLM (D-012 + addendum):** local Ollama `http://localhost:11434`,
+- **Primary dev LLM (D-013):** local Ollama `http://localhost:11434`,
   model **`qwen3:14b`** (thinking model, native_tools verdict). `llama3.1:8b`
-  stays pulled as the "weak endpoint" test case. Northflank values preserved
-  in `.env.bak-northflank` (gitignored); vLLM still down — Scout numbers owed.
+  stays pulled as the "weak endpoint" test case. **Northflank (Llama-4-Scout)
+  is now BACKUP/validation only** — values in `.env.bak-northflank`
+  (gitignored); Burhan will signal when it's back; its harness run validates,
+  no longer gates.
 - **S2 shipped, all CI-green (43 tests):**
   - `auspex/llm/client.py` — async httpx OpenAI-compat client coded against
     the 2026-07-15 probe snapshot: non-streaming + streaming, tool-call delta
@@ -54,18 +56,18 @@ _Last updated: 2026-07-15 (S2 complete against interim endpoint; next is S3)_
   (work SSH key). Default branch `main`.
 
 ## In-flight
-- Nothing mid-code. One standing follow-up: **when Northflank returns**, run
-  `.venv/bin/python scripts/llm_harness.py` against it (swap `.env` back from
-  `.env.bak-northflank`) → Scout scorecard row + probe-doc update. That is the
-  decisive go/no-go data; the 8B numbers are the floor, not the answer.
+- Nothing mid-code. One standing follow-up (NOT blocking, D-013): when Burhan
+  signals Northflank is back, run
+  `.venv/bin/python scripts/llm_harness.py` against it (LLM values in
+  `.env.bak-northflank`) → Scout scorecard row + probe-doc note. Validation
+  of the capability-negotiated runtime on a second real endpoint.
 
 ## Blockers / open risks
-1. **Northflank endpoint still down** (2026-07-14 probe). Human step: restart
-   in Northflank UI or fresh `northflank login` (host CLI tokens expired).
-   Not blocking S3 (interim endpoint works).
-2. **Llama-4-Scout tool-calling quality still unproven** — 8B same-family
-   data: near-perfect call syntax, weak multi-step competence. S3 builds the
-   loop against the scorecard abstraction so the answer slots in.
+1. **~~Llama-4-Scout quality unproven~~ RESOLVED BY D-013** — the #1
+   existential risk is closed: we build against qwen3:14b (native_tools,
+   87.5 % completion, measured). Scout becomes a validation data point.
+2. **Northflank endpoint still down** — backup only now. Human step when
+   convenient: restart in Northflank UI or fresh `northflank login`.
 3. **Embeddings approach unmeasured** — probe in S6 (decided).
 4. **TD-001 (OAuth identity keyed on email)** — before any GOOGLE_CLIENT_ID.
 5. Compose app can't reach `localhost:11434` (host Ollama) from inside the
