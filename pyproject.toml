@@ -21,7 +21,7 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["auspex", "auspex.routes", "auspex.agent"]
+packages = ["auspex", "auspex.routes", "auspex.agent", "auspex.llm"]
 
 [tool.setuptools.package-data]
 auspex = ["static/*.html"]
