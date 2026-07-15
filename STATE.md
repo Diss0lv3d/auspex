@@ -11,7 +11,7 @@ _Last updated: 2026-07-15 (S2 complete against interim endpoint; next is S3)_
   is now BACKUP/validation only** — values in `.env.bak-northflank`
   (gitignored); Burhan will signal when it's back; its harness run validates,
   no longer gates.
-- **S2 shipped, all CI-green (43 tests):**
+- **S2 shipped, all CI-green (46 tests):**
   - `auspex/llm/client.py` — async httpx OpenAI-compat client coded against
     the 2026-07-15 probe snapshot: non-streaming + streaming, tool-call delta
     accumulation BY INDEX (handles Ollama complete-per-chunk AND vLLM
@@ -46,8 +46,9 @@ _Last updated: 2026-07-15 (S2 complete against interim endpoint; next is S3)_
      BOTH model sizes.
   2. Don't offer tools on conversational turns (92/8 fast path) — critical
      for weak endpoints (8B: 0/4 restraint; 14B: 4/4).
-  3. Hard-gate writes on ACTUAL tool calls — 8B fabricated "ticket created"
-     claims (SOAR-critical), scorecard can't predict which endpoints will.
+  3. Hard-gate writes on ACTUAL tool calls — **ratified as D-014** (8B
+     fabricated "ticket created" claims; pinned fixture ships with the S3
+     gate code).
   4. Thinking models: stream the `reasoning` field to the UI, budget
      ≥2000 tokens/turn, expect ~10× wall clock (943 s vs 88 s per 40 tasks).
   5. Mode-ladder refinement idea parked in IDEAS.md (syntax vs competence).
@@ -77,19 +78,24 @@ _Last updated: 2026-07-15 (S2 complete against interim endpoint; next is S3)_
 ## Host notes (reality snapshot)
 - Postgres host port **55432**; app 8000; OpenSearch 9200. Host-run scripts
   and tests pin `DATABASE_URL` to localhost:55432 before importing config.
-- Ollama 0.24.0 (snap) on :11434 with `llama3.1:8b` + `mistral:latest`.
+- Ollama 0.24.0 (snap) on :11434 with `qwen3:14b` (dev model, D-013) +
+  `llama3.1:8b` (weak-endpoint test case) + `mistral:latest` (unused).
   GPU: RTX 5070 Ti Laptop 12 GB.
 - Host rebooted between sessions — `docker compose up -d` needed at start
   (session-start ritual already covers this).
 
 ## Reference intelligence (from the SARA Open architecture study, 2026-07-14)
-Patterns-to-reuse/avoid live in ROADMAP.md session descriptions. Key refs:
-- ReACT loop: sara-open-copy/sara/core/agent_loop.py:60
-- Plan→DAG→Judge loop: sara-open-copy/sara/core/orchestrator_loop/runner.py:39
-- Permission hard-rails: sara-open-copy/sara/core/permissions.py:65-176
-- RRF retrieval + ID bypass: sara-open-copy/sara_retriever.py:538,599
-- DEFERRED rail: sara-open-copy/sara/agents/alert_triage.py:1429
-- Capability shape: sara-open-copy/sara/core/unified_registry.py:37
+Patterns-to-reuse/avoid live in ROADMAP.md session descriptions. Key refs
+(base: `/home/burhan/sara-open/` — the old `sara-open-copy/` is gone; all
+paths below re-verified 2026-07-15):
+- ReACT loop: /home/burhan/sara-open/sara/core/agent_loop.py:60
+- Plan→DAG→Judge loop: main tree lost it — nearest surviving copy is
+  /home/burhan/sara-open/.claude/worktrees/1359-chain-surface/sara/core/orchestrator_loop/runner.py:39
+  (worktrees get cleaned; re-snapshot the pattern to docs/probes/ before S8)
+- Permission hard-rails: /home/burhan/sara-open/sara/core/permissions.py:65-176
+- RRF retrieval + ID bypass: /home/burhan/sara-open/sara_retriever.py:538,599
+- DEFERRED rail: /home/burhan/sara-open/sara/agents/alert_triage.py:1429
+- Capability shape: /home/burhan/sara-open/sara/core/unified_registry.py:37
 
 ## Next session should
 Run S3 exactly as written in NEXT-SESSION.md (Agent loop v1 + chat SSE),

@@ -93,3 +93,15 @@ BACKUP/validation endpoint: when Burhan signals it's back up, re-run
 validate the capability-negotiated runtime against a second real endpoint,
 they no longer gate anything. Product framing unchanged (D-005): customers
 bring their own endpoint; the runtime compiles to the per-endpoint scorecard.
+
+**D-014 (2026-07-15) — Writes gate on actual execution, never on model claims.**
+Ratified from S2 harness evidence (docs/probes/2026-07-15-ollama-endpoint.md:
+the 8B model fabricated "ticket created" claims 3 times without calling the
+tool). Invariant: a write/destructive action counts as performed ONLY when its
+tool call actually executed and returned a result — model-asserted completion
+text ("ticket created", "action done", a made-up ID) is never treated as
+execution, never persisted as an action record, never shown to a user as a
+completed action. Enforced in code (permission gate, S3+), not prompts
+(ADR 0006), with a pinned regression fixture using the exact fabricated
+string from the harness run shipping alongside the first gate code.
+Applies to every future action surface (S17 Actions SDK, S18 approvals).

@@ -20,7 +20,14 @@ Run the session-start ritual from CLAUDE.md, strictly:
    `~/.ssh/personal_git`). Never let work identity (SIRP-Burhan / burhan@sirp.io)
    author commits or API calls in this repo.
 4. Reality check: `git log --oneline -5`, `git status`, and (once compose
-   exists) `docker compose up -d && docker compose ps` + `/api/health`.
+   exists) `docker compose up -d && docker compose ps` + `/api/health/ready`
+   (readiness — checks Postgres AND OpenSearch, stricter than liveness).
    Divergence from STATE.md → fix STATE.md first, report the divergence.
+4b. Dev-LLM gate (D-013 — the endpoint is load-bearing from S3 on):
+   `curl -s localhost:11434/api/version` must answer, and
+   `curl -s localhost:11434/api/tags` must list the dev model that STATE.md
+   declares (currently `qwen3:14b`; read it from STATE.md, don't trust this
+   file). Down or model missing → STOP and tell the human (Ollama service /
+   `ollama pull`) unless NEXT-SESSION.md says the session needs no LLM.
 5. Restate the session goal from NEXT-SESSION.md in 2–3 lines and the
    scope-lock rule (new ideas → IDEAS.md), then begin the session's work.
