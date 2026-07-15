@@ -1,9 +1,7 @@
 # NEXT-SESSION — paste everything below the line into a fresh Claude Code window opened in /home/burhan/auspex-new
 
-_Backup (D-013, non-gating): when Burhan says Northflank is back, run the
-harness once with the `.env.bak-northflank` LLM values → Scout scorecard row +
-probe-doc note. Do it at session-end, or skip under time pressure — canonical
-tracker: STATE.md "In-flight"._
+_(The D-013 Northflank validation run is DONE — 2026-07-16, Scout scored
+native_tools; see STATE.md. No standing follow-ups remain.)_
 
 ---
 
@@ -48,8 +46,8 @@ Tests ship WITH each step, not as a trailing phase (CLAUDE.md rule 8).
 S2 design inputs (canonical: STATE.md "S3 design inputs" + the probe doc
 docs/probes/2026-07-15-ollama-endpoint.md — the list below is a reminder,
 not the source):
-- Tool args carry observable IDs, never raw 64-char strings (both models
-  mangled long hashes).
+- Tool args carry observable IDs, never raw 64-char strings (all three
+  models tested mangled long hashes — 8B, 14B, and Scout).
 - Conversational turns get no tools; the loop API takes `tools=None` cleanly.
 - Thinking models: budget ≥2000 tokens/turn (import PROBE_MAX_TOKENS), expect
   ~10× wall clock; content stays clean, reasoning rides its own field.
