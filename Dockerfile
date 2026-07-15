@@ -6,8 +6,11 @@ WORKDIR /srv/auspex
 # this layer is cached and only re-runs when pyproject changes — not on every code edit.
 # Deps still come solely from pyproject (no hand-maintained requirements to drift).
 COPY pyproject.toml ./
-RUN mkdir -p auspex/routes \
-    && touch auspex/__init__.py auspex/routes/__init__.py server.py \
+# Skeleton must satisfy every declared package/package-data in pyproject so the
+# metadata build succeeds with no real source present (deps-only layer).
+RUN mkdir -p auspex/routes auspex/agent auspex/static \
+    && touch auspex/__init__.py auspex/routes/__init__.py auspex/agent/__init__.py \
+             auspex/static/placeholder.html server.py \
     && pip install --no-cache-dir . \
     && rm -rf auspex server.py
 
