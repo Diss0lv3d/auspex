@@ -13,6 +13,12 @@ import time
 from auspex.llm.client import ChatResult, LLMClient, LLMError, accumulate_stream
 from auspex.llm.scorecard import CapabilityScorecard
 
+# Generous cap on every probe: thinking models spend hundreds of `reasoning`
+# tokens before any content/tool call — a tight cap silently zeroes their
+# capabilities (learned from the qwen3:14b run). Non-thinking models stop
+# naturally long before this. Throughput keeps its own fixed budget.
+_PROBE_MAX_TOKENS = 2000
+
 _PROBE_TOOL = {
     "type": "function",
     "function": {
@@ -104,8 +110,8 @@ async def probe_capabilities(
     # basic chat sanity (also warms the model for the timing probe)
     basic = await attempt(
         "basic_chat",
-        client.chat([{"role": "user", "content": "Reply with exactly: pong"}], max_tokens=20,
-                    temperature=0),
+        client.chat([{"role": "user", "content": "Reply with exactly: pong"}],
+                    max_tokens=_PROBE_MAX_TOKENS, temperature=0),
     )
     if basic is None:
         sc.notes.append("basic chat failed — endpoint reachable but not usable")
@@ -115,7 +121,8 @@ async def probe_capabilities(
     tool_messages = [{"role": "user", "content": "What's the weather in Riyadh in celsius?"}]
     result = await attempt(
         "native_tools",
-        client.chat(tool_messages, tools=[_PROBE_TOOL], max_tokens=200, temperature=0),
+        client.chat(tool_messages, tools=[_PROBE_TOOL],
+                    max_tokens=_PROBE_MAX_TOKENS, temperature=0),
     )
     if result and result.tool_calls:
         call = result.tool_calls[0]
@@ -131,7 +138,7 @@ async def probe_capabilities(
             [{"role": "user", "content": "Check the weather in Riyadh (celsius) AND look up"
                                          " the IP 8.8.8.8. Do both now."}],
             tools=[_PROBE_TOOL, _PROBE_TOOL_2],
-            max_tokens=300,
+            max_tokens=_PROBE_MAX_TOKENS,
             temperature=0,
         ),
     )
@@ -144,7 +151,7 @@ async def probe_capabilities(
             tool_messages,
             tools=[_PROBE_TOOL],
             tool_choice={"type": "function", "function": {"name": "get_weather"}},
-            max_tokens=200,
+            max_tokens=_PROBE_MAX_TOKENS,
             temperature=0,
         ),
     )
@@ -154,7 +161,7 @@ async def probe_capabilities(
     result = await attempt(
         "tool_choice_required",
         client.chat(tool_messages, tools=[_PROBE_TOOL], tool_choice="required",
-                    max_tokens=200, temperature=0),
+                    max_tokens=_PROBE_MAX_TOKENS, temperature=0),
     )
     sc.tool_choice_required = bool(result and result.tool_calls)
 
@@ -185,7 +192,7 @@ async def probe_capabilities(
                 },
             ],
             tools=[_PROBE_TOOL],
-            max_tokens=100,
+            max_tokens=_PROBE_MAX_TOKENS,
             temperature=0,
         ),
     )
@@ -195,7 +202,7 @@ async def probe_capabilities(
     try:
         stream = client.chat_stream(
             [{"role": "user", "content": "Count from 1 to 5, digits only."}],
-            max_tokens=40,
+            max_tokens=_PROBE_MAX_TOKENS,
             temperature=0,
         )
         folded = await accumulate_stream(stream)
@@ -206,8 +213,8 @@ async def probe_capabilities(
 
     # streaming tool-call deltas
     try:
-        stream = client.chat_stream(tool_messages, tools=[_PROBE_TOOL], max_tokens=200,
-                                    temperature=0)
+        stream = client.chat_stream(tool_messages, tools=[_PROBE_TOOL],
+                                    max_tokens=_PROBE_MAX_TOKENS, temperature=0)
         folded = await accumulate_stream(stream)
         sc.streaming_tool_deltas = bool(
             folded.tool_calls and folded.tool_calls[0].name == "get_weather"
@@ -222,7 +229,7 @@ async def probe_capabilities(
             [{"role": "user", "content": "Give me a JSON object with keys name (string) and"
                                          " age (int) for a fictional analyst."}],
             response_format={"type": "json_object"},
-            max_tokens=100,
+            max_tokens=_PROBE_MAX_TOKENS,
             temperature=0,
         ),
     )
@@ -241,7 +248,7 @@ async def probe_capabilities(
             client.chat(
                 [{"role": "user", "content": prompt}],
                 response_format=_VERDICT_SCHEMA,
-                max_tokens=150,
+                max_tokens=_PROBE_MAX_TOKENS,
                 temperature=0,
             ),
         )
