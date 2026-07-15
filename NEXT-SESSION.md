@@ -1,62 +1,70 @@
 # NEXT-SESSION — paste everything below the line into a fresh Claude Code window opened in /home/burhan/auspex-new
 
-_(The D-013 Northflank validation run is DONE — 2026-07-16, Scout scored
-native_tools; see STATE.md. No standing follow-ups remain.)_
+_(Standing follow-up carried from S3: the container can't reach host Ollama
+until a one-time HOST command runs — `sudo snap set ollama host=0.0.0.0 &&
+sudo snap restart ollama.listener`. Not needed for S4's core (the shortcut path
+is LLM-free) or CI. If you've run it, S4 step 0 closes it; otherwise it stays
+parked. Detail: docs/probes/2026-07-16-server-to-ollama-networking.md.)_
 
 ---
 
-SESSION S3 of Auspex. Working dir must be /home/burhan/auspex-new — run
-`/session-start S3` first (it does the full ritual, including the dev-LLM
-gate: local Ollama + `qwen3:14b` per D-013). Any mismatch → STOP and tell me.
+SESSION S4 of Auspex. Working dir must be /home/burhan/auspex-new — run
+`/session-start S4` first (full ritual, incl. the D-013 dev-LLM gate: local
+Ollama + `qwen3:14b`). Any mismatch → STOP and tell me. Note: S4's shortcut
+path uses NO LLM; the gate matters only for the deep-path stub + any optional
+live check.
 
-Goal (scope-locked, from ROADMAP.md S3 — Agent loop v1 + chat SSE).
-**Must-ship core: steps 0–3 with their tests. Stretch: steps 4–5** (the
-prompted-tools fallback inside step 1 may also be a stub if time is short).
-Tests ship WITH each step, not as a trailing phase (CLAUDE.md rule 8).
+Goal (scope-locked, from ROADMAP.md S4 — Fast classifier / 92-8 split).
+The 92/8 principle (SARA pattern): ~92% of queries take a deterministic,
+CODE-OWNED fast path with NO LLM; only the ~8% deep path reaches the agent
+loop. Code picks the path, never a prompt (ADR: code over prompts). Tests ship
+WITH each step (CLAUDE.md rule 8), not as a trailing phase.
 
-0. **Unblock server→LLM networking FIRST** (known blocker, STATE.md #5):
-   `host.docker.internal` host-gateway wiring in docker-compose.yml, then
-   prove the app container can reach the host Ollama before building
-   anything (one curl from inside the container).
-1. **ReACT agent loop v1** (`auspex/agent/`): drive `LLMClient` in a tool-use
-   loop. `load_latest_scorecard` already returns `(scorecard, mode)` — use
-   that persisted mode, do NOT re-derive it via `decide_agent_mode` (thresholds
-   may drift from what was ratified at probe time). Native tools primary;
-   prompted `<tool_call>` fallback behind the same interface (stub OK).
-   Ships with: loop unit tests against a FAKE client (no live LLM in pytest).
-2. **Tool registry** with read/write/destructive levels — reuse the envelope
-   builder `tool_spec()` (auspex/llm/client.py) for specs; SARA pattern
-   reference: /home/burhan/sara-open/sara/core/permissions.py:65-176 (reuse
-   the pattern, not the code). Ships with: registry level tests.
-3. **Permission gate skeleton (D-014)**: write-actions create proposal records
-   instead of executing; an action is "done" ONLY when its tool call actually
-   executed — model-asserted completion text is never treated as execution.
-   Ships with: proposals schema test + the D-014 pinned regression fixture
-   (the exact fabricated "ticket created" answer from
-   docs/probes/harness-run-llama3-1-8b.json, task C206).
-4. _(stretch)_ **SSE chat endpoint** (`/api/chat`): single-key JSON event
-   protocol with a `reasoning` event type (thinking models emit a separate
-   `reasoning` field in stream deltas — see probe doc + client fixtures);
-   auth via existing `resolve_user`; persist to chat_sessions/messages.
-   Ships with: SSE endpoint test.
-5. _(stretch)_ **Minimal UI shell** (dark-first, CLAUDE.md palette; the engine
-   is never named in user-visible strings).
-6. `/session-end` (it carries STATE.md standing follow-ups forward).
+**Must-ship core: steps 1–3 with their tests. Stretch: step 4.**
 
-S2 design inputs (canonical: STATE.md "S3 design inputs" + the probe doc
-docs/probes/2026-07-15-ollama-endpoint.md — the list below is a reminder,
-not the source):
-- Tool args carry observable IDs, never raw 64-char strings (all three
-  models tested mangled long hashes — 8B, 14B, and Scout).
-- Conversational turns get no tools; the loop API takes `tools=None` cleanly.
-- Thinking models: budget ≥2000 tokens/turn (import PROBE_MAX_TOKENS), expect
-  ~10× wall clock; content stays clean, reasoning rides its own field.
-- Loop step cap: harness used `Task.max_steps = 8` (scripts/harness_tasks.py);
-  pick the loop's cap consciously, not by copying.
+1. **IOC regex patterns, defang-aware** (`auspex/classify/` or similar): extract
+   + normalize IPv4/IPv6, domains, URLs, SHA-256/-1/MD5, emails, CVE IDs.
+   Defang-aware on input (`hxxp`, `[.]`, `(.)`, `[at]`, trailing-dot) → canonical
+   form out. Pure functions. Ships with: extraction/normalization unit tests
+   incl. defanged inputs. (Design input from S3 harness: downstream tool args
+   will carry short observable IDs, NOT raw 64-char strings — keep normalized
+   observables addressable by a short id when you design their shape; parked in
+   IDEAS.md.)
+2. **Query classifier** (code-owned): map a user query to a category —
+   greeting / identity / ioc_check / cve_lookup / definition / deep. Deterministic
+   (regex + keyword + format signals; format beats keywords). Ships with:
+   classifier tests pinning each category + ambiguous-case tiebreaks.
+3. **Shortcut handlers** (NO LLM on this path): greeting + identity = static
+   on-brand copy (engine never named); ioc_check = extract + normalize + echo
+   the observables (enrichment is S5 — do NOT call providers); cve_lookup +
+   definition = stub/deferred cleanly (KB is S6) — return a clear "deep path
+   needed" or a tiny curated static answer, your call, but NO LLM and NO network.
+   Ships with: handler tests (esp. that the shortcut path makes zero LLM/network
+   calls).
+4. _(stretch)_ **Deep-path wiring**: route classifier `deep` verdicts into the
+   existing SSE `/api/chat` (currently always-LLM, conversational). Shortcut
+   categories answer without touching the LLM; only `deep` streams from the
+   model. Keep the single-key SSE protocol. Ships with: a test that a greeting
+   returns a shortcut answer with no LLM client call, and a deep query does hit
+   the (fake) client.
+
+Design inputs / reality already in the repo (cite, don't re-derive):
+- The agent loop (`auspex/agent/loop.py`) takes `tools=None` cleanly and has a
+  plan_only/conversational mode — the deep path plugs into it later (S9 modes).
+- SSE endpoint + client reasoning field already exist (S3). The classifier sits
+  in FRONT of the LLM call in `/api/chat` for step 4.
+- SARA 92/8 + fast-classifier reference (reuse the PATTERN, not the code):
+  study `/home/burhan/sara-open` (the fast-path/shortcut handlers); snapshot any
+  external behavior to docs/probes/ before coding against it.
 
 Constraints:
 - Dev endpoint is local Ollama + qwen3:14b (D-013); live LLM calls outside
-  pytest only — CI stays hermetic on the saved fixtures.
+  pytest only — CI stays hermetic. The S4 shortcut path must be LLM-free AND
+  network-free (assert it in tests).
 - No OpenSearch index creation (S6). No enrichment providers (S5).
-- Reality over memory: any new endpoint behavior → probe file first.
+- Reality over memory: any new external behavior → probe file first.
 - New ideas → IDEAS.md, one line, move on.
+- End with `/session-end`; if S4 hits a demoable milestone, consider `/promote`
+  (staging → main). `main` has NOT been promoted since before S3 — S3 is a full
+  demoable milestone (agent loop + chat + UI), so an S3 `/promote` is also
+  reasonable to do first.

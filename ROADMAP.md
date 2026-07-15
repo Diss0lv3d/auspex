@@ -22,10 +22,14 @@ may not grow mid-session (IDEAS.md exists for that).
   endpoint. Harness: 30–50 scripted multi-step tool tasks against the Northflank
   endpoint; measure valid-call rate + loop completion. Save results to
   docs/probes/. **Go/no-go data decides how hard we lean on ReACT vs plan-only.**
-- [ ] **S3 — Agent loop v1 + chat SSE.** ReACT loop (native tools primary,
+- [x] **S3 — Agent loop v1 + chat SSE.** ReACT loop (native tools primary,
   prompted `<tool_call>` fallback chosen by scorecard), tool registry with
   read/write/destructive levels, permission gate skeleton, SSE chat endpoint
   (single-key JSON event protocol), minimal functional UI shell.
+  _(Done 2026-07-16: `auspex/agent/{registry,permissions,loop}.py`,
+  `auspex/routes/{chat,ui}.py`; D-014 gate + proposals; 79 tests;
+  live-verified vs qwen3:14b. Step 0 networking repo-half done, host-bind
+  pending — STATE.md Blocker #1.)_
 
 ## Phase 1 — Intelligence core
 
