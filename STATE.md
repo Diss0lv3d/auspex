@@ -57,18 +57,20 @@ _Last updated: 2026-07-15 (S2 complete against interim endpoint; next is S3)_
   (work SSH key). Default branch `main`.
 
 ## In-flight
-- Nothing mid-code. One standing follow-up (NOT blocking, D-013): when Burhan
-  signals Northflank is back, run
-  `.venv/bin/python scripts/llm_harness.py` against it (LLM values in
-  `.env.bak-northflank`) → Scout scorecard row + probe-doc note. Validation
-  of the capability-negotiated runtime on a second real endpoint.
+- Nothing. The D-013 Northflank validation run is DONE (2026-07-16): Scout
+  scored **100 % valid calls / 77.5 % completion → native_tools** (row
+  `153e221a-…`; probe-doc note in 2026-07-14-llm-endpoint.md). Real vLLM
+  fragmented-stream fixtures captured to `tests/fixtures/llm/northflank/`
+  and pinned by a client regression test (47 tests total).
 
 ## Blockers / open risks
-1. **~~Llama-4-Scout quality unproven~~ RESOLVED BY D-013** — the #1
-   existential risk is closed: we build against qwen3:14b (native_tools,
-   87.5 % completion, measured). Scout becomes a validation data point.
-2. **Northflank endpoint still down** — backup only now. Human step when
-   convenient: restart in Northflank UI or fresh `northflank login`.
+1. **~~Llama-4-Scout quality unproven~~ RESOLVED — now MEASURED (2026-07-16)**:
+   Scout scores native_tools on the real endpoint (100 % valid / 77.5 %
+   completion / 90 tok/s). The capability-negotiated runtime has scorecard
+   rows for three real endpoints (weak 8B / strong-slow 14B-thinking /
+   fast-good Scout).
+2. **~~Northflank down~~ RESTORED (2026-07-16)** — remains backup/validation
+   per D-013; dev work stays on local qwen3:14b.
 3. **Embeddings approach unmeasured** — probe in S6 (decided).
 4. **TD-001 (OAuth identity keyed on email)** — before any GOOGLE_CLIENT_ID.
 5. Compose app can't reach `localhost:11434` (host Ollama) from inside the

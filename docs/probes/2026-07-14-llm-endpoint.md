@@ -50,6 +50,38 @@ CLI tokens on this host are expired). Before resuming S2, verify:
 curl -s -o /dev/null -w '%{http_code}' "$LLM_BASE_URL/v1/models"   # must be 200
 ```
 
+## 2026-07-16 — endpoint restored; validation run complete (D-013 follow-up)
+
+Burhan restarted the service; `/v1/models` 200, `max_model_len` 100000.
+Wire-shape fixtures captured to `tests/fixtures/llm/northflank/` — vLLM
+streams tool-call arguments FRAGMENTED across ~9 deltas with `id: null`
+continuations (the style the client's accumulator was built for; now pinned
+by a regression test against the real capture). Full battery + 40-task
+harness (`harness-run-nvidia-Llama-4-Scout-17B-16E-Instruct-FP8.json`,
+scorecard row `153e221a-…`, workspace `dev`):
+
+| Metric | llama3.1:8b | qwen3:14b | **Scout (this endpoint)** |
+|---|---|---|---|
+| valid-call rate | 98.7 % | 100 % | **100 % (98 calls)** |
+| loop-completion | 52.5 % | 87.5 % | **77.5 %** |
+| no-tool restraint | 0/4 | 4/4 | **4/4** |
+| schema adherence | 10/10 | 5/5 | **5/5** |
+| tok/s / wall (40 tasks) | 61 / 88 s | 33 / 943 s | **90.5 / 84 s** |
+| **agent mode** | prompted_tools | native_tools | **native_tools** |
+
+**The S2 existential question is answered: Scout does native multi-step
+tool-calling above the bar (native_tools).** qwen3:14b still completes more
+(87.5 %) but at ~11× the wall clock; Scout is the fastest of the three.
+
+Scout's 9 failures: 5× long-string arg fidelity (the 64-char-hash failure now
+reproduced across THREE model families — it even ADDED characters once;
+observable-ID tool design is conclusively mandatory), 2× evidence threading,
+and a NEW mode: 3 tasks emitted pseudo-code tool plans as plain text
+(`[get_alert(...), get_asset(hostname=get_alert(...).observables[0].value)]`,
+`{{template}}` placeholders) instead of native calls — the loop correctly
+scored these as no-calls. S3 note: a cheap "final answer looks like a tool
+plan" detector could retry such turns (parked in IDEAS.md).
+
 ## What our code must therefore do (from this probe so far)
 
 1. Error bodies are not always JSON (Finding 0) — parse defensively, branch on

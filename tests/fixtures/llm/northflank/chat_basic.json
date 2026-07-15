@@ -1,0 +1,38 @@
+{
+  "id": "chatcmpl-eccdd1fc-306c-4676-bde9-2b2c2274e383",
+  "object": "chat.completion",
+  "created": 1784141864,
+  "model": "nvidia/Llama-4-Scout-17B-16E-Instruct-FP8",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "ping \npong",
+        "refusal": null,
+        "annotations": null,
+        "audio": null,
+        "function_call": null,
+        "reasoning": null
+      },
+      "logprobs": null,
+      "finish_reason": "stop",
+      "stop_reason": null,
+      "token_ids": null,
+      "routed_experts": null
+    }
+  ],
+  "service_tier": null,
+  "system_fingerprint": "vllm-0.25.1-tp2-171d5d11",
+  "usage": {
+    "prompt_tokens": 15,
+    "total_tokens": 19,
+    "completion_tokens": 4,
+    "prompt_tokens_details": null
+  },
+  "prompt_logprobs": null,
+  "prompt_token_ids": null,
+  "prompt_text": null,
+  "kv_transfer_params": null,
+  "metrics": null
+}

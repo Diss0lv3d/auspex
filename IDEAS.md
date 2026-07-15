@@ -9,3 +9,4 @@
   (S1); only the product surface to reach it is missing. (Raised in S1 review.)
 - Scorecard mode ladder conflates call *syntax* with task *competence* (llama3.1:8b: 98.7% valid calls, 52.5% completion → demoted to prompted_tools, which wouldn't fix reasoning failures). Consider separate thresholds: native calls + tighter orchestration (plan check, forced result citation) as a fourth mode. Evidence: docs/probes/2026-07-15-ollama-endpoint.md.
 - Harness: pass observable IDs (not raw 64-char hashes) in tool args — small models truncate long strings in arguments. S3 tool-design input.
+- Agent loop: detect "final answer is actually a pseudo-code tool plan" (Scout emitted `[get_alert(...), ...]` / `{{templates}}` as text on 3/40 tasks instead of native calls) and retry the turn once with a corrective nudge. Evidence: docs/probes/2026-07-14-llm-endpoint.md (2026-07-16 section).
