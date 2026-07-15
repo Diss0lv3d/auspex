@@ -5,10 +5,11 @@ message list it was called with each turn, so tests can assert what got fed
 back. `InMemoryProposalStore` captures gated proposals without Postgres.
 """
 
+from collections.abc import AsyncIterator
 from typing import Any
 
 from auspex.agent.permissions import ProposalStore
-from auspex.llm.client import ChatResult
+from auspex.llm.client import ChatResult, LLMError, StreamEvent
 
 
 class FakeLLMClient:
@@ -30,6 +31,27 @@ class FakeLLMClient:
 
     def last_messages(self) -> list[dict]:
         return self.calls[-1]["messages"]
+
+
+class StreamingFakeLLMClient:
+    """Duck-typed LLMClient for the SSE endpoint: `chat_stream` replays scripted
+    StreamEvents; set `raise_error` to simulate an endpoint failure mid-stream."""
+
+    def __init__(self, events: list[StreamEvent], *, raise_error: LLMError | None = None):
+        self._events = list(events)
+        self._raise_error = raise_error
+        self.closed = False
+        self.stream_calls: list[dict[str, Any]] = []
+
+    async def chat_stream(self, messages: list[dict], **kwargs: Any) -> AsyncIterator[StreamEvent]:
+        self.stream_calls.append({"messages": [dict(m) for m in messages], "kwargs": kwargs})
+        for event in self._events:
+            yield event
+        if self._raise_error is not None:
+            raise self._raise_error
+
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 class InMemoryProposalStore(ProposalStore):

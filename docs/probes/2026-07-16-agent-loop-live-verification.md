@@ -1,4 +1,4 @@
-# Verification: agent loop v1 driving real qwen3:14b (S3)
+# Verification: S3 agent loop + SSE chat, driving real qwen3:14b
 
 - **Date:** 2026-07-16 (S3)
 - **Endpoint:** local Ollama `http://localhost:11434`, `qwen3:14b` (native_tools).
@@ -41,3 +41,23 @@ final answer:
 - Contrast: this is the C206 task where `llama3.1:8b` claimed "a ticket has
   been opened" with no tool call (docs/probes/harness-run-llama3-1-8b.json).
   The gate makes the outcome correct regardless of model honesty.
+
+## SSE `/api/chat` live drive (step 4)
+
+Host-run `TestClient(create_app())` against the same endpoint; POST
+`/api/chat {"message": "In one short sentence, what is an IOC?"}`.
+
+```
+HTTP 200 | content-type: text/event-stream; charset=utf-8
+frame kinds: ['session', 'reasoning', 'reasoning', ..., 'done']
+has reasoning event: True | reasoning chars: 1139
+content: "An IOC (Indicator of Compromise) is a piece of evidence that suggests a
+          potential security breach or malicious activity within a system or network."
+done: {'finish_reason': 'stop', 'usage': {'prompt_tokens': 61,
+        'completion_tokens': 279, 'total_tokens': 340}}
+```
+
+Verdict: PASS. Single-key event protocol holds end-to-end — `session` first,
+`reasoning` deltas stream on their own field (1139 chars, never polluting
+`content`), a clean `content` answer, and a terminal `done` with usage. Proves
+the thinking-model `reasoning` field flows probe→client→endpoint→wire.
