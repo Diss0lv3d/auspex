@@ -12,4 +12,9 @@ import os
 def pin_host_defaults() -> None:
     os.environ.setdefault("DATABASE_URL", "postgresql://auspex:auspex@localhost:55432/auspex")
     os.environ.setdefault("OPENSEARCH_URL", "http://localhost:9200")
+    # The container reaches the host Ollama via host.docker.internal (see
+    # docker-compose.yml + .env); from the host that alias may not resolve, so
+    # host-run scripts/pytest use localhost. setdefault keeps an explicit env
+    # override (e.g. a different endpoint) winning.
+    os.environ.setdefault("LLM_BASE_URL", "http://localhost:11434")
     os.environ.setdefault("APP_ENV", "dev")
