@@ -67,14 +67,16 @@ class ChatResult:
     tool_calls: list[ToolCall] = field(default_factory=list)
     finish_reason: str | None = None
     usage: Usage | None = None
+    reasoning: str = ""  # thinking models: separate from content (probe 2026-07-15)
 
 
 @dataclass
 class StreamEvent:
-    """One parsed streaming delta. kind: 'content' | 'tool_call' | 'finish' | 'usage'."""
+    """One parsed streaming delta.
+    kind: 'content' | 'reasoning' | 'tool_call' | 'finish' | 'usage'."""
 
     kind: str
-    text: str = ""  # kind == 'content'
+    text: str = ""  # kind == 'content' or 'reasoning'
     tool_index: int = 0  # kind == 'tool_call'
     tool_delta: dict[str, Any] | None = None  # kind == 'tool_call': raw tool_calls[] entry
     finish_reason: str | None = None  # kind == 'finish'
@@ -212,6 +214,7 @@ class LLMClient:
             tool_calls=tool_calls,
             finish_reason=choices[0].get("finish_reason") if choices else None,
             usage=_usage_from(data),
+            reasoning=message.get("reasoning") or "",  # thinking models only
         )
 
     # -- streaming ---------------------------------------------------------
@@ -280,6 +283,8 @@ def parse_sse_line(line: str) -> list[StreamEvent]:
         delta = choices[0].get("delta") or {}
         if delta.get("content"):
             events.append(StreamEvent(kind="content", text=delta["content"]))
+        if delta.get("reasoning"):  # thinking models stream reasoning on its own field
+            events.append(StreamEvent(kind="reasoning", text=delta["reasoning"]))
         for tc in delta.get("tool_calls") or []:
             events.append(
                 StreamEvent(kind="tool_call", tool_index=tc.get("index", 0), tool_delta=tc)
@@ -304,6 +309,8 @@ async def accumulate_stream(events: AsyncIterator[StreamEvent]) -> ChatResult:
     async for event in events:
         if event.kind == "content":
             result.content += event.text
+        elif event.kind == "reasoning":
+            result.reasoning += event.text
         elif event.kind == "tool_call":
             tc_delta = event.tool_delta or {}
             call = calls.setdefault(event.tool_index, ToolCall())
