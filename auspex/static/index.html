@@ -31,12 +31,13 @@
     .tag { color: var(--slate); font-size: 13px; }
     .spacer { flex: 1; }
     .auth { display: flex; gap: 8px; align-items: center; }
-    input, button {
+    input, button, select {
       font-family: var(--body); font-size: 14px; border-radius: 8px;
       border: 1px solid #232d3d; background: var(--surface); color: var(--text);
       padding: 9px 12px; outline: none;
     }
-    input:focus { border-color: var(--steel); }
+    input:focus, select:focus { border-color: var(--steel); }
+    select[hidden] { display: none; }
     button {
       background: var(--aurora); color: #04120c; border: none;
       font-weight: 600; cursor: pointer;
@@ -70,6 +71,7 @@
     <span class="tag">the flock sees first</span>
     <span class="spacer"></span>
     <div class="auth">
+      <select id="endpoint" hidden aria-label="Endpoint"></select>
       <input id="email" type="email" placeholder="you@analyst.dev" autocomplete="off" />
       <button id="signin" class="ghost">Sign in</button>
       <span id="status">not signed in</span>
@@ -111,7 +113,26 @@
         token = (await r.json()).access_token;
         setStatus("signed in", "ok");
         $("prompt").disabled = false; $("send").disabled = false; $("prompt").focus();
+        loadEndpoints();
       } catch (e) { setStatus("network error", "err"); }
+    }
+
+    async function loadEndpoints() {
+      // Internal switcher: only appears when the server offers >1 endpoint.
+      try {
+        const r = await fetch("/api/models", { headers: { "Authorization": "Bearer " + token } });
+        if (!r.ok) return;
+        const { endpoints } = await r.json();
+        const sel = $("endpoint");
+        if (!endpoints || endpoints.length < 2) return;
+        sel.innerHTML = "";
+        for (const e of endpoints) {
+          const opt = document.createElement("option");
+          opt.value = e.id; opt.textContent = e.label;
+          sel.appendChild(opt);
+        }
+        sel.hidden = false;
+      } catch (e) { /* switcher is optional — ignore */ }
     }
 
     function addMsg(who, cls) {
@@ -128,7 +149,7 @@
       if (!d) {
         d = document.createElement("details");
         d.className = "think";
-        d.innerHTML = `<summary>Thinking…</summary><div class="r"></div>`;
+        d.innerHTML = `<summary>Co-Analyst is reasoning…</summary><div class="r"></div>`;
         wrap.appendChild(d);
       }
       return d.querySelector(".r");
@@ -158,10 +179,12 @@
       const wrap = addMsg("Co-analyst", "assistant");
       scroll();
       try {
+        const sel = $("endpoint");
+        const endpointId = sel.hidden ? undefined : sel.value;
         const r = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
-          body: JSON.stringify({ message: text, session_id: sessionId }),
+          body: JSON.stringify({ message: text, session_id: sessionId, endpoint_id: endpointId }),
         });
         const reader = r.body.getReader();
         const dec = new TextDecoder();

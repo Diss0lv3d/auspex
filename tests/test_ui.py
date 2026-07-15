@@ -17,6 +17,15 @@ def test_index_served_dark_first_and_on_brand(client):
     assert "#4FF2C0" in body
 
 
+def test_index_has_hidden_switcher_scaffolding(client):
+    """The model switcher ships hidden with NO options in static HTML (populated
+    only from /api/models when the server offers >1 endpoint)."""
+    body = client.get("/").text
+    assert 'id="endpoint"' in body and "hidden" in body
+    assert "/api/models" in body  # populated after sign-in
+    assert "<option" not in body  # no engine names baked into the static page
+
+
 def test_index_never_names_the_engine(client):
     body = client.get("/").text.lower()
     for name in FORBIDDEN_ENGINE_NAMES:
