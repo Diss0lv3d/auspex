@@ -82,3 +82,14 @@ can't reach localhost:11434 without host-gateway wiring — S3 concern, noted).
 `qwen3:14b` after the S2 harness comparison (52.5 % vs 87.5 % loop completion,
 native_tools verdict; docs/probes/2026-07-15-ollama-endpoint.md). 8B stays
 pulled as the "weak endpoint" test case for the scorecard-driven mode ladder.
+
+**D-013 (2026-07-15) — qwen3:14b is the primary dev LLM; Northflank demoted to backup.**
+Burhan's call after the S2 comparison (100 % valid calls, 87.5 % loop
+completion, native_tools verdict vs 8B's 52.5 %/prompted_tools — see
+docs/probes/2026-07-15-ollama-endpoint.md). All building from S3 onward
+targets local Ollama + qwen3:14b. The Northflank vLLM (Llama-4-Scout) is a
+BACKUP/validation endpoint: when Burhan signals it's back up, re-run
+`scripts/llm_harness.py` against it for a second scorecard row — its numbers
+validate the capability-negotiated runtime against a second real endpoint,
+they no longer gate anything. Product framing unchanged (D-005): customers
+bring their own endpoint; the runtime compiles to the per-endpoint scorecard.
