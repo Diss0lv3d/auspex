@@ -120,3 +120,25 @@ from host and container, so `auspex.devhost` no longer pins `LLM_BASE_URL`
 (.env is the single source of truth; DB/OpenSearch pins remain). The
 session-start local-Ollama gate now validates the *secondary*. Product framing
 unchanged (D-005): customers still bring their own endpoint.
+
+**D-016 (2026-07-16) — Reasoning UX: universal two-pass fallback (customer-facing)
++ internal-only model switcher.** Two parts:
+(1) *Universal reasoning (all environments, customer-facing).* A visible
+"thinking" trace is a product selling point, produced by the platform itself
+regardless of the endpoint. If the resolved endpoint emits native `reasoning`
+(measured — new `native_reasoning` scorecard field, set from the basic probe) it
+is streamed; otherwise a **two-pass** fallback runs — pass 1 a brief analyst
+reasoning streamed to the Thinking pane, pass 2 the answer. Presented as the
+platform reasoning; never names the model, never says "unsupported". Both passes
+use the customer's own endpoint, so **D-005 holds** (we never pay for inference).
+Safe default is two-pass (correct for any endpoint). Prompt shape probe-verified
+on real Scout (docs/probes/2026-07-16-two-pass-scout.md). Reasoning stays
+ephemeral (never persisted).
+(2) *Model switcher is INTERNAL/dev-only.* Per the standing org policy that
+multi-LLM / bring-your-own-LLM is internal infrastructure — not a marketed
+customer feature — the switcher (`/api/models` + `endpoint_id` + dev-endpoint
+registry) is honored only when `APP_ENV=dev`: `/api/models` 404s in prod,
+`endpoint_id` is ignored in prod, the registry is `{}` in prod. This org policy
+overrides the user's request to expose it to customers; it is distinct from
+D-005 (which the user waived). Registry keys are referenced by env-var name,
+never inlined and never sent to the browser; UI labels are brand-safe.
