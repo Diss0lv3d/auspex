@@ -59,6 +59,24 @@ real native tool calls; read executes; **write is PROPOSED, not executed**
 (`performed()==False`) — D-014 holds against a real model. SSE endpoint streams
 `reasoning`→`content`→`done` correctly.
 
+## Post-S3 additions (2026-07-16, on staging — ahead of the S4 plan)
+- **D-015:** primary dev LLM switched to Llama-4-Scout (Northflank); qwen3:14b
+  secondary/offline (see LLM line above).
+- **D-016 — universal reasoning + internal model switcher** (customer-directed):
+  - *Reasoning UX (customer-facing):* chat shows a "thinking" trace on ANY
+    endpoint. Native-reasoning endpoints stream it; others get a **two-pass**
+    fallback (brief analyst pre-pass → Thinking pane, then the answer). Presented
+    as the platform reasoning; D-005 intact (customer endpoint, both passes).
+    `native_reasoning` is a measured scorecard field. Probe-verified on Scout
+    (docs/probes/2026-07-16-two-pass-scout.md).
+  - *Model switcher (INTERNAL/dev-only):* `/api/models` + `endpoint_id` +
+    `auspex/llm/registry.py`, gated APP_ENV=dev (404/ignored/{} in prod) per the
+    org policy that multi-LLM stays internal — NOT customer-facing. Enabled
+    locally via gitignored `dev-endpoints.json` + `docker-compose.override.yml`.
+  - Live-verified through the container: Scout two-pass + qwen native via the
+    switch. Suite now 101 green; `./ci.sh` green. TD-002 logs the two-pass 2×-call
+    cost. Does NOT change the S4 scope in NEXT-SESSION.md.
+
 ## In-flight / standing follow-ups (carry forward until DONE)
 - Nothing. The Ollama host-bind follow-up is DONE (2026-07-16): Burhan restarted
   Ollama bound to `*:11434`; the container now reaches host Ollama and a real
