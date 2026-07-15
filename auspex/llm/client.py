@@ -27,9 +27,8 @@ from auspex.config import Settings
 class LLMError(Exception):
     """HTTP-level failure from the endpoint. Message is best-effort extracted."""
 
-    def __init__(self, status: int, message: str, body_text: str = ""):
+    def __init__(self, status: int, message: str):
         self.status = status
-        self.body_text = body_text
         super().__init__(f"LLM endpoint error {status}: {message}")
 
 
@@ -68,7 +67,6 @@ class ChatResult:
     tool_calls: list[ToolCall] = field(default_factory=list)
     finish_reason: str | None = None
     usage: Usage | None = None
-    raw: dict[str, Any] | None = None  # full body (non-streaming only)
 
 
 @dataclass
@@ -78,8 +76,21 @@ class StreamEvent:
     kind: str
     text: str = ""  # kind == 'content'
     tool_index: int = 0  # kind == 'tool_call'
+    tool_delta: dict[str, Any] | None = None  # kind == 'tool_call': raw tool_calls[] entry
     finish_reason: str | None = None  # kind == 'finish'
     usage: Usage | None = None  # kind == 'usage'
+
+
+def tool_spec(name: str, description: str, properties: dict, required: list[str]) -> dict:
+    """The OpenAI function-tool envelope — the only tool shape the wire accepts."""
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": description,
+            "parameters": {"type": "object", "properties": properties, "required": required},
+        },
+    }
 
 
 def _extract_error(status: int, content_type: str, text: str) -> LLMError:
@@ -91,7 +102,7 @@ def _extract_error(status: int, content_type: str, text: str) -> LLMError:
             message = str((envelope.get("error") or {}).get("message") or message)
         except ValueError:
             pass
-    return LLMError(status, message, body_text=text[:2000])
+    return LLMError(status, message)
 
 
 def _usage_from(chunk: dict[str, Any]) -> Usage | None:
@@ -180,7 +191,7 @@ class LLMClient:
         try:
             data = r.json()
         except ValueError as err:  # 200 with junk body — treat as endpoint fault
-            raise LLMError(r.status_code, "non-JSON success body", r.text[:2000]) from err
+            raise LLMError(r.status_code, f"non-JSON success body: {r.text[:200]}") from err
         return self.parse_completion(data)
 
     @staticmethod
@@ -201,7 +212,6 @@ class LLMClient:
             tool_calls=tool_calls,
             finish_reason=choices[0].get("finish_reason") if choices else None,
             usage=_usage_from(data),
-            raw=data,
         )
 
     # -- streaming ---------------------------------------------------------
@@ -272,12 +282,7 @@ def parse_sse_line(line: str) -> list[StreamEvent]:
             events.append(StreamEvent(kind="content", text=delta["content"]))
         for tc in delta.get("tool_calls") or []:
             events.append(
-                StreamEvent(
-                    kind="tool_call",
-                    tool_index=tc.get("index", 0),
-                    # stash the raw delta for the accumulator
-                    text=json.dumps(tc),
-                )
+                StreamEvent(kind="tool_call", tool_index=tc.get("index", 0), tool_delta=tc)
             )
         if choices[0].get("finish_reason"):
             events.append(StreamEvent(kind="finish", finish_reason=choices[0]["finish_reason"]))
@@ -300,7 +305,7 @@ async def accumulate_stream(events: AsyncIterator[StreamEvent]) -> ChatResult:
         if event.kind == "content":
             result.content += event.text
         elif event.kind == "tool_call":
-            tc_delta = json.loads(event.text)
+            tc_delta = event.tool_delta or {}
             call = calls.setdefault(event.tool_index, ToolCall())
             if tc_delta.get("id"):
                 call.id = tc_delta["id"]
