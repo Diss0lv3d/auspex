@@ -72,18 +72,47 @@ def _pass2_directive(analysis: str) -> str:
 
 @dataclass
 class ChatEndpoint:
-    """The endpoint a turn will run against + whether it reasons natively.
+    """The endpoint a turn will run against + whether it reasons natively."""
 
-    `client is None` means no endpoint is configured: shortcut turns still
-    answer (the 92% path is LLM-free); a DEEP turn 503s in the handler."""
-
-    client: LLMClient | None
+    client: LLMClient
     native_reasoning: bool
     id: str = "default"
 
 
+class ChatEndpointResolver:
+    """Lazy half of endpoint resolution. Cheap validation happens in the
+    dependency (unknown dev endpoint_id → 404); the expensive parts — the
+    scorecard read and the LLMClient (httpx) construction — happen in
+    `resolve()`, which only DEEP turns call. The 92% shortcut path never pays
+    for a client it would immediately close."""
+
+    def __init__(self, *, configured: bool, factory=None):
+        self.configured = configured
+        self._factory = factory  # async () -> ChatEndpoint; None ⇒ unconfigured
+
+    async def resolve(self) -> ChatEndpoint:
+        if self._factory is None:
+            raise HTTPException(status_code=503, detail="LLM endpoint not configured")
+        return await self._factory()
+
+    @classmethod
+    def fixed(cls, endpoint: ChatEndpoint) -> "ChatEndpointResolver":
+        """A resolver that always yields `endpoint` (the test seam's shape)."""
+
+        async def _factory() -> ChatEndpoint:
+            return endpoint
+
+        return cls(configured=True, factory=_factory)
+
+    @classmethod
+    def unconfigured(cls) -> "ChatEndpointResolver":
+        return cls(configured=False)
+
+
 class ChatBody(BaseModel):
-    message: str = Field(min_length=1)
+    # max_length bounds the synchronous classify/extract pass (and storage) —
+    # the handler runs regex extraction over this text inside the event loop.
+    message: str = Field(min_length=1, max_length=32_000)
     session_id: UUID | None = None
     endpoint_id: str | None = None  # dev-only model switch; ignored in prod
 
@@ -128,9 +157,12 @@ async def _default_native_reasoning(request: Request, auth: AuthContext) -> bool
     return bool(loaded and loaded[0].native_reasoning)
 
 
-async def get_chat_endpoint(request: Request, auth: Auth) -> ChatEndpoint:
-    """Resolve the endpoint for this turn (the overridable test seam). A dev-only
-    `endpoint_id` selects a registry endpoint; otherwise the configured default."""
+async def get_endpoint_resolver(request: Request, auth: Auth) -> ChatEndpointResolver:
+    """Decide which endpoint this turn WOULD use (the overridable test seam).
+    A dev-only `endpoint_id` selects a registry endpoint (unknown id → 404,
+    even on shortcut turns — bad params fail fast); otherwise the configured
+    default. Unconfigured is not an error yet: shortcut turns never need a
+    model, so the 503 fires only when a DEEP turn calls resolve()."""
     settings = _settings(request)
     body = await request.json()
     endpoint_id = body.get("endpoint_id") if isinstance(body, dict) else None
@@ -138,13 +170,38 @@ async def get_chat_endpoint(request: Request, auth: Auth) -> ChatEndpoint:
         request.app.state.dev_llm_registry, settings.app_env, endpoint_id
     )
     if selected is not None:
-        return ChatEndpoint(selected.build_client(), selected.native_reasoning, selected.id)
+        entry = selected
+
+        async def _dev_factory() -> ChatEndpoint:
+            return ChatEndpoint(entry.build_client(), entry.native_reasoning, entry.id)
+
+        return ChatEndpointResolver(configured=True, factory=_dev_factory)
     if not settings.llm_base_url:
-        # Unconfigured is not an error yet — shortcut turns never need a model.
-        # The handler 503s only when a DEEP turn actually asks for one.
-        return ChatEndpoint(None, False, "default")
-    native = await _default_native_reasoning(request, auth)
-    return ChatEndpoint(LLMClient.from_settings(settings), native, "default")
+        return ChatEndpointResolver.unconfigured()
+
+    async def _default_factory() -> ChatEndpoint:
+        native = await _default_native_reasoning(request, auth)
+        return ChatEndpoint(LLMClient.from_settings(settings), native, "default")
+
+    return ChatEndpointResolver(configured=True, factory=_default_factory)
+
+
+async def _insert_message(
+    pool: asyncpg.Pool, auth: AuthContext, session_id: UUID, role: str, content: str
+) -> None:
+    await pool.execute(
+        "INSERT INTO messages (workspace_id, session_id, role, content)"
+        " VALUES ($1, $2, $3, $4)",
+        auth.workspace_id, session_id, role, content,
+    )
+
+
+def _sse_response(stream) -> StreamingResponse:
+    return StreamingResponse(
+        stream,
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 async def _ensure_session(
@@ -209,43 +266,31 @@ async def chat(
     request: Request,
     body: ChatBody,
     auth: Auth,
-    endpoint: Annotated[ChatEndpoint, Depends(get_chat_endpoint)],
+    resolver: Annotated[ChatEndpointResolver, Depends(get_endpoint_resolver)],
 ) -> StreamingResponse:
     pool: asyncpg.Pool = request.app.state.pool
     # 92/8 gate (S4): code picks the path before the model is ever touched.
     shortcut = shortcut_answer(classify(body.message))
-    if shortcut is None and endpoint.client is None:
+    if shortcut is None and not resolver.configured:
         raise HTTPException(status_code=503, detail="LLM endpoint not configured")
     session_id = await _ensure_session(pool, auth, body.session_id)
-    await pool.execute(
-        "INSERT INTO messages (workspace_id, session_id, role, content)"
-        " VALUES ($1, $2, 'user', $3)",
-        auth.workspace_id, session_id, body.message,
-    )
+    await _insert_message(pool, auth, session_id, "user", body.message)
 
     if shortcut is not None:
-        # Shortcut path: deterministic answer, zero LLM calls. The client built
-        # by the dependency (if any) is never used — release it.
-        if endpoint.client is not None:
-            await endpoint.client.aclose()
-        await pool.execute(
-            "INSERT INTO messages (workspace_id, session_id, role, content)"
-            " VALUES ($1, $2, 'assistant', $3)",
-            auth.workspace_id, session_id, shortcut.text,
-        )
+        # Shortcut path: deterministic answer; no client is ever constructed.
+        await _insert_message(pool, auth, session_id, "assistant", shortcut.text)
 
         async def shortcut_stream():
             yield _sse({"session": str(session_id)})
             yield _sse({"content": shortcut.text})
             yield _sse({"done": {"finish_reason": "stop", "usage": None, "path": "shortcut"}})
 
-        return StreamingResponse(
-            shortcut_stream(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
+        return _sse_response(shortcut_stream())
 
     messages = await _history(pool, auth, session_id)
+    # Build the client as late as possible: everything that can 404/fail above
+    # has already run, so the only closer needed is event_stream's finally.
+    endpoint = await resolver.resolve()
 
     async def event_stream():
         yield _sse({"session": str(session_id)})
@@ -299,15 +344,7 @@ async def chat(
 
         answer = "".join(content_parts)
         if answer:
-            await pool.execute(
-                "INSERT INTO messages (workspace_id, session_id, role, content)"
-                " VALUES ($1, $2, 'assistant', $3)",
-                auth.workspace_id, session_id, answer,
-            )
+            await _insert_message(pool, auth, session_id, "assistant", answer)
         yield _sse({"done": {"finish_reason": finish_reason, "usage": usage, "path": "model"}})
 
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    return _sse_response(event_stream())
