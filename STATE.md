@@ -1,124 +1,100 @@
 # STATE — Auspex
 
-_Last updated: 2026-07-16 (S3 complete — agent runtime v1 + chat SSE + UI shell)_
+_Last updated: 2026-07-16 (S4 complete — 92/8 fast classifier, all steps incl. stretch)_
 
 ## Where we are
-- **S3 COMPLETE** (all steps 0–5 shipped with tests) → **next is S4**
-  (Fast classifier / 92-8 split — see NEXT-SESSION.md).
-- **Primary dev LLM (D-015, was D-013):** **Llama-4-Scout-17B via Northflank**
-  (remote vLLM, `native_tools`, ~90 tok/s; verified reachable + streaming a real
-  `/api/chat` through the containerized app 2026-07-16). **Secondary/offline:**
-  local Ollama `qwen3:14b` (D-013) — still pulled; flip the commented block in
-  `.env` to use it. `llama3.1:8b` remains the local "weak endpoint" case.
-  `.env` is gitignored; `auspex.devhost` no longer pins `LLM_BASE_URL` (the
-  endpoint URL now resolves the same from host and container).
-- **CI-green: 79 tests** (was 47 at S2 end; +32 this session). `./ci.sh`
-  passes: ruff clean, pytest, real container build + liveness.
+- **S4 COMPLETE** (steps 1–3 + stretch step 4, all with tests) → **next is S5**
+  (Enrichment fan-out + verdict store — see NEXT-SESSION.md).
+- **Promoted:** promote #3 (S2+S3+D-014/015/016) is on `main`; S4 is on
+  `staging` only — S4 is a demoable milestone, so a `/promote` is reasonable.
+- **Primary dev LLM (D-015):** Llama-4-Scout-17B via Northflank (remote vLLM,
+  `native_tools`). **Secondary/offline:** local Ollama `qwen3:14b` (D-013);
+  `llama3.1:8b` = weak-endpoint case. `.env` is source of truth (gitignored).
+- **CI-green: 177 tests** (was 101 at S3 end; +76 this session). `./ci.sh`
+  passes end-to-end: ruff, pytest, container build + health.
 
-## S3 shipped (all committed on staging, 2026-07-16)
-- **Step 0 — server→LLM networking (repo half DONE):** docker-compose app
-  service got `extra_hosts: host.docker.internal:host-gateway`; container uses
-  `LLM_BASE_URL=http://host.docker.internal:11434`, host runs pin localhost via
-  `auspex.devhost`. Probe `docs/probes/2026-07-16-server-to-ollama-networking.md`.
-  **DONE end-to-end (2026-07-16):** host Ollama rebound to `*:11434`; the
-  containerized app streams real `/api/chat` responses (Blocker #1 closed).
-- **Step 2 — tool registry** (`auspex/agent/registry.py`): `ToolLevel`
-  (read/write/destructive, StrEnum), `Tool` (builds its OpenAI envelope via the
-  shared `tool_spec()`), `ToolRegistry`. 8 tests.
-- **Step 3 — permission gate + proposals (D-014)** (`auspex/agent/permissions.py`
-  + migration): `gate()` → READ auto-executes, WRITE/DESTRUCTIVE become
-  `pending_approval` proposals, never executions (fail-safe on unknown level).
-  `proposals` table (D-008 workspace_id; tool_level/status CHECKs). `ProposalStore`
-  Protocol + `PgProposalStore`. Proposals schema CHECK tests + live-DB store
-  round-trip + gate unit tests.
-- **Step 1 — ReACT loop v1** (`auspex/agent/loop.py`): drives `LLMClient` in the
-  **persisted scorecard mode** (caller passes mode; loop never re-derives it).
-  Mode → `ToolChannel` (native / prompted `<tool_call>` / plan_only; unknown
-  fails safe to plan_only). One step loop + gate + proposal path behind all
-  three. Step cap (8, chosen consciously) → one tool-free synthesis pass.
-  **D-014 enforced structurally**: action records come ONLY from real tool
-  calls; fabricated "done" text mints nothing. 12 tests vs a FAKE client incl.
-  the pinned C206 regression (verbatim llama3.1:8b fabricated-ticket output).
-- **Step 4 (stretch) — SSE `/api/chat`** (`auspex/routes/chat.py`): single-key
-  JSON event protocol (`session`/`reasoning`/`content`/`done`/`error`) over
-  text/event-stream; auth via `resolve_user`; session workspace+user scoped;
-  persists to chat_sessions/messages (reasoning ephemeral). Required a client
-  change: `ChatResult.reasoning` now captured from message + stream deltas
-  (fixture-backed). v1 conversational (tools=None). 4 hermetic tests.
-- **Step 5 (stretch) — UI shell** (`auspex/routes/ui.py` + `auspex/static/
-  index.html`): dark-first Auspex palette, dev sign-in, streaming chat parsing
-  the SSE frames, reasoning in a dimmed "Thinking" pane. Engine never named
-  (test-enforced). 2 smoke tests.
-- **Build:** `auspex.agent` added to setuptools packages + `static/*.html`
-  package-data; Dockerfile deps-layer skeleton extended. Container verified:
-  `auspex.agent`/chat/ui import, `GET /` → 200, proposals table migrated.
-
-**Live-verified (host-run, real qwen3:14b, not pytest):**
-`docs/probes/2026-07-16-agent-loop-live-verification.md` — the loop drives
-real native tool calls; read executes; **write is PROPOSED, not executed**
-(`performed()==False`) — D-014 holds against a real model. SSE endpoint streams
-`reasoning`→`content`→`done` correctly.
-
-## Post-S3 additions (2026-07-16, on staging — ahead of the S4 plan)
-- **D-015:** primary dev LLM switched to Llama-4-Scout (Northflank); qwen3:14b
-  secondary/offline (see LLM line above).
-- **D-016 — universal reasoning + internal model switcher** (customer-directed):
-  - *Reasoning UX (customer-facing):* chat shows a "thinking" trace on ANY
-    endpoint. Native-reasoning endpoints stream it; others get a **two-pass**
-    fallback (brief analyst pre-pass → Thinking pane, then the answer). Presented
-    as the platform reasoning; D-005 intact (customer endpoint, both passes).
-    `native_reasoning` is a measured scorecard field. Probe-verified on Scout
-    (docs/probes/2026-07-16-two-pass-scout.md).
-  - *Model switcher (INTERNAL/dev-only):* `/api/models` + `endpoint_id` +
-    `auspex/llm/registry.py`, gated APP_ENV=dev (404/ignored/{} in prod) per the
-    org policy that multi-LLM stays internal — NOT customer-facing. Enabled
-    locally via gitignored `dev-endpoints.json` + `docker-compose.override.yml`.
-  - Live-verified through the container: Scout two-pass + qwen native via the
-    switch. Suite now 101 green; `./ci.sh` green. TD-002 logs the two-pass 2×-call
-    cost. Does NOT change the S4 scope in NEXT-SESSION.md.
+## S4 shipped (all committed on staging, 2026-07-16)
+- **Step 1 — `auspex/classify/observables.py`:** defang-aware extraction +
+  normalization (IPv4/IPv6 via candidate-regex + stdlib `ipaddress`,
+  TLD-allowlist domains with internal-suffix backtrack, URLs, SHA-256/1/MD5
+  span-tiebroken, emails, CVEs). Refang covers hxxp/[.]/(.)/{.}/[dot]/[at]/[:]
+  and tracks rewritten chars, so each Observable carries a **positional
+  `defanged` flag** (verdict-floor input for S7) + a short deterministic
+  `obs_id` (e.g. `ipv4-c3045edd` — tool-arg friendly, IDEAS.md). Pattern
+  source snapshot: `docs/probes/2026-07-16-sara-fastpath-pattern.md`.
+- **Step 2 — `classifier.py`:** code-owned categories greeting/identity/
+  ioc_check/cve_lookup/definition/deep. Format beats keywords (CEF/LEEF/
+  syslog/JSON pastes → deep even with IOCs; analytical-verb veto incl.
+  definition-shaped asks); residual-word gates keep bulk IOC pastes fast;
+  suffix-aware common-domain suppression (defanged common domains still
+  count); greeting = true salutations ONLY (bare "ok"/"thanks" go deep — a
+  mid-investigation ack must reach the model). Errors bias deep.
+- **Step 3 — `shortcuts.py`:** static on-brand answers (engine never named,
+  test-enforced via the now-canonical FORBIDDEN_ENGINE_NAMES in
+  `tests/_fakes.py`); ioc_check echoes normalized observables + ids +
+  defanged markers, defers enrichment honestly (no fabricated verdicts,
+  D-014 spirit); cve_lookup/definition defer to KB (S6) with a deep-path
+  pointer. Plain text (UI renders verbatim). Tests prove the path offline:
+  socket-block fixture + structural import scan.
+- **Step 4 (stretch) — 92/8 gate in `/api/chat`:** classify BEFORE the model;
+  shortcut turns stream deterministic answers with zero LLM calls; `done`
+  frame carries `path: "shortcut"|"model"`. `ChatEndpointResolver` resolves
+  the endpoint lazily — unknown dev `endpoint_id` still 404s eagerly, but the
+  scorecard DB read + httpx client construction happen only on deep turns
+  (fixes a client-leak window + per-greeting waste). Unconfigured LLM now
+  503s only deep turns; shortcuts work with no LLM at all (real-dependency
+  test included). `ChatBody.message` capped at 32k (bounds in-loop regex).
+- **Review pass (8-angle adversarial, all findings fixed):** Dockerfile
+  deps-layer skeleton gained `auspex/classify` (image didn't build without
+  it); IPv6-trailing-period, `-v`-flag-vs-version, defanged-substring-
+  lookalike extraction bugs; UI `send()` now surfaces HTTP errors (deep-turn
+  503 no longer an empty bubble). TD-003 logged (test-helper duplication).
+- **Live-verified in-container:** greeting + defanged-IOC paste stream
+  `path: "shortcut"` with normalized values/ids/defanged markers through the
+  rebuilt container, LLM never touched.
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-- Nothing. The Ollama host-bind follow-up is DONE (2026-07-16): Burhan restarted
-  Ollama bound to `*:11434`; the container now reaches host Ollama and a real
-  `/api/chat` streamed end-to-end through the containerized app (Blocker #1
-  closed below).
+- Nothing event-triggered outstanding.
 
 ## Blockers / open risks
-1. **~~Container→Ollama host command~~ RESOLVED (2026-07-16).** Ollama now binds
-   `*:11434`; `docker compose exec app` reaches `http://host.docker.internal:11434/v1/models`
-   → 200 (all three models), and a real `POST /api/chat` against the
-   *containerized* app streamed `session→reasoning(1597 chars)→content→done`
-   from qwen3:14b. Step 0 goal fully met. Verification appended to
-   `docs/probes/2026-07-16-server-to-ollama-networking.md`.
-2. **Embeddings approach unmeasured** — probe in S6 (decided).
-3. **TD-001 (OAuth identity keyed on email)** — before any GOOGLE_CLIENT_ID.
-4. **SSE /api/chat is conversational-only (v1)** — the AgentLoop (tools) is NOT
-   wired into it yet; and history replay is unbounded. Both parked in IDEAS.md.
+1. **Embeddings approach unmeasured** — probe in S6 (decided).
+2. **TD-001 (OAuth identity keyed on email)** — hard gate before any
+   GOOGLE_CLIENT_ID is configured.
+3. **Deep path is conversational-only (v1)** — AgentLoop (tools) still not
+   wired into /api/chat; history replay unbounded; shortcut answers are
+   persisted and replayed into deep-turn history (few-shot contamination
+   risk). All parked in IDEAS.md; modes land S9.
+4. **Live model-path smoke checks must assert `done.path == "model"`** —
+   definition-shaped smoke messages now shortcut (caution appended to
+   docs/probes/2026-07-16-server-to-ollama-networking.md).
 
 ## Host notes (reality snapshot)
 - Postgres host port **55432**; app 8000; OpenSearch 9200. Host-run scripts
-  and tests pin `DATABASE_URL`/`OPENSEARCH_URL`/`LLM_BASE_URL` to localhost
-  before importing config (`auspex.devhost`).
-- Ollama 0.24.0 (snap) on :11434 with `qwen3:14b` (dev), `llama3.1:8b`
-  (weak-endpoint case), `mistral:latest` (unused). Binds 127.0.0.1 (Blocker #1).
+  and tests pin `DATABASE_URL`/`OPENSEARCH_URL` via `auspex.devhost` (no
+  LLM_BASE_URL pin per D-015).
+- Ollama 0.24.0 (snap) on :11434, binds `*:11434` (container reaches it via
+  host.docker.internal); models qwen3:14b / llama3.1:8b / mistral:latest.
   GPU: RTX 5070 Ti Laptop 12 GB.
-- Host rebooted between sessions — `docker compose up -d` needed at start
-  (session-start ritual covers this). The app image must be rebuilt on source
-  changes (`docker compose up -d --build`) — `./ci.sh` does this.
+- Host reboots between sessions — `docker compose up -d` at start (ritual
+  covers it); rebuild app image on source changes (`--build`, ci.sh does it).
+- Mid-S4 note: the compose stack went down mid-session once (host event) —
+  if pytest suddenly can't reach :55432, `docker compose up -d --wait` first.
 
 ## Reference intelligence (from the SARA Open architecture study, 2026-07-14)
 Base: `/home/burhan/sara-open/` (paths re-verified 2026-07-15):
 - ReACT loop: /home/burhan/sara-open/sara/core/agent_loop.py:60
-  (reused as the S3 loop pattern; Auspex loop is `auspex/agent/loop.py`)
+  (S3 loop pattern; Auspex loop is `auspex/agent/loop.py`)
 - Plan→DAG→Judge loop: nearest surviving copy is
   /home/burhan/sara-open/.claude/worktrees/1359-chain-surface/sara/core/orchestrator_loop/runner.py:39
   (worktrees get cleaned; re-snapshot to docs/probes/ before S8)
 - Permission hard-rails: /home/burhan/sara-open/sara/core/permissions.py:65-176
-  (reused as the S3 gate pattern; Auspex gate is `auspex/agent/permissions.py`)
+  (S3 gate pattern; Auspex gate is `auspex/agent/permissions.py`)
+- Fast classifier / 92-8: snapshot now in
+  docs/probes/2026-07-16-sara-fastpath-pattern.md (S4 pattern source)
 - RRF retrieval + ID bypass: /home/burhan/sara-open/sara_retriever.py:538,599
 - DEFERRED rail: /home/burhan/sara-open/sara/agents/alert_triage.py:1429
 - Capability shape: /home/burhan/sara-open/sara/core/unified_registry.py:37
 
 ## Next session should
-Run S4 exactly as written in NEXT-SESSION.md (Fast classifier / 92-8 split).
-(The S3 Ollama-networking follow-up is closed — no standing carry-over.)
+Run S5 exactly as written in NEXT-SESSION.md (Enrichment fan-out + verdict
+store). Consider `/promote` of the S4 milestone first (staging → main).

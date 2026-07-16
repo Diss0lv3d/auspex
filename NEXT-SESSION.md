@@ -1,69 +1,60 @@
 # NEXT-SESSION — paste everything below the line into a fresh Claude Code window opened in /home/burhan/auspex-new
 
-_(No standing follow-ups. The S3 Ollama-networking blocker is closed: host
-Ollama binds `*:11434` and the containerized app streamed a real /api/chat
-end-to-end on 2026-07-16 — docs/probes/2026-07-16-server-to-ollama-networking.md.)_
+_(No standing follow-ups. S4 is complete on `staging` but NOT yet promoted —
+`main` is current only through S3. S4 is a demoable milestone, so running
+`/promote` first is reasonable.)_
 
 ---
 
-SESSION S4 of Auspex. Working dir must be /home/burhan/auspex-new — run
-`/session-start S4` first (full ritual). Primary dev LLM is now **Llama-4-Scout
-via Northflank (D-015)**; local Ollama `qwen3:14b` is the secondary/offline
-endpoint (D-013) and is what the session-start local-Ollama gate validates.
-Any mismatch → STOP and tell me. Note: S4's shortcut path uses NO LLM; the LLM
-endpoint matters only for the deep-path stub + any optional live check.
+SESSION S5 of Auspex. Working dir must be /home/burhan/auspex-new — run
+`/session-start S5` first (full ritual). Primary dev LLM is **Llama-4-Scout via
+Northflank (D-015)**; local Ollama `qwen3:14b` is the secondary/offline endpoint
+(D-013) and is what the session-start local-Ollama gate validates. Any mismatch
+→ STOP and tell me. Note: S5 is mostly LLM-free (provider clients + storage);
+the LLM matters only for optional live checks of the deep path.
 
-Goal (scope-locked, from ROADMAP.md S4 — Fast classifier / 92-8 split).
-The 92/8 principle (SARA pattern): ~92% of queries take a deterministic,
-CODE-OWNED fast path with NO LLM; only the ~8% deep path reaches the agent
-loop. Code picks the path, never a prompt (ADR: code over prompts). Tests ship
-WITH each step (CLAUDE.md rule 8), not as a trailing phase.
+Goal (scope-locked, from ROADMAP.md S5 — Enrichment fan-out + verdict store):
 
-**Must-ship core: steps 1–3 with their tests. Stretch: step 4.**
-
-1. **IOC regex patterns, defang-aware** (`auspex/classify/` or similar): extract
-   + normalize IPv4/IPv6, domains, URLs, SHA-256/-1/MD5, emails, CVE IDs.
-   Defang-aware on input (`hxxp`, `[.]`, `(.)`, `[at]`, trailing-dot) → canonical
-   form out. Pure functions. Ships with: extraction/normalization unit tests
-   incl. defanged inputs. (Design input from S3 harness: downstream tool args
-   will carry short observable IDs, NOT raw 64-char strings — keep normalized
-   observables addressable by a short id when you design their shape; parked in
-   IDEAS.md.)
-2. **Query classifier** (code-owned): map a user query to a category —
-   greeting / identity / ioc_check / cve_lookup / definition / deep. Deterministic
-   (regex + keyword + format signals; format beats keywords). Ships with:
-   classifier tests pinning each category + ambiguous-case tiebreaks.
-3. **Shortcut handlers** (NO LLM on this path): greeting + identity = static
-   on-brand copy (engine never named); ioc_check = extract + normalize + echo
-   the observables (enrichment is S5 — do NOT call providers); cve_lookup +
-   definition = stub/deferred cleanly (KB is S6) — return a clear "deep path
-   needed" or a tiny curated static answer, your call, but NO LLM and NO network.
-   Ships with: handler tests (esp. that the shortcut path makes zero LLM/network
-   calls).
-4. _(stretch)_ **Deep-path wiring**: route classifier `deep` verdicts into the
-   existing SSE `/api/chat` (currently always-LLM, conversational). Shortcut
-   categories answer without touching the LLM; only `deep` streams from the
-   model. Keep the single-key SSE protocol. Ships with: a test that a greeting
-   returns a shortcut answer with no LLM client call, and a deep query does hit
-   the (fake) client.
+1. **Provider clients** (direct HTTP, no LLM): AbuseIPDB, OTX, GreyNoise
+   community, URLhaus, ThreatFox, Shodan InternetDB, CIRCL hashlookup.
+   Free/no-key providers first (URLhaus, ThreatFox, InternetDB, hashlookup);
+   key-gated ones activate only when their env var exists (every new env var →
+   `.env.example` + `docs/ENV_VARS.md` the moment it's born). **Probe each
+   provider live first** (`/probe` → docs/probes/) and code against the
+   snapshot — reality over memory. Per-provider: which observable types it
+   accepts (S4 `ObservableType` is the vocabulary), rate limits, error shapes.
+2. **Fan-out orchestration**: submit-all/poll-all parallelism (asyncio.gather
+   with per-provider timeout), per-provider circuit breaker (consecutive-
+   failure threshold → open, half-open probe after cooldown). Failures degrade
+   gracefully — partial results are results (DEFERRED rail, not errors).
+3. **Storage**: `observables` table keyed by the S4 normalized value + obs_id;
+   `verdicts` table **with decay-curve fields from day one** (first Living
+   Verdicts brick — D-entry the field semantics: half_life, floor,
+   confidence_at_write, source). D-008 workspace scoping on both tables.
+4. **Wire into the S4 ioc_check shortcut**: extract → normalize → enrich →
+   verdict echo (replaces the "enrichment deferred" copy when providers are
+   configured; keeps the deferred copy when none are). The shortcut path may
+   now touch *enrichment* network but still NO LLM — update the S4 tests that
+   assert network-free to assert LLM-free + enrichment-mockable instead.
 
 Design inputs / reality already in the repo (cite, don't re-derive):
-- The agent loop (`auspex/agent/loop.py`) takes `tools=None` cleanly and has a
-  plan_only/conversational mode — the deep path plugs into it later (S9 modes).
-- SSE endpoint + client reasoning field already exist (S3). The classifier sits
-  in FRONT of the LLM call in `/api/chat` for step 4.
-- SARA 92/8 + fast-classifier reference (reuse the PATTERN, not the code):
-  study `/home/burhan/sara-open` (the fast-path/shortcut handlers); snapshot any
-  external behavior to docs/probes/ before coding against it.
+- S4 classify package: `auspex/classify/` — `Observable.obs_id` (short id),
+  `Observable.defanged` (verdict-floor input, parked in IDEAS.md), residual
+  gates. The ioc_check handler to extend is `auspex/classify/shortcuts.py`
+  (`shortcut_answer` is fallible: returning None falls through to deep).
+- SSE protocol: single-key frames; `done` carries `path: shortcut|model`
+  (`auspex/routes/chat.py`).
+- SARA enrichment pattern notes: docs/probes/2026-07-16-sara-fastpath-pattern.md
+  (+ IDEAS.md lines on common-domain skip-lists and private-IP filtering —
+  implement both this session: never enrich private/reserved IPs, skip
+  ubiquitous domains).
+- Proposals/permissions rail exists (`auspex/agent/permissions.py`) — S5
+  enrichment is READ-level, no gating needed.
 
 Constraints:
-- Dev endpoint is local Ollama + qwen3:14b (D-013); live LLM calls outside
-  pytest only — CI stays hermetic. The S4 shortcut path must be LLM-free AND
-  network-free (assert it in tests).
-- No OpenSearch index creation (S6). No enrichment providers (S5).
-- Reality over memory: any new external behavior → probe file first.
+- Tests ship with each step (CLAUDE.md rule 8); CI stays hermetic — provider
+  clients tested against saved probe fixtures, never live, in pytest.
+- No OpenSearch index creation (KB is S6). No new LLM calls on the shortcut path.
+- Thrash brake: two failed approaches on one problem → STATE.md Blockers, move on.
 - New ideas → IDEAS.md, one line, move on.
-- End with `/session-end`; if S4 hits a demoable milestone, consider `/promote`
-  (staging → main). `main` has NOT been promoted since before S3 — S3 is a full
-  demoable milestone (agent loop + chat + UI), so an S3 `/promote` is also
-  reasonable to do first.
+- End with `/session-end`; S5 done = demoable enrichment → consider `/promote`.
