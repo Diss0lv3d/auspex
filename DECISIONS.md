@@ -142,3 +142,30 @@ registry) is honored only when `APP_ENV=dev`: `/api/models` 404s in prod,
 overrides the user's request to expose it to customers; it is distinct from
 D-005 (which the user waived). Registry keys are referenced by env-var name,
 never inlined and never sent to the browser; UI labels are brand-safe.
+
+**D-017 (2026-07-16) — Verdict decay-curve semantics (first Living Verdicts
+brick).** Every `verdicts` row carries, from day one: `label`
+(malicious|suspicious|benign|unknown — closed set, DB CHECK),
+`confidence_at_write` ∈ [0,1], `half_life_days` > 0, `floor` ∈
+[0, confidence_at_write], `source` (writer identity, e.g.
+`enrichment:OTX,ThreatFox`), `created_at`. Semantics:
+- **Effective confidence at time t** = `floor + (confidence_at_write − floor)
+  · 2^(−(t − created_at)/half_life_days)` — executable in
+  `auspex/enrich/verdict.py::effective_confidence` (pinned by test), not just
+  prose.
+- **Decay never flips a label.** A decayed MALICIOUS renders as *stale*
+  malicious (Slate in the D-002 palette), it does not become benign — new
+  evidence, not the calendar, changes labels.
+- **Append-only.** Re-enrichment writes a new row; the current verdict is the
+  latest by `created_at`. The history is the substrate for S7 retro-hunts and
+  falsification watchers — never UPDATE/DELETE verdict rows.
+- **Default half-lives follow observable churn:** IPs 14 d (reassigned in
+  days), domains/URLs/emails 30 d, hashes 365 d (a hash IS the artifact —
+  its *relevance* decays, its maliciousness doesn't), CVE 365 d (future-proof;
+  no CVE provider until S6+).
+- **Floor is 0.0 for S5 enrichment writes.** S7 introduces raised floors
+  (e.g. defanged-in-input ⇒ SUSPICIOUS floor — `Observable.defanged` already
+  carries the signal).
+- **v1 combining rule (provisional):** worst credible label wins; confidence =
+  strongest signal of the winning label. Cross-provider agreement boosting and
+  per-provider trust weights are parked in IDEAS.md, not silently improvised.

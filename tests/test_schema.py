@@ -13,6 +13,8 @@ EXPECTED_TABLES = {
     "messages",
     "llm_endpoint_scorecards",
     "proposals",
+    "observables",
+    "verdicts",
 }
 
 # D-008: workspace_id on EVERY table. `workspaces` is the sole exception —
@@ -27,9 +29,7 @@ async def _connect(settings) -> asyncpg.Connection:
 async def test_schema_v0_tables_exist(client, settings):
     conn = await _connect(settings)
     try:
-        rows = await conn.fetch(
-            "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
-        )
+        rows = await conn.fetch("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
         tables = {row["tablename"] for row in rows}
         assert EXPECTED_TABLES <= tables, f"missing: {EXPECTED_TABLES - tables}"
     finally:
@@ -140,6 +140,56 @@ async def test_proposals_check_constraints(client, settings):
             pass
     finally:
         await conn.execute("DELETE FROM workspaces WHERE name = 't-proposals'")
+        await conn.close()
+
+
+async def test_verdict_decay_fields_are_constrained(client, settings):
+    """S5/D-017: label is a closed set; confidence/floor live in [0,1] with
+    floor <= confidence_at_write; half_life_days must be positive."""
+    conn = await _connect(settings)
+    try:
+        workspace_id = await conn.fetchval(
+            "INSERT INTO workspaces (name) VALUES ('t-verdicts') RETURNING id"
+        )
+        observable_id = await conn.fetchval(
+            "INSERT INTO observables (workspace_id, obs_id, type, value)"
+            " VALUES ($1, 'ipv4-deadbeef', 'ipv4', '203.0.113.7') RETURNING id",
+            workspace_id,
+        )
+
+        async def insert_verdict(**overrides):
+            row = {
+                "label": "malicious",
+                "confidence": 0.9,
+                "half_life": 14.0,
+                "floor": 0.0,
+            } | overrides
+            await conn.execute(
+                "INSERT INTO verdicts (workspace_id, observable_id, label,"
+                " confidence_at_write, half_life_days, floor, source)"
+                " VALUES ($1, $2, $3, $4, $5, $6, 'enrichment:test')",
+                workspace_id,
+                observable_id,
+                row["label"],
+                row["confidence"],
+                row["half_life"],
+                row["floor"],
+            )
+
+        await insert_verdict()  # valid row round-trips
+        for bad in (
+            {"label": "vibes"},
+            {"confidence": 1.5},
+            {"half_life": 0.0},
+            {"floor": 0.5, "confidence": 0.4},  # floor above confidence
+        ):
+            try:
+                await insert_verdict(**bad)
+                raise AssertionError(f"verdicts CHECK did not fire for {bad}")
+            except asyncpg.CheckViolationError:
+                pass
+    finally:
+        await conn.execute("DELETE FROM workspaces WHERE name = 't-verdicts'")
         await conn.close()
 
 

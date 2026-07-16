@@ -118,6 +118,47 @@ SCHEMA_V0: list[str] = [
     CREATE INDEX IF NOT EXISTS idx_proposals_ws_status
         ON proposals (workspace_id, status, created_at DESC)
     """,
+    # S5: enrichment substrate. `observables` is keyed by the S4-normalized
+    # (type, value) per workspace; obs_id is the short deterministic id users
+    # reference in chat ("check ipv4-9c463859 again"). `verdicts` is APPEND-ONLY
+    # with decay-curve fields from day one (D-017, first Living Verdicts brick):
+    # effective confidence at t = floor + (confidence_at_write - floor)
+    #                              * 2^(-(t - created_at)/half_life_days).
+    """
+    CREATE TABLE IF NOT EXISTS observables (
+        id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id  uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        obs_id        text NOT NULL,
+        type          text NOT NULL CHECK (type IN
+            ('ipv4', 'ipv6', 'domain', 'url', 'sha256', 'sha1', 'md5', 'email', 'cve')),
+        value         text NOT NULL,
+        first_seen    timestamptz NOT NULL DEFAULT now(),
+        last_seen     timestamptz NOT NULL DEFAULT now(),
+        UNIQUE (workspace_id, type, value)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_observables_ws_obsid ON observables (workspace_id, obs_id)",
+    """
+    CREATE TABLE IF NOT EXISTS verdicts (
+        id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id         uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        observable_id        uuid NOT NULL REFERENCES observables(id) ON DELETE CASCADE,
+        label                text NOT NULL CHECK (label IN
+            ('malicious', 'suspicious', 'benign', 'unknown')),
+        confidence_at_write  real NOT NULL
+            CHECK (confidence_at_write >= 0 AND confidence_at_write <= 1),
+        half_life_days       real NOT NULL CHECK (half_life_days > 0),
+        floor                real NOT NULL DEFAULT 0
+            CHECK (floor >= 0 AND floor <= confidence_at_write),
+        source               text NOT NULL,
+        details              jsonb NOT NULL DEFAULT '{}',
+        created_at           timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_verdicts_ws_obs
+        ON verdicts (workspace_id, observable_id, created_at DESC)
+    """,
     "CREATE INDEX IF NOT EXISTS idx_users_workspace ON users (workspace_id)",
     "CREATE INDEX IF NOT EXISTS idx_api_keys_workspace ON api_keys (workspace_id)",
     "CREATE INDEX IF NOT EXISTS idx_chat_sessions_ws_user ON chat_sessions (workspace_id, user_id)",
