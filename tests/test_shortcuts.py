@@ -12,15 +12,14 @@ import socket
 from pathlib import Path
 
 import pytest
+from _fakes import FORBIDDEN_ENGINE_NAMES as BASE_FORBIDDEN
 
 import auspex.classify
 from auspex.classify import Category, classify, shortcut_answer
 
-# Superset of the lists in test_ui.py / test_models.py.
-FORBIDDEN_ENGINE_NAMES = [
-    "qwen", "ollama", "llama", "vllm", "northflank", "gpt", "openai",
-    "scout", "nvidia", "claude", "anthropic", "model",
-]
+# Shortcut copy is held to a stricter bar than page markup: even the generic
+# word "model" must not appear (the platform never presents itself as one).
+FORBIDDEN_ENGINE_NAMES = [*BASE_FORBIDDEN, "model"]
 
 ALL_SHORTCUT_QUERIES = {
     Category.GREETING: "hello",

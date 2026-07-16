@@ -11,6 +11,14 @@ from typing import Any
 from auspex.agent.permissions import ProposalStore
 from auspex.llm.client import ChatResult, LLMError, StreamEvent
 
+# One canonical list for the brand rule (engine never named in user-visible
+# strings, D-002/CLAUDE.md) — imported by test_ui, test_models, test_shortcuts
+# so a newly-added provider name can't leak through a stale copy.
+FORBIDDEN_ENGINE_NAMES = [
+    "qwen", "ollama", "llama", "vllm", "northflank", "gpt", "openai",
+    "scout", "nvidia", "claude", "anthropic", "mistral", "deepseek",
+]
+
 
 class FakeLLMClient:
     """Duck-typed LLMClient: exposes the one method the loop calls, `chat()`."""
