@@ -193,6 +193,13 @@
           headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
           body: JSON.stringify({ message: text, session_id: sessionId, endpoint_id: endpointId }),
         });
+        if (!r.ok) {
+          // HTTP errors carry a JSON detail, not SSE frames — surface it.
+          let detail = "request failed (" + r.status + ")";
+          try { detail = (await r.json()).detail || detail; } catch (e) {}
+          ensureBubble(wrap).textContent = "[" + detail + "]";
+          return;
+        }
         const reader = r.body.getReader();
         const dec = new TextDecoder();
         let buf = "";

@@ -62,7 +62,8 @@ class ShortcutAnswer:
 
 
 def _observable_line(o: Observable) -> str:
-    line = f"- `{o.value}` — {o.type} (`{o.obs_id}`)"
+    # Plain text, no markdown — the chat UI renders content verbatim (S3 shell).
+    line = f"- {o.value} — {o.type} (id {o.obs_id})"
     if o.defanged:
         line += " · received defanged"
     return line

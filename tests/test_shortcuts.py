@@ -92,12 +92,14 @@ def test_identity_and_greeting_speak_as_auspex():
 
 
 def test_ioc_check_echoes_normalized_values_and_ids():
-    answer = shortcut_answer(classify("check 185.220.101[.]34 and evil[.]xyz"))
+    classification = classify("check 185.220.101[.]34 and evil[.]xyz")
+    answer = shortcut_answer(classification)
     assert answer.category is Category.IOC_CHECK
-    assert "`185.220.101.34`" in answer.text  # normalized, not the defanged raw
-    assert "`evil.xyz`" in answer.text
+    assert "185.220.101.34" in answer.text  # normalized, not the defanged raw
+    assert "evil.xyz" in answer.text
     assert "185.220.101[.]34" not in answer.text
-    for o in classify("check 185.220.101[.]34 and evil[.]xyz").observables:
+    assert "`" not in answer.text  # plain text — the UI renders content verbatim
+    for o in classification.observables:
         assert o.obs_id in answer.text
 
 
