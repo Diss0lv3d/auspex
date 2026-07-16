@@ -1,10 +1,12 @@
 """Shortcut handlers (S4 step 3) — static fast-path answers, provably offline.
 
-Two guards enforce the 92/8 contract:
-- runtime: every handler runs with socket connections blocked (any network
-  attempt raises), proving the shortcut path is network-free;
-- structural: the classify package's source never imports an LLM client or an
-  HTTP/socket library at all.
+S5 narrowed the S4 contract: the shortcut path is LLM-FREE always, and the
+*classify package* stays fully network-free — but ioc_check turns may now run
+enrichment HTTP through the separate auspex.enrich package (mockable at
+app.state.enrichment; see test_chat_sse.py). The guards here therefore cover:
+- runtime: every static handler runs with socket connections blocked;
+- structural: classify never imports an LLM client or HTTP/socket library,
+  and enrich never imports the LLM client (enrichment is direct HTTP only).
 Plus the brand rule: the engine is never named in shortcut copy.
 """
 
@@ -70,6 +72,16 @@ def test_classify_package_never_imports_llm_or_network_libs():
         text = source_file.read_text()
         for needle in forbidden:
             assert needle not in text, f"{source_file.name} references {needle}"
+
+
+def test_enrich_package_never_imports_the_llm(no_network):
+    """S5: enrichment is direct provider HTTP — an LLM import anywhere in
+    auspex.enrich would put model calls back on the 92% path."""
+    import auspex.enrich
+
+    package_dir = Path(auspex.enrich.__file__).parent
+    for source_file in package_dir.rglob("*.py"):
+        assert "auspex.llm" not in source_file.read_text(), source_file.name
 
 
 # -- brand + voice --------------------------------------------------------------

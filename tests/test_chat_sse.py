@@ -26,7 +26,7 @@ def _frames(body: str) -> list[dict]:
     for line in body.splitlines():
         line = line.strip()
         if line.startswith("data:"):
-            out.append(json.loads(line[len("data:"):].strip()))
+            out.append(json.loads(line[len("data:") :].strip()))
     return out
 
 
@@ -60,19 +60,25 @@ def test_chat_requires_auth(client):
 
 
 def test_native_streams_reasoning_then_content_and_persists(client, settings):
-    fake = StreamingFakeLLMClient([
-        StreamEvent(kind="reasoning", text="Let me think. "),
-        StreamEvent(kind="reasoning", text="Simple greeting."),
-        StreamEvent(kind="content", text="Hello"),
-        StreamEvent(kind="content", text=", analyst."),
-        StreamEvent(kind="finish", finish_reason="stop"),
-        StreamEvent(kind="usage",
-                    usage=Usage(prompt_tokens=10, completion_tokens=4, total_tokens=14)),
-    ])
+    fake = StreamingFakeLLMClient(
+        [
+            StreamEvent(kind="reasoning", text="Let me think. "),
+            StreamEvent(kind="reasoning", text="Simple greeting."),
+            StreamEvent(kind="content", text="Hello"),
+            StreamEvent(kind="content", text=", analyst."),
+            StreamEvent(kind="finish", finish_reason="stop"),
+            StreamEvent(
+                kind="usage", usage=Usage(prompt_tokens=10, completion_tokens=4, total_tokens=14)
+            ),
+        ]
+    )
     _use(client.app, fake, native_reasoning=True)
     try:
-        resp = client.post("/api/chat", json={"message": "summarize the overnight alerts"},
-                           headers={"Authorization": f"Bearer {_token(client)}"})
+        resp = client.post(
+            "/api/chat",
+            json={"message": "summarize the overnight alerts"},
+            headers={"Authorization": f"Bearer {_token(client)}"},
+        )
         assert resp.status_code == 200
         frames = _frames(resp.text)
         kinds = [next(iter(f)) for f in frames]
@@ -97,20 +103,33 @@ def test_native_streams_reasoning_then_content_and_persists(client, settings):
 
 
 def test_two_pass_fallback_streams_generated_reasoning_then_answer(client, settings):
-    seq = SequencedStreamingFakeLLMClient([
-        # pass 1 — brief analyst reasoning (comes back as `content`)
-        [StreamEvent(kind="content", text="Beaconing on a finance host is concerning; "),
-         StreamEvent(kind="content", text="need destination + frequency.")],
-        # pass 2 — the answer
-        [StreamEvent(kind="content", text="Moderately concerned — investigate the destination."),
-         StreamEvent(kind="finish", finish_reason="stop"),
-         StreamEvent(kind="usage",
-                     usage=Usage(prompt_tokens=40, completion_tokens=9, total_tokens=49))],
-    ])
+    seq = SequencedStreamingFakeLLMClient(
+        [
+            # pass 1 — brief analyst reasoning (comes back as `content`)
+            [
+                StreamEvent(kind="content", text="Beaconing on a finance host is concerning; "),
+                StreamEvent(kind="content", text="need destination + frequency."),
+            ],
+            # pass 2 — the answer
+            [
+                StreamEvent(
+                    kind="content", text="Moderately concerned — investigate the destination."
+                ),
+                StreamEvent(kind="finish", finish_reason="stop"),
+                StreamEvent(
+                    kind="usage",
+                    usage=Usage(prompt_tokens=40, completion_tokens=9, total_tokens=49),
+                ),
+            ],
+        ]
+    )
     _use(client.app, seq, native_reasoning=False)
     try:
-        resp = client.post("/api/chat", json={"message": "how worried should I be?"},
-                           headers={"Authorization": f"Bearer {_token(client)}"})
+        resp = client.post(
+            "/api/chat",
+            json={"message": "how worried should I be?"},
+            headers={"Authorization": f"Bearer {_token(client)}"},
+        )
         assert resp.status_code == 200
         frames = _frames(resp.text)
         kinds = [next(iter(f)) for f in frames]
@@ -143,8 +162,11 @@ def test_two_pass_error_on_first_pass_emits_error_and_persists_nothing(client, s
     seq = SequencedStreamingFakeLLMClient([[], []], raise_on_call=0)  # pass 1 fails
     _use(client.app, seq, native_reasoning=False)
     try:
-        resp = client.post("/api/chat", json={"message": "summarize the overnight alerts"},
-                           headers={"Authorization": f"Bearer {_token(client)}"})
+        resp = client.post(
+            "/api/chat",
+            json={"message": "summarize the overnight alerts"},
+            headers={"Authorization": f"Bearer {_token(client)}"},
+        )
         frames = _frames(resp.text)
         kinds = [next(iter(f)) for f in frames]
         assert kinds[-1] == "error"
@@ -167,8 +189,11 @@ def test_error_event_on_unreachable_endpoint(client):
     )
     _use(client.app, fake, native_reasoning=True)
     try:
-        resp = client.post("/api/chat", json={"message": "summarize the overnight alerts"},
-                           headers={"Authorization": f"Bearer {_token(client)}"})
+        resp = client.post(
+            "/api/chat",
+            json={"message": "summarize the overnight alerts"},
+            headers={"Authorization": f"Bearer {_token(client)}"},
+        )
         kinds = [next(iter(f)) for f in _frames(resp.text)]
         assert kinds[-1] == "error" and "done" not in kinds
         assert fake.closed is True
@@ -178,18 +203,22 @@ def test_error_event_on_unreachable_endpoint(client):
 
 def test_session_reuse_threads_history_and_rejects_foreign_session(client):
     token = _token(client)
-    fake = StreamingFakeLLMClient([
-        StreamEvent(kind="content", text="ok"),
-        StreamEvent(kind="finish", finish_reason="stop"),
-    ])
+    fake = StreamingFakeLLMClient(
+        [
+            StreamEvent(kind="content", text="ok"),
+            StreamEvent(kind="finish", finish_reason="stop"),
+        ]
+    )
     _use(client.app, fake, native_reasoning=True)
     try:
-        first = client.post("/api/chat", json={"message": "one"},
-                            headers={"Authorization": f"Bearer {token}"})
+        first = client.post(
+            "/api/chat", json={"message": "one"}, headers={"Authorization": f"Bearer {token}"}
+        )
         session_id = _frames(first.text)[0]["session"]
 
         second = client.post(
-            "/api/chat", json={"message": "again", "session_id": session_id},
+            "/api/chat",
+            json={"message": "again", "session_id": session_id},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert second.status_code == 200
@@ -214,8 +243,11 @@ def test_greeting_takes_shortcut_path_with_zero_llm_calls(client, settings):
     fake = StreamingFakeLLMClient([StreamEvent(kind="content", text="NEVER SENT")])
     _use(client.app, fake, native_reasoning=True)
     try:
-        resp = client.post("/api/chat", json={"message": "hi"},
-                           headers={"Authorization": f"Bearer {_token(client)}"})
+        resp = client.post(
+            "/api/chat",
+            json={"message": "hi"},
+            headers={"Authorization": f"Bearer {_token(client)}"},
+        )
         assert resp.status_code == 200
         frames = _frames(resp.text)
         kinds = [next(iter(f)) for f in frames]
@@ -235,18 +267,139 @@ def test_greeting_takes_shortcut_path_with_zero_llm_calls(client, settings):
 
 
 def test_ioc_check_shortcut_echoes_normalized_observables(client):
+    """With enrichment inactive (host runs pin ENRICHMENT_ENABLED=false), the
+    ioc_check shortcut keeps the honest S4 'enrichment deferred' copy."""
+    assert client.app.state.enrichment.active is False  # the premise, explicit
     fake = StreamingFakeLLMClient([])
     _use(client.app, fake, native_reasoning=True)
     try:
-        resp = client.post("/api/chat", json={"message": "check 185.220.101[.]34"},
-                           headers={"Authorization": f"Bearer {_token(client)}"})
+        resp = client.post(
+            "/api/chat",
+            json={"message": "check 185.220.101[.]34"},
+            headers={"Authorization": f"Bearer {_token(client)}"},
+        )
         frames = _frames(resp.text)
         assert fake.stream_calls == []
         assert frames[-1]["done"]["path"] == "shortcut"
         content = "".join(f["content"] for f in frames if "content" in f)
         assert "185.220.101.34" in content  # refanged + normalized
         assert "defanged" in content
+        assert "deferred" in content  # no providers ⇒ no verdict claims (D-014)
     finally:
+        client.app.dependency_overrides.clear()
+
+
+# -- S5: enrichment on the ioc_check shortcut (LLM-free, enrichment-mockable) ---
+
+
+def _enriched_outcome(message: str):
+    """Build a real EnrichmentOutcome for the observables the classifier will
+    extract from `message`, with a scripted ThreatFox signal on each."""
+    from auspex.classify import classify
+    from auspex.enrich.types import (
+        EnrichmentOutcome,
+        ObservableEnrichment,
+        ProviderSignal,
+        VerdictLabel,
+    )
+
+    items = tuple(
+        ObservableEnrichment(
+            observable=o,
+            signals=(
+                ProviderSignal(
+                    "ThreatFox",
+                    VerdictLabel.MALICIOUS,
+                    0.75,
+                    "known IOC: Cobalt Strike (botnet_cc), reporter confidence 75/100",
+                ),
+            ),
+        )
+        for o in classify(message).observables
+    )
+    return EnrichmentOutcome(items=items)
+
+
+def _purge_observable(settings, value: str) -> None:
+    """Remove test rows written through the REAL persist path (dev DB hygiene);
+    deleting the observable cascades its verdicts."""
+
+    async def _purge():
+        conn = await asyncpg.connect(settings.database_url)
+        try:
+            await conn.execute("DELETE FROM observables WHERE value = $1", value)
+        finally:
+            await conn.close()
+
+    asyncio.run(_purge())
+
+
+def test_ioc_check_with_active_enrichment_streams_verdicts_with_zero_llm_calls(client, settings):
+    from _fakes import FakeEnrichmentService
+
+    message = "check 185.220.101[.]34"
+    fake_llm = StreamingFakeLLMClient([StreamEvent(kind="content", text="NEVER SENT")])
+    _use(client.app, fake_llm, native_reasoning=True)
+    fake_enrichment = FakeEnrichmentService(_enriched_outcome(message))
+    real_enrichment = client.app.state.enrichment
+    client.app.state.enrichment = fake_enrichment
+    try:
+        resp = client.post(
+            "/api/chat",
+            json={"message": message},
+            headers={"Authorization": f"Bearer {_token(client)}"},
+        )
+        assert resp.status_code == 200
+        frames = _frames(resp.text)
+        assert frames[-1]["done"]["path"] == "shortcut"
+        assert fake_llm.stream_calls == []  # enrichment ran, the LLM never did
+        assert len(fake_enrichment.enrich_calls) == 1
+        content = "".join(f["content"] for f in frames if "content" in f)
+        assert "verdict: malicious (confidence 0.75)" in content
+        assert "ThreatFox: known IOC: Cobalt Strike" in content
+        assert "185.220.101.34" in content and "NEVER SENT" not in content
+        session_id = frames[0]["session"]
+
+        # the enriched answer (not the deferred copy) is what history replays
+        persisted = _session_messages(settings, session_id)
+        assert any(r == "assistant" and "verdict: malicious" in c for r, c in persisted)
+
+        # and the verdict row landed via the real persist path
+        async def _verdict_count():
+            conn = await asyncpg.connect(settings.database_url)
+            try:
+                return await conn.fetchval(
+                    "SELECT count(*) FROM verdicts v JOIN observables o"
+                    " ON v.observable_id = o.id WHERE o.value = '185.220.101.34'"
+                )
+            finally:
+                await conn.close()
+
+        assert asyncio.run(_verdict_count()) >= 1
+    finally:
+        client.app.state.enrichment = real_enrichment
+        client.app.dependency_overrides.clear()
+        _purge_observable(settings, "185.220.101.34")
+
+
+def test_inactive_enrichment_service_keeps_the_deferred_copy(client):
+    from _fakes import FakeEnrichmentService
+
+    fake_enrichment = FakeEnrichmentService(outcome=None, active=False)
+    real_enrichment = client.app.state.enrichment
+    client.app.state.enrichment = fake_enrichment
+    _use(client.app, StreamingFakeLLMClient([]), native_reasoning=True)
+    try:
+        resp = client.post(
+            "/api/chat",
+            json={"message": "check 8.8.8.8"},
+            headers={"Authorization": f"Bearer {_token(client)}"},
+        )
+        content = "".join(f["content"] for f in _frames(resp.text) if "content" in f)
+        assert "deferred" in content
+        assert fake_enrichment.enrich_calls == []  # inactive ⇒ never invoked
+    finally:
+        client.app.state.enrichment = real_enrichment
         client.app.dependency_overrides.clear()
 
 
@@ -255,13 +408,17 @@ def test_unconfigured_endpoint_still_answers_shortcuts_but_503s_deep(client):
     client.app.dependency_overrides[get_endpoint_resolver] = override
     try:
         token = _token(client)
-        greeting = client.post("/api/chat", json={"message": "hello"},
-                               headers={"Authorization": f"Bearer {token}"})
+        greeting = client.post(
+            "/api/chat", json={"message": "hello"}, headers={"Authorization": f"Bearer {token}"}
+        )
         assert greeting.status_code == 200
         assert _frames(greeting.text)[-1]["done"]["path"] == "shortcut"
 
-        deep = client.post("/api/chat", json={"message": "summarize the overnight alerts"},
-                           headers={"Authorization": f"Bearer {token}"})
+        deep = client.post(
+            "/api/chat",
+            json={"message": "summarize the overnight alerts"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
         assert deep.status_code == 503
     finally:
         client.app.dependency_overrides.clear()
@@ -274,19 +431,26 @@ def test_unconfigured_real_dependency_not_just_the_override(client):
     client.app.state.settings = settings.model_copy(update={"llm_base_url": ""})
     try:
         token = _token(client)
-        greeting = client.post("/api/chat", json={"message": "hello"},
-                               headers={"Authorization": f"Bearer {token}"})
+        greeting = client.post(
+            "/api/chat", json={"message": "hello"}, headers={"Authorization": f"Bearer {token}"}
+        )
         assert greeting.status_code == 200
         assert _frames(greeting.text)[-1]["done"]["path"] == "shortcut"
 
-        deep = client.post("/api/chat", json={"message": "summarize the overnight alerts"},
-                           headers={"Authorization": f"Bearer {token}"})
+        deep = client.post(
+            "/api/chat",
+            json={"message": "summarize the overnight alerts"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
         assert deep.status_code == 503
     finally:
         client.app.state.settings = settings
 
 
 def test_oversized_message_is_rejected_not_classified(client):
-    resp = client.post("/api/chat", json={"message": "a" * 32_001},
-                       headers={"Authorization": f"Bearer {_token(client)}"})
+    resp = client.post(
+        "/api/chat",
+        json={"message": "a" * 32_001},
+        headers={"Authorization": f"Bearer {_token(client)}"},
+    )
     assert resp.status_code == 422

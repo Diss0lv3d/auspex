@@ -15,8 +15,19 @@ from auspex.llm.client import ChatResult, LLMError, StreamEvent
 # strings, D-002/CLAUDE.md) — imported by test_ui, test_models, test_shortcuts
 # so a newly-added provider name can't leak through a stale copy.
 FORBIDDEN_ENGINE_NAMES = [
-    "qwen", "ollama", "llama", "vllm", "northflank", "gpt", "openai",
-    "scout", "nvidia", "claude", "anthropic", "mistral", "deepseek",
+    "qwen",
+    "ollama",
+    "llama",
+    "vllm",
+    "northflank",
+    "gpt",
+    "openai",
+    "scout",
+    "nvidia",
+    "claude",
+    "anthropic",
+    "mistral",
+    "deepseek",
 ]
 
 
@@ -91,6 +102,24 @@ class SequencedStreamingFakeLLMClient:
 
     async def aclose(self) -> None:
         self.closed = True
+
+
+class FakeEnrichmentService:
+    """Duck-typed EnrichmentService for the chat route (S5): scripted outcome,
+    records the observables each turn asked about, never touches the network."""
+
+    def __init__(self, outcome: Any, coverage: dict | None = None, *, active: bool = True):
+        self.outcome = outcome
+        self.coverage = coverage or {}
+        self.active = active
+        self.enrich_calls: list[tuple] = []
+
+    async def enrich(self, observables: tuple) -> Any:
+        self.enrich_calls.append(observables)
+        return self.outcome
+
+    async def aclose(self) -> None:
+        pass
 
 
 class InMemoryProposalStore(ProposalStore):

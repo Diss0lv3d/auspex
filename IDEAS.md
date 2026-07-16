@@ -16,3 +16,8 @@
 - Enrichment (S5): common-domain/platform-console allowlist to skip enriching google.com / portal.azure.com etc. (SARA intel_enricher.py:171-186 pattern); private/reserved IPs never enriched (`ipaddress.is_private`).
 - Shortcut answers are persisted as assistant turns and replayed to the model in later deep turns — canned "enrichment is deferred" copy can few-shot the model into parroting limitations. Tag messages with path (shortcut|model) and consider filtering canned turns out of _history. (S4 review.)
 - Chat UI renders content as plain text; add safe minimal markdown (code spans for IOC values in JetBrains Mono per D-002) once shortcut echoes are a daily surface. (S4 review.)
+- Enrichment SSE: stream per-observable verdict lines progressively as providers resolve (S5 answer currently waits for the slowest provider/timeout before the first content frame).
+- Enrichment bulk pastes: queue observables beyond the per-turn cap (8) into a background jobs table (SKIP LOCKED, S1 pattern) instead of skipping them.
+- Verdict combining v2: cross-provider agreement boost + per-provider trust weights (v1 = worst-label-wins, D-017 provisional rule).
+- obs_id re-check flow: "check ipv4-9c463859 again" resolves the id from the observables table (ws+obs_id index exists since S5) — echo copy currently only promises paste-again.
+- OTX CVE endpoint (/indicators/cve/) exists but was not probed in S5 — could give cve_lookup a real source before the S6 KB lands.

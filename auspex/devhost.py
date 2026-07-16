@@ -13,6 +13,10 @@ def pin_host_defaults() -> None:
     os.environ.setdefault("DATABASE_URL", "postgresql://auspex:auspex@localhost:55432/auspex")
     os.environ.setdefault("OPENSEARCH_URL", "http://localhost:9200")
     os.environ.setdefault("APP_ENV", "dev")
+    # Hermetic tests: keyless enrichment providers would otherwise fire LIVE
+    # HTTP on every ioc_check test turn. Enriched-path tests inject a fake
+    # service; a host-run live check can override with ENRICHMENT_ENABLED=true.
+    os.environ.setdefault("ENRICHMENT_ENABLED", "false")
     # No LLM_BASE_URL pin: the primary dev endpoint (Scout via Northflank, D-015)
     # is a public URL that resolves identically from host and container, so .env
     # is the single source of truth. Only if you flip .env back to the local
