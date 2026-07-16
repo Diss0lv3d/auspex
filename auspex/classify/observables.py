@@ -64,23 +64,37 @@ def observable_id(type_: ObservableType, value: str) -> str:
 
 # -- refang -------------------------------------------------------------------
 
+# One pattern per replacement, any bracket pair ([.], (.), {.}, and mixed pairs —
+# a harmless superset in defang context; nobody writes a literal "[.)" in prose).
 _REFANG_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bhxxps\b", re.IGNORECASE), "https"),
     (re.compile(r"\bhxxp\b", re.IGNORECASE), "http"),
-    (re.compile(r"\s*\[\s*(?:\.|dot)\s*\]\s*", re.IGNORECASE), "."),
-    (re.compile(r"\s*\(\s*(?:\.|dot)\s*\)\s*", re.IGNORECASE), "."),
-    (re.compile(r"\s*\{\s*(?:\.|dot)\s*\}\s*", re.IGNORECASE), "."),
-    (re.compile(r"\s*\[\s*(?:@|at)\s*\]\s*", re.IGNORECASE), "@"),
-    (re.compile(r"\s*\(\s*(?:@|at)\s*\)\s*", re.IGNORECASE), "@"),
+    (re.compile(r"\s*[\[({]\s*(?:\.|dot)\s*[\])}]\s*", re.IGNORECASE), "."),
+    (re.compile(r"\s*[\[({]\s*(?:@|at)\s*[\])}]\s*", re.IGNORECASE), "@"),
     (re.compile(r"\[\s*:\s*\]"), ":"),
 )
 
 
 def refang(text: str) -> str:
     """Canonical live form of defanged text. Idempotent on clean input."""
+    return _refang_tracked(text)[0]
+
+
+def _refang_tracked(text: str) -> tuple[str, list[bool]]:
+    """Refang + per-character "was rewritten" flags for the OUTPUT text.
+
+    The flags are what make the per-occurrence `defanged` signal precise: a
+    value that appears both clean and defanged in one message ("8.8.8.8 …
+    8.8.8[.]8") can't be told apart by searching text — only by position.
+    Matches are replaced right-to-left so earlier indices stay valid.
+    """
+    chars: list[tuple[str, bool]] = [(c, False) for c in text]
     for pattern, replacement in _REFANG_RULES:
-        text = pattern.sub(replacement, text)
-    return text
+        current = "".join(c for c, _ in chars)
+        for m in reversed(list(pattern.finditer(current))):
+            chars[m.start() : m.end()] = [(c, True) for c in replacement]
+    refanged = "".join(c for c, _ in chars)
+    return refanged, [rewritten for _, rewritten in chars]
 
 
 # -- the regex table ----------------------------------------------------------
@@ -101,15 +115,20 @@ _MD5_RE = re.compile(r"\b[a-fA-F0-9]{32}\b")
 # a trailing defang dot ("10.0.0.1.") still does.
 _IPV4_CAND_RE = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?!\w)(?!\.\d)")
 # "version 1.2.3.4" / "build 1.2.3.4" — explicit guard SARA lacked (its study
-# flagged the gap); applied to the ~12 chars before the candidate.
-_VERSION_CTX_RE = re.compile(r"\b(?:version|ver\.?|v|build|release)\s*[:=]?\s*$", re.IGNORECASE)
+# flagged the gap); applied to the ~12 chars before the candidate. Bare "v" only
+# counts as a word on its own — "-v" is a CLI flag, not a version marker.
+_VERSION_CTX_RE = re.compile(
+    r"(?:\b(?:version|ver\.?|build|release)|(?<![\w-])v)\s*[:=]?\s*$", re.IGNORECASE
+)
 
 # Candidate only — ≥2 colon groups; ipaddress validates (rejects MACs, times).
 # The boundary check rejects candidates glued to identifiers ("std::vector"
 # yields a technically-valid "d::") — any alphanumeric neighbor disqualifies.
+# A trailing sentence period is fine ("Block 2001:db8::1."); a ".<digit>"
+# continuation is not (partial dotted structure).
 _IPV6_CAND_RE = re.compile(r"[0-9A-Fa-f]{0,4}(?::[0-9A-Fa-f]{0,4}){2,7}")
 _IPV6_V4_TAIL_RE = re.compile(r"^(?:\.\d{1,3}){3}")
-_IPV6_BOUNDARY_JUNK = ":._%-"
+_IPV6_BOUNDARY_JUNK = ":_%-"
 
 _DOMAIN_CAND_RE = re.compile(
     r"\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}\b", re.IGNORECASE
@@ -165,11 +184,10 @@ def _domain_backtrack(candidate: str) -> str | None:
 
 def extract(text: str) -> Extraction:
     """Extract + normalize all observables from (possibly defanged) text."""
-    refanged = refang(text)
-    original_lower = text.lower()
+    refanged, rewritten = _refang_tracked(text)
 
-    # (type, value, raw_matched_text, span) — raw text drives the defanged flag,
-    # span drives double-extraction guards and the residual.
+    # (type, value, raw_matched_text, span) — the span drives double-extraction
+    # guards, the residual, and the positional defanged flag.
     found: list[tuple[ObservableType, str, str, tuple[int, int]]] = []
     url_spans: list[tuple[int, int]] = []
     email_spans: list[tuple[int, int]] = []
@@ -199,12 +217,15 @@ def extract(text: str) -> Extraction:
             end += tail.end()
         prev = refanged[start - 1] if start > 0 else ""
         nxt = refanged[end] if end < len(refanged) else ""
-        if prev and (prev.isalnum() or prev in _IPV6_BOUNDARY_JUNK):
+        after_dot = refanged[end + 1] if end + 1 < len(refanged) else ""
+        if prev and (prev.isalnum() or prev in _IPV6_BOUNDARY_JUNK or prev == "."):
             continue
         if nxt and (nxt.isalnum() or nxt in _IPV6_BOUNDARY_JUNK):
             continue
-        # Bare "::" (C++ scope, slicing) is a *valid* IPv6 address — require a digit.
-        if not any(c in "0123456789abcdefABCDEF" for c in candidate):
+        if nxt == "." and after_dot.isdigit():
+            continue
+        # Bare "::" (C++ scope, slicing) is a *valid* IPv6 address — require hex.
+        if not candidate.strip(":"):
             continue
         if _spans_overlap(start, end, url_spans):
             continue
@@ -217,8 +238,9 @@ def extract(text: str) -> Extraction:
         ipv6_spans.append((start, end))
         found.append((ObservableType.IPV6, ip.compressed, candidate, (start, end)))
 
+    host_spans = url_spans + ipv6_spans  # complete by now; loop-invariant
     for m in _IPV4_CAND_RE.finditer(refanged):
-        if _spans_overlap(m.start(), m.end(), url_spans + ipv6_spans):
+        if _spans_overlap(m.start(), m.end(), host_spans):
             continue
         if _VERSION_CTX_RE.search(refanged[max(0, m.start() - 12) : m.start()]):
             continue
@@ -238,13 +260,16 @@ def extract(text: str) -> Extraction:
         (ObservableType.MD5, _MD5_RE),
     ):
         for m in pattern.finditer(refanged):
-            if _spans_overlap(m.start(), m.end(), hash_spans + email_spans):
+            if _spans_overlap(m.start(), m.end(), hash_spans) or _spans_overlap(
+                m.start(), m.end(), email_spans
+            ):
                 continue
             hash_spans.append(m.span())
             found.append((hash_type, m.group().lower(), m.group(), m.span()))
 
+    nonhost_spans = url_spans + email_spans  # loop-invariant
     for m in _DOMAIN_CAND_RE.finditer(refanged):
-        if _spans_overlap(m.start(), m.end(), url_spans + email_spans):
+        if _spans_overlap(m.start(), m.end(), nonhost_spans):
             continue
         domain = _domain_backtrack(m.group())
         if domain is None:
@@ -252,25 +277,32 @@ def extract(text: str) -> Extraction:
         found.append((ObservableType.DOMAIN, domain.lower(), domain, m.span()))
 
     found.sort(key=lambda item: item[3])
+
     observables: list[Observable] = []
-    seen: set[tuple[ObservableType, str]] = set()
-    blank_spans: list[tuple[int, int]] = []
-    for type_, value, raw, span in found:
-        blank_spans.append(span)
-        if (type_, value) in seen:
+    index_of: dict[tuple[ObservableType, str], int] = {}
+    for type_, value, _raw, (start, end) in found:
+        # Positional: was any character of THIS occurrence rewritten by refang?
+        defanged = any(rewritten[start:end])
+        key = (type_, value)
+        if key in index_of:
+            # dedup keeps the first occurrence, but defanged-anywhere wins:
+            # one defanged appearance is deliberate-analyst signal.
+            i = index_of[key]
+            if defanged and not observables[i].defanged:
+                observables[i] = Observable(type_, value, observables[i].obs_id, True)
             continue
-        seen.add((type_, value))
+        index_of[key] = len(observables)
         observables.append(
             Observable(
                 type=type_,
                 value=value,
                 obs_id=observable_id(type_, value),
-                defanged=raw.lower() not in original_lower,
+                defanged=defanged,
             )
         )
 
     residual_chars = list(refanged)
-    for start, end in blank_spans:
+    for _type, _value, _raw, (start, end) in found:
         residual_chars[start:end] = " " * (end - start)
     residual = " ".join("".join(residual_chars).split())
 

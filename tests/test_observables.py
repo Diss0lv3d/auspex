@@ -74,6 +74,10 @@ def test_ipv4_version_strings_rejected():
     assert _values("agent 1.2.3.4.5 deployed", ObservableType.IPV4) == []
 
 
+def test_ipv4_after_cli_verbose_flag_is_not_a_version():
+    assert _one("ran nmap -v 10.0.0.1 yesterday", ObservableType.IPV4).value == "10.0.0.1"
+
+
 def test_ipv4_with_port_cidr_and_trailing_defang_dot():
     assert _one("conn to 10.0.0.1:8080", ObservableType.IPV4).value == "10.0.0.1"
     assert _one("block 203.0.113.0/24", ObservableType.IPV4).value == "203.0.113.0"
@@ -95,6 +99,10 @@ def test_ipv6_look_alikes_rejected():
     assert _values("at 12:30:45 the alert fired", ObservableType.IPV6) == []
     assert _values("mac 00:11:22:33:44:55 seen", ObservableType.IPV6) == []
     assert _values("use std::vector or :: scope", ObservableType.IPV6) == []
+
+
+def test_ipv6_with_trailing_sentence_period_still_extracts():
+    assert _one("Block 2001:db8::1.", ObservableType.IPV6).value == "2001:db8::1"
 
 
 def test_ipv6_v4_mapped_extracts_once_as_ipv6():
@@ -200,6 +208,10 @@ def test_email_plain_and_defanged_lowercased():
     assert obs.defanged is True
 
 
+def test_curly_brace_defang_covers_at_too():
+    assert _one("sender bob{at}evil{.}com", ObservableType.EMAIL).value == "bob@evil.com"
+
+
 def test_email_domain_not_double_extracted():
     result = extract_observables("phish from ceo@evil.xyz")
     assert [o.value for o in result if o.type is ObservableType.EMAIL] == ["ceo@evil.xyz"]
@@ -236,6 +248,14 @@ def test_obs_id_is_short_deterministic_and_type_prefixed():
 def test_duplicates_dedup_to_first_occurrence():
     result = extract_observables("8.8.8.8 again 8.8.8.8 and 8.8.8[.]8")
     assert [o.value for o in result] == ["8.8.8.8"]
+    assert result[0].defanged is True  # any defanged appearance is deliberate signal
+
+
+def test_defanged_flag_survives_a_lookalike_substring():
+    # "evil.com" is a substring of "devil.com" — the flag must not be fooled
+    result = extract_observables("evil[.]com redirects to devil.com")
+    flags = {o.value: o.defanged for o in result}
+    assert flags == {"evil.com": True, "devil.com": False}
 
 
 def test_observables_come_back_in_text_order():
