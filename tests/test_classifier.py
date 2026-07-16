@@ -16,13 +16,19 @@ def _cat(query: str) -> Category:
 
 
 def test_greetings():
-    for q in ["hi", "Hello!", "hey there", "good morning", "thanks", "Thank you so much!",
-              "ok", "greetings, Auspex"]:
+    for q in ["hi", "Hello!", "hey there", "good morning", "greetings, Auspex"]:
         assert _cat(q) is Category.GREETING, q
 
 
 def test_greeting_with_a_real_question_is_not_a_greeting():
     assert _cat("hi, what is dns tunneling?") is not Category.GREETING
+
+
+def test_acknowledgements_and_farewells_reach_the_model():
+    # mid-investigation "ok" may answer the model's question — canned greeting
+    # copy would hijack the session (S4 review finding)
+    for q in ["ok", "thanks", "Thank you so much!", "cool", "bye"]:
+        assert _cat(q) is Category.DEEP, q
 
 
 # -- identity -----------------------------------------------------------------
@@ -66,6 +72,7 @@ def test_bare_uncommon_domain_is_ioc_but_common_is_not():
     assert _cat("evil.xyz") is Category.IOC_CHECK
     assert _cat("google.com") is Category.DEEP
     assert _cat("check google.com") is Category.DEEP  # common stays non-IOC even with a verb
+    assert _cat("check www.google.com") is Category.DEEP  # subdomains are just as common
 
 
 def test_defanged_common_domain_is_deliberate_hence_ioc():
@@ -114,6 +121,11 @@ def test_definition_with_observable_is_not_a_definition():
 def test_long_definition_shaped_question_goes_deep():
     q = "what is the best way to structure a detection engineering team across three regions"
     assert _cat(q) is Category.DEEP
+
+
+def test_analytical_definition_shaped_question_goes_deep():
+    # "why" is an analytical marker — the veto beats the definition shape
+    assert _cat("what is ransomware and why does it matter") is Category.DEEP
 
 
 # -- deep: analytical veto ------------------------------------------------------

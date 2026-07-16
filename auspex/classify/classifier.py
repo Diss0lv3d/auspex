@@ -77,15 +77,14 @@ _IDENTITY_RE = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
+# True salutations only. Bare acknowledgements ("ok", "thanks", "cool") and
+# farewells deliberately go DEEP: mid-investigation they are context ("ok" may
+# answer the model's question) and must reach the model, not a canned greeting.
 _GREETING_RE = re.compile(
-    r"""^\s*(?:
-        (?:hi|hiya|hello|hey|heya|howdy|yo|greetings|hola|salam|
+    r"""^\s*(?:hi|hiya|hello|hey|heya|howdy|yo|greetings|hola|salam|
            good\s+(?:morning|afternoon|evening|day)|morning|evening)
-        (?:\s*,?\s*(?:there|again|all|team|everyone|folks|auspex))? |
-        (?:thanks|thank\s+you|thx|ty)(?:\s+(?:so\s+much|a\s+lot|very\s+much))? |
-        ok(?:ay)?|cool|nice|great|awesome|perfect|cheers|
-        (?:bye|goodbye|good\s*night|see\s+you|later)
-    )\s*[!.,\s]*$""",
+        (?:\s*,?\s*(?:there|again|all|team|everyone|folks|auspex))?
+    \s*[!.,\s]*$""",
     re.IGNORECASE | re.VERBOSE,
 )
 
@@ -148,10 +147,17 @@ def _ioc_shaped(observables: tuple[Observable, ...], q: str) -> bool:
             domains.append(o)
         else:
             return True
-    hot = [d for d in domains if d.defanged or d.value not in _COMMON_DOMAINS]
+    hot = [d for d in domains if d.defanged or not _is_common_domain(d.value)]
     if not hot:
         return False
     return len(q.split()) <= DEFINITION_MAX_WORDS or bool(_CHECK_VERB_RE.search(q))
+
+
+def _is_common_domain(domain: str) -> bool:
+    """Suffix-aware: www.google.com is as ubiquitous as google.com."""
+    return domain in _COMMON_DOMAINS or any(
+        domain.endswith("." + common) for common in _COMMON_DOMAINS
+    )
 
 
 def classify(query: str) -> Classification:
@@ -178,12 +184,11 @@ def classify(query: str) -> Classification:
             and residual_words <= CVE_RESIDUAL_MAX_WORDS
         ):
             return result(Category.CVE_LOOKUP)
-
-    if (
-        not observables
-        and len(q.split()) <= DEFINITION_MAX_WORDS
-        and _DEFINITION_RE.match(q)
-    ):
-        return result(Category.DEFINITION)
+        if (
+            not observables
+            and len(q.split()) <= DEFINITION_MAX_WORDS
+            and _DEFINITION_RE.match(q)
+        ):
+            return result(Category.DEFINITION)
 
     return result(Category.DEEP)
