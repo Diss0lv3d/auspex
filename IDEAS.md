@@ -14,3 +14,5 @@
 - SSE /api/chat replays full session history unbounded — add a context/token budget (drop/summarize old turns) before it can exceed a small endpoint's window.
 - Living Verdicts (S7): a defanged-in-input observable floors its verdict at SUSPICIOUS — an analyst defanged it on purpose (SARA verdict_floor.py:229 pattern). `Observable.defanged` (S4) already carries the signal.
 - Enrichment (S5): common-domain/platform-console allowlist to skip enriching google.com / portal.azure.com etc. (SARA intel_enricher.py:171-186 pattern); private/reserved IPs never enriched (`ipaddress.is_private`).
+- Shortcut answers are persisted as assistant turns and replayed to the model in later deep turns — canned "enrichment is deferred" copy can few-shot the model into parroting limitations. Tag messages with path (shortcut|model) and consider filtering canned turns out of _history. (S4 review.)
+- Chat UI renders content as plain text; add safe minimal markdown (code spans for IOC values in JetBrains Mono per D-002) once shortcut echoes are a daily surface. (S4 review.)

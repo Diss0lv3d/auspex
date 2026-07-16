@@ -29,3 +29,13 @@ probed its scorecard flips it to single-call automatically.
 `native_reasoning` is known (avoids needless two-pass); (b) optionally cache/skip
 the pre-pass for short/conversational turns (92/8, S4); (c) a single-pass
 `<thinking>`-tag variant could halve cost for endpoints that reliably honor it.
+
+## TD-003 (S4) — SSE/test helpers duplicated across test files
+**Where:** `_frames()` + `_token()` in `tests/test_chat_sse.py` and
+`tests/test_models.py` (near-identical `_dev_token` in `tests/test_auth.py`).
+**Risk:** an SSE protocol change (e.g. `event:` lines) fixed in one copy lets the
+other file's parser silently drop frames and pass on a broken stream.
+**Why deferred:** pre-existing before S4; moving them to `conftest.py`/`_fakes.py`
+touches three test files and deserved its own change, not a rider on the 92/8 work.
+**Path to fix:** hoist both into `tests/_fakes.py` (FORBIDDEN_ENGINE_NAMES already
+moved there in S4) and import everywhere; delete the copies.
