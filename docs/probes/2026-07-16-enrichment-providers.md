@@ -114,6 +114,24 @@
 - IP IOCs are stored as `ip:port` — search by bare IP may need wildcard; keep
   exact_match for v1 and accept misses (re-probe with key, see TD entry).
 
+## Post-implementation live-verify findings (same day, in-container)
+
+6. **OTX `validation[]` is NOT always a whitelist.** The live Tor exit
+   185.220.101.34 carries `{"source": "tor_exits", "message": "IP Associated
+   with Tor Exit Nodes", "name": "IP Assosciated with Tor Exit Nodes"}` (typo
+   is OTX's). A parser that treats any validation entry as benign would
+   whitelist Tor exits. Only sources `whitelist` / `false_positive` /
+   `majestic` / `akamai` (all seen live) may veto suspicion; everything else
+   is context. Pinned regression fixture: `OTX_TOR_EXIT` in
+   tests/test_enrich_providers.py.
+7. **OTX is slow on pulse-heavy indicators:** the same Tor exit takes
+   **14–16.6 s** (81 KB, measured 5× from host AND container; `?limit=`/`?page=`
+   are ignored — still 50 pulses). Famous-but-light indicators answer in
+   ~1–1.5 s. Auspex keeps the 6 s per-call timeout: a shortcut turn must not
+   stall 16 s, OTX misses on heavy indicators are reported honestly in the
+   trailer ("partial — timed out"), and other providers cover exactly those
+   heavy cases once keyed.
+
 ## What our code must therefore do
 
 - **Env vars born this session:** `ABUSECH_AUTH_KEY`, `ABUSEIPDB_API_KEY`,

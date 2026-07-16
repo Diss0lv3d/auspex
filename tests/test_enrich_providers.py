@@ -165,6 +165,18 @@ OTX_WHITELISTED = {  # trimmed from the live example.com response — the count 
     ],
 }
 OTX_QUIET = {"pulse_info": {"count": 0, "pulses": []}, "validation": []}
+OTX_TOR_EXIT = {  # live 185.220.101.34 response (2026-07-16 in-container verify):
+    # validation[] here is CONTEXT, not a whitelist — the original parser
+    # treated any validation as benign and would have whitelisted a Tor exit.
+    "pulse_info": {"count": 50, "pulses": [{"name": "Tor exit node tracking"}]},
+    "validation": [
+        {
+            "source": "tor_exits",
+            "message": "IP Associated with Tor Exit Nodes",
+            "name": "IP Assosciated with Tor Exit Nodes",
+        },  # (sic — OTX's own typo)
+    ],
+}
 
 
 async def test_otx_pulses_without_validation_are_suspicious():
@@ -205,6 +217,29 @@ async def test_otx_urls_are_percent_encoded_and_quiet_is_none():
         "https://otx.alienvault.com/api/v1/indicators/url/http%3A%2F%2Fexample.com%2Ftest/general"
     )
     assert seen == [expected]
+
+
+async def test_otx_tor_exit_validation_is_not_a_benign_veto():
+    """Pinned live regression (2026-07-16): a Tor exit carries a validation[]
+    entry with source=tor_exits. Only whitelist-family sources may veto —
+    this indicator must stay SUSPICIOUS, with the Tor context surfaced."""
+    signal = await lookup(
+        OTX(),
+        obs(ObservableType.IPV4, "185.220.101.34"),
+        lambda r: json_response(200, OTX_TOR_EXIT),
+    )
+    assert signal.label is VerdictLabel.SUSPICIOUS
+    assert "flagged: IP Associated with Tor Exit Nodes" in signal.summary
+
+
+async def test_otx_context_validation_without_pulses_is_context_not_a_verdict():
+    body = {"pulse_info": {"count": 0, "pulses": []}, "validation": OTX_TOR_EXIT["validation"]}
+    signal = await lookup(
+        OTX(), obs(ObservableType.IPV4, "185.220.101.34"), lambda r: json_response(200, body)
+    )
+    assert signal.label is VerdictLabel.UNKNOWN
+    assert signal.confidence == 0.0
+    assert "Tor Exit Nodes" in signal.summary
 
 
 async def test_otx_sends_key_when_configured():

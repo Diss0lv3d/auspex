@@ -30,6 +30,11 @@ _PATH_BY_TYPE = {
     ObservableType.SHA256: "file",
 }
 
+# validation[] sources that genuinely assert "benign" (all seen live in probes):
+# whitelist / false_positive / majestic / akamai. Everything else (e.g.
+# tor_exits) is context and must NOT veto suspicion.
+_BENIGN_VALIDATION_SOURCES = frozenset({"whitelist", "false_positive", "majestic", "akamai"})
+
 
 class OTX(Provider):
     name = "OTX"
@@ -56,9 +61,26 @@ class OTX(Provider):
         count = pulse_info.get("count")
         count = count if isinstance(count, int) else 0
         pulses = pulse_info.get("pulses") or []
-        validations = [
-            str(v.get("name", "")) for v in data.get("validation", []) if isinstance(v, dict)
-        ]
+        validation = [v for v in data.get("validation", []) if isinstance(v, dict)]
+        # Only genuinely-benign validation sources veto suspicion. OTX also uses
+        # validation[] for CONTEXT markers — a live Tor exit carries
+        # {"source": "tor_exits", "message": "IP Associated with Tor Exit
+        # Nodes"} (probed 2026-07-16), and treating that as a whitelist would
+        # label a Tor exit benign.
+        benign_markers = sorted(
+            {
+                str(v.get("name", ""))
+                for v in validation
+                if v.get("source") in _BENIGN_VALIDATION_SOURCES
+            }
+        )
+        context_markers = sorted(
+            {
+                str(v.get("message") or v.get("name", ""))
+                for v in validation
+                if v.get("source") not in _BENIGN_VALIDATION_SOURCES
+            }
+        )
         top_pulses = [str(p.get("name", "")) for p in pulses[:3] if isinstance(p, dict)]
         adversaries = sorted(
             {str(p["adversary"]) for p in pulses[:10] if isinstance(p, dict) and p.get("adversary")}
@@ -67,12 +89,13 @@ class OTX(Provider):
             "pulse_count": count,
             "top_pulses": top_pulses,
             "adversaries": adversaries[:3],
-            "validation": validations,
+            "benign_validation": benign_markers,
+            "context_validation": context_markers,
         }
 
-        if validations:
+        if benign_markers:
             # Whitelist/false-positive markers veto pulse-derived suspicion.
-            validated_by = ", ".join(sorted(set(validations))[:3])
+            validated_by = ", ".join(benign_markers[:3])
             return ProviderSignal(
                 provider=self.name,
                 label=VerdictLabel.BENIGN,
@@ -86,11 +109,22 @@ class OTX(Provider):
                 summary += f" — e.g. {top_pulses[0]}"
             if adversaries:
                 summary += f" · linked adversary: {adversaries[0]}"
+            if context_markers:
+                summary += f" · flagged: {context_markers[0]}"
             return ProviderSignal(
                 provider=self.name,
                 label=VerdictLabel.SUSPICIOUS,
                 confidence=round(min(0.3 + 0.02 * count, 0.7), 3),
                 summary=summary,
+                evidence=evidence,
+            )
+        if context_markers:
+            # e.g. Tor-exit membership with zero pulses: context, not a verdict.
+            return ProviderSignal(
+                provider=self.name,
+                label=VerdictLabel.UNKNOWN,
+                confidence=0.0,
+                summary=f"flagged: {', '.join(context_markers[:2])}",
                 evidence=evidence,
             )
         return None  # no pulses, no validation — OTX has nothing to say
