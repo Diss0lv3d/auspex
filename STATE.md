@@ -5,8 +5,10 @@ _Last updated: 2026-07-16 (S4 complete — 92/8 fast classifier, all steps incl.
 ## Where we are
 - **S4 COMPLETE** (steps 1–3 + stretch step 4, all with tests) → **next is S5**
   (Enrichment fan-out + verdict store — see NEXT-SESSION.md).
-- **Promoted:** promote #3 (S2+S3+D-014/015/016) is on `main`; S4 is on
-  `staging` only — S4 is a demoable milestone, so a `/promote` is reasonable.
+- **Promoted:** promote #4 (S4 — 92/8 fast classifier) is on `main`
+  (`e9237f7`, back-merged into staging as `0e4de9c`). `main` == S4 milestone.
+  _(S5 start ritual found the previous "S4 not yet promoted" line stale and
+  local `main` one commit behind origin — both fixed 2026-07-16.)_
 - **Primary dev LLM (D-015):** Llama-4-Scout-17B via Northflank (remote vLLM,
   `native_tools`). **Secondary/offline:** local Ollama `qwen3:14b` (D-013);
   `llama3.1:8b` = weak-endpoint case. `.env` is source of truth (gitignored).
@@ -101,4 +103,4 @@ Base: `/home/burhan/sara-open/` (paths re-verified 2026-07-15):
 
 ## Next session should
 Run S5 exactly as written in NEXT-SESSION.md (Enrichment fan-out + verdict
-store). Consider `/promote` of the S4 milestone first (staging → main).
+store). S4 is already promoted — no `/promote` needed at S5 start.
