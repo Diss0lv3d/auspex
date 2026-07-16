@@ -336,6 +336,26 @@ def test_render_context_only_signals_do_not_claim_a_verdict():
     assert "verdict: unknown" not in text
 
 
+def test_render_marks_a_failure_as_partial_when_the_provider_also_answered():
+    """Seen live (docs/probes: 2026-07-16 in-container run): OTX timed out on
+    an IP but answered a hash in the same turn — the trailer must not
+    contradict the signal line above it."""
+    from auspex.enrich.types import EnrichmentOutcome, ObservableEnrichment
+
+    outcome = EnrichmentOutcome(
+        items=(
+            ObservableEnrichment(
+                observable=obs(ObservableType.MD5, "d" * 32),
+                signals=(ProviderSignal("OTX", VerdictLabel.BENIGN, 0.6, "whitelisted"),),
+            ),
+        ),
+        provider_failures={"OTX": "timed out after 6s", "GreyNoise": BREAKER_OPEN_REASON},
+    )
+    text = render_ioc_answer(outcome, COVERAGE)
+    assert "OTX (partial — timed out after 6s)" in text
+    assert f"GreyNoise ({BREAKER_OPEN_REASON})" in text  # fully-failed stays plain
+
+
 def test_render_never_names_the_engine_and_stays_plain_text():
     text = render_ioc_answer(outcome_for_render(), COVERAGE).lower()
     for name in [*FORBIDDEN_ENGINE_NAMES, "model"]:

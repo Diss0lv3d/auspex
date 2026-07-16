@@ -53,8 +53,13 @@ def render_ioc_answer(outcome: EnrichmentOutcome, coverage: dict[ObservableType,
     ]
     text = f"Parsed {count} {noun}:\n\n" + "\n".join(blocks)
     if outcome.provider_failures:
+        # A provider can fail one lookup yet answer another in the same turn
+        # (per-call fan-out); "partial" keeps the trailer from contradicting a
+        # signal line above it (seen live: OTX timed out on an IP, answered a hash).
+        answered = {s.provider for item in outcome.items for s in item.signals}
         downs = "; ".join(
-            f"{name} ({reason})" for name, reason in sorted(outcome.provider_failures.items())
+            f"{name} (partial — {reason})" if name in answered else f"{name} ({reason})"
+            for name, reason in sorted(outcome.provider_failures.items())
         )
         text += f"\n\nSources unavailable this turn: {downs}."
     if any(item.signals for item in outcome.items):
