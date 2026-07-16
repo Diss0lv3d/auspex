@@ -5,6 +5,7 @@ prompt (ADR: code over prompts). Pattern source: SARA Open's fast classifier
 (docs/probes/2026-07-16-sara-fastpath-pattern.md) — pattern reused, not code.
 """
 
+from auspex.classify.classifier import Category, Classification, classify
 from auspex.classify.observables import (
     Extraction,
     Observable,
@@ -16,9 +17,12 @@ from auspex.classify.observables import (
 )
 
 __all__ = [
+    "Category",
+    "Classification",
     "Extraction",
     "Observable",
     "ObservableType",
+    "classify",
     "extract",
     "extract_observables",
     "observable_id",
