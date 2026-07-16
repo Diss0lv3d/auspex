@@ -1,9 +1,10 @@
 """AbuseIPDB — key-gated on ABUSEIPDB_API_KEY (probe §5).
 
 GET /api/v2/check?ipAddress=…&maxAgeInDays=90, headers `Key` + `Accept`.
-The 401 `{"errors":[{"detail","status"}]}` shape is live-verified; the 200
-happy path is coded from official docs and UNVERIFIED-LIVE (TD entry) — hence
-the defensive .get() chains. Free tier 1 000 req/day; 429 → breaker.
+Both shapes live-verified 2026-07-16: the 401 `{"errors":[{"detail","status"}]}`
+error and the 200 happy path (Tor exit: score 90/106 reports → malicious;
+8.8.8.8: isWhitelisted true → benign; `x-ratelimit-limit: 1000` free tier —
+docs/probes/2026-07-16-keyed-providers-live.md). 429 → breaker.
 """
 
 import httpx

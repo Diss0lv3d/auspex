@@ -30,20 +30,15 @@ probed its scorecard flips it to single-call automatically.
 the pre-pass for short/conversational turns (92/8, S4); (c) a single-pass
 `<thinking>`-tag variant could halve cost for endpoints that reliably honor it.
 
-## TD-004 (S5) — URLhaus / ThreatFox / AbuseIPDB happy paths are docs-coded, not probe-verified
-**Where:** `auspex/enrich/providers/{urlhaus,threatfox,abuseipdb}.py` + their fixtures in
-`tests/test_enrich_providers.py` (marked `docs-coded`).
-**Risk:** these providers are key-gated and no keys exist in `.env` yet, so only their
-*error* shapes (401) were live-probed (docs/probes/2026-07-16-enrichment-providers.md).
-The 200-shapes come from official docs fetched the same day. If the real shape drifts
-from the docs, the parsers raise ProviderError / return no signal (fail-SOFT by
-construction — `query_status` guards, defensive `.get()`s), so the failure mode is a
-missing verdict + "source unavailable", never a fabricated verdict.
-**Why accepted:** registering API keys is a human step (auth.abuse.ch account,
-abuseipdb.com account); coding against fetched docs + soft-fail guards was the honest
-maximum for an autonomous session.
-**Path to fix:** Burhan registers the two free keys → `/probe` each provider's happy
-path live → replace the docs-coded fixtures with real trimmed bodies → drop this entry.
+## ~~TD-004 (S5) — URLhaus / ThreatFox / AbuseIPDB happy paths are docs-coded, not probe-verified~~ RESOLVED same day
+**Resolved 2026-07-16 (evening):** Burhan registered both keys; all three happy paths
+probed live (docs/probes/2026-07-16-keyed-providers-live.md). Docs-coded shapes were
+correct except one trap the probe caught: URLhaus `/v1/payload/` returns
+`query_status:"ok"` for ANY bytes ever served from a listed URL — including empty
+failed downloads — so the parser gained a `file_size == 0 ⇒ no signal` guard and a
+signature-null ⇒ SUSPICIOUS (not MALICIOUS) downgrade, with pinned live fixtures.
+Also measured: heavy payload hashes 504 server-side (~60 s; the 6 s cap handles it),
+`url_count` is int on /host/ but string on /payload/.
 
 ## TD-003 (S4) — SSE/test helpers duplicated across test files
 **Where:** `_frames()` + `_token()` in `tests/test_chat_sse.py` and

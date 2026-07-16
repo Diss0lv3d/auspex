@@ -2,11 +2,12 @@
 
 POST JSON {"query": "search_ioc", "search_term": …, "exact_match": true} with
 `Auth-Key`. exact_match stays ON: a wildcard search returning relatives of a
-benign IOC would fabricate suspicion (D-014 spirit). Keyless 401 live-verified;
-the happy path is docs-coded and UNVERIFIED-LIVE (TD entry) — any query_status
-that isn't "ok" and doesn't look like a no-result is treated as failure, and
-missing/odd data fails soft. Note: ThreatFox stores IP IOCs as ip:port, so
-exact bare-IP searches may miss (accepted for v1, see probe).
+benign IOC would fabricate suspicion (D-014 spirit). Happy path live-verified
+2026-07-16 (docs/probes/2026-07-16-keyed-providers-live.md): hit =
+query_status "ok" + data rows; miss = query_status "no_result" with data as a
+STRING — any status that isn't "ok" and doesn't look like a no-result is
+failure, and missing/odd data fails soft. Note: ThreatFox stores IP IOCs as
+ip:port, so exact bare-IP searches may miss (accepted for v1, see probe).
 """
 
 import httpx

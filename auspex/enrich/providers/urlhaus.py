@@ -1,10 +1,14 @@
-"""URLhaus — key-gated on ABUSECH_AUTH_KEY (probe §6).
+"""URLhaus — key-gated on ABUSECH_AUTH_KEY (probes §6 + keyed follow-up).
 
 POST form-encoded with `Auth-Key`; endpoint by observable type:
 /v1/host/ (domain|IPv4), /v1/url/ (url), /v1/payload/ (md5|sha256 — no sha1).
-The keyless 401 is live-verified; happy-path shapes are coded from official
-docs and UNVERIFIED-LIVE (TD entry) — every parse guards on `query_status`
-and fails SOFT on anything unrecognized (DEFERRED rail, not a wrong verdict).
+All three happy paths live-verified 2026-07-16
+(docs/probes/2026-07-16-keyed-providers-live.md). Quirks that shaped this
+parser: heavy payload hashes 504 server-side (~60 s — the 6 s cap turns that
+into an honest miss); URLhaus records ANY bytes served from a listed URL, so
+an empty payload (file_size 0, e.g. the canonical empty-file hash) is a
+failed-download artifact, NOT malware; `url_count` is an int on /host/ but a
+string on /payload/. Every parse guards on `query_status` and fails SOFT.
 """
 
 import httpx
@@ -60,16 +64,34 @@ class URLhaus(Provider):
             raise ProviderError(f"{self.name}: query_status={status or 'missing'}")
 
         if endpoint == "/v1/payload/":
-            signature = data.get("signature") or "unclassified malware"
-            url_count = data.get("url_count") or 0
+            try:
+                file_size = int(data.get("file_size") or -1)
+            except (TypeError, ValueError):
+                file_size = -1  # unparseable size: keep the signal
+            if file_size == 0:
+                # Empty payload = failed-download artifact URLhaus happened to
+                # record, not malware (live probe: the canonical empty-file
+                # hash is query_status "ok" here with 2 251 URLs).
+                return None
+            signature = data.get("signature")
+            url_count = data.get("url_count") or 0  # str on this endpoint (probed)
+            if signature:
+                label, confidence = VerdictLabel.MALICIOUS, 0.9
+                summary = f"known malware payload: {signature} (seen at {url_count} URLs)"
+            else:
+                # Bytes served from listed malware URLs but never classified:
+                # suspicious, not an asserted malware family (D-014 spirit).
+                label, confidence = VerdictLabel.SUSPICIOUS, 0.65
+                summary = f"unclassified payload served from {url_count} listed malware URLs"
             return ProviderSignal(
                 provider=self.name,
-                label=VerdictLabel.MALICIOUS,
-                confidence=0.9,
-                summary=f"known malware payload: {signature} (seen at {url_count} URLs)",
+                label=label,
+                confidence=confidence,
+                summary=summary,
                 evidence={
-                    "signature": data.get("signature"),
+                    "signature": signature,
                     "file_type": data.get("file_type"),
+                    "file_size": data.get("file_size"),
                     "url_count": url_count,
                     "firstseen": data.get("firstseen"),
                 },

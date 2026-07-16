@@ -1,9 +1,9 @@
 """Provider clients vs saved probe fixtures — S5, hermetic (httpx.MockTransport).
 
 Every fixture body below is copied (trimmed) from a LIVE response captured in
-docs/probes/2026-07-16-enrichment-providers.md, except where marked
-`docs-coded` (abuse.ch + AbuseIPDB happy paths are key-gated and unverified
-live — the clients must therefore fail SOFT on shape drift).
+docs/probes/2026-07-16-enrichment-providers.md or, for the key-gated
+providers, docs/probes/2026-07-16-keyed-providers-live.md (TD-004 follow-up:
+keys registered same evening, all former docs-coded shapes re-probed live).
 """
 
 import json
@@ -310,17 +310,18 @@ ABUSEIPDB_401 = {  # live keyless response
         }
     ]
 }
-ABUSEIPDB_MALICIOUS = {  # docs-coded shape (unverified live — TD)
+ABUSEIPDB_MALICIOUS = {  # live 185.220.101.34 (Tor exit) response, keyed probe
     "data": {
         "ipAddress": "185.220.101.34",
-        "abuseConfidenceScore": 100,
-        "totalReports": 187,
-        "numDistinctUsers": 60,
+        "abuseConfidenceScore": 90,
+        "totalReports": 106,
+        "numDistinctUsers": 68,
         "isWhitelisted": False,
         "isTor": True,
-        "usageType": "Data Center/Web Hosting/Transit",
-        "isp": "Example Hosting",
-        "lastReportedAt": "2026-07-15T09:00:00+00:00",
+        "usageType": "Commercial",
+        "isp": "Network for Tor-Exit traffic.",
+        "countryCode": "DE",
+        "lastReportedAt": "2026-07-15T14:34:59+00:00",
     }
 }
 
@@ -334,8 +335,8 @@ async def test_abuseipdb_high_score_is_malicious():
 
     signal = await lookup(AbuseIPDB("ab-key"), obs(ObservableType.IPV4, "185.220.101.34"), handler)
     assert signal.label is VerdictLabel.MALICIOUS
-    assert signal.confidence == 1.0
-    assert "abuse confidence 100/100" in signal.summary and "187 reports" in signal.summary
+    assert signal.confidence == 0.9
+    assert "abuse confidence 90/100" in signal.summary and "106 reports" in signal.summary
 
 
 async def test_abuseipdb_mid_score_is_suspicious_and_low_score_is_no_signal():
@@ -357,8 +358,18 @@ async def test_abuseipdb_mid_score_is_suspicious_and_low_score_is_no_signal():
 
 
 async def test_abuseipdb_whitelisted_is_benign():
+    # live 8.8.8.8 keyed probe: score 0, isWhitelisted true, 121 reports —
+    # famous infrastructure gets reported constantly; the whitelist must win.
     body = {
-        "data": {**ABUSEIPDB_MALICIOUS["data"], "abuseConfidenceScore": 0, "isWhitelisted": True}
+        "data": {
+            **ABUSEIPDB_MALICIOUS["data"],
+            "ipAddress": "8.8.8.8",
+            "abuseConfidenceScore": 0,
+            "totalReports": 121,
+            "isWhitelisted": True,
+            "isTor": False,
+            "usageType": "Content Delivery Network",
+        }
     }
     signal = await lookup(
         AbuseIPDB("k"),
@@ -380,11 +391,11 @@ async def test_abuseipdb_401_is_a_provider_error():
 # -- URLhaus (probe §6: 401 live-verified; ok-shapes docs-coded) ------------------
 
 URLHAUS_401 = {"error": "Unauthorized"}  # live keyless response
-URLHAUS_HOST_OK = {  # docs-coded shape (unverified live — TD)
+URLHAUS_HOST_OK = {  # live-verified shape (Mozi C2 keyed probe); counts adjusted
     "query_status": "ok",
     "url_count": 5,
     "firstseen": "2026-06-01",
-    "blacklists": {"surbl": "listed", "spamhaus_dbl": "abused_domain"},
+    "blacklists": {"surbl": "not listed", "spamhaus_dbl": "not listed"},
     "urls": [
         {
             "url": "http://bad.example/payload.exe",
@@ -400,14 +411,27 @@ URLHAUS_HOST_OK = {  # docs-coded shape (unverified live — TD)
         },
     ],
 }
-URLHAUS_PAYLOAD_OK = {  # docs-coded shape
+URLHAUS_PAYLOAD_OK = {  # live-verified shape; url_count is a STRING here (probed)
     "query_status": "ok",
     "md5_hash": "a" * 32,
     "sha256_hash": "b" * 64,
     "signature": "TrickBot",
     "file_type": "exe",
-    "url_count": 10,
+    "file_size": "312832",
+    "url_count": "10",
     "firstseen": "2026-05-20",
+}
+URLHAUS_PAYLOAD_EMPTY = {  # live empty-file MD5 response (keyed probe) — the trap:
+    # URLhaus records ANY bytes served from a listed URL; empty = failed download.
+    "query_status": "ok",
+    "md5_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "sha256_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "file_type": "unknown",
+    "file_size": "0",
+    "signature": None,
+    "url_count": "2251",
+    "firstseen": "2018-03-21 05:29:38",
+    "lastseen": "2018-03-22 07:28:33",
 }
 
 
@@ -451,6 +475,28 @@ async def test_urlhaus_payload_lookup_uses_the_right_hash_field():
     assert "md5_hash=" in seen[1][1]
 
 
+async def test_urlhaus_empty_payload_is_a_failed_download_not_malware():
+    """Pinned live regression (keyed probe): the canonical empty-file hash is
+    query_status "ok" on /v1/payload/ — file_size 0 must yield NO signal."""
+    signal = await lookup(
+        URLhaus("k"),
+        obs(ObservableType.MD5, "d41d8cd98f00b204e9800998ecf8427e"),
+        lambda r: json_response(200, URLHAUS_PAYLOAD_EMPTY),
+    )
+    assert signal is None
+
+
+async def test_urlhaus_unclassified_payload_is_suspicious_not_malicious():
+    body = {**URLHAUS_PAYLOAD_OK, "signature": None, "file_type": "unknown"}
+    signal = await lookup(
+        URLhaus("k"), obs(ObservableType.SHA256, "b" * 64), lambda r: json_response(200, body)
+    )
+    assert signal.label is VerdictLabel.SUSPICIOUS
+    assert signal.confidence == 0.65
+    assert "unclassified payload" in signal.summary
+    assert "malware payload" not in signal.summary  # no asserted family (D-014)
+
+
 async def test_urlhaus_no_results_is_no_signal():
     signal = await lookup(
         URLhaus("k"),
@@ -477,27 +523,31 @@ async def test_urlhaus_401_and_unknown_status_are_provider_errors():
 
 # -- ThreatFox (probe §7: 401 live-verified; ok-shape docs-coded) -----------------
 
-THREATFOX_OK = {  # docs-coded shape (unverified live — TD)
+THREATFOX_OK = {  # row 1 = live ClearFake hit (keyed probe); row 2 synthetic lower-confidence
     "query_status": "ok",
     "data": [
         {
-            "id": "41",
-            "ioc": "1.2.3.4:445",
-            "threat_type": "botnet_cc",
-            "malware": "win.cobalt_strike",
-            "malware_printable": "Cobalt Strike",
-            "confidence_level": 75,
-            "first_seen": "2026-07-01 07:44:46 UTC",
-            "tags": ["c2"],
+            "id": "1852565",
+            "ioc": "uvzbxwuc.gamehazarat.com",
+            "ioc_type": "domain",
+            "threat_type": "payload_delivery",
+            "malware": "js.clearfake",
+            "malware_printable": "ClearFake",
+            "confidence_level": 100,
+            "first_seen": "2026-07-16 15:12:32 UTC",
+            "last_seen": None,
+            "tags": ["ClearFake", "win-0x4679", "Windows"],
         },
         {
-            "id": "42",
-            "ioc": "1.2.3.4:8443",
+            "id": "1852566",
+            "ioc": "uvzbxwuc.gamehazarat.com",
+            "ioc_type": "domain",
             "threat_type": "botnet_cc",
-            "malware": "win.cobalt_strike",
-            "malware_printable": "Cobalt Strike",
+            "malware": "js.clearfake",
+            "malware_printable": "ClearFake",
             "confidence_level": 40,
             "first_seen": "2026-06-11 10:02:01 UTC",
+            "last_seen": None,
             "tags": [],
         },
     ],
@@ -508,13 +558,19 @@ async def test_threatfox_hit_is_malicious_and_reports_the_top_row():
     def handler(request):
         assert request.headers["Auth-Key"] == "ac-key"
         payload = json.loads(request.read())
-        assert payload == {"query": "search_ioc", "search_term": "1.2.3.4", "exact_match": True}
+        assert payload == {
+            "query": "search_ioc",
+            "search_term": "uvzbxwuc.gamehazarat.com",
+            "exact_match": True,
+        }
         return json_response(200, THREATFOX_OK)
 
-    signal = await lookup(ThreatFox("ac-key"), obs(ObservableType.IPV4, "1.2.3.4"), handler)
+    signal = await lookup(
+        ThreatFox("ac-key"), obs(ObservableType.DOMAIN, "uvzbxwuc.gamehazarat.com"), handler
+    )
     assert signal.label is VerdictLabel.MALICIOUS
-    assert signal.confidence == 0.75  # highest-confidence row wins
-    assert "Cobalt Strike" in signal.summary and "botnet_cc" in signal.summary
+    assert signal.confidence == 1.0  # highest-confidence row wins
+    assert "ClearFake" in signal.summary and "payload_delivery" in signal.summary
 
 
 async def test_threatfox_low_reporter_confidence_is_floored():
@@ -560,7 +616,16 @@ def test_keyless_registry_activates_exactly_the_probed_free_providers():
     from auspex.config import Settings
     from auspex.enrich.providers import build_providers
 
-    names = [p.name for p in build_providers(Settings(enrichment_enabled=True))]
+    # Keys pinned empty explicitly: Settings() reads .env, and a developer's
+    # real keys (present since the TD-004 registration) must not leak in here.
+    settings = Settings(
+        enrichment_enabled=True,
+        abusech_auth_key="",
+        abuseipdb_api_key="",
+        otx_api_key="",
+        greynoise_api_key="",
+    )
+    names = [p.name for p in build_providers(settings)]
     assert names == ["InternetDB", "CIRCL hashlookup", "OTX"]
 
 
