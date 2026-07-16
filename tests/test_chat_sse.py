@@ -1,0 +1,206 @@
+"""SSE /api/chat tests (S3 step 4 + D-016) — hermetic, fake streaming clients.
+
+Covers the native single-call path, the two-pass reasoning fallback, error
+handling, session reuse, and tenant isolation. Endpoint selection + /api/models
+live in test_models.py.
+"""
+
+import asyncio
+import json
+
+import asyncpg
+from _fakes import SequencedStreamingFakeLLMClient, StreamingFakeLLMClient
+
+from auspex.llm.client import LLMUnreachable, StreamEvent, Usage
+from auspex.routes.chat import ChatEndpoint, get_chat_endpoint
+
+CHAT_EMAIL = "analyst@auspex.dev"
+
+
+def _token(client) -> str:
+    return client.post("/api/auth/dev-login", json={"email": CHAT_EMAIL}).json()["access_token"]
+
+
+def _frames(body: str) -> list[dict]:
+    out = []
+    for line in body.splitlines():
+        line = line.strip()
+        if line.startswith("data:"):
+            out.append(json.loads(line[len("data:"):].strip()))
+    return out
+
+
+def _use(app, fake, *, native_reasoning: bool):
+    app.dependency_overrides[get_chat_endpoint] = lambda: ChatEndpoint(
+        client=fake, native_reasoning=native_reasoning, id="test"
+    )
+
+
+def _session_messages(settings, session_id):
+    async def _check():
+        conn = await asyncpg.connect(settings.database_url)
+        try:
+            rows = await conn.fetch(
+                "SELECT role, content FROM messages"
+                " WHERE session_id = $1::uuid ORDER BY created_at",
+                session_id,
+            )
+            return [(r["role"], r["content"]) for r in rows]
+        finally:
+            await conn.close()
+
+    return asyncio.run(_check())
+
+
+def test_chat_requires_auth(client):
+    assert client.post("/api/chat", json={"message": "hello"}).status_code == 401
+
+
+# -- native single-call path -------------------------------------------------
+
+
+def test_native_streams_reasoning_then_content_and_persists(client, settings):
+    fake = StreamingFakeLLMClient([
+        StreamEvent(kind="reasoning", text="Let me think. "),
+        StreamEvent(kind="reasoning", text="Simple greeting."),
+        StreamEvent(kind="content", text="Hello"),
+        StreamEvent(kind="content", text=", analyst."),
+        StreamEvent(kind="finish", finish_reason="stop"),
+        StreamEvent(kind="usage",
+                    usage=Usage(prompt_tokens=10, completion_tokens=4, total_tokens=14)),
+    ])
+    _use(client.app, fake, native_reasoning=True)
+    try:
+        resp = client.post("/api/chat", json={"message": "hi"},
+                           headers={"Authorization": f"Bearer {_token(client)}"})
+        assert resp.status_code == 200
+        frames = _frames(resp.text)
+        kinds = [next(iter(f)) for f in frames]
+        assert kinds[0] == "session" and kinds[-1] == "done"
+        assert kinds.index("reasoning") < kinds.index("content")
+        assert "".join(f["content"] for f in frames if "content" in f) == "Hello, analyst."
+        assert frames[-1]["done"]["usage"]["total_tokens"] == 14
+        assert fake.closed is True
+        assert fake.turns == 1  # native = a single model call
+        session_id = frames[0]["session"]
+    finally:
+        client.app.dependency_overrides.clear()
+
+    persisted = _session_messages(settings, session_id)
+    assert ("user", "hi") in persisted
+    assert ("assistant", "Hello, analyst.") in persisted
+    assert all("Let me think" not in c for _, c in persisted)  # reasoning ephemeral
+
+
+# -- two-pass reasoning fallback (non-native endpoint) -----------------------
+
+
+def test_two_pass_fallback_streams_generated_reasoning_then_answer(client, settings):
+    seq = SequencedStreamingFakeLLMClient([
+        # pass 1 — brief analyst reasoning (comes back as `content`)
+        [StreamEvent(kind="content", text="Beaconing on a finance host is concerning; "),
+         StreamEvent(kind="content", text="need destination + frequency.")],
+        # pass 2 — the answer
+        [StreamEvent(kind="content", text="Moderately concerned — investigate the destination."),
+         StreamEvent(kind="finish", finish_reason="stop"),
+         StreamEvent(kind="usage",
+                     usage=Usage(prompt_tokens=40, completion_tokens=9, total_tokens=49))],
+    ])
+    _use(client.app, seq, native_reasoning=False)
+    try:
+        resp = client.post("/api/chat", json={"message": "how worried should I be?"},
+                           headers={"Authorization": f"Bearer {_token(client)}"})
+        assert resp.status_code == 200
+        frames = _frames(resp.text)
+        kinds = [next(iter(f)) for f in frames]
+
+        assert seq.stream_calls and len(seq.stream_calls) == 2  # two passes
+        # pass-1 text surfaced as reasoning, before any content
+        reasoning = "".join(f["reasoning"] for f in frames if "reasoning" in f)
+        assert "Beaconing on a finance host" in reasoning
+        assert kinds.index("reasoning") < kinds.index("content")
+        # pass-2 answer surfaced as content
+        answer = "".join(f["content"] for f in frames if "content" in f)
+        assert answer == "Moderately concerned — investigate the destination."
+        # pass 1 carried the reasoning directive; pass 2 carried the analysis
+        assert "do not write the final answer yet" in seq.stream_calls[0]["messages"][-1]["content"]
+        assert "private analysis" in seq.stream_calls[1]["messages"][-1]["content"]
+        # done uses pass-2 usage
+        assert frames[-1]["done"]["usage"]["total_tokens"] == 49
+        assert seq.closed is True
+        session_id = frames[0]["session"]
+    finally:
+        client.app.dependency_overrides.clear()
+
+    # only the pass-2 answer is persisted; the generated reasoning is ephemeral
+    persisted = _session_messages(settings, session_id)
+    assert ("assistant", "Moderately concerned — investigate the destination.") in persisted
+    assert all("Beaconing on a finance host" not in c for _, c in persisted)
+
+
+def test_two_pass_error_on_first_pass_emits_error_and_persists_nothing(client, settings):
+    seq = SequencedStreamingFakeLLMClient([[], []], raise_on_call=0)  # pass 1 fails
+    _use(client.app, seq, native_reasoning=False)
+    try:
+        resp = client.post("/api/chat", json={"message": "hi"},
+                           headers={"Authorization": f"Bearer {_token(client)}"})
+        frames = _frames(resp.text)
+        kinds = [next(iter(f)) for f in frames]
+        assert kinds[-1] == "error"
+        assert "done" not in kinds
+        assert seq.closed is True
+        session_id = frames[0]["session"]
+    finally:
+        client.app.dependency_overrides.clear()
+    persisted = _session_messages(settings, session_id)
+    assert not any(role == "assistant" for role, _ in persisted)  # nothing claimed
+
+
+# -- error + session reuse + isolation ---------------------------------------
+
+
+def test_error_event_on_unreachable_endpoint(client):
+    fake = StreamingFakeLLMClient(
+        [StreamEvent(kind="content", text="part")],
+        raise_error=LLMUnreachable("transport: ConnectError"),
+    )
+    _use(client.app, fake, native_reasoning=True)
+    try:
+        resp = client.post("/api/chat", json={"message": "hi"},
+                           headers={"Authorization": f"Bearer {_token(client)}"})
+        kinds = [next(iter(f)) for f in _frames(resp.text)]
+        assert kinds[-1] == "error" and "done" not in kinds
+        assert fake.closed is True
+    finally:
+        client.app.dependency_overrides.clear()
+
+
+def test_session_reuse_threads_history_and_rejects_foreign_session(client):
+    token = _token(client)
+    fake = StreamingFakeLLMClient([
+        StreamEvent(kind="content", text="ok"),
+        StreamEvent(kind="finish", finish_reason="stop"),
+    ])
+    _use(client.app, fake, native_reasoning=True)
+    try:
+        first = client.post("/api/chat", json={"message": "one"},
+                            headers={"Authorization": f"Bearer {token}"})
+        session_id = _frames(first.text)[0]["session"]
+
+        second = client.post(
+            "/api/chat", json={"message": "again", "session_id": session_id},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert second.status_code == 200
+        replayed_roles = [m["role"] for m in fake.last_messages()]
+        assert replayed_roles[0] == "system"
+        assert "assistant" in replayed_roles  # prior answer threaded back in
+
+        bogus = client.post(
+            "/api/chat",
+            json={"message": "x", "session_id": "00000000-0000-0000-0000-0000000000ff"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert bogus.status_code == 404
+    finally:
+        client.app.dependency_overrides.clear()

@@ -1,0 +1,24 @@
+data: {"id":"chatcmpl-7d1722ae-76b5-40dd-97fc-cf054b4e6e0e","object":"chat.completion.chunk","created":1784141865,"model":"nvidia/Llama-4-Scout-17B-16E-Instruct-FP8","choices":[{"index":0,"delta":{"role":"assistant","content":""},"logprobs":null,"finish_reason":null}],"prompt_token_ids":null,"prompt_text":null}
+
+data: {"id":"chatcmpl-7d1722ae-76b5-40dd-97fc-cf054b4e6e0e","object":"chat.completion.chunk","created":1784141865,"model":"nvidia/Llama-4-Scout-17B-16E-Instruct-FP8","choices":[{"index":0,"delta":{"tool_calls":[{"id":"chatcmpl-tool-86dd639251f59591","type":"function","index":0,"function":{"name":"get_weather","arguments":"{\"city\": \""}}]},"logprobs":null,"finish_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-7d1722ae-76b5-40dd-97fc-cf054b4e6e0e","object":"chat.completion.chunk","created":1784141865,"model":"nvidia/Llama-4-Scout-17B-16E-Instruct-FP8","choices":[{"index":0,"delta":{"tool_calls":[{"id":null,"index":0,"function":{"arguments":"R"}}]},"logprobs":null,"finish_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-7d1722ae-76b5-40dd-97fc-cf054b4e6e0e","object":"chat.completion.chunk","created":1784141865,"model":"nvidia/Llama-4-Scout-17B-16E-Instruct-FP8","choices":[{"index":0,"delta":{"tool_calls":[{"id":null,"index":0,"function":{"arguments":"iy"}}]},"logprobs":null,"finish_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-7d1722ae-76b5-40dd-97fc-cf054b4e6e0e","object":"chat.completion.chunk","created":1784141865,"model":"nvidia/Llama-4-Scout-17B-16E-Instruct-FP8","choices":[{"index":0,"delta":{"tool_calls":[{"id":null,"index":0,"function":{"arguments":"adh"}}]},"logprobs":null,"finish_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-7d1722ae-76b5-40dd-97fc-cf054b4e6e0e","object":"chat.completion.chunk","created":1784141865,"model":"nvidia/Llama-4-Scout-17B-16E-Instruct-FP8","choices":[{"index":0,"delta":{"tool_calls":[{"id":null,"index":0,"function":{"arguments":"\", \"unit\": \""}}]},"logprobs":null,"finish_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-7d1722ae-76b5-40dd-97fc-cf054b4e6e0e","object":"chat.completion.chunk","created":1784141865,"model":"nvidia/Llama-4-Scout-17B-16E-Instruct-FP8","choices":[{"index":0,"delta":{"tool_calls":[{"id":null,"index":0,"function":{"arguments":"c"}}]},"logprobs":null,"finish_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-7d1722ae-76b5-40dd-97fc-cf054b4e6e0e","object":"chat.completion.chunk","created":1784141865,"model":"nvidia/Llama-4-Scout-17B-16E-Instruct-FP8","choices":[{"index":0,"delta":{"tool_calls":[{"id":null,"index":0,"function":{"arguments":"elsius"}}]},"logprobs":null,"finish_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-7d1722ae-76b5-40dd-97fc-cf054b4e6e0e","object":"chat.completion.chunk","created":1784141865,"model":"nvidia/Llama-4-Scout-17B-16E-Instruct-FP8","choices":[{"index":0,"delta":{"tool_calls":[{"id":null,"index":0,"function":{"arguments":"\"}"}}]},"logprobs":null,"finish_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-7d1722ae-76b5-40dd-97fc-cf054b4e6e0e","object":"chat.completion.chunk","created":1784141865,"model":"nvidia/Llama-4-Scout-17B-16E-Instruct-FP8","choices":[{"index":0,"delta":{"content":""},"logprobs":null,"finish_reason":"tool_calls","stop_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-7d1722ae-76b5-40dd-97fc-cf054b4e6e0e","object":"chat.completion.chunk","created":1784141865,"model":"nvidia/Llama-4-Scout-17B-16E-Instruct-FP8","choices":[],"usage":{"prompt_tokens":649,"total_tokens":663,"completion_tokens":14},"system_fingerprint":"vllm-0.25.1-tp2-171d5d11"}
+
+data: [DONE]
+

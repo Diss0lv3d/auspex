@@ -93,6 +93,31 @@ SCHEMA_V0: list[str] = [
     CREATE INDEX IF NOT EXISTS idx_llm_scorecards_ws_fp
         ON llm_endpoint_scorecards (workspace_id, endpoint_fingerprint, probed_at DESC)
     """,
+    # S3 (D-014): a write/destructive tool call routed through the permission
+    # gate becomes a PROPOSAL, never an execution. A proposal is only ever
+    # created from a real tool call — model text claiming an action was done
+    # mints nothing here. session_id is nullable + SET NULL so the audit trail
+    # of proposed actions outlives the chat session that spawned it.
+    """
+    CREATE TABLE IF NOT EXISTS proposals (
+        id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id  uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        session_id    uuid REFERENCES chat_sessions(id) ON DELETE SET NULL,
+        tool_name     text NOT NULL,
+        tool_level    text NOT NULL CHECK (tool_level IN ('write', 'destructive')),
+        tool_input    jsonb NOT NULL,
+        status        text NOT NULL DEFAULT 'pending_approval'
+            CHECK (status IN ('pending_approval', 'approved', 'rejected', 'executed')),
+        created_at    timestamptz NOT NULL DEFAULT now(),
+        decided_at    timestamptz,
+        decided_by    uuid REFERENCES users(id) ON DELETE SET NULL,
+        result        jsonb
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_proposals_ws_status
+        ON proposals (workspace_id, status, created_at DESC)
+    """,
     "CREATE INDEX IF NOT EXISTS idx_users_workspace ON users (workspace_id)",
     "CREATE INDEX IF NOT EXISTS idx_api_keys_workspace ON api_keys (workspace_id)",
     "CREATE INDEX IF NOT EXISTS idx_chat_sessions_ws_user ON chat_sessions (workspace_id, user_id)",

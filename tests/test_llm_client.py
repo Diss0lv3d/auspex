@@ -19,6 +19,7 @@ from auspex.llm.client import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "llm" / "ollama"
+FIXTURES_VLLM = Path(__file__).parent / "fixtures" / "llm" / "northflank"
 
 
 def load(name: str) -> dict:
@@ -30,9 +31,9 @@ async def as_stream(events: list[StreamEvent]):
         yield event
 
 
-def events_from_sse_fixture(name: str) -> list[StreamEvent]:
+def events_from_sse_fixture(name: str, base: Path = FIXTURES) -> list[StreamEvent]:
     events = []
-    for line in (FIXTURES / name).read_text().splitlines():
+    for line in (base / name).read_text().splitlines():
         events.extend(parse_sse_line(line))
     return events
 
@@ -94,6 +95,21 @@ async def test_stream_fixture_tool_calls_accumulate_by_index():
     assert all(c.id for c in result.tool_calls)
 
 
+async def test_vllm_fragmented_stream_fixture_accumulates():
+    """REAL vLLM stream (Northflank, 2026-07-15): arguments fragmented across
+    ~9 deltas, id null on continuation chunks — the wire style the synthetic
+    test below models. This is the live capture."""
+    events = events_from_sse_fixture("chat_tools_stream.sse.txt", base=FIXTURES_VLLM)
+    result = await accumulate_stream(as_stream(events))
+    assert result.finish_reason == "tool_calls"
+    assert len(result.tool_calls) == 1
+    call = result.tool_calls[0]
+    assert call.name == "get_weather"
+    assert call.id.startswith("chatcmpl-tool-")
+    assert call.parse_arguments() == {"city": "Riyadh", "unit": "celsius"}
+    assert result.usage is not None
+
+
 async def test_fragmented_arguments_accumulate():
     """vLLM/OpenAI style: name first, arguments split across deltas (the Ollama
     fixture sends them whole — the accumulator must handle BOTH)."""
@@ -125,18 +141,21 @@ def test_sse_parser_tolerates_noise():
     assert parse_sse_line("data: {not json") == []
 
 
-def test_reasoning_field_does_not_pollute_content():
+def test_reasoning_field_captured_and_kept_out_of_content():
     """Thinking models emit a separate `reasoning` field (message + deltas) —
-    content must stay clean and the parser must not choke (qwen3 fixture)."""
+    content stays clean AND reasoning is captured on its own field (qwen3 fixture)."""
     result = LLMClient.parse_completion(load("chat_reasoning.json"))
     assert result.content == "pong"
     assert "reasoning" not in result.content
+    assert result.reasoning.startswith("Okay")  # captured, not dropped
+    assert "pong" not in result.reasoning or result.reasoning != result.content
 
 
-async def test_reasoning_stream_content_stays_clean():
+async def test_reasoning_stream_content_stays_clean_and_reasoning_accumulates():
     events = events_from_sse_fixture("chat_reasoning_stream.sse.txt")
     result = await accumulate_stream(as_stream(events))
     assert result.content == "pong"
+    assert result.reasoning.startswith("Okay")  # reasoning deltas folded separately
     assert result.finish_reason == "stop"
     assert result.usage is not None
 

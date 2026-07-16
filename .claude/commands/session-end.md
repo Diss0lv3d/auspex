@@ -9,6 +9,10 @@ cut-short session:
    `/api/health/ready` 200. Red → either fix now or explicitly log the breakage
    in STATE.md Blockers before ending (a red end-state must never be silent).
 2. Update `STATE.md`: done / in-flight / blockers / "next session should".
+   Standing follow-ups in the outgoing "In-flight" section (event-triggered,
+   cross-session — e.g. the D-013 Northflank validation run) MUST be carried
+   into the new version unless actually completed; they die by being done,
+   not by being forgotten in a rewrite.
 3. Rewrite `NEXT-SESSION.md` completely for the next session — a full
    paste-ready prompt with session number, scope-locked goals from ROADMAP.md,
    and constraints. The human must not need to remember or compose anything.

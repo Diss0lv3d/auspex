@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     # APP_ENV=dev explicitly in the app service's `environment:` block.
     app_env: str = "prod"  # dev | prod
 
+    # Path to a gitignored JSON file listing dev endpoints for the INTERNAL model
+    # switcher (D-016). Loaded only when app_env=dev; empty ⇒ switcher off. Keys
+    # are referenced by env-var name inside that file, never inlined.
+    dev_llm_registry_file: str = ""
+
     # --- Postgres (transactional truth; D-001) ---
     database_url: str = "postgresql://auspex:auspex@postgres:5432/auspex"
 

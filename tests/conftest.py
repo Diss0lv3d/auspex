@@ -1,12 +1,8 @@
-"""Test env is pinned BEFORE any auspex import: pydantic-settings gives real env
-vars priority over .env, and .env points at compose-internal hostnames that
-don't resolve from the host. Tests talk to the host-mapped ports instead."""
+"""Test env is pinned BEFORE Settings is first constructed (see auspex.devhost)."""
 
-import os
+from auspex.devhost import pin_host_defaults
 
-os.environ.setdefault("DATABASE_URL", "postgresql://auspex:auspex@localhost:55432/auspex")
-os.environ.setdefault("OPENSEARCH_URL", "http://localhost:9200")
-os.environ.setdefault("APP_ENV", "dev")
+pin_host_defaults()
 
 import asyncio  # noqa: E402
 

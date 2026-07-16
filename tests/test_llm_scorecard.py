@@ -70,14 +70,24 @@ async def test_scorecard_roundtrip_in_postgres(client, settings):
         workspace_id = await conn.fetchval(
             "INSERT INTO workspaces (name) VALUES ('t-sc-roundtrip') RETURNING id"
         )
-        sc = _sc(native_tool_calling=True, valid_call_rate=0.9, tokens_per_second=42.5)
+        sc = _sc(
+            native_tool_calling=True,
+            native_reasoning=True,
+            valid_call_rate=0.9,
+            tokens_per_second=42.5,
+        )
         await save_scorecard(pool, workspace_id, sc)
         loaded = await load_latest_scorecard(pool, workspace_id, sc.base_url, sc.model)
         assert loaded is not None
         got, mode = loaded
         assert got == sc
+        assert got.native_reasoning is True  # new field survives the jsonb round-trip
         assert mode == "native_tools"
     finally:
         await conn.execute("DELETE FROM workspaces WHERE name = 't-sc-roundtrip'")
         await conn.close()
         await pool.close()
+
+
+def test_native_reasoning_defaults_false():
+    assert _sc().native_reasoning is False

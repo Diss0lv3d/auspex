@@ -21,7 +21,10 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["auspex", "auspex.routes"]
+packages = ["auspex", "auspex.routes", "auspex.agent", "auspex.llm"]
+
+[tool.setuptools.package-data]
+auspex = ["static/*.html"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

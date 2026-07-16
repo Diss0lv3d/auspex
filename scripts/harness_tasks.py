@@ -19,6 +19,8 @@ import hashlib
 from dataclasses import dataclass, field
 from typing import Any
 
+from auspex.llm.client import tool_spec
+
 
 def _stable_id(seed: str, mod: int) -> int:
     """Deterministic across processes (unlike hash(), which is seeded per run)."""
@@ -107,49 +109,38 @@ EVENT_COUNTS = {  # (query-substring, hours) -> count
 # ---------------------------------------------------------------------------
 
 
-def _spec(name: str, description: str, properties: dict, required: list[str]) -> dict:
-    return {
-        "type": "function",
-        "function": {
-            "name": name,
-            "description": description,
-            "parameters": {"type": "object", "properties": properties, "required": required},
-        },
-    }
-
-
 TOOL_SPECS: dict[str, dict] = {
-    "lookup_ip": _spec(
+    "lookup_ip": tool_spec(
         "lookup_ip",
         "Look up threat reputation for an IPv4 address.",
         {"ip": {"type": "string", "description": "IPv4 address, e.g. 203.0.113.7"}},
         ["ip"],
     ),
-    "lookup_domain": _spec(
+    "lookup_domain": tool_spec(
         "lookup_domain",
         "Look up threat reputation for a domain name.",
         {"domain": {"type": "string", "description": "Domain, e.g. example.test"}},
         ["domain"],
     ),
-    "lookup_hash": _spec(
+    "lookup_hash": tool_spec(
         "lookup_hash",
         "Look up a SHA-256 file hash in malware intelligence.",
         {"sha256": {"type": "string", "description": "64-char hex SHA-256"}},
         ["sha256"],
     ),
-    "get_alert": _spec(
+    "get_alert": tool_spec(
         "get_alert",
         "Fetch a SIEM alert by its ID (format A-NNNN). Returns title, severity, and observables.",
         {"alert_id": {"type": "string", "description": "Alert ID, e.g. A-1001"}},
         ["alert_id"],
     ),
-    "get_asset": _spec(
+    "get_asset": tool_spec(
         "get_asset",
         "Fetch asset inventory info (owner, criticality) for a hostname.",
         {"hostname": {"type": "string", "description": "Asset hostname, e.g. ws-fin-042"}},
         ["hostname"],
     ),
-    "search_events": _spec(
+    "search_events": tool_spec(
         "search_events",
         "Count SIEM events matching a query string over a lookback window.",
         {
@@ -158,7 +149,7 @@ TOOL_SPECS: dict[str, dict] = {
         },
         ["query", "hours"],
     ),
-    "create_ticket": _spec(
+    "create_ticket": tool_spec(
         "create_ticket",
         "Create an incident ticket. Returns the new ticket ID.",
         {
@@ -168,7 +159,7 @@ TOOL_SPECS: dict[str, dict] = {
         },
         ["title", "severity", "description"],
     ),
-    "propose_quarantine": _spec(
+    "propose_quarantine": tool_spec(
         "propose_quarantine",
         "Propose network quarantine for a host (requires human approval; this only files the proposal). Returns the proposal ID.",
         {

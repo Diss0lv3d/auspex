@@ -14,3 +14,18 @@ different non-NULL `sub`) changes the provisioning contract and deserves its own
 change with tests.
 **HARD GATE:** must be fixed *before* any `GOOGLE_CLIENT_ID` is configured in any
 environment. Raised by the S1 adversarial review (2/2 verifiers confirmed).
+
+## TD-002 (S3/D-016) — two-pass reasoning doubles LLM calls for non-native endpoints
+**Where:** `auspex/routes/chat.py` `event_stream()` two-pass branch.
+**Risk:** endpoints without native reasoning (Scout, most instruct models) make
+TWO endpoint calls per chat turn (reasoning pre-pass + answer) → ~2× latency and
+token cost on those turns. This also affects the **prod default** endpoint until
+it has a persisted scorecard row (unknown ⇒ `native_reasoning=False` ⇒ two-pass).
+**Why accepted:** the visible reasoning trace is a deliberate product feature
+(D-016); two-pass is the reliable way to produce it on any endpoint. Native
+endpoints (qwen3) keep the single-call path, and once a default endpoint is
+probed its scorecard flips it to single-call automatically.
+**Path to fix:** (a) ensure the default endpoint is probed on connect so its
+`native_reasoning` is known (avoids needless two-pass); (b) optionally cache/skip
+the pre-pass for short/conversational turns (92/8, S4); (c) a single-pass
+`<thinking>`-tag variant could halve cost for endpoints that reliably honor it.

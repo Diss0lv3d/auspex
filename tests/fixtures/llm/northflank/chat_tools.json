@@ -1,0 +1,48 @@
+{
+  "id": "chatcmpl-d26fa96e-7ee3-4e14-9ca2-ec27f9b43ce0",
+  "object": "chat.completion",
+  "created": 1784141864,
+  "model": "nvidia/Llama-4-Scout-17B-16E-Instruct-FP8",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": null,
+        "refusal": null,
+        "annotations": null,
+        "audio": null,
+        "function_call": null,
+        "tool_calls": [
+          {
+            "id": "chatcmpl-tool-abc5015471d823dc",
+            "type": "function",
+            "function": {
+              "name": "get_weather",
+              "arguments": "{\"city\": \"Riyadh\", \"unit\": \"celsius\"}"
+            }
+          }
+        ],
+        "reasoning": null
+      },
+      "logprobs": null,
+      "finish_reason": "tool_calls",
+      "stop_reason": null,
+      "token_ids": null,
+      "routed_experts": null
+    }
+  ],
+  "service_tier": null,
+  "system_fingerprint": "vllm-0.25.1-tp2-171d5d11",
+  "usage": {
+    "prompt_tokens": 649,
+    "total_tokens": 663,
+    "completion_tokens": 14,
+    "prompt_tokens_details": null
+  },
+  "prompt_logprobs": null,
+  "prompt_token_ids": null,
+  "prompt_text": null,
+  "kv_transfer_params": null,
+  "metrics": null
+}

@@ -15,7 +15,6 @@ the probe docs. Verdict comes from decide_agent_mode — code, not vibes.
 import argparse
 import asyncio
 import json
-import os
 import sys
 import time
 from collections import Counter
@@ -24,39 +23,38 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-# Host-run script: compose-internal hostnames in .env don't resolve from the
-# host (same pinning trick as tests/conftest.py).
-os.environ.setdefault("DATABASE_URL", "postgresql://auspex:auspex@localhost:55432/auspex")
+from auspex.devhost import pin_host_defaults  # noqa: E402
 
-import asyncpg  # noqa: E402
+pin_host_defaults()  # host-run script: .env hostnames are compose-internal
+
 import httpx  # noqa: E402
 
 from auspex.config import get_settings  # noqa: E402
-from auspex.llm.capability import probe_capabilities  # noqa: E402
-from auspex.llm.client import LLMClient, LLMError  # noqa: E402
+from auspex.db import create_pool  # noqa: E402
+from auspex.llm.capability import PROBE_MAX_TOKENS, probe_capabilities  # noqa: E402
+from auspex.llm.client import LLMClient, LLMError, ToolCall  # noqa: E402
 from auspex.llm.scorecard import decide_agent_mode, save_scorecard  # noqa: E402
 from scripts.harness_tasks import SYSTEM_PROMPT, TASKS, TOOL_SPECS, Task, execute_tool  # noqa: E402
 
 
-def validate_call(task: Task, name: str, raw_arguments: str) -> tuple[bool, str]:
-    """A call is VALID iff: tool offered to this task, args parse to an object,
-    required params present, enum values legal."""
-    if name not in task.tools:
-        return False, "unknown_tool"
+def validate_call(task: Task, call: ToolCall) -> tuple[dict | None, str]:
+    """(parsed_args, "ok") for a VALID call — tool offered to this task, args
+    parse to an object, required params present, enum values legal — else
+    (None, reason)."""
+    if call.name not in task.tools:
+        return None, "unknown_tool"
     try:
-        args = json.loads(raw_arguments or "{}")
+        args = call.parse_arguments()
     except ValueError:
-        return False, "unparseable_arguments"
-    if not isinstance(args, dict):
-        return False, "arguments_not_object"
-    params = TOOL_SPECS[name]["function"]["parameters"]
+        return None, "unparseable_arguments"
+    params = TOOL_SPECS[call.name]["function"]["parameters"]
     for required in params.get("required", []):
         if required not in args:
-            return False, f"missing_required:{required}"
+            return None, f"missing_required:{required}"
     for key, spec in params.get("properties", {}).items():
         if key in args and "enum" in spec and args[key] not in spec["enum"]:
-            return False, f"bad_enum:{key}"
-    return True, "ok"
+            return None, f"bad_enum:{key}"
+    return args, "ok"
 
 
 async def run_task(client: LLMClient, task: Task) -> dict:
@@ -74,10 +72,11 @@ async def run_task(client: LLMClient, task: Task) -> dict:
     for _ in range(task.max_steps):
         steps += 1
         try:
-            # 2000, not 500: thinking models spend >100 tokens of `reasoning`
-            # before the first tool call (qwen3 mini-probe) — a tight cap would
-            # cut them off mid-think and unfairly zero their completion rate.
-            result = await client.chat(messages, tools=tools, temperature=0, max_tokens=2000)
+            # Same thinking-model budget as the capability battery — the two
+            # measurement paths must judge models on the same footing.
+            result = await client.chat(
+                messages, tools=tools, temperature=0, max_tokens=PROBE_MAX_TOKENS
+            )
         except LLMError as err:
             return {"task": task.id, "category": task.category, "error": str(err),
                     "valid": valid, "invalid": invalid, "completed": False,
@@ -98,11 +97,11 @@ async def run_task(client: LLMClient, task: Task) -> dict:
             ],
         })
         for tc in result.tool_calls:
-            is_valid, why = validate_call(task, tc.name, tc.arguments)
-            if is_valid:
+            args, why = validate_call(task, tc)
+            if args is not None:
                 valid += 1
                 calls_made.append(tc.name)
-                output = execute_tool(tc.name, json.loads(tc.arguments or "{}"))
+                output = execute_tool(tc.name, args)
             else:
                 invalid += 1
                 violations.append(f"{tc.name or '<noname>'}:{why}")
@@ -153,22 +152,34 @@ async def main() -> None:
             print(f"endpoint unreachable ({detail}) — aborting, nothing measured")
             sys.exit(1)
 
-        # provider-specific context hint (Ollama native API); generic code gets None
+        # context hint: vLLM exposes max_model_len on /v1/models; Ollama needs
+        # its native /api/show. Generic code gets None if neither answers.
         max_ctx = None
         try:
             async with httpx.AsyncClient(timeout=10.0) as http:
-                r = await http.post(f"{client.base_url}/api/show", json={"model": client.model})
+                r = await http.get(f"{client.base_url}/v1/models")
                 if r.status_code == 200:
-                    info = r.json().get("model_info", {})
-                    max_ctx = next(
-                        (v for k, v in info.items() if k.endswith("context_length")), None
+                    entry = next(
+                        (m for m in r.json().get("data", []) if m.get("id") == client.model),
+                        {},
                     )
-        except httpx.HTTPError:
+                    max_ctx = entry.get("max_model_len")
+                if max_ctx is None:
+                    r = await http.post(
+                        f"{client.base_url}/api/show", json={"model": client.model}
+                    )
+                    if r.status_code == 200:
+                        info = r.json().get("model_info", {})
+                        max_ctx = next(
+                            (v for k, v in info.items() if k.endswith("context_length")), None
+                        )
+        except (httpx.HTTPError, ValueError):
             pass
 
         print("== capability battery ==")
         sc = await probe_capabilities(client, max_context_hint=max_ctx)
-        for field_name, value in sc.model_dump().items():
+        dumped = sc.model_dump()
+        for field_name, value in dumped.items():
             if field_name not in ("base_url", "model", "notes"):
                 print(f"  {field_name}: {value}")
         if sc.notes:
@@ -216,15 +227,17 @@ async def main() -> None:
         for key, value in summary.items():
             print(f"  {key}: {value}")
 
+        dumped["valid_call_rate"] = sc.valid_call_rate
+        dumped["loop_completion_rate"] = sc.loop_completion_rate
         run_blob = {"summary": {**summary, "violations": dict(summary["violations"])},
-                    "scorecard": sc.model_dump(), "results": results}
+                    "scorecard": dumped, "results": results}
         model_slug = "".join(c if c.isalnum() else "-" for c in client.model)
         out_path = REPO / "docs" / "probes" / f"harness-run-{model_slug}.json"
         out_path.write_text(json.dumps(run_blob, indent=2) + "\n")
         print(f"\nraw run -> {out_path.relative_to(REPO)}")
 
         if not cli.no_db:
-            pool = await asyncpg.create_pool(settings.database_url, min_size=1, max_size=2)
+            pool = await create_pool(settings.database_url, retries=2, delay=0.5)
             try:
                 workspace_id = await pool.fetchval(
                     "INSERT INTO workspaces (name) VALUES ('dev')"
