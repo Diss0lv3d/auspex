@@ -12,3 +12,5 @@
 - Agent loop: detect "final answer is actually a pseudo-code tool plan" (Scout emitted `[get_alert(...), ...]` / `{{templates}}` as text on 3/40 tasks instead of native calls) and retry the turn once with a corrective nudge. Evidence: docs/probes/2026-07-14-llm-endpoint.md (2026-07-16 section).
 - SSE /api/chat is conversational-only (v1, S3); wire AgentLoop into it so tool `executed`/`proposed` events stream over the same single-key protocol (UI can show the D-014 gate live). Needs the loop to stream per-turn (currently non-streaming).
 - SSE /api/chat replays full session history unbounded — add a context/token budget (drop/summarize old turns) before it can exceed a small endpoint's window.
+- Living Verdicts (S7): a defanged-in-input observable floors its verdict at SUSPICIOUS — an analyst defanged it on purpose (SARA verdict_floor.py:229 pattern). `Observable.defanged` (S4) already carries the signal.
+- Enrichment (S5): common-domain/platform-console allowlist to skip enriching google.com / portal.azure.com etc. (SARA intel_enricher.py:171-186 pattern); private/reserved IPs never enriched (`ipaddress.is_private`).
