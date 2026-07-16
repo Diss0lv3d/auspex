@@ -52,6 +52,9 @@ _Last updated: 2026-07-16 (S4 complete — 92/8 fast classifier, all steps incl.
 - **Live-verified in-container:** greeting + defanged-IOC paste stream
   `path: "shortcut"` with normalized values/ids/defanged markers through the
   rebuilt container, LLM never touched.
+- **Human sign-off (2026-07-16):** Burhan approved the customer-facing
+  shortcut copy (shortcuts.py) as-is and eyeballed the UI in a browser
+  (plain-text echo + error bubble render fine). Don't reword without asking.
 
 ## In-flight / standing follow-ups (carry forward until DONE)
 - Nothing event-triggered outstanding.
