@@ -1,60 +1,71 @@
 # NEXT-SESSION — paste everything below the line into a fresh Claude Code window opened in /home/burhan/auspex-new
 
-_(No standing follow-ups. S4 is complete on `staging` but NOT yet promoted —
-`main` is current only through S3. S4 is a demoable milestone, so running
-`/promote` first is reasonable.)_
+_(Standing follow-ups: (1) S5 is complete on `staging` but NOT promoted — the
+multi-agent adversarial review was quota-blocked at S5 end (inline pass found
+nothing blocking); re-run it, fix anything confirmed, THEN `/promote`. (2)
+TD-004: registering the free auth.abuse.ch + AbuseIPDB keys is a HUMAN step —
+Burhan, do it when convenient; the moment the env vars exist, key-gated
+providers activate and their docs-coded parsers need a live re-probe.)_
 
 ---
 
-SESSION S5 of Auspex. Working dir must be /home/burhan/auspex-new — run
-`/session-start S5` first (full ritual). Primary dev LLM is **Llama-4-Scout via
+SESSION S6 of Auspex. Working dir must be /home/burhan/auspex-new — run
+`/session-start S6` first (full ritual). Primary dev LLM is **Llama-4-Scout via
 Northflank (D-015)**; local Ollama `qwen3:14b` is the secondary/offline endpoint
 (D-013) and is what the session-start local-Ollama gate validates. Any mismatch
-→ STOP and tell me. Note: S5 is mostly LLM-free (provider clients + storage);
-the LLM matters only for optional live checks of the deep path.
+→ STOP and tell me.
 
-Goal (scope-locked, from ROADMAP.md S5 — Enrichment fan-out + verdict store):
+**Before S6 work (carried follow-up):** re-run the 5-lens adversarial review
+of the S5 diff (`git diff 67c4a76..e2a1381` plus later fixes — or simply
+`git diff main..staging` before promoting) — correctness/concurrency,
+security/tenancy, probe-contract fidelity, test hermeticity, copy honesty;
+adversarially verify findings, fix confirmed ones, then run `/promote`
+(S5 = demoable milestone: live keyless enrichment with verdict decay store).
 
-1. **Provider clients** (direct HTTP, no LLM): AbuseIPDB, OTX, GreyNoise
-   community, URLhaus, ThreatFox, Shodan InternetDB, CIRCL hashlookup.
-   Free/no-key providers first (URLhaus, ThreatFox, InternetDB, hashlookup);
-   key-gated ones activate only when their env var exists (every new env var →
-   `.env.example` + `docs/ENV_VARS.md` the moment it's born). **Probe each
-   provider live first** (`/probe` → docs/probes/) and code against the
-   snapshot — reality over memory. Per-provider: which observable types it
-   accepts (S4 `ObservableType` is the vocabulary), rate limits, error shapes.
-2. **Fan-out orchestration**: submit-all/poll-all parallelism (asyncio.gather
-   with per-provider timeout), per-provider circuit breaker (consecutive-
-   failure threshold → open, half-open probe after cooldown). Failures degrade
-   gracefully — partial results are results (DEFERRED rail, not errors).
-3. **Storage**: `observables` table keyed by the S4 normalized value + obs_id;
-   `verdicts` table **with decay-curve fields from day one** (first Living
-   Verdicts brick — D-entry the field semantics: half_life, floor,
-   confidence_at_write, source). D-008 workspace scoping on both tables.
-4. **Wire into the S4 ioc_check shortcut**: extract → normalize → enrich →
-   verdict echo (replaces the "enrichment deferred" copy when providers are
-   configured; keeps the deferred copy when none are). The shortcut path may
-   now touch *enrichment* network but still NO LLM — update the S4 tests that
-   assert network-free to assert LLM-free + enrichment-mockable instead.
+Goal (scope-locked, from ROADMAP.md S6 — KB/RAG on OpenSearch):
+
+1. **Index design, mapping probe first**: probe our OWN OpenSearch container
+   (D-009 — never SARA's cluster) for 2.19.x mapping/analyzer/kNN behavior
+   before writing any mapping code (`/probe` → docs/probes/). Design the
+   `auspex-knowledge` index (auspex-* prefix): chunk docs, metadata fields,
+   knn_vector mapping.
+2. **Embeddings — measure, then decide** (open blocker from S2): probe
+   server-side OpenSearch ML-plugin embedding on the local container first;
+   fallback decision = in-process sentence-transformers all-MiniLM-L6-v2.
+   Save latency/footprint numbers to the probe file; D-entry the choice.
+3. **Chunking + ingestion of a seed corpus** (small: a handful of MITRE
+   ATT&CK technique summaries / CVE descriptions as fixtures) — enough to
+   prove the pipeline; real feeds land S7/S8.
+4. **Retrieval: BM25 + kNN + client-side RRF** (SARA pattern,
+   sara_retriever.py:538,599 — re-snapshot the pattern to docs/probes/ before
+   coding, worktree paths rot). **CVE/MITRE ID-query neural bypass** (an exact
+   ID match must not depend on vector similarity) + regime-aware score floors.
+5. **Wire into the S4/S5 shortcut rail**: cve_lookup + definition categories
+   consult the KB (still NO LLM on these paths — same pattern as S5
+   enrichment: code fetches, code renders, deferred copy stands when the KB
+   is empty/unavailable). The S5 ioc_check echo may cite KB context for CVEs
+   found via InternetDB `vulns[]` if trivial — else park in IDEAS.md.
 
 Design inputs / reality already in the repo (cite, don't re-derive):
-- S4 classify package: `auspex/classify/` — `Observable.obs_id` (short id),
-  `Observable.defanged` (verdict-floor input, parked in IDEAS.md), residual
-  gates. The ioc_check handler to extend is `auspex/classify/shortcuts.py`
-  (`shortcut_answer` is fallible: returning None falls through to deep).
-- SSE protocol: single-key frames; `done` carries `path: shortcut|model`
-  (`auspex/routes/chat.py`).
-- SARA enrichment pattern notes: docs/probes/2026-07-16-sara-fastpath-pattern.md
-  (+ IDEAS.md lines on common-domain skip-lists and private-IP filtering —
-  implement both this session: never enrich private/reserved IPs, skip
-  ubiquitous domains).
-- Proposals/permissions rail exists (`auspex/agent/permissions.py`) — S5
-  enrichment is READ-level, no gating needed.
+- OpenSearch container: 2.19.4 live (health-checked in /api/health/ready);
+  probe conventions in docs/probes/2026-07-14-opensearch-cluster.md (SARA
+  cluster study — schema conventions ONLY, D-009).
+- S5 enrichment rail to imitate: `auspex/enrich/` (service on app.state,
+  hermetic-test seam, honest deferred copy, breaker pattern).
+- Shortcut handlers to extend: `auspex/classify/shortcuts.py`
+  (CVE_DEFERRED_COPY / DEFINITION_DEFERRED_COPY are the strings to replace
+  when the KB answers) + `auspex/routes/chat.py` ioc_check wiring as the
+  template for KB-backed shortcut turns.
+- Verdict store exists (D-017): retro-hunt hooks come S7 — do NOT build them
+  in S6; new ideas → IDEAS.md.
 
 Constraints:
-- Tests ship with each step (CLAUDE.md rule 8); CI stays hermetic — provider
-  clients tested against saved probe fixtures, never live, in pytest.
-- No OpenSearch index creation (KB is S6). No new LLM calls on the shortcut path.
-- Thrash brake: two failed approaches on one problem → STATE.md Blockers, move on.
-- New ideas → IDEAS.md, one line, move on.
-- End with `/session-end`; S5 done = demoable enrichment → consider `/promote`.
+- Tests ship with each step (CLAUDE.md rule 8); CI hermetic — OpenSearch is a
+  compose dependency (fine, like Postgres), but no live external feeds in
+  pytest; KB fixtures from probe snapshots.
+- Every new env var → `.env.example` + `docs/ENV_VARS.md` at birth.
+- No new LLM calls on shortcut paths. Errors bias deep (S4 rule).
+- Thrash brake: two failed approaches on one problem → STATE.md Blockers,
+  move on. Tired human = short session; rituals anyway.
+- End with `/session-end`; S6 done = KB-backed cve_lookup/definition answers
+  demoable → consider `/promote`.

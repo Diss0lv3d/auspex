@@ -40,7 +40,7 @@ may not grow mid-session (IDEAS.md exists for that).
   stretch step 4 shipped too — /api/chat classifies before the model, done
   frame carries `path: shortcut|model`; 8-angle adversarial review applied;
   177 tests; shortcut path verified LLM-free + network-free in-container.)_
-- [ ] **S5 — Enrichment fan-out + verdict store.** Direct provider clients
+- [x] **S5 — Enrichment fan-out + verdict store.** Direct provider clients
   (AbuseIPDB, OTX, GreyNoise community, URLhaus, ThreatFox, Shodan InternetDB,
   CIRCL hashlookup), submit-all/poll-all parallelism, per-provider circuit
   breaker, `verdicts` table **with decay curve fields from day one**

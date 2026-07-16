@@ -1,106 +1,111 @@
 # STATE — Auspex
 
-_Last updated: 2026-07-16 (S4 complete — 92/8 fast classifier, all steps incl. stretch)_
+_Last updated: 2026-07-16 (S5 complete — enrichment fan-out + verdict store, live-verified)_
 
 ## Where we are
-- **S4 COMPLETE** (steps 1–3 + stretch step 4, all with tests) → **next is S5**
-  (Enrichment fan-out + verdict store — see NEXT-SESSION.md).
-- **Promoted:** promote #4 (S4 — 92/8 fast classifier) is on `main`
-  (`e9237f7`, back-merged into staging as `0e4de9c`). `main` == S4 milestone.
-  _(S5 start ritual found the previous "S4 not yet promoted" line stale and
-  local `main` one commit behind origin — both fixed 2026-07-16.)_
-- **Primary dev LLM (D-015):** Llama-4-Scout-17B via Northflank (remote vLLM,
-  `native_tools`). **Secondary/offline:** local Ollama `qwen3:14b` (D-013);
-  `llama3.1:8b` = weak-endpoint case. `.env` is source of truth (gitignored).
-- **CI-green: 177 tests** (was 101 at S3 end; +76 this session). `./ci.sh`
-  passes end-to-end: ruff, pytest, container build + health.
+- **S5 COMPLETE** (all 4 steps + 2 live-caught fixes, tests shipping with each)
+  → **next is S6** (KB/RAG on OpenSearch — see NEXT-SESSION.md).
+- **Promoted:** promote #4 (S4) is on `main`. **S5 is on `staging` only — NOT
+  yet promoted.** S5 is a demoable milestone, but hold `/promote` until the
+  multi-agent adversarial review re-runs (see In-flight; it was quota-blocked
+  this session — an inline single-reviewer pass found nothing blocking).
+- **Primary dev LLM (D-015):** Llama-4-Scout via Northflank; secondary/offline
+  Ollama `qwen3:14b` (D-013). S5 touched no LLM paths (enrichment is LLM-free
+  by design, test-enforced).
+- **CI-green: 237 tests** (was 177 at S4 end; +60 this session). `./ci.sh`
+  passes end-to-end: ruff, pytest, container build + health + ready.
 
-## S4 shipped (all committed on staging, 2026-07-16)
-- **Step 1 — `auspex/classify/observables.py`:** defang-aware extraction +
-  normalization (IPv4/IPv6 via candidate-regex + stdlib `ipaddress`,
-  TLD-allowlist domains with internal-suffix backtrack, URLs, SHA-256/1/MD5
-  span-tiebroken, emails, CVEs). Refang covers hxxp/[.]/(.)/{.}/[dot]/[at]/[:]
-  and tracks rewritten chars, so each Observable carries a **positional
-  `defanged` flag** (verdict-floor input for S7) + a short deterministic
-  `obs_id` (e.g. `ipv4-c3045edd` — tool-arg friendly, IDEAS.md). Pattern
-  source snapshot: `docs/probes/2026-07-16-sara-fastpath-pattern.md`.
-- **Step 2 — `classifier.py`:** code-owned categories greeting/identity/
-  ioc_check/cve_lookup/definition/deep. Format beats keywords (CEF/LEEF/
-  syslog/JSON pastes → deep even with IOCs; analytical-verb veto incl.
-  definition-shaped asks); residual-word gates keep bulk IOC pastes fast;
-  suffix-aware common-domain suppression (defanged common domains still
-  count); greeting = true salutations ONLY (bare "ok"/"thanks" go deep — a
-  mid-investigation ack must reach the model). Errors bias deep.
-- **Step 3 — `shortcuts.py`:** static on-brand answers (engine never named,
-  test-enforced via the now-canonical FORBIDDEN_ENGINE_NAMES in
-  `tests/_fakes.py`); ioc_check echoes normalized observables + ids +
-  defanged markers, defers enrichment honestly (no fabricated verdicts,
-  D-014 spirit); cve_lookup/definition defer to KB (S6) with a deep-path
-  pointer. Plain text (UI renders verbatim). Tests prove the path offline:
-  socket-block fixture + structural import scan.
-- **Step 4 (stretch) — 92/8 gate in `/api/chat`:** classify BEFORE the model;
-  shortcut turns stream deterministic answers with zero LLM calls; `done`
-  frame carries `path: "shortcut"|"model"`. `ChatEndpointResolver` resolves
-  the endpoint lazily — unknown dev `endpoint_id` still 404s eagerly, but the
-  scorecard DB read + httpx client construction happen only on deep turns
-  (fixes a client-leak window + per-greeting waste). Unconfigured LLM now
-  503s only deep turns; shortcuts work with no LLM at all (real-dependency
-  test included). `ChatBody.message` capped at 32k (bounds in-loop regex).
-- **Review pass (8-angle adversarial, all findings fixed):** Dockerfile
-  deps-layer skeleton gained `auspex/classify` (image didn't build without
-  it); IPv6-trailing-period, `-v`-flag-vs-version, defanged-substring-
-  lookalike extraction bugs; UI `send()` now surfaces HTTP errors (deep-turn
-  503 no longer an empty bubble). TD-003 logged (test-helper duplication).
-- **Live-verified in-container:** greeting + defanged-IOC paste stream
-  `path: "shortcut"` with normalized values/ids/defanged markers through the
-  rebuilt container, LLM never touched.
-- **Human sign-off (2026-07-16):** Burhan approved the customer-facing
-  shortcut copy (shortcuts.py) as-is and eyeballed the UI in a browser
-  (plain-text echo + error bubble render fine). Don't reword without asking.
+## S5 shipped (all committed on staging, 2026-07-16)
+- **Probes first (rule 4):** docs/probes/2026-07-16-enrichment-providers.md —
+  all 7 providers hit live. Headline reality-vs-plan mismatches: **abuse.ch
+  (URLhaus+ThreatFox) is Auth-Key-gated now** (keyless = 401; one free
+  auth.abuse.ch key covers both); **OTX works keyless** (key optional);
+  GreyNoise keyless = 25 req/WEEK (useless → key-gated); OTX `pulse_info.count`
+  is poisoned for famous domains (whitelist `validation[]` must veto);
+  hashlookup is a known-GOOD-file DB (hit = weak benign, miss = nothing).
+- **`auspex/enrich/` package:** 7 probe-pinned provider clients (always-on
+  keyless: InternetDB ipv4/ipv6, CIRCL hashlookup md5/sha1/sha256, OTX
+  ipv4/ipv6/domain/url/hashes; key-gated: URLhaus, ThreatFox, AbuseIPDB,
+  GreyNoise). Per-(provider,observable) asyncio fan-out, 6 s per-call timeout,
+  per-provider circuit breaker (3 strikes → open, half-open probe after 60 s,
+  state persists across turns on app.state). Failures degrade to an honest
+  trailer (DEFERRED rail); "partial" marker when a provider failed one lookup
+  but answered another. Skip filters: private/reserved IPs (`is_global`) and
+  ubiquitous domains (even defanged) never enriched; per-turn cap 8
+  observables, capped tail echoed, never silent.
+- **Storage (D-008 scoped):** `observables` upsert-keyed (workspace, type,
+  value) + obs_id index; `verdicts` APPEND-ONLY with decay fields from day one
+  — **D-017 ratifies the semantics** (formula executable + test-pinned in
+  `auspex/enrich/verdict.py::effective_confidence`; half-lives IP 14 d /
+  domain 30 d / hash 365 d; decay never flips labels; v1 combining =
+  worst-label-wins).
+- **Chat wiring:** ioc_check shortcut now runs extract → skip-filter → fan-out
+  → verdict echo → persist, still ZERO LLM (test: enrichment runs, fake LLM
+  never called). No providers/disabled ⇒ the honest S4 "deferred" copy stands.
+  Host pytest pins `ENRICHMENT_ENABLED=false` (hermetic; enrichment mockable
+  at `app.state.enrichment`); container default is on.
+- **Live-verified in-container** (docs/probes/2026-07-16-s5-enrichment-live.md):
+  defanged Tor exit → real InternetDB context; WannaCry SHA-256 → "suspicious
+  0.70 — 50 threat pulses · linked adversary: Lazarus Group"; private IP
+  skipped honestly; verdict rows in Postgres with correct decay fields.
+- **Two real bugs caught BY the live verify, fixed + pinned as regressions:**
+  (1) OTX `validation[source=tor_exits]` would have whitelisted a Tor exit —
+  benign veto now restricted to whitelist/false_positive/majestic/akamai
+  (fixture `OTX_TOR_EXIT`); (2) trailer said "OTX unavailable" beside an OTX
+  signal (per-call fan-out) → "partial — timed out" marker.
+- **Measured quirk:** OTX takes 14–16.6 s on pulse-heavy indicators (limit
+  param ignored). Kept the 6 s cap: fast path must not stall; misses are
+  reported honestly; keyed curated feeds cover exactly those cases (TD-004).
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-- Nothing event-triggered outstanding.
+1. **Re-run the S5 multi-agent adversarial review, then `/promote`.** The
+   5-lens review workflow died at launch — ALL agents hit the account session
+   limit (reset 8:20 pm Asia/Karachi, 2026-07-16). An inline single-reviewer
+   pass over the full diff (correctness/security/contract/tests/honesty)
+   found nothing blocking, but the S4 precedent is review-then-promote, so
+   S5 promote waits for the real pass. Script is reusable:
+   `.claude/.../workflows/scripts/s5-adversarial-review-wf_f4b4c4e5-0b2.js`
+   (or just re-ask for a fresh 5-lens review of `git diff 67c4a76..HEAD`).
+2. **TD-004 — register free API keys, then re-probe:** auth.abuse.ch key
+   (unlocks URLhaus + ThreatFox — their happy-path parsers are docs-coded,
+   unverified live) and abuseipdb.com key. Human step; after keys exist,
+   `/probe` the happy paths and pin real fixtures.
 
 ## Blockers / open risks
 1. **Embeddings approach unmeasured** — probe in S6 (decided).
 2. **TD-001 (OAuth identity keyed on email)** — hard gate before any
    GOOGLE_CLIENT_ID is configured.
-3. **Deep path is conversational-only (v1)** — AgentLoop (tools) still not
-   wired into /api/chat; history replay unbounded; shortcut answers are
-   persisted and replayed into deep-turn history (few-shot contamination
-   risk). All parked in IDEAS.md; modes land S9.
-4. **Live model-path smoke checks must assert `done.path == "model"`** —
-   definition-shaped smoke messages now shortcut (caution appended to
-   docs/probes/2026-07-16-server-to-ollama-networking.md).
+3. **Deep path is conversational-only (v1)** — AgentLoop still not wired into
+   /api/chat; history replay unbounded; shortcut answers replayed into
+   deep-turn history. Parked in IDEAS.md; modes land S9.
+4. **Keyless verdicts cap at "suspicious"** — asserting MALICIOUS needs the
+   curated feeds (ThreatFox/URLhaus), which need keys (TD-004). Honest but
+   weaker demo until then.
 
 ## Host notes (reality snapshot)
-- Postgres host port **55432**; app 8000; OpenSearch 9200. Host-run scripts
-  and tests pin `DATABASE_URL`/`OPENSEARCH_URL` via `auspex.devhost` (no
-  LLM_BASE_URL pin per D-015).
-- Ollama 0.24.0 (snap) on :11434, binds `*:11434` (container reaches it via
-  host.docker.internal); models qwen3:14b / llama3.1:8b / mistral:latest.
-  GPU: RTX 5070 Ti Laptop 12 GB.
-- Host reboots between sessions — `docker compose up -d` at start (ritual
-  covers it); rebuild app image on source changes (`--build`, ci.sh does it).
-- Mid-S4 note: the compose stack went down mid-session once — cause confirmed
-  by Burhan as a manual machine restart (not daemon flakiness). If pytest
-  suddenly can't reach :55432, `docker compose up -d --wait` first.
+- Postgres host port **55432**; app 8000; OpenSearch 9200. Host runs pin via
+  `auspex.devhost` (DB/OpenSearch/APP_ENV + **ENRICHMENT_ENABLED=false** new
+  in S5 — override in shell for host-run live enrichment checks).
+- Ollama 0.24.0 on :11434; models qwen3:14b / llama3.1:8b / mistral:latest.
+- Host reboots between sessions — `docker compose up -d --wait` at start.
+- Claude-side note: the account session usage limit can kill subagent fan-outs
+  mid-session (it did today at ~19:20 PKT); the main loop keeps working.
 
 ## Reference intelligence (from the SARA Open architecture study, 2026-07-14)
 Base: `/home/burhan/sara-open/` (paths re-verified 2026-07-15):
 - ReACT loop: /home/burhan/sara-open/sara/core/agent_loop.py:60
-  (S3 loop pattern; Auspex loop is `auspex/agent/loop.py`)
-- Plan→DAG→Judge loop: nearest surviving copy is
-  /home/burhan/sara-open/.claude/worktrees/1359-chain-surface/sara/core/orchestrator_loop/runner.py:39
+- Plan→DAG→Judge loop: /home/burhan/sara-open/.claude/worktrees/1359-chain-surface/sara/core/orchestrator_loop/runner.py:39
   (worktrees get cleaned; re-snapshot to docs/probes/ before S8)
 - Permission hard-rails: /home/burhan/sara-open/sara/core/permissions.py:65-176
-  (S3 gate pattern; Auspex gate is `auspex/agent/permissions.py`)
-- Fast classifier / 92-8: snapshot now in
-  docs/probes/2026-07-16-sara-fastpath-pattern.md (S4 pattern source)
+- Fast classifier / 92-8: docs/probes/2026-07-16-sara-fastpath-pattern.md
+- Enrichment/fan-out pattern: reused in S5 (probe doc above supersedes the
+  SARA notes for provider truth)
 - RRF retrieval + ID bypass: /home/burhan/sara-open/sara_retriever.py:538,599
+  (S6 pattern source — snapshot before use, rule 4)
 - DEFERRED rail: /home/burhan/sara-open/sara/agents/alert_triage.py:1429
 - Capability shape: /home/burhan/sara-open/sara/core/unified_registry.py:37
 
 ## Next session should
-Run S5 exactly as written in NEXT-SESSION.md (Enrichment fan-out + verdict
-store). S4 is already promoted — no `/promote` needed at S5 start.
+Start with the carried follow-up: re-run the adversarial review of the S5
+diff, fix anything confirmed, then `/promote` S5. Then run S6 exactly as
+written in NEXT-SESSION.md (KB/RAG on OpenSearch).
