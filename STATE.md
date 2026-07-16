@@ -66,10 +66,14 @@ _Last updated: 2026-07-16 (S5 complete — enrichment fan-out + verdict store, l
    S5 promote waits for the real pass. Script is reusable:
    `.claude/.../workflows/scripts/s5-adversarial-review-wf_f4b4c4e5-0b2.js`
    (or just re-ask for a fresh 5-lens review of `git diff 67c4a76..HEAD`).
-2. **TD-004 — register free API keys, then re-probe:** auth.abuse.ch key
-   (unlocks URLhaus + ThreatFox — their happy-path parsers are docs-coded,
-   unverified live) and abuseipdb.com key. Human step; after keys exist,
-   `/probe` the happy paths and pin real fixtures.
+2. ~~TD-004 — register keys, re-probe~~ **DONE same evening:** Burhan
+   registered both keys (`.env`, gitignored); all three docs-coded happy
+   paths probed live (docs/probes/2026-07-16-keyed-providers-live.md). One
+   trap caught + fixed: URLhaus empty-payload false-malicious (file_size 0 ⇒
+   no signal; unclassified payloads ⇒ suspicious). Live keyed verdict
+   verified in-container: defanged ClearFake domain → "malicious 1.00 —
+   ThreatFox: ClearFake (payload_delivery) 100/100; URLhaus: historically
+   hosted malware", zero LLM. Now 239 tests.
 
 ## Blockers / open risks
 1. **Embeddings approach unmeasured** — probe in S6 (decided).
@@ -78,9 +82,9 @@ _Last updated: 2026-07-16 (S5 complete — enrichment fan-out + verdict store, l
 3. **Deep path is conversational-only (v1)** — AgentLoop still not wired into
    /api/chat; history replay unbounded; shortcut answers replayed into
    deep-turn history. Parked in IDEAS.md; modes land S9.
-4. **Keyless verdicts cap at "suspicious"** — asserting MALICIOUS needs the
-   curated feeds (ThreatFox/URLhaus), which need keys (TD-004). Honest but
-   weaker demo until then.
+4. ~~Keyless verdicts cap at "suspicious"~~ RESOLVED: keys configured on this
+   host (TD-004 follow-up above); curated feeds now assert MALICIOUS with a
+   named family, live-verified.
 
 ## Host notes (reality snapshot)
 - Postgres host port **55432**; app 8000; OpenSearch 9200. Host runs pin via

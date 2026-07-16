@@ -1,11 +1,11 @@
 # NEXT-SESSION — paste everything below the line into a fresh Claude Code window opened in /home/burhan/auspex-new
 
-_(Standing follow-ups: (1) S5 is complete on `staging` but NOT promoted — the
+_(Standing follow-up: S5 is complete on `staging` but NOT promoted — the
 multi-agent adversarial review was quota-blocked at S5 end (inline pass found
-nothing blocking); re-run it, fix anything confirmed, THEN `/promote`. (2)
-TD-004: registering the free auth.abuse.ch + AbuseIPDB keys is a HUMAN step —
-Burhan, do it when convenient; the moment the env vars exist, key-gated
-providers activate and their docs-coded parsers need a live re-probe.)_
+nothing blocking); re-run it, fix anything confirmed, THEN `/promote`.
+TD-004 is DONE: keys registered + all key-gated providers live-probed the
+same evening; keyed enrichment verified end-to-end — a defanged ClearFake
+domain returns "malicious 1.00, ThreatFox + URLhaus" with zero LLM.)_
 
 ---
 
