@@ -150,7 +150,8 @@
       if (!d) {
         d = document.createElement("details");
         d.className = "think";
-        d.innerHTML = `<summary>Co-Analyst is reasoning…</summary><div class="r"></div>`;
+        d.open = true;  // expanded while reasoning streams so it's visible
+        d.innerHTML = `<summary>Reasoning</summary><div class="r"></div>`;
         wrap.appendChild(d);
       }
       return d.querySelector(".r");
@@ -167,7 +168,12 @@
     function handleEvent(ev, wrap) {
       if ("session" in ev) { sessionId = ev.session; }
       else if ("reasoning" in ev) { ensureThink(wrap).textContent += ev.reasoning; }
-      else if ("content" in ev) { ensureBubble(wrap).textContent += ev.content; }
+      else if ("content" in ev) {
+        // reasoning is done once the answer starts — collapse it (stays clickable)
+        const think = wrap.querySelector("details.think");
+        if (think) think.open = false;
+        ensureBubble(wrap).textContent += ev.content;
+      }
       else if ("error" in ev) { const b = ensureBubble(wrap); b.textContent += "\n[endpoint error] " + ev.error; b.style.color = "var(--ember)"; }
       scroll();
     }
