@@ -1,7 +1,13 @@
-"""SSE chat (/api/chat) + dev model list (/api/models) — S3 step 4, D-016.
+"""SSE chat (/api/chat) + dev model list (/api/models) — S3 step 4, D-016, S4 92/8.
 
 Single-key JSON event protocol over `text/event-stream`; every frame has exactly
 one key: `session` / `reasoning` / `content` / `done` / `error`.
+
+The 92/8 split (S4 step 4): every turn is classified in code BEFORE the model
+is touched. Shortcut categories (greeting/identity/ioc_check/cve_lookup/
+definition) stream a deterministic answer with zero LLM calls — the `done`
+frame says which path ran (`"path": "shortcut" | "model"`). Only DEEP turns
+reach the endpoint; with no endpoint configured, shortcut turns still work.
 
 Reasoning is universal + customer-facing (D-016 feature 1): if the resolved
 endpoint emits native reasoning it is streamed; if not, a TWO-PASS fallback
@@ -26,6 +32,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from auspex.auth import AuthContext, resolve_user
+from auspex.classify import classify, shortcut_answer
 from auspex.config import Settings
 from auspex.llm.client import LLMClient, LLMError, Usage
 from auspex.llm.registry import DevEndpoint
@@ -65,9 +72,12 @@ def _pass2_directive(analysis: str) -> str:
 
 @dataclass
 class ChatEndpoint:
-    """The endpoint a turn will run against + whether it reasons natively."""
+    """The endpoint a turn will run against + whether it reasons natively.
 
-    client: LLMClient
+    `client is None` means no endpoint is configured: shortcut turns still
+    answer (the 92% path is LLM-free); a DEEP turn 503s in the handler."""
+
+    client: LLMClient | None
     native_reasoning: bool
     id: str = "default"
 
@@ -130,7 +140,9 @@ async def get_chat_endpoint(request: Request, auth: Auth) -> ChatEndpoint:
     if selected is not None:
         return ChatEndpoint(selected.build_client(), selected.native_reasoning, selected.id)
     if not settings.llm_base_url:
-        raise HTTPException(status_code=503, detail="LLM endpoint not configured")
+        # Unconfigured is not an error yet — shortcut turns never need a model.
+        # The handler 503s only when a DEEP turn actually asks for one.
+        return ChatEndpoint(None, False, "default")
     native = await _default_native_reasoning(request, auth)
     return ChatEndpoint(LLMClient.from_settings(settings), native, "default")
 
@@ -200,12 +212,39 @@ async def chat(
     endpoint: Annotated[ChatEndpoint, Depends(get_chat_endpoint)],
 ) -> StreamingResponse:
     pool: asyncpg.Pool = request.app.state.pool
+    # 92/8 gate (S4): code picks the path before the model is ever touched.
+    shortcut = shortcut_answer(classify(body.message))
+    if shortcut is None and endpoint.client is None:
+        raise HTTPException(status_code=503, detail="LLM endpoint not configured")
     session_id = await _ensure_session(pool, auth, body.session_id)
     await pool.execute(
         "INSERT INTO messages (workspace_id, session_id, role, content)"
         " VALUES ($1, $2, 'user', $3)",
         auth.workspace_id, session_id, body.message,
     )
+
+    if shortcut is not None:
+        # Shortcut path: deterministic answer, zero LLM calls. The client built
+        # by the dependency (if any) is never used — release it.
+        if endpoint.client is not None:
+            await endpoint.client.aclose()
+        await pool.execute(
+            "INSERT INTO messages (workspace_id, session_id, role, content)"
+            " VALUES ($1, $2, 'assistant', $3)",
+            auth.workspace_id, session_id, shortcut.text,
+        )
+
+        async def shortcut_stream():
+            yield _sse({"session": str(session_id)})
+            yield _sse({"content": shortcut.text})
+            yield _sse({"done": {"finish_reason": "stop", "usage": None, "path": "shortcut"}})
+
+        return StreamingResponse(
+            shortcut_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
     messages = await _history(pool, auth, session_id)
 
     async def event_stream():
@@ -265,7 +304,7 @@ async def chat(
                 " VALUES ($1, $2, 'assistant', $3)",
                 auth.workspace_id, session_id, answer,
             )
-        yield _sse({"done": {"finish_reason": finish_reason, "usage": usage}})
+        yield _sse({"done": {"finish_reason": finish_reason, "usage": usage, "path": "model"}})
 
     return StreamingResponse(
         event_stream(),

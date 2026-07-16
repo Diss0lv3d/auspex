@@ -129,7 +129,7 @@ def test_endpoint_id_routes_to_selected_client(client):
     client.app.state.dev_llm_registry = {"qwen": _FakeEntry(fake, native_reasoning=True)}
     try:
         resp = client.post(
-            "/api/chat", json={"message": "hi", "endpoint_id": "qwen"},
+            "/api/chat", json={"message": "summarize the overnight alerts", "endpoint_id": "qwen"},
             headers={"Authorization": f"Bearer {_token(client)}"},
         )
         assert resp.status_code == 200
