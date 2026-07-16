@@ -6,7 +6,7 @@ import json
 from uuid import uuid4
 
 import pytest
-from _fakes import StreamingFakeLLMClient
+from _fakes import FORBIDDEN_ENGINE_NAMES, StreamingFakeLLMClient
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
@@ -28,9 +28,6 @@ REG = {
                          base_url="https://leak-host-B.test", model="LEAK-MODEL-B",
                          api_key_env="LEAK_KEY_ENV", native_reasoning=False),
 }
-
-FORBIDDEN_ENGINE_NAMES = ["qwen", "llama", "scout", "vllm", "gpt", "openai", "nvidia"]
-
 
 def _token(client) -> str:
     return client.post("/api/auth/dev-login", json={"email": DEV_EMAIL}).json()["access_token"]
@@ -129,7 +126,7 @@ def test_endpoint_id_routes_to_selected_client(client):
     client.app.state.dev_llm_registry = {"qwen": _FakeEntry(fake, native_reasoning=True)}
     try:
         resp = client.post(
-            "/api/chat", json={"message": "hi", "endpoint_id": "qwen"},
+            "/api/chat", json={"message": "summarize the overnight alerts", "endpoint_id": "qwen"},
             headers={"Authorization": f"Bearer {_token(client)}"},
         )
         assert resp.status_code == 200

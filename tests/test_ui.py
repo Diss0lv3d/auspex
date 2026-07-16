@@ -1,8 +1,6 @@
 """UI shell smoke test (S3 step 5): served, on-brand, engine never named."""
 
-# Engine/provider names that must NEVER appear in a user-facing string
-# (CLAUDE.md brand rule: the customer-facing model is "the platform's engine").
-FORBIDDEN_ENGINE_NAMES = ["qwen", "ollama", "llama", "vllm", "northflank", "gpt", "openai"]
+from _fakes import FORBIDDEN_ENGINE_NAMES
 
 
 def test_index_served_dark_first_and_on_brand(client):

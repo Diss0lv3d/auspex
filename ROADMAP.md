@@ -33,9 +33,13 @@ may not grow mid-session (IDEAS.md exists for that).
 
 ## Phase 1 — Intelligence core
 
-- [ ] **S4 — Fast classifier (92/8 split).** IOC regex patterns (defang-aware),
+- [x] **S4 — Fast classifier (92/8 split).** IOC regex patterns (defang-aware),
   query classifier, shortcut handlers (greeting/identity/ioc_check/cve_lookup/
   definition), deep path stub. No LLM on the shortcut path.
+  _(Done 2026-07-16: `auspex/classify/{observables,classifier,shortcuts}.py`;
+  stretch step 4 shipped too — /api/chat classifies before the model, done
+  frame carries `path: shortcut|model`; 8-angle adversarial review applied;
+  177 tests; shortcut path verified LLM-free + network-free in-container.)_
 - [ ] **S5 — Enrichment fan-out + verdict store.** Direct provider clients
   (AbuseIPDB, OTX, GreyNoise community, URLhaus, ThreatFox, Shodan InternetDB,
   CIRCL hashlookup), submit-all/poll-all parallelism, per-provider circuit

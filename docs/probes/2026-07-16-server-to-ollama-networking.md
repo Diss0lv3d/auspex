@@ -88,3 +88,12 @@ done: {'finish_reason': 'stop', 'usage': {..., 'total_tokens': 483}}   ✅
 
 Step 0 goal fully met: the app container drives the host LLM and streams real
 responses. No standing follow-up remains.
+
+---
+
+**S4 caution (2026-07-16, added after the 92/8 gate landed):** the smoke
+message used above ("what is a SHA-256 hash?"-shaped) now classifies as a
+DEFINITION shortcut and never reaches the LLM — re-running it proves nothing
+about the container→LLM path. Any future live check of the model path must use
+a deep-classifying message (e.g. "summarize the overnight alerts") AND assert
+`done.path == "model"` in the final SSE frame.

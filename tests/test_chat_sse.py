@@ -12,7 +12,7 @@ import asyncpg
 from _fakes import SequencedStreamingFakeLLMClient, StreamingFakeLLMClient
 
 from auspex.llm.client import LLMUnreachable, StreamEvent, Usage
-from auspex.routes.chat import ChatEndpoint, get_chat_endpoint
+from auspex.routes.chat import ChatEndpoint, ChatEndpointResolver, get_endpoint_resolver
 
 CHAT_EMAIL = "analyst@auspex.dev"
 
@@ -31,8 +31,8 @@ def _frames(body: str) -> list[dict]:
 
 
 def _use(app, fake, *, native_reasoning: bool):
-    app.dependency_overrides[get_chat_endpoint] = lambda: ChatEndpoint(
-        client=fake, native_reasoning=native_reasoning, id="test"
+    app.dependency_overrides[get_endpoint_resolver] = lambda: ChatEndpointResolver.fixed(
+        ChatEndpoint(client=fake, native_reasoning=native_reasoning, id="test")
     )
 
 
@@ -71,7 +71,7 @@ def test_native_streams_reasoning_then_content_and_persists(client, settings):
     ])
     _use(client.app, fake, native_reasoning=True)
     try:
-        resp = client.post("/api/chat", json={"message": "hi"},
+        resp = client.post("/api/chat", json={"message": "summarize the overnight alerts"},
                            headers={"Authorization": f"Bearer {_token(client)}"})
         assert resp.status_code == 200
         frames = _frames(resp.text)
@@ -80,6 +80,7 @@ def test_native_streams_reasoning_then_content_and_persists(client, settings):
         assert kinds.index("reasoning") < kinds.index("content")
         assert "".join(f["content"] for f in frames if "content" in f) == "Hello, analyst."
         assert frames[-1]["done"]["usage"]["total_tokens"] == 14
+        assert frames[-1]["done"]["path"] == "model"  # deep turn ran the model
         assert fake.closed is True
         assert fake.turns == 1  # native = a single model call
         session_id = frames[0]["session"]
@@ -87,7 +88,7 @@ def test_native_streams_reasoning_then_content_and_persists(client, settings):
         client.app.dependency_overrides.clear()
 
     persisted = _session_messages(settings, session_id)
-    assert ("user", "hi") in persisted
+    assert ("user", "summarize the overnight alerts") in persisted
     assert ("assistant", "Hello, analyst.") in persisted
     assert all("Let me think" not in c for _, c in persisted)  # reasoning ephemeral
 
@@ -142,7 +143,7 @@ def test_two_pass_error_on_first_pass_emits_error_and_persists_nothing(client, s
     seq = SequencedStreamingFakeLLMClient([[], []], raise_on_call=0)  # pass 1 fails
     _use(client.app, seq, native_reasoning=False)
     try:
-        resp = client.post("/api/chat", json={"message": "hi"},
+        resp = client.post("/api/chat", json={"message": "summarize the overnight alerts"},
                            headers={"Authorization": f"Bearer {_token(client)}"})
         frames = _frames(resp.text)
         kinds = [next(iter(f)) for f in frames]
@@ -166,7 +167,7 @@ def test_error_event_on_unreachable_endpoint(client):
     )
     _use(client.app, fake, native_reasoning=True)
     try:
-        resp = client.post("/api/chat", json={"message": "hi"},
+        resp = client.post("/api/chat", json={"message": "summarize the overnight alerts"},
                            headers={"Authorization": f"Bearer {_token(client)}"})
         kinds = [next(iter(f)) for f in _frames(resp.text)]
         assert kinds[-1] == "error" and "done" not in kinds
@@ -204,3 +205,88 @@ def test_session_reuse_threads_history_and_rejects_foreign_session(client):
         assert bogus.status_code == 404
     finally:
         client.app.dependency_overrides.clear()
+
+
+# -- 92/8 routing (S4 step 4): shortcut categories never touch the model -------
+
+
+def test_greeting_takes_shortcut_path_with_zero_llm_calls(client, settings):
+    fake = StreamingFakeLLMClient([StreamEvent(kind="content", text="NEVER SENT")])
+    _use(client.app, fake, native_reasoning=True)
+    try:
+        resp = client.post("/api/chat", json={"message": "hi"},
+                           headers={"Authorization": f"Bearer {_token(client)}"})
+        assert resp.status_code == 200
+        frames = _frames(resp.text)
+        kinds = [next(iter(f)) for f in frames]
+        assert kinds == ["session", "content", "done"]  # no reasoning frames
+        assert fake.stream_calls == []  # the model was never called
+        assert frames[-1]["done"]["path"] == "shortcut"
+        assert frames[-1]["done"]["usage"] is None
+        answer = frames[1]["content"]
+        assert "Auspex" in answer and "NEVER SENT" not in answer
+        session_id = frames[0]["session"]
+    finally:
+        client.app.dependency_overrides.clear()
+
+    persisted = _session_messages(settings, session_id)
+    assert ("user", "hi") in persisted
+    assert any(role == "assistant" and "Auspex" in content for role, content in persisted)
+
+
+def test_ioc_check_shortcut_echoes_normalized_observables(client):
+    fake = StreamingFakeLLMClient([])
+    _use(client.app, fake, native_reasoning=True)
+    try:
+        resp = client.post("/api/chat", json={"message": "check 185.220.101[.]34"},
+                           headers={"Authorization": f"Bearer {_token(client)}"})
+        frames = _frames(resp.text)
+        assert fake.stream_calls == []
+        assert frames[-1]["done"]["path"] == "shortcut"
+        content = "".join(f["content"] for f in frames if "content" in f)
+        assert "185.220.101.34" in content  # refanged + normalized
+        assert "defanged" in content
+    finally:
+        client.app.dependency_overrides.clear()
+
+
+def test_unconfigured_endpoint_still_answers_shortcuts_but_503s_deep(client):
+    override = ChatEndpointResolver.unconfigured
+    client.app.dependency_overrides[get_endpoint_resolver] = override
+    try:
+        token = _token(client)
+        greeting = client.post("/api/chat", json={"message": "hello"},
+                               headers={"Authorization": f"Bearer {token}"})
+        assert greeting.status_code == 200
+        assert _frames(greeting.text)[-1]["done"]["path"] == "shortcut"
+
+        deep = client.post("/api/chat", json={"message": "summarize the overnight alerts"},
+                           headers={"Authorization": f"Bearer {token}"})
+        assert deep.status_code == 503
+    finally:
+        client.app.dependency_overrides.clear()
+
+
+def test_unconfigured_real_dependency_not_just_the_override(client):
+    """Exercise the REAL get_endpoint_resolver with llm_base_url unset — the
+    override-based test above can't catch a broken dependency constructor."""
+    settings = client.app.state.settings
+    client.app.state.settings = settings.model_copy(update={"llm_base_url": ""})
+    try:
+        token = _token(client)
+        greeting = client.post("/api/chat", json={"message": "hello"},
+                               headers={"Authorization": f"Bearer {token}"})
+        assert greeting.status_code == 200
+        assert _frames(greeting.text)[-1]["done"]["path"] == "shortcut"
+
+        deep = client.post("/api/chat", json={"message": "summarize the overnight alerts"},
+                           headers={"Authorization": f"Bearer {token}"})
+        assert deep.status_code == 503
+    finally:
+        client.app.state.settings = settings
+
+
+def test_oversized_message_is_rejected_not_classified(client):
+    resp = client.post("/api/chat", json={"message": "a" * 32_001},
+                       headers={"Authorization": f"Bearer {_token(client)}"})
+    assert resp.status_code == 422
