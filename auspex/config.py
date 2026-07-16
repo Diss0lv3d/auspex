@@ -38,6 +38,15 @@ class Settings(BaseSettings):
     llm_model: str = ""
     llm_api_key: str = ""
 
+    # --- Enrichment (S5). Keyless providers (InternetDB, hashlookup, OTX) are
+    # always on when enabled; key-gated ones activate when their key exists.
+    # Tests/host runs pin ENRICHMENT_ENABLED=false (hermetic CI, auspex.devhost).
+    enrichment_enabled: bool = True
+    abusech_auth_key: str = ""  # one auth.abuse.ch key covers URLhaus + ThreatFox
+    abuseipdb_api_key: str = ""
+    otx_api_key: str = ""  # optional — OTX answers keyless (probed); key raises limits
+    greynoise_api_key: str = ""
+
     # --- Auth ---
     secret_key: str = ""  # JWT signing key; required in prod, ephemeral fallback in dev
     jwt_ttl_minutes: int = 720
