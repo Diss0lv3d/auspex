@@ -15,6 +15,7 @@ from auspex.classify.observables import (
     observable_id,
     refang,
 )
+from auspex.classify.shortcuts import ShortcutAnswer, shortcut_answer
 
 __all__ = [
     "Category",
@@ -22,7 +23,9 @@ __all__ = [
     "Extraction",
     "Observable",
     "ObservableType",
+    "ShortcutAnswer",
     "classify",
+    "shortcut_answer",
     "extract",
     "extract_observables",
     "observable_id",
