@@ -77,8 +77,9 @@ _Last updated: 2026-07-16 (S4 complete — 92/8 fast classifier, all steps incl.
   GPU: RTX 5070 Ti Laptop 12 GB.
 - Host reboots between sessions — `docker compose up -d` at start (ritual
   covers it); rebuild app image on source changes (`--build`, ci.sh does it).
-- Mid-S4 note: the compose stack went down mid-session once (host event) —
-  if pytest suddenly can't reach :55432, `docker compose up -d --wait` first.
+- Mid-S4 note: the compose stack went down mid-session once — cause confirmed
+  by Burhan as a manual machine restart (not daemon flakiness). If pytest
+  suddenly can't reach :55432, `docker compose up -d --wait` first.
 
 ## Reference intelligence (from the SARA Open architecture study, 2026-07-14)
 Base: `/home/burhan/sara-open/` (paths re-verified 2026-07-15):
