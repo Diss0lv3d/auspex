@@ -135,3 +135,13 @@ no torch at all).
 Probe indices `probe-knn`, `probe-neural` deleted. Model + cluster setting
 left in place (they ARE the S6 deliverable's substrate). No secrets involved
 (local dev container, security disabled).
+
+## Addendum (same day): model search-by-name API
+
+`POST /_plugins/_ml/models/_search` with `term: name.keyword` returns the
+model doc **plus one hit per binary chunk** (11 hits for one model; chunk ids
+are `<model_id>_0…_9`). The real model doc is isolated with
+`must_not: exists(chunk_number)` — it alone carries `model_state`
+(e.g. `DEPLOYED`) and `total_chunks`. Bootstrap must filter accordingly, and
+`model_version` in this index is the internal revision ("2"), NOT the
+registry version ("1.0.2") — don't match on it.
