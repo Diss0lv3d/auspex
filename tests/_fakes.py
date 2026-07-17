@@ -139,7 +139,12 @@ class FakeKnowledgeService:
         if self.unavailable:
             from auspex.kb import KBUnavailable
 
-            raise KBUnavailable("knowledge base unreachable: simulated")
+            # Diagnostic message vs analyst-facing public clause, like the real
+            # service — chat tests assert the PUBLIC one is what gets rendered.
+            raise KBUnavailable(
+                "knowledge base unreachable: SimulatedConnectError",
+                public="it was unreachable",
+            )
         return self.hits
 
     async def lookup_ids(self, ids: tuple, *, top_k: int = 8) -> list:

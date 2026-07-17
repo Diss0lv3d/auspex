@@ -321,7 +321,7 @@ async def chat(
                     omitted=len(cve_ids) - len(requested),
                 )
             except KBUnavailable as err:
-                answer_text = KB_UNAVAILABLE_COPY.format(detail=err)
+                answer_text = KB_UNAVAILABLE_COPY.format(detail=err.public)
         elif shortcut.category is Category.DEFINITION and kb.active:
             try:
                 rendered = render_definition_answer(await kb.search(body.message))
@@ -329,7 +329,7 @@ async def chat(
                 # static deferred copy would claim the KB isn't connected.
                 answer_text = rendered if rendered is not None else DEFINITION_MISS_COPY
             except KBUnavailable as err:
-                answer_text = KB_UNAVAILABLE_COPY.format(detail=err)
+                answer_text = KB_UNAVAILABLE_COPY.format(detail=err.public)
         if (
             shortcut.category is Category.IOC_CHECK
             and enrichment.active

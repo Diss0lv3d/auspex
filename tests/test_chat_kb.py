@@ -163,7 +163,10 @@ def test_cve_lookup_kb_down_says_didnt_answer_this_turn(client):
         content, frames = _content(_post(client, "CVE-2021-44228"))
         assert frames[-1]["done"]["path"] == "shortcut"  # still no model fallback
         assert "didn't answer this turn" in content
-        assert "unreachable" in content  # the honest detail
+        assert "unreachable" in content  # the honest detail (the calm public clause)
+        # S6 review: the DIAGNOSTIC half (exception text, class names) is for
+        # logs — the analyst sees only the public clause.
+        assert "SimulatedConnectError" not in content
         assert "deferred" not in content
     finally:
         _swap_kb(client.app, real_kb)

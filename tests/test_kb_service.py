@@ -226,6 +226,37 @@ async def test_off_corpus_query_is_an_honest_miss_not_fabricated():
     assert await svc.search("what is quantum entanglement") == []
 
 
+async def test_unavailable_public_detail_stays_analyst_calm():
+    # S6 review: "(breaker open)" / "ConnectTimeout" were reaching chat copy.
+    # Every KBUnavailable path must carry a jargon-free `public` clause; the
+    # diagnostic stays on the exception message (logs/tests only).
+    jargon = ("breaker", "Error", "Timeout", "Exception", "http", "OpenSearch", ":")
+
+    async def public_of(svc) -> str:
+        with pytest.raises(KBUnavailable) as excinfo:
+            await svc.lookup_ids(("CVE-2021-44228",))
+        return excinfo.value.public
+
+    open_breaker = CircuitBreaker(threshold=1, clock=lambda: 0.0)
+    open_breaker.record_failure()
+    garbage = Router()
+    garbage.garbage_search = True
+    unroutable = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(503)),
+        base_url="http://opensearch.test",
+    )
+    for svc in (
+        service_with(Router(), breaker=open_breaker),
+        service_with(garbage),
+        KnowledgeService("http://opensearch.test", client=unroutable),
+        service_with(Router(), enabled=False),
+    ):
+        public = await public_of(svc)
+        assert public, "public clause must exist"
+        for term in jargon:
+            assert term not in public, f"jargon {term!r} leaked into public copy: {public!r}"
+
+
 async def test_garbage_200_response_is_kb_unavailable_not_a_crash():
     # S6 review: the never-a-500 invariant (types.KBUnavailable docstring) must
     # survive a 200 whose body is not a search response (intercepting proxy,

@@ -50,4 +50,13 @@ class KBHit:
 
 class KBUnavailable(Exception):
     """The KB could not answer this turn (breaker open, HTTP failure, missing
-    model/index). Callers keep the honest deferred copy — never a 500."""
+    model/index). Callers keep the honest deferred copy — never a 500.
+
+    The exception MESSAGE is diagnostic (logs, tests). `public` is the clause
+    rendered into user-facing copy (KB_UNAVAILABLE_COPY's {detail}) — analyst
+    voice, no exception class names, no breaker/HTTP internals. S6 review:
+    "(breaker open)" and "ConnectTimeout" were reaching the chat window."""
+
+    def __init__(self, detail: str, *, public: str = "it didn't respond") -> None:
+        super().__init__(detail)
+        self.public = public

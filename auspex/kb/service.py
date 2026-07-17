@@ -344,7 +344,7 @@ class KnowledgeService:
             # Each leg already recorded its own breaker failure in _search_call —
             # recording a third here made ONE failing turn open the breaker
             # (threshold 3) on a single transient blip. S6 review finding.
-            raise KBUnavailable(f"search failed: {bm25}")
+            raise KBUnavailable(f"search failed: {bm25}", public="it was unreachable")
         if isinstance(neural, BaseException):
             # Missing/undeployed model etc. — BM25 alone is still a KB answer.
             logger.warning("kb neural leg failed, serving BM25 only: %s", neural)
@@ -417,15 +417,23 @@ class KnowledgeService:
 
     async def _search_call(self, body: dict) -> list[KBHit]:
         if not self._enabled:
-            raise KBUnavailable("knowledge base disabled")
+            raise KBUnavailable(
+                "knowledge base disabled", public="it isn't enabled in this deployment"
+            )
         if not self._breaker.allow():
-            raise KBUnavailable("knowledge base temporarily unavailable (breaker open)")
+            raise KBUnavailable(
+                "knowledge base temporarily unavailable (breaker open)",
+                public="it's paused briefly after repeated failures and retries on its own",
+            )
         try:
             resp = await self._get_client().post(f"/{KNOWLEDGE_INDEX}/_search", json=body)
             resp.raise_for_status()
         except httpx.HTTPError as err:
             self._breaker.record_failure()
-            raise KBUnavailable(f"knowledge base unreachable: {err.__class__.__name__}") from err
+            raise KBUnavailable(
+                f"knowledge base unreachable: {err.__class__.__name__}",
+                public="it was unreachable",
+            ) from err
         try:
             hits = [_hit_to_kbhit(h) for h in resp.json()["hits"]["hits"]]
         except (ValueError, KeyError, TypeError) as err:
@@ -433,7 +441,8 @@ class KnowledgeService:
             # body) is a KB-didn't-answer turn, never a 500 (types.KBUnavailable).
             self._breaker.record_failure()
             raise KBUnavailable(
-                f"knowledge base answered unusably: {err.__class__.__name__}"
+                f"knowledge base answered unusably: {err.__class__.__name__}",
+                public="it returned an unusable response",
             ) from err
         self._breaker.record_success()
         return hits
