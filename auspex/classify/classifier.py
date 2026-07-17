@@ -48,7 +48,9 @@ IDENTITY_MAX_CHARS = 80
 
 # Bare mentions of ubiquitous domains are not IOC queries ("check google.com").
 # A *defanged* common domain still counts — the analyst defanged it on purpose.
-_COMMON_DOMAINS = frozenset(
+# Public: the enrichment skip-filter (S5) reuses this list — enriching
+# google.com wastes provider quota to learn that Google is Google.
+COMMON_DOMAINS = frozenset(
     """
     google.com github.com microsoft.com apple.com amazon.com cloudflare.com
     facebook.com twitter.com x.com linkedin.com youtube.com wikipedia.org
@@ -147,16 +149,16 @@ def _ioc_shaped(observables: tuple[Observable, ...], q: str) -> bool:
             domains.append(o)
         else:
             return True
-    hot = [d for d in domains if d.defanged or not _is_common_domain(d.value)]
+    hot = [d for d in domains if d.defanged or not is_common_domain(d.value)]
     if not hot:
         return False
     return len(q.split()) <= DEFINITION_MAX_WORDS or bool(_CHECK_VERB_RE.search(q))
 
 
-def _is_common_domain(domain: str) -> bool:
+def is_common_domain(domain: str) -> bool:
     """Suffix-aware: www.google.com is as ubiquitous as google.com."""
-    return domain in _COMMON_DOMAINS or any(
-        domain.endswith("." + common) for common in _COMMON_DOMAINS
+    return domain in COMMON_DOMAINS or any(
+        domain.endswith("." + common) for common in COMMON_DOMAINS
     )
 
 
@@ -184,11 +186,7 @@ def classify(query: str) -> Classification:
             and residual_words <= CVE_RESIDUAL_MAX_WORDS
         ):
             return result(Category.CVE_LOOKUP)
-        if (
-            not observables
-            and len(q.split()) <= DEFINITION_MAX_WORDS
-            and _DEFINITION_RE.match(q)
-        ):
+        if not observables and len(q.split()) <= DEFINITION_MAX_WORDS and _DEFINITION_RE.match(q):
             return result(Category.DEFINITION)
 
     return result(Category.DEEP)

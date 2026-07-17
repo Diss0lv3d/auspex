@@ -30,6 +30,16 @@ probed its scorecard flips it to single-call automatically.
 the pre-pass for short/conversational turns (92/8, S4); (c) a single-pass
 `<thinking>`-tag variant could halve cost for endpoints that reliably honor it.
 
+## ~~TD-004 (S5) — URLhaus / ThreatFox / AbuseIPDB happy paths are docs-coded, not probe-verified~~ RESOLVED same day
+**Resolved 2026-07-16 (evening):** Burhan registered both keys; all three happy paths
+probed live (docs/probes/2026-07-16-keyed-providers-live.md). Docs-coded shapes were
+correct except one trap the probe caught: URLhaus `/v1/payload/` returns
+`query_status:"ok"` for ANY bytes ever served from a listed URL — including empty
+failed downloads — so the parser gained a `file_size == 0 ⇒ no signal` guard and a
+signature-null ⇒ SUSPICIOUS (not MALICIOUS) downgrade, with pinned live fixtures.
+Also measured: heavy payload hashes 504 server-side (~60 s; the 6 s cap handles it),
+`url_count` is int on /host/ but string on /payload/.
+
 ## TD-003 (S4) — SSE/test helpers duplicated across test files
 **Where:** `_frames()` + `_token()` in `tests/test_chat_sse.py` and
 `tests/test_models.py` (near-identical `_dev_token` in `tests/test_auth.py`).

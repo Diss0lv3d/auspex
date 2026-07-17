@@ -43,7 +43,7 @@ CVE_DEFERRED_COPY = (
 
 DEFINITION_DEFERRED_COPY = (
     "Definitions come from the knowledge base, which isn't connected yet "
-    "(deferred). Ask me to reason about it in context — e.g. \"explain how "
+    '(deferred). Ask me to reason about it in context — e.g. "explain how '
     "this shows up in an investigation\" — and I'll take the deep path "
     "instead."
 )

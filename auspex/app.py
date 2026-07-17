@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from auspex import __version__
 from auspex.config import Settings, get_settings
 from auspex.db import create_pool
+from auspex.enrich import EnrichmentService
 from auspex.llm.registry import load_dev_registry
 from auspex.migrations import run_migrations
 from auspex.routes import auth, chat, health, ui
@@ -24,6 +25,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.settings = settings
         # Internal model switcher (D-016): {} unless APP_ENV=dev + a registry file.
         app.state.dev_llm_registry = load_dev_registry(settings)
+        # Enrichment fan-out service (S5): providers resolved from settings;
+        # inert (active=False) when disabled or no providers configured.
+        app.state.enrichment = EnrichmentService.from_settings(settings)
         app.state.pool = await create_pool(settings.database_url)
         # try/finally covers migrations too: a failure there must still close the pool.
         try:
@@ -31,6 +35,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             yield
         finally:
             await app.state.pool.close()
+            await app.state.enrichment.aclose()
 
     app = FastAPI(
         title="Auspex",

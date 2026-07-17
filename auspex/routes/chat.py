@@ -22,6 +22,7 @@ org policy that multi-LLM / BYO-LLM stays internal infrastructure.
 """
 
 import json
+import logging
 from dataclasses import dataclass
 from typing import Annotated
 from uuid import UUID
@@ -32,11 +33,14 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from auspex.auth import AuthContext, resolve_user
-from auspex.classify import classify, shortcut_answer
+from auspex.classify import Category, classify, shortcut_answer
 from auspex.config import Settings
+from auspex.enrich import EnrichmentService, persist_enrichment, render_ioc_answer
 from auspex.llm.client import LLMClient, LLMError, Usage
 from auspex.llm.registry import DevEndpoint
 from auspex.llm.scorecard import load_latest_scorecard
+
+logger = logging.getLogger("auspex.chat")
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -190,9 +194,11 @@ async def _insert_message(
     pool: asyncpg.Pool, auth: AuthContext, session_id: UUID, role: str, content: str
 ) -> None:
     await pool.execute(
-        "INSERT INTO messages (workspace_id, session_id, role, content)"
-        " VALUES ($1, $2, $3, $4)",
-        auth.workspace_id, session_id, role, content,
+        "INSERT INTO messages (workspace_id, session_id, role, content) VALUES ($1, $2, $3, $4)",
+        auth.workspace_id,
+        session_id,
+        role,
+        content,
     )
 
 
@@ -204,22 +210,23 @@ def _sse_response(stream) -> StreamingResponse:
     )
 
 
-async def _ensure_session(
-    pool: asyncpg.Pool, auth: AuthContext, session_id: UUID | None
-) -> UUID:
+async def _ensure_session(pool: asyncpg.Pool, auth: AuthContext, session_id: UUID | None) -> UUID:
     """Resolve an existing session (must belong to this workspace+user) or create
     one. The workspace+user predicate is the tenant-isolation guard."""
     if session_id is not None:
         owned = await pool.fetchval(
             "SELECT id FROM chat_sessions WHERE id = $1 AND workspace_id = $2 AND user_id = $3",
-            session_id, auth.workspace_id, auth.user_id,
+            session_id,
+            auth.workspace_id,
+            auth.user_id,
         )
         if owned is None:
             raise HTTPException(status_code=404, detail="Chat session not found")
         return session_id
     return await pool.fetchval(
         "INSERT INTO chat_sessions (workspace_id, user_id) VALUES ($1, $2) RETURNING id",
-        auth.workspace_id, auth.user_id,
+        auth.workspace_id,
+        auth.user_id,
     )
 
 
@@ -229,7 +236,8 @@ async def _history(pool: asyncpg.Pool, auth: AuthContext, session_id: UUID) -> l
     rows = await pool.fetch(
         "SELECT role, content FROM messages"
         " WHERE workspace_id = $1 AND session_id = $2 ORDER BY created_at",
-        auth.workspace_id, session_id,
+        auth.workspace_id,
+        session_id,
     )
     messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
     messages.extend({"role": r["role"], "content": r["content"]} for r in rows)
@@ -270,19 +278,41 @@ async def chat(
 ) -> StreamingResponse:
     pool: asyncpg.Pool = request.app.state.pool
     # 92/8 gate (S4): code picks the path before the model is ever touched.
-    shortcut = shortcut_answer(classify(body.message))
+    classification = classify(body.message)
+    shortcut = shortcut_answer(classification)
     if shortcut is None and not resolver.configured:
         raise HTTPException(status_code=503, detail="LLM endpoint not configured")
     session_id = await _ensure_session(pool, auth, body.session_id)
     await _insert_message(pool, auth, session_id, "user", body.message)
 
     if shortcut is not None:
-        # Shortcut path: deterministic answer; no client is ever constructed.
-        await _insert_message(pool, auth, session_id, "assistant", shortcut.text)
+        # Shortcut path: LLM-free always. ioc_check turns additionally run the
+        # S5 enrichment fan-out (direct provider HTTP, bounded by per-call
+        # timeouts) when the service is active; otherwise the static copy's
+        # honest "enrichment deferred" stands.
+        answer_text = shortcut.text
+        enrichment: EnrichmentService = request.app.state.enrichment
+        if (
+            shortcut.category is Category.IOC_CHECK
+            and enrichment.active
+            and classification.observables
+        ):
+            outcome = await enrichment.enrich(classification.observables)
+            # A persistence hiccup must not 500 away a fully-computed answer;
+            # the copy then says the results were NOT recorded (D-014 — never
+            # claim storage that didn't happen). S5 review finding.
+            recorded = True
+            try:
+                await persist_enrichment(pool, auth.workspace_id, outcome)
+            except Exception:
+                logger.exception("verdict persistence failed; streaming unrecorded results")
+                recorded = False
+            answer_text = render_ioc_answer(outcome, recorded=recorded)
+        await _insert_message(pool, auth, session_id, "assistant", answer_text)
 
         async def shortcut_stream():
             yield _sse({"session": str(session_id)})
-            yield _sse({"content": shortcut.text})
+            yield _sse({"content": answer_text})
             yield _sse({"done": {"finish_reason": "stop", "usage": None, "path": "shortcut"}})
 
         return _sse_response(shortcut_stream())
@@ -317,7 +347,8 @@ async def chat(
                 analysis_parts: list[str] = []
                 async for ev in endpoint.client.chat_stream(
                     [*messages, {"role": "system", "content": PASS1_DIRECTIVE}],
-                    max_tokens=CHAT_REASONING_MAX_TOKENS, temperature=0,
+                    max_tokens=CHAT_REASONING_MAX_TOKENS,
+                    temperature=0,
                 ):
                     if ev.kind == "content":
                         analysis_parts.append(ev.text)
@@ -326,7 +357,8 @@ async def chat(
                 # pass 2 = the answer, grounded in the private analysis → content.
                 async for ev in endpoint.client.chat_stream(
                     [*messages, {"role": "system", "content": _pass2_directive(analysis)}],
-                    max_tokens=CHAT_ANSWER_MAX_TOKENS, temperature=0,
+                    max_tokens=CHAT_ANSWER_MAX_TOKENS,
+                    temperature=0,
                 ):
                     if ev.kind == "content":
                         content_parts.append(ev.text)
