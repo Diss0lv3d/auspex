@@ -95,6 +95,7 @@ class KnowledgeService:
         self._clock = clock
         self._model_id: str | None = None
         self._model_lookup_failed_at: float | None = None
+        self._bootstrapped = False
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "KnowledgeService":
@@ -106,6 +107,14 @@ class KnowledgeService:
     @property
     def active(self) -> bool:
         return self._enabled
+
+    @property
+    def bootstrapped(self) -> bool:
+        """True once a bootstrap fully succeeded (or the KB is disabled — no
+        work pending). Ingest gates cycles on this: writing through _bulk
+        before _ensure_index ran would auto-create a dynamic-mapping index
+        that later boots accept as healthy forever (S8 review)."""
+        return self._bootstrapped
 
     def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -129,6 +138,7 @@ class KnowledgeService:
         calls this and logs the summary — a failure leaves the service up
         with the breaker/deferred rail handling requests honestly."""
         if not self._enabled:
+            self._bootstrapped = True  # nothing pending — don't gate ingest forever
             return "kb disabled"
         steps: list[str] = []
         try:
@@ -139,6 +149,7 @@ class KnowledgeService:
             steps.append(await self._ensure_mapping_fields())
             steps.append(await self._ensure_seed())
             self._breaker.record_success()
+            self._bootstrapped = True
             return "; ".join(steps)
         except Exception as err:  # noqa: BLE001 — startup must survive anything
             logger.exception("kb bootstrap failed")
@@ -302,10 +313,14 @@ class KnowledgeService:
     # ── Ingestion (bootstrap now; S7 feeds call this too) ────────────────
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        if self._model_id is None:
+        # Resolve lazily, exactly like the neural search leg — a bootstrap
+        # that failed at boot must not brick ingest until app restart
+        # (S8 review: only _neural had the lazy heal).
+        model_id = await self._resolve_model_id()
+        if model_id is None:
             raise KBUnavailable("embedding model not resolved")
         resp = await self._get_client().post(
-            f"/_plugins/_ml/_predict/text_embedding/{self._model_id}",
+            f"/_plugins/_ml/_predict/text_embedding/{model_id}",
             json={
                 "text_docs": texts,
                 "return_number": True,

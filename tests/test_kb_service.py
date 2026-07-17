@@ -488,7 +488,9 @@ async def test_bootstrap_fresh_volume_runs_all_steps():
         transport=httpx.MockTransport(router), base_url="http://opensearch.test"
     )
     svc = KnowledgeService("http://opensearch.test", client=client)
+    assert svc.bootstrapped is False  # nothing has run yet
     summary = await svc.bootstrap()
+    assert svc.bootstrapped is True
     assert "registered + deployed" in summary
     assert "created" in summary
     assert "seeded" in summary
@@ -506,6 +508,42 @@ async def test_bootstrap_fresh_volume_runs_all_steps():
 
 def _real_seed_fingerprint() -> str:
     return seed_fingerprint([c for d in load_seed_docs() for c in chunk_doc(d)])
+
+
+async def test_failed_bootstrap_leaves_bootstrapped_false():
+    # S8 review: ingest gates cycles on `bootstrapped` — a swallowed bootstrap
+    # failure must not read as ready (a _bulk before _ensure_index would
+    # auto-create a poisoned dynamic-mapping index).
+    down = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(503)),
+        base_url="http://opensearch.test",
+    )
+    svc = KnowledgeService("http://opensearch.test", client=down)
+    summary = await svc.bootstrap()
+    assert "failed" in summary
+    assert svc.bootstrapped is False
+
+
+async def test_embed_resolves_model_lazily_after_failed_bootstrap():
+    # S8 review: embed() read self._model_id directly — a failed boot-time
+    # bootstrap bricked ingest until app restart even after OpenSearch
+    # recovered. It must lazy-resolve exactly like the neural search leg.
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/_plugins/_ml/models/_search":
+            return httpx.Response(200, json=model_search_response(True))
+        if request.url.path.startswith("/_plugins/_ml/_predict/text_embedding/"):
+            assert request.url.path.endswith(MODEL_ID)  # the lazily-found id
+            return httpx.Response(
+                200, json={"inference_results": [{"output": [{"data": [0.1, 0.2]}]}]}
+            )
+        return httpx.Response(404)
+
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://opensearch.test"
+    )
+    svc = KnowledgeService("http://opensearch.test", client=client)
+    # no bootstrap ever ran — the old code raised KBUnavailable here
+    assert await svc.embed(["some text"]) == [[0.1, 0.2]]
 
 
 async def test_bootstrap_warm_volume_no_ops():

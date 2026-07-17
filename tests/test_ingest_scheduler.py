@@ -113,10 +113,14 @@ class FakeKB:
         self.ingested: list[list] = []  # one entry per ingest_docs call
         self.bootstrap_calls = 0
         self.fail_ingest = False
+        self.bootstrapped = True  # set False to simulate a failed boot bootstrap
+        self.bootstrap_heals = True  # whether a retry succeeds
 
     async def bootstrap(self) -> str:
         self.bootstrap_calls += 1
-        return "fake bootstrap ok"
+        if self.bootstrap_heals:
+            self.bootstrapped = True
+        return "fake bootstrap ok" if self.bootstrapped else "fake bootstrap failed"
 
     async def ingest_docs(self, docs) -> int:
         if self.fail_ingest:
@@ -492,3 +496,30 @@ async def test_run_bootstraps_kb_then_idles_when_ingest_disabled():
     await sched.run()  # must return (not loop) — the task ends after bootstrap
     assert kb.bootstrap_calls == 1
     assert kb.ingested == []  # no cycle ran
+
+
+async def test_cycle_skips_feeds_until_bootstrap_succeeds():
+    # S8 review: a failed boot-time bootstrap left _model_id unset forever —
+    # every cycle burned full feed quota then died at embed; worse, a _bulk
+    # before _ensure_index would auto-create a poisoned dynamic-mapping index.
+    kb = FakeKB()
+    kb.bootstrapped = False
+    kb.bootstrap_heals = False
+    kev = FakeKEV([kev_catalog()])
+    sched = scheduler(kb=kb, kev=kev)
+    summary = await sched.run_cycle()
+    assert "cycle skipped" in summary
+    assert kev.conditional_args == []  # no feed was touched
+    assert kb.bootstrap_calls == 1  # but a bootstrap retry happened
+
+
+async def test_cycle_proceeds_after_bootstrap_heals():
+    kb = FakeKB()
+    kb.bootstrapped = False  # boot-time bootstrap failed…
+    kb.bootstrap_heals = True  # …but OpenSearch has recovered since
+    kev = FakeKEV([kev_catalog()])
+    sched = scheduler(kb=kb, kev=kev)
+    summary = await sched.run_cycle()
+    assert "cycle skipped" not in summary
+    assert kb.bootstrap_calls == 1
+    assert len(kev.conditional_args) == 1  # the same cycle continued into the feeds

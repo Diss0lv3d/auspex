@@ -146,6 +146,13 @@ class IngestScheduler:
     # ── one cycle (the testable unit) ─────────────────────────────────────
 
     async def run_cycle(self) -> str:
+        if self._kb.active and not self._kb.bootstrapped:
+            # A failed boot-time bootstrap must not brick ingest until app
+            # restart — and ingesting through _bulk before _ensure_index ran
+            # would auto-create a poisoned dynamic-mapping index (S8 review).
+            logger.info("kb bootstrap retry: %s", await self._kb.bootstrap())
+            if not self._kb.bootstrapped:
+                return "kb not ready; cycle skipped (bootstrap retries next interval)"
         kev_catalog, kev_new_ids, kev_status = await self._kev_phase()
         nvd_status, nvd_ingested_ids = await self._nvd_phase(kev_catalog)
         kev_doc_status = await self._kev_docs_phase(kev_catalog, kev_new_ids, nvd_ingested_ids)
