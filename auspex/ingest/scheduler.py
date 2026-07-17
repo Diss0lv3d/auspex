@@ -152,7 +152,24 @@ class IngestScheduler:
             logger.info("kb bootstrap retry: %s", await self._kb.bootstrap())
             if not self._kb.bootstrapped:
                 return "kb not ready; cycle skipped (bootstrap retries next interval)"
-        kev_catalog, kev_new_ids, kev_status = await self._kev_phase()
+        try:
+            kev_catalog, kev_new_ids, kev_status = await self._kev_phase()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            if self._kev_cache is None:
+                # No catalog at all: NVD re-ingests would ERASE held KEV
+                # evidence (chunk upserts overwrite whole docs). Hold the
+                # whole cycle; watermarks keep and retry next interval.
+                raise
+            # Warm cache: a KEV outage must not silence NVD ingestion (S8
+            # review) — enrichment uses the last good catalog.
+            logger.exception("kev phase failed; continuing with the cached catalog")
+            kev_catalog, kev_new_ids, kev_status = (
+                self._kev_cache,
+                [],
+                "failed (cached catalog reused)",
+            )
         nvd_status, nvd_ingested_ids = await self._nvd_phase(kev_catalog)
         kev_doc_status = await self._kev_docs_phase(kev_catalog, kev_new_ids, nvd_ingested_ids)
         return f"kev: {kev_status}; nvd: {nvd_status}; kev-docs: {kev_doc_status}"

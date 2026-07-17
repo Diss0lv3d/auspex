@@ -22,6 +22,7 @@ class KEVCatalog:
     date_released: str
     last_modified: str  # HTTP Last-Modified header — the conditional-GET cursor
     entries: dict[str, dict]  # cveID (upper) -> raw KEV entry
+    malformed: int = 0  # entries dropped at parse (missing cveID/dateAdded)
 
 
 class KEVFeed:
@@ -52,9 +53,22 @@ class KEVFeed:
             return None
         resp.raise_for_status()
         body = resp.json()
+        # Per-record fault isolation (S8 review): one entry missing cveID or
+        # dateAdded used to KeyError the whole parse — and because KEV runs
+        # first, that silenced NVD ingestion for as long as the bad entry
+        # persisted in the catalog. Malformed entries drop; the rest flow.
+        entries: dict[str, dict] = {}
+        malformed = 0
+        for v in body.get("vulnerabilities", ()):
+            cve_id, date_added = v.get("cveID"), v.get("dateAdded")
+            if not (isinstance(cve_id, str) and cve_id and isinstance(date_added, str) and date_added):
+                malformed += 1
+                continue
+            entries[cve_id.upper()] = v
         return KEVCatalog(
             catalog_version=body.get("catalogVersion", ""),
             date_released=body.get("dateReleased", ""),
             last_modified=resp.headers.get("last-modified", ""),
-            entries={v["cveID"].upper(): v for v in body.get("vulnerabilities", ())},
+            entries=entries,
+            malformed=malformed,
         )

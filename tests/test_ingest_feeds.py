@@ -212,6 +212,29 @@ async def test_kev_conditional_get_returns_none_on_304():
     assert await feed.fetch(if_modified_since="Thu, 16 Jul 2026 17:00:15 GMT") is None
 
 
+async def test_kev_malformed_entries_drop_instead_of_failing_the_parse():
+    # S8 review: one entry without cveID/dateAdded KeyError'd the whole
+    # catalog — and KEV runs first, so it silenced NVD ingestion too.
+    body = {
+        "catalogVersion": "2026.07.16",
+        "dateReleased": "2026-07-16T17:00:15.000Z",
+        "vulnerabilities": [
+            {"cveID": "CVE-2024-3400", "dateAdded": "2024-04-12"},
+            {"dateAdded": "2024-04-12"},  # no cveID
+            {"cveID": "CVE-2021-44228"},  # no dateAdded
+            {"cveID": "", "dateAdded": "2024-04-12"},  # empty id
+        ],
+    }
+    feed = KEVFeed(
+        client=httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda r: httpx.Response(200, json=body))
+        )
+    )
+    catalog = await feed.fetch()
+    assert set(catalog.entries) == {"CVE-2024-3400"}
+    assert catalog.malformed == 3
+
+
 # ── FIRST EPSS ──────────────────────────────────────────────────────────────
 
 

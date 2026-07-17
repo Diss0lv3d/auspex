@@ -86,7 +86,8 @@ class FakeNVD:
 
 
 class FakeKEV:
-    """Replays a script of fetch() results (a KEVCatalog, or None for a 304)."""
+    """Replays a script of fetch() results (a KEVCatalog, None for a 304, or
+    an Exception instance to raise)."""
 
     def __init__(self, script: list):
         self.script = list(script)
@@ -94,7 +95,10 @@ class FakeKEV:
 
     async def fetch(self, *, if_modified_since: str = ""):
         self.conditional_args.append(if_modified_since)
-        return self.script.pop(0)
+        item = self.script.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
 
     async def aclose(self) -> None:
         pass
@@ -525,6 +529,42 @@ async def test_kb_refreshed_only_recorded_when_refresh_ran():
     await sched.run_cycle()
     assert nvd.single_calls == ["CVE-2026-58644", "CVE-2021-44228"]
     assert state.rows[KEV_FEED]["kb_refreshed"] is True
+
+
+# ── KEV failure isolation (S8 review: one bad feed silenced the other) ──────
+
+
+async def test_kev_outage_with_warm_cache_does_not_silence_nvd():
+    since = NOW - timedelta(days=1)
+    state = FakeState(
+        rows={
+            NVD_FEED: {"last_mod_end": since.isoformat()},
+            KEV_FEED: kev_cursor(date_added_horizon="2026-07-16"),
+        }
+    )
+    kb = FakeKB()
+    nvd = FakeNVD(window_cves=[nvd_cve("CVE-2024-3400")])  # in the KEV fixture
+    kev = FakeKEV([kev_catalog(), RuntimeError("CISA is down")])
+    sched = scheduler(kb=kb, nvd=nvd, kev=kev, state=state)
+    await sched.run_cycle()  # warms the cache
+    state.rows[NVD_FEED] = {"last_mod_end": since.isoformat()}  # rewind for cycle 2
+    summary = await sched.run_cycle()  # KEV raises — NVD must still ingest
+    assert "failed (cached catalog reused)" in summary
+    assert len(kb.ingested) == 2
+    # enrichment still applied, from the cached catalog
+    assert kb.ingested[-1][0].kev_date_added == "2024-04-12"
+
+
+async def test_kev_outage_with_cold_cache_holds_the_whole_cycle():
+    # Without any catalog, NVD re-ingests would ERASE held KEV evidence
+    # (chunk upserts overwrite whole docs) — the cycle must hold instead.
+    state = FakeState(rows={NVD_FEED: {"last_mod_end": NOW.isoformat()}})
+    kev = FakeKEV([RuntimeError("CISA is down")])
+    kb = FakeKB()
+    sched = scheduler(kb=kb, kev=kev, state=state)
+    with pytest.raises(RuntimeError):
+        await sched.run_cycle()
+    assert kb.ingested == []
 
 
 # ── run() task body ─────────────────────────────────────────────────────────
