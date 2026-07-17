@@ -11,8 +11,10 @@ import httpx
 import pytest
 
 from auspex.enrich.breaker import CircuitBreaker
+from auspex.kb.chunking import chunk_doc
 from auspex.kb.mapping import KNOWLEDGE_INDEX
-from auspex.kb.service import KnowledgeService
+from auspex.kb.seed import load_seed_docs
+from auspex.kb.service import MODEL_LOOKUP_RETRY_SECONDS, KnowledgeService, seed_fingerprint
 from auspex.kb.types import KBDoc, KBUnavailable
 
 MODEL_ID = "model-abc123"
@@ -309,6 +311,36 @@ async def test_missing_model_makes_hybrid_serve_bm25_only():
     assert len(model_searches) == 1
 
 
+async def test_model_lookup_retries_after_cooldown_and_heals():
+    # S6 review: the no-model memo was permanent — a cluster that recovered
+    # (model redeployed) left the neural leg dead until app restart. After the
+    # cooldown the lookup retries; a healed cluster restores hybrid search.
+    router = Router()
+    router.model_found = False
+    router.bm25_hits = [kb_hit("A#0", 5.0)]
+    now = {"t": 0.0}
+    svc = service_with(router, clock=lambda: now["t"])
+    await svc.search("how does lateral movement work")  # memoized miss at t=0
+    await svc.search("more prose about beacons")  # inside cooldown: no re-lookup
+
+    def searches() -> int:
+        return len([p for _, p, _ in router.requests if p == "/_plugins/_ml/models/_search"])
+
+    assert searches() == 1
+    router.model_found = True  # cluster healed
+    router.neural_hits = [kb_hit("A#0", 0.9)]
+    now["t"] = MODEL_LOOKUP_RETRY_SECONDS + 1
+    hits = await svc.search("prose about lateral movement")
+    assert searches() == 2  # cooldown elapsed ⇒ one retry
+    assert [h.chunk_id for h in hits] == ["A#0"]
+    neural_bodies = [
+        b
+        for _, p, b in router.requests
+        if p == f"/{KNOWLEDGE_INDEX}/_search" and "neural" in b.get("query", {})
+    ]
+    assert neural_bodies, "neural leg must be live again after the model heals"
+
+
 # ── breaker + disabled rails ───────────────────────────────────────────────
 
 
@@ -341,11 +373,28 @@ class BootstrapRouter:
         self.model_registered = False
         self.index_created = False
         self.bulk_batches = 0
+        self.seed_fp: str | None = None  # what PUT _mapping stamped
+        self.cluster_setting: str | None = None  # operator-set value, if any
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         path, method = request.url.path, request.method
         self.requests.append((method, path))
+        if path == "/_cluster/settings" and method == "GET":
+            persistent = (
+                {"plugins.ml_commons.only_run_on_ml_node": self.cluster_setting}
+                if self.cluster_setting is not None
+                else {}
+            )
+            return httpx.Response(200, json={"persistent": persistent, "transient": {}})
         if path == "/_cluster/settings":
+            return httpx.Response(200, json={"acknowledged": True})
+        if path == f"/{KNOWLEDGE_INDEX}/_mapping" and method == "GET":
+            meta = {"_meta": {"seed_fingerprint": self.seed_fp}} if self.seed_fp else {}
+            return httpx.Response(
+                200, json={KNOWLEDGE_INDEX: {"mappings": {"dynamic": "strict", **meta}}}
+            )
+        if path == f"/{KNOWLEDGE_INDEX}/_mapping" and method == "PUT":
+            self.seed_fp = json.loads(request.read())["_meta"]["seed_fingerprint"]
             return httpx.Response(200, json={"acknowledged": True})
         if path == "/_plugins/_ml/models/_search":
             return httpx.Response(200, json=model_search_response(False))
@@ -365,8 +414,6 @@ class BootstrapRouter:
         if path == f"/{KNOWLEDGE_INDEX}" and method == "PUT":
             self.index_created = True
             return httpx.Response(200, json={"acknowledged": True})
-        if path == f"/{KNOWLEDGE_INDEX}/_count":
-            return httpx.Response(200, json={"count": 0})
         if path.startswith(f"/_plugins/_ml/_predict/text_embedding/{MODEL_ID}"):
             body = json.loads(request.read())
             n = len(body["text_docs"])
@@ -393,23 +440,29 @@ async def test_bootstrap_fresh_volume_runs_all_steps():
     assert "seeded" in summary
     assert router.model_registered and router.index_created
     assert router.bulk_batches >= 1
+    # fingerprint stamps only AFTER the ingest — a crash mid-bulk must leave
+    # no stamp, so the next boot re-ingests (self-heal)
+    assert router.seed_fp is not None
+    assert router.requests.index(("PUT", f"/{KNOWLEDGE_INDEX}/_mapping")) > router.requests.index(
+        ("POST", "/_bulk")
+    )
     # model id is now resolved — hybrid search would use it without re-lookup
     assert await svc._resolve_model_id() == MODEL_ID
 
 
-async def test_bootstrap_warm_volume_no_ops():
-    router = Router()  # model found + DEPLOYED
-    seeded = {"count": 999}
+def _real_seed_fingerprint() -> str:
+    return seed_fingerprint([c for d in load_seed_docs() for c in chunk_doc(d)])
 
+
+async def test_bootstrap_warm_volume_no_ops():
+    router = BootstrapRouter()
+    router.index_created = True
+    router.seed_fp = _real_seed_fingerprint()  # index already carries this seed
     original_call = router.__call__
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/_cluster/settings":
-            return httpx.Response(200, json={"acknowledged": True})
-        if request.url.path == f"/{KNOWLEDGE_INDEX}" and request.method == "HEAD":
-            return httpx.Response(200)
-        if request.url.path == f"/{KNOWLEDGE_INDEX}/_count":
-            return httpx.Response(200, json=seeded)
+        if request.url.path == "/_plugins/_ml/models/_search":
+            return httpx.Response(200, json=model_search_response(True))  # DEPLOYED
         return original_call(request)
 
     client = httpx.AsyncClient(
@@ -420,6 +473,60 @@ async def test_bootstrap_warm_volume_no_ops():
     assert "already deployed" in summary
     assert "exists" in summary
     assert "seed present" in summary
+    assert router.bulk_batches == 0  # matching fingerprint ⇒ no re-ingest
+
+
+async def test_bootstrap_reingests_when_seed_content_changed():
+    # S6 review: the old count>=expected check served EDITED seed text stale
+    # forever (same chunk count, different content). A stale fingerprint must
+    # re-ingest and re-stamp.
+    router = BootstrapRouter()
+    router.index_created = True
+    router.seed_fp = "stale-fingerprint-from-an-older-seed-corpus"
+    original_call = router.__call__
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/_plugins/_ml/models/_search":
+            return httpx.Response(200, json=model_search_response(True))
+        return original_call(request)
+
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://opensearch.test"
+    )
+    svc = KnowledgeService("http://opensearch.test", client=client)
+    summary = await svc.bootstrap()
+    assert "seeded" in summary
+    assert router.bulk_batches >= 1
+    assert router.seed_fp == _real_seed_fingerprint()  # re-stamped to current
+
+
+async def test_bootstrap_respects_operator_set_ml_node_setting():
+    # S6 review: bootstrap must never stomp an EXPLICIT persistent cluster
+    # setting — write only when the key is absent.
+    router = BootstrapRouter()
+    router.cluster_setting = "true"  # operator chose dedicated ML nodes
+    router.index_created = True
+    router.seed_fp = _real_seed_fingerprint()
+    original_call = router.__call__
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/_plugins/_ml/models/_search":
+            return httpx.Response(200, json=model_search_response(True))
+        return original_call(request)
+
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://opensearch.test"
+    )
+    svc = KnowledgeService("http://opensearch.test", client=client)
+    await svc.bootstrap()
+    assert ("PUT", "/_cluster/settings") not in router.requests
+    # absent key ⇒ the dev-single-node default IS written
+    fresh = BootstrapRouter()
+    client2 = httpx.AsyncClient(
+        transport=httpx.MockTransport(fresh), base_url="http://opensearch.test"
+    )
+    await KnowledgeService("http://opensearch.test", client=client2).bootstrap()
+    assert ("PUT", "/_cluster/settings") in fresh.requests
 
 
 async def test_bootstrap_never_raises_on_dead_cluster():

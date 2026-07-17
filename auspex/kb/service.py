@@ -22,8 +22,11 @@ Retrieval rails (probe: docs/probes/2026-07-17-sara-rrf-retriever-pattern.md):
 """
 
 import asyncio
+import hashlib
 import json
 import logging
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 import httpx
@@ -43,7 +46,7 @@ from auspex.kb.mapping import (
     SOURCE_EXCLUDES,
 )
 from auspex.kb.seed import load_seed_docs
-from auspex.kb.types import KBDoc, KBHit, KBUnavailable
+from auspex.kb.types import KBChunk, KBDoc, KBHit, KBUnavailable
 
 logger = logging.getLogger("auspex.kb")
 
@@ -52,6 +55,11 @@ BOOTSTRAP_CALL_TIMEOUT_SECONDS = 30.0
 TASK_POLL_INTERVAL_SECONDS = 2.0
 TASK_POLL_BUDGET_SECONDS = 180.0  # fresh-volume register+deploy measured ~15 s; 12x headroom
 EMBED_BATCH_SIZE = 16  # probed sweet spot: ~8 ms/text amortized
+
+# A failed model lookup is remembered this long, then retried — not forever
+# (S6 review: a cluster that recovered after boot left the neural leg dead
+# until app restart).
+MODEL_LOOKUP_RETRY_SECONDS = 60.0
 
 # Technique-shaped ids get a prefix clause so a parent id (T1059) also pulls
 # its sub-techniques (T1059.001) — term alone can't (keyword field).
@@ -75,6 +83,7 @@ class KnowledgeService:
         client: httpx.AsyncClient | None = None,
         breaker: CircuitBreaker | None = None,
         call_timeout: float = CALL_TIMEOUT_SECONDS,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._auth = auth
@@ -83,8 +92,9 @@ class KnowledgeService:
         self._owns_client = client is None
         self._breaker = breaker or CircuitBreaker()
         self._call_timeout = call_timeout
+        self._clock = clock
         self._model_id: str | None = None
-        self._model_lookup_failed = False
+        self._model_lookup_failed_at: float | None = None
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "KnowledgeService":
@@ -134,9 +144,22 @@ class KnowledgeService:
             return f"kb bootstrap failed after [{'; '.join(steps) or 'nothing'}]: {err}"
 
     async def _ensure_ml_settings(self) -> None:
-        # Single-node dev/CI: ML must run on the data node. Persistent, but a
-        # fresh volume forgets it — hence re-applied every boot (probed).
-        resp = await self._get_client().put(
+        # Single-node dev/CI: ML must run on the data node, and a fresh volume
+        # forgets the setting (probed). An operator's EXPLICIT persistent choice
+        # (either value) is respected — we write only when the key is absent
+        # (S6 review: the unconditional PUT stomped cluster-wide config on
+        # every boot). Values arrive as strings ("false") — live-verified.
+        client = self._get_client()
+        resp = await client.get(
+            "/_cluster/settings",
+            params={"flat_settings": "true"},
+            timeout=BOOTSTRAP_CALL_TIMEOUT_SECONDS,
+        )
+        resp.raise_for_status()
+        current = resp.json().get("persistent", {}).get("plugins.ml_commons.only_run_on_ml_node")
+        if current is not None:
+            return
+        resp = await client.put(
             "/_cluster/settings",
             json={"persistent": {"plugins.ml_commons.only_run_on_ml_node": False}},
             timeout=BOOTSTRAP_CALL_TIMEOUT_SECONDS,
@@ -229,15 +252,29 @@ class KnowledgeService:
 
     async def _ensure_seed(self) -> str:
         docs = load_seed_docs()
-        expected = sum(len(chunk_doc(d)) for d in docs)
-        resp = await self._get_client().get(f"/{KNOWLEDGE_INDEX}/_count")
+        chunks = [c for d in docs for c in chunk_doc(d)]
+        fingerprint = seed_fingerprint(chunks)
+        client = self._get_client()
+        resp = await client.get(f"/{KNOWLEDGE_INDEX}/_mapping")
         resp.raise_for_status()
-        count = resp.json()["count"]
-        if count >= expected:
-            return f"seed present ({count} chunks)"
-        # Upsert by chunk_id ⇒ re-ingesting after a partial seed self-heals.
+        meta = resp.json()[KNOWLEDGE_INDEX]["mappings"].get("_meta", {})
+        if meta.get("seed_fingerprint") == fingerprint:
+            return f"seed present ({len(chunks)} chunks, fingerprint match)"
+        # Content — not chunk COUNT — drives re-ingest: an edited seed doc with
+        # an unchanged count used to be served stale forever (S6 review).
+        # Upsert by chunk_id keeps replays idempotent; the fingerprint stamp
+        # lands only after a full successful ingest, so a partial seed (crash
+        # mid-bulk) self-heals on the next boot.
         ingested = await self.ingest_docs(docs)
-        return f"seeded {ingested} chunks (found {count})"
+        resp = await client.put(
+            f"/{KNOWLEDGE_INDEX}/_mapping",
+            # Replaces _meta wholesale (live-verified on strict mappings) —
+            # switch to read-merge-write if _meta ever grows more keys.
+            json={"_meta": {"seed_fingerprint": fingerprint}},
+            timeout=BOOTSTRAP_CALL_TIMEOUT_SECONDS,
+        )
+        resp.raise_for_status()
+        return f"seeded {ingested} chunks"
 
     # ── Ingestion (bootstrap now; S7 feeds call this too) ────────────────
 
@@ -271,23 +308,7 @@ class KnowledgeService:
                     _json_line({"index": {"_index": KNOWLEDGE_INDEX, "_id": chunk.chunk_id}})
                 )
                 lines.append(
-                    _json_line(
-                        {
-                            "doc_id": chunk.doc.doc_id,
-                            "chunk_index": chunk.chunk_index,
-                            "ids": list(chunk.doc.ids),
-                            "title": chunk.doc.title,
-                            "content": chunk.text,
-                            "doc_type": chunk.doc.doc_type,
-                            "source": chunk.doc.source,
-                            "source_ref": chunk.doc.source_ref,
-                            "severity": chunk.doc.severity,
-                            "cvss_score": chunk.doc.cvss_score,
-                            "workspace_id": "",
-                            "ingested_at": now,
-                            "embedding": vector,
-                        }
-                    )
+                    _json_line({**_chunk_payload(chunk), "ingested_at": now, "embedding": vector})
                 )
             resp = await self._get_client().post(
                 "/_bulk",
@@ -399,20 +420,27 @@ class KnowledgeService:
 
     async def _resolve_model_id(self) -> str | None:
         """Bootstrap normally sets the id; this lazy path covers a service
-        whose bootstrap was skipped. One failed lookup is remembered so the
-        neural leg doesn't hammer a model-less cluster every turn."""
+        whose bootstrap was skipped or failed. A no-model result is remembered
+        for MODEL_LOOKUP_RETRY_SECONDS — long enough not to hammer a model-less
+        cluster every turn, short enough that a cluster which recovers (model
+        redeployed, volume restored) heals the neural leg without an app
+        restart (S6 review)."""
         if self._model_id is not None:
             return self._model_id
-        if self._model_lookup_failed:
+        if (
+            self._model_lookup_failed_at is not None
+            and self._clock() - self._model_lookup_failed_at < MODEL_LOOKUP_RETRY_SECONDS
+        ):
             return None
         try:
             found = await self._find_model()
         except httpx.HTTPError:
             return None
         if found is None:
-            self._model_lookup_failed = True
+            self._model_lookup_failed_at = self._clock()
             return None
         self._model_id = found[0]
+        self._model_lookup_failed_at = None
         return self._model_id
 
     async def _search_call(self, body: dict) -> list[KBHit]:
@@ -450,6 +478,35 @@ class KnowledgeService:
 
 def _is_parent_technique(id_: str) -> bool:
     return len(id_) == _TECHNIQUE_PARENT_LEN and id_[0] == "T" and id_[1:].isdigit()
+
+
+def _chunk_payload(chunk: KBChunk) -> dict:
+    """The indexed body for one chunk, minus per-ingest fields (embedding,
+    ingested_at). Shared by ingest and the seed fingerprint so the fingerprint
+    can never drift from what actually gets written."""
+    return {
+        "doc_id": chunk.doc.doc_id,
+        "chunk_index": chunk.chunk_index,
+        "ids": list(chunk.doc.ids),
+        "title": chunk.doc.title,
+        "content": chunk.text,
+        "doc_type": chunk.doc.doc_type,
+        "source": chunk.doc.source,
+        "source_ref": chunk.doc.source_ref,
+        "severity": chunk.doc.severity,
+        "cvss_score": chunk.doc.cvss_score,
+        "workspace_id": "",
+    }
+
+
+def seed_fingerprint(chunks: list[KBChunk]) -> str:
+    """Deterministic content hash of the seed corpus as it would be indexed."""
+    payload = json.dumps(
+        [_chunk_payload(c) for c in sorted(chunks, key=lambda c: c.chunk_id)],
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _hit_to_kbhit(hit: dict) -> KBHit:
