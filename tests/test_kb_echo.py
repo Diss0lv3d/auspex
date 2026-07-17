@@ -118,3 +118,15 @@ def test_kb_copy_never_names_the_engine_or_fabricates():
             assert name not in lowered
     # the three truths stay distinct strings
     assert len({KB_UNAVAILABLE_COPY, DEFINITION_MISS_COPY, CVE_MISS_LINE}) == 3
+
+
+def test_cve_answer_omitted_count_is_stated_never_a_false_miss():
+    # S6 review: when the caller caps the per-turn id list, the capped CVEs
+    # must be named as deferred-to-follow-up — not silently dropped and not
+    # rendered with the miss line (which would claim KB absence).
+    answer = render_cve_answer(["CVE-2021-44228"], [], omitted=2)
+    assert "2 more were requested — I read up to 1 per turn" in answer
+    single = render_cve_answer(["CVE-2021-44228"], [], omitted=1)
+    assert "1 more was requested" in single
+    unomitted = render_cve_answer(["CVE-2021-44228"], [])
+    assert "more w" not in unomitted  # no trailer when nothing was capped

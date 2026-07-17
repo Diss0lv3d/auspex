@@ -40,6 +40,7 @@ from auspex.enrich import EnrichmentService, persist_enrichment, render_ioc_answ
 from auspex.kb import (
     DEFINITION_MISS_COPY,
     KB_UNAVAILABLE_COPY,
+    MAX_IDS_PER_LOOKUP,
     KBUnavailable,
     KnowledgeService,
     render_cve_answer,
@@ -304,11 +305,21 @@ async def chat(
         enrichment: EnrichmentService = request.app.state.enrichment
         kb: KnowledgeService = request.app.state.kb
         if shortcut.category is Category.CVE_LOOKUP and kb.active:
-            cve_ids = [
-                o.value for o in classification.observables if o.type is ObservableType.CVE
-            ]
+            cve_ids = list(
+                dict.fromkeys(
+                    o.value for o in classification.observables if o.type is ObservableType.CVE
+                )
+            )
+            # Cap per turn (bool-clause limit + shared breaker, S6 review) and
+            # size the fetch to the request — the default top_k (8 chunks)
+            # rendered CVEs past it as false "not in the knowledge base" misses.
+            requested = cve_ids[:MAX_IDS_PER_LOOKUP]
             try:
-                answer_text = render_cve_answer(cve_ids, await kb.lookup_ids(tuple(cve_ids)))
+                answer_text = render_cve_answer(
+                    requested,
+                    await kb.lookup_ids(tuple(requested), top_k=max(8, 4 * len(requested))),
+                    omitted=len(cve_ids) - len(requested),
+                )
             except KBUnavailable as err:
                 answer_text = KB_UNAVAILABLE_COPY.format(detail=err)
         elif shortcut.category is Category.DEFINITION and kb.active:

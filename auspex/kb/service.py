@@ -57,6 +57,13 @@ EMBED_BATCH_SIZE = 16  # probed sweet spot: ~8 ms/text amortized
 # its sub-techniques (T1059.001) — term alone can't (keyword field).
 _TECHNIQUE_PARENT_LEN = 5  # "T1059"
 
+# Boundary cap for one turn's ID lookup: a 32k-char message can carry ~2000
+# CVE ids; unbounded ids would blow OpenSearch's bool-clause limit (1024) and
+# trip the shared breaker for every user. Callers that cap MUST say so in the
+# rendered copy (render_cve_answer's `omitted`) — a capped CVE must never
+# render as a KB miss. S6 review finding.
+MAX_IDS_PER_LOOKUP = 25
+
 
 class KnowledgeService:
     def __init__(

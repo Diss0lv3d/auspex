@@ -7,7 +7,7 @@ from auspex.kb.echo import (
     render_cve_answer,
     render_definition_answer,
 )
-from auspex.kb.service import KnowledgeService
+from auspex.kb.service import MAX_IDS_PER_LOOKUP, KnowledgeService
 from auspex.kb.types import KBDoc, KBHit, KBUnavailable
 
 __all__ = [
@@ -17,6 +17,7 @@ __all__ = [
     "KBHit",
     "KBUnavailable",
     "KnowledgeService",
+    "MAX_IDS_PER_LOOKUP",
     "render_cve_answer",
     "render_definition_answer",
 ]

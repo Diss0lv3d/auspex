@@ -55,9 +55,11 @@ def _cve_block(cve_id: str, hits: list[KBHit]) -> str:
     return f"{header}\n{body}\n{trailer}"
 
 
-def render_cve_answer(requested: list[str], hits: list[KBHit]) -> str:
+def render_cve_answer(requested: list[str], hits: list[KBHit], *, omitted: int = 0) -> str:
     """One block per requested CVE, in request order; misses are explicit.
-    `hits` is whatever lookup_ids returned — grouped here by exact id match."""
+    `hits` is whatever lookup_ids returned — grouped here by exact id match.
+    `omitted` = CVEs the caller capped away this turn; saying so keeps the
+    answer honest — a capped CVE must never read as "not in the knowledge base"."""
     by_id: dict[str, list[KBHit]] = {cve: [] for cve in requested}
     for hit in hits:
         for cve in requested:
@@ -68,7 +70,14 @@ def render_cve_answer(requested: list[str], hits: list[KBHit]) -> str:
     count = len(requested)
     noun = "vulnerability" if count == 1 else "vulnerabilities"
     blocks = "\n".join(_cve_block(cve, by_id[cve]) for cve in requested)
-    return f"Knowledge base read on {count} {noun}:\n\n{blocks}"
+    answer = f"Knowledge base read on {count} {noun}:\n\n{blocks}"
+    if omitted:
+        noun_more = "was" if omitted == 1 else "were"
+        answer += (
+            f"\n\n{omitted} more {noun_more} requested — I read up to {count} per turn; "
+            "ask about the rest in a follow-up and I'll cover them too."
+        )
+    return answer
 
 
 def render_definition_answer(hits: list[KBHit]) -> str | None:

@@ -107,6 +107,41 @@ def test_cve_lookup_with_active_kb_answers_with_zero_llm_calls(client):
         client.app.dependency_overrides.clear()
 
 
+def test_cve_lookup_caps_per_turn_and_says_so_instead_of_false_misses(client):
+    # S6 review: unbounded id lists blow OpenSearch's bool-clause limit, and the
+    # default top_k (8 chunks) rendered overflow CVEs as false "not in the
+    # knowledge base" misses. 27 requested ⇒ 25 read (scaled fetch), the other
+    # 2 explicitly deferred to a follow-up — never claimed absent.
+    _use(client.app, StreamingFakeLLMClient([]))
+    fake_kb = FakeKnowledgeService(hits=[])
+    real_kb = _swap_kb(client.app, fake_kb)
+    try:
+        cves = [f"CVE-2024-{1000 + i}" for i in range(27)]
+        content, _ = _content(_post(client, " ".join(cves)))
+        assert len(fake_kb.lookup_calls) == 1
+        assert fake_kb.lookup_calls[0] == tuple(cves[:25])
+        assert fake_kb.lookup_topks == [100]  # 4 chunks per requested CVE
+        assert "2 more were requested — I read up to 25 per turn" in content
+        assert cves[25] not in content and cves[26] not in content  # no false miss lines
+    finally:
+        _swap_kb(client.app, real_kb)
+        client.app.dependency_overrides.clear()
+
+
+def test_cve_lookup_dedupes_repeated_ids(client):
+    _use(client.app, StreamingFakeLLMClient([]))
+    fake_kb = FakeKnowledgeService(hits=[log4shell_hit()])
+    real_kb = _swap_kb(client.app, fake_kb)
+    try:
+        content, _ = _content(_post(client, "CVE-2021-44228 and CVE-2021-44228 again"))
+        assert fake_kb.lookup_calls == [("CVE-2021-44228",)]
+        assert content.count("CVE-2021-44228 — CRITICAL") == 1  # one block, not two
+        assert "more were requested" not in content  # dedupe is not an omission
+    finally:
+        _swap_kb(client.app, real_kb)
+        client.app.dependency_overrides.clear()
+
+
 def test_cve_lookup_kb_miss_is_explicit_not_deferred(client):
     _use(client.app, StreamingFakeLLMClient([]))
     fake_kb = FakeKnowledgeService(hits=[])  # connected, knows nothing
