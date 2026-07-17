@@ -84,7 +84,9 @@ def render_definition_answer(hits: list[KBHit]) -> str | None:
         seen: dict[str, None] = {}
         for h in related:
             label = h.title or h.doc_id
-            seen.setdefault(f"{label} ({h.doc_id})" if h.title else label)
+            if h.title and h.title != h.doc_id:  # avoid "CVE-X (CVE-X)"
+                label = f"{h.title} ({h.doc_id})"
+            seen.setdefault(label)
         lines += ["", "Related entries: " + "; ".join(list(seen)[:3])]
     trailer = f"Source: {_source_label(top)}"
     if top.source_ref:

@@ -323,14 +323,13 @@ class KnowledgeService:
         return await self._search_call(body)
 
     async def search(self, query: str, *, top_k: int = 5) -> list[KBHit]:
-        """The retrieval front door. ID-dominant → ID rail (BM25 fallback,
-        neural never runs); otherwise hybrid BM25+neural RRF with a
-        regime-aware floor. Raises KBUnavailable when the KB can't answer."""
+        """The retrieval front door. ID-dominant → ID rail only (an unknown ID
+        is an honest miss — no fuzzy-prose fallback; SARA's BM25 fallback
+        existed for its prefixed doc-id zoo, which our `ids` field replaces);
+        otherwise hybrid BM25+neural RRF with a regime-aware floor.
+        Raises KBUnavailable when the KB can't answer."""
         if is_id_query(query):
-            hits = await self.lookup_ids(extract_kb_ids(query), top_k=top_k)
-            if hits:
-                return hits  # exact ID match IS the quality gate (SARA pattern)
-            return apply_floor(await self._bm25(query, top_k))
+            return await self.lookup_ids(extract_kb_ids(query), top_k=top_k)
         bm25_task = self._bm25(query, top_k * 2)
         neural_task = self._neural(query, top_k * 2)
         bm25, neural = await asyncio.gather(bm25_task, neural_task, return_exceptions=True)
@@ -341,6 +340,13 @@ class KnowledgeService:
             # Missing/undeployed model etc. — BM25 alone is still a KB answer.
             logger.warning("kb neural leg failed, serving BM25 only: %s", neural)
             return apply_floor(bm25[:top_k])
+        if not neural:
+            # Neural ran and nothing in the corpus is semantically near the
+            # query (post-floor). BM25 hits here are fuzzy/stopword noise —
+            # live-caught 2026-07-17: "what is quantum entanglement" scored
+            # 4.4 on a C2 doc via "what"/"is". Disagreement ⇒ honest miss;
+            # only neural UNAVAILABILITY (above) degrades to BM25-only.
+            return []
         if isinstance(bm25, BaseException):
             logger.warning("kb bm25 leg failed, serving neural only: %s", bm25)
             return apply_floor(neural[:top_k])
@@ -357,6 +363,9 @@ class KnowledgeService:
                         "fields": ["content^3", "title^2"],
                         "type": "best_fields",
                         "fuzziness": "AUTO",
+                        # Damp stopword-only matches ("what is …" hits every
+                        # doc): >2 terms ⇒ 75% must match.
+                        "minimum_should_match": "2<75%",
                     }
                 },
             }

@@ -152,16 +152,17 @@ async def test_id_dominant_query_never_touches_neural():
     assert "neural" not in json.dumps(search_bodies)
 
 
-async def test_id_query_with_no_id_hits_falls_back_to_bm25_only():
+async def test_id_query_with_unknown_id_is_an_honest_miss():
+    # No fuzzy-prose fallback: "what is CVE-2099-9999" with the ID absent must
+    # miss, not surface whatever doc "what is" fuzzily matches (live-caught
+    # failure mode 2026-07-17 on the free-text path; same rail here).
     router = Router()
     router.id_hits = []
-    router.bm25_hits = [kb_hit("T1059#0", 4.2)]
+    router.bm25_hits = [kb_hit("T1059#0", 4.2)]  # would be noise if consulted
     svc = service_with(router)
-    hits = await svc.search("what is CVE-2099-9999")
-    assert [h.chunk_id for h in hits] == ["T1059#0"]
+    assert await svc.search("what is CVE-2099-9999") == []
     search_bodies = [b for _, p, b in router.requests if p == f"/{KNOWLEDGE_INDEX}/_search"]
-    assert len(search_bodies) == 2  # id rail, then bm25 — still no neural
-    assert "neural" not in json.dumps(search_bodies)
+    assert len(search_bodies) == 1  # the ID rail only — no BM25, no neural
 
 
 # ── search: hybrid RRF ─────────────────────────────────────────────────────
@@ -211,12 +212,13 @@ async def test_dead_bm25_leg_degrades_to_neural_only():
 
 
 async def test_off_corpus_query_is_an_honest_miss_not_fabricated():
-    # kNN always answers with k neighbors; BM25 finds nothing for off-corpus
-    # text. Without the absolute neural floor these noise hits would become
-    # the turn's "KB answer". Scores below 0.6 (probed noise regime) must die.
+    # Live-caught 2026-07-17: "what is quantum entanglement" → BM25 4.4 on a
+    # C2 doc (stopword/fuzzy noise) while every neural score sat below the 0.6
+    # floor (top 0.586). The post-floor-empty neural leg is the relevance
+    # gate: BM25 hits without neural agreement are noise, not an answer.
     router = Router()
-    router.bm25_hits = []
-    router.neural_hits = [kb_hit("CONCEPT-C2#0", 0.512), kb_hit("T1055#0", 0.487)]
+    router.bm25_hits = [kb_hit("CONCEPT-C2#0", 4.4)]
+    router.neural_hits = [kb_hit("CONCEPT-C2#0", 0.586), kb_hit("T1055#0", 0.553)]
     svc = service_with(router)
     assert await svc.search("what is quantum entanglement") == []
 
