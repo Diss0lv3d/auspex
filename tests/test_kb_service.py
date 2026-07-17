@@ -449,6 +449,7 @@ class BootstrapRouter:
         self.refresh_calls = 0
         self.dbq_bodies: list[dict] = []  # _delete_by_query payloads seen
         self.dbq_deleted = 0  # what DBQ responses report as deleted
+        self.ubq_bodies: list[dict] = []  # _update_by_query payloads seen
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         path, method = request.url.path, request.method
@@ -522,6 +523,10 @@ class BootstrapRouter:
         if path == f"/{KNOWLEDGE_INDEX}/_delete_by_query":
             self.dbq_bodies.append(json.loads(request.read()))
             return httpx.Response(200, json={"deleted": self.dbq_deleted})
+        if path == f"/{KNOWLEDGE_INDEX}/_update_by_query":
+            body = json.loads(request.read())
+            self.ubq_bodies.append(body)
+            return httpx.Response(200, json={"updated": len(body["query"]["terms"]["doc_id"])})
         return httpx.Response(404, json={"error": f"unrouted {method} {path}"})
 
 
@@ -581,6 +586,28 @@ async def test_ingest_docs_prunes_orphaned_chunks_of_shrunken_docs():
     written = q["must_not"][0]["ids"]["values"]
     assert written == ["CVE-2024-0001#0"]  # everything else under the doc dies
     assert router.refresh_calls == 1
+
+
+async def test_apply_enrichment_updates_fields_in_place_by_doc_id():
+    # S8: the first-run refresh sets evidence fields on held docs via ONE
+    # update_by_query — no re-fetch, no re-embed (enrichment fields are not
+    # part of the embedded text).
+    router = BootstrapRouter()
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(router), base_url="http://opensearch.test"
+    )
+    svc = KnowledgeService("http://opensearch.test", client=client)
+    updates = {
+        "CVE-2021-44228": {"kev_listed": True, "kev_date_added": "2021-12-10"},
+        "CVE-2024-3400": {"kev_listed": True, "epss_score": 0.94},
+    }
+    assert await svc.apply_enrichment(updates) == 2
+    body = router.ubq_bodies[0]
+    assert body["query"] == {"terms": {"doc_id": ["CVE-2021-44228", "CVE-2024-3400"]}}
+    assert body["script"]["params"]["updates"] == updates
+    assert "ctx._source[e.getKey()]" in body["script"]["source"]
+    assert await svc.apply_enrichment({}) == 0  # no call for an empty map
+    assert len(router.ubq_bodies) == 1
 
 
 async def test_delete_docs_removes_all_chunks_by_doc_id():

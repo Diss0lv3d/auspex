@@ -124,6 +124,7 @@ class FakeKB:
         self.held_cves = held_cves or []
         self.ingested: list[list] = []  # one entry per ingest_docs call
         self.deleted: list[list[str]] = []  # one entry per delete_docs call
+        self.enriched_in_place: list[dict] = []  # one entry per apply_enrichment call
         self.bootstrap_calls = 0
         self.fail_ingest = False
         self.bootstrapped = True  # set False to simulate a failed boot bootstrap
@@ -144,6 +145,10 @@ class FakeKB:
     async def delete_docs(self, doc_ids) -> int:
         self.deleted.append(list(doc_ids))
         return len(doc_ids)
+
+    async def apply_enrichment(self, updates: dict) -> int:
+        self.enriched_in_place.append(dict(updates))
+        return len(updates)  # 1 chunk per doc is fine for tests
 
     async def list_cve_ids(self, *, max_ids: int = 10_000) -> list[str]:
         return list(self.held_cves)
@@ -223,20 +228,30 @@ async def test_first_run_ingests_backfill_window_skips_rejected_and_enriches():
     assert kinds == {(NVD_FEED, "upserted"), (NVD_FEED, "deleted")}
 
 
-async def test_first_run_refreshes_kb_held_cves_from_kev():
-    # The KB already holds seed CVEs; the first KEV run must re-enrich the ones
-    # KEV knows via single-CVE NVD fetches, and mark the refresh done.
+async def test_first_run_refreshes_kb_held_cves_in_place_without_nvd_fetches():
+    # The KB already holds seed CVEs; the first KEV run re-enriches the ones
+    # KEV knows via ONE update_by_query — no NVD singles (S8 review: the
+    # singles loop was uncapped and all-or-nothing against a grown KB).
     kb = FakeKB(held_cves=["CVE-2021-44228", "CVE-2017-0144"])  # only the first is in KEV fixture
-    nvd = FakeNVD(singles={"CVE-2021-44228": nvd_cve("CVE-2021-44228")})
+    nvd = FakeNVD()
+    epss = FakeEPSS(
+        {"CVE-2021-44228": {"cve": "CVE-2021-44228", "epss": "0.999990000",
+                            "percentile": "1.000000000", "date": "2026-07-16"}}
+    )
     sink = RecordingSink()
     state = FakeState()
-    sched = scheduler(kb=kb, nvd=nvd, state=state, sink=sink)
-    await sched.run_cycle()
-    assert nvd.single_calls == ["CVE-2021-44228"]  # intersection only
-    doc = all_docs(kb)["CVE-2021-44228"]
-    assert doc.kev_date_added == "2021-12-10" and doc.kev_ransomware is True
+    sched = scheduler(kb=kb, nvd=nvd, epss=epss, state=state, sink=sink)
+    summary = await sched.run_cycle()
+    assert nvd.single_calls == []  # held docs are never re-fetched
+    assert epss.batches == [["CVE-2021-44228"]]  # intersection only
+    assert len(kb.enriched_in_place) == 1
+    fields = kb.enriched_in_place[0]["CVE-2021-44228"]
+    assert fields["kev_listed"] is True
+    assert fields["kev_date_added"] == "2021-12-10" and fields["kev_ransomware"] is True
+    assert fields["epss_score"] == pytest.approx(0.99999)
     assert state.rows[KEV_FEED]["kb_refreshed"] is True
     assert (KEV_FEED, "kev-added") in {(e.feed, e.kind) for e in sink.events}
+    assert "refreshed 1 held chunks" in summary
 
 
 # ── catch-up across gaps (the S7 success criterion) ─────────────────────────
@@ -524,16 +539,14 @@ async def test_kb_refreshed_only_recorded_when_refresh_ran():
         }
     )
     kb = FakeKB(held_cves=["CVE-2021-44228"])
-    nvd = FakeNVD(
-        singles={"CVE-2026-58644": nvd_cve("CVE-2026-58644"),
-                 "CVE-2021-44228": nvd_cve("CVE-2021-44228")}
-    )
+    nvd = FakeNVD(singles={"CVE-2026-58644": nvd_cve("CVE-2026-58644")})
     sched = scheduler(kb=kb, nvd=nvd, state=state, kev=FakeKEV([kev_catalog(), None]))
     await sched.run_cycle()
     assert nvd.single_calls == ["CVE-2026-58644"]
     assert "kb_refreshed" not in state.rows[KEV_FEED]
+    assert kb.enriched_in_place == []  # refresh did NOT run
     await sched.run_cycle()
-    assert nvd.single_calls == ["CVE-2026-58644", "CVE-2021-44228"]
+    assert "CVE-2021-44228" in kb.enriched_in_place[0]  # now it did, in place
     assert state.rows[KEV_FEED]["kb_refreshed"] is True
 
 

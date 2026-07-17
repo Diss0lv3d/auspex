@@ -32,7 +32,7 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
 from auspex.config import Settings
-from auspex.ingest.enrich import enrich_doc
+from auspex.ingest.enrich import enrich_doc, enrichment_fields
 from auspex.ingest.epss import EPSSFeed
 from auspex.ingest.events import ChangeSink, DocChange, NullSink
 from auspex.ingest.kev import KEVCatalog, KEVFeed
@@ -305,14 +305,30 @@ class IngestScheduler:
         prior = await self._state.get(KEV_FEED)
         cursor = dict(prior.cursor) if prior else {}
         refresh_ran = False
-        first_run_refresh: list[str] = []
+        refreshed_chunks = 0
         if not kev_new_ids and not cursor.get("kb_refreshed"):
+            # First-run refresh: docs the KB ALREADY holds get their evidence
+            # fields set in one update_by_query — no NVD re-fetch, no
+            # re-embed. The S7 singles loop here was uncapped (~1,647 paced
+            # fetches against a grown KB) and all-or-nothing (S8 review).
             held = await self._kb.list_cve_ids()
-            first_run_refresh = [
+            refresh_ids = [
                 c for c in held if c in kev_catalog.entries and c not in covered_this_cycle
             ]
             refresh_ran = True
-        target_ids = [c for c in (kev_new_ids or first_run_refresh) if c not in covered_this_cycle]
+            if refresh_ids:
+                scores = await self._epss.scores(refresh_ids)
+                updates = {
+                    c: enrichment_fields(kev_catalog.entries.get(c), scores.get(c))
+                    for c in refresh_ids
+                }
+                refreshed_chunks = await self._kb.apply_enrichment(
+                    {c: u for c, u in updates.items() if u}
+                )
+                await self._sink.emit(
+                    [DocChange(c, KEV_FEED, "kev-added") for c in refresh_ids]
+                )
+        target_ids = [c for c in kev_new_ids if c not in covered_this_cycle]
         if not target_ids and not kev_new_ids and not refresh_ran:
             return "nothing to do"
         docs: list[KBDoc] = []
@@ -338,13 +354,19 @@ class IngestScheduler:
             # Only when the refresh branch actually executed — recording it on
             # other cycles would permanently lose a refresh that never ran.
             cursor["kb_refreshed"] = True
+        status = f"{len(docs)} docs via new entries"
+        if refresh_ran:
+            status += f"; first-run refresh updated {refreshed_chunks} held chunks"
         await self._state.record(
             KEV_FEED,
             cursor=cursor,
-            status=f"{len(docs)} docs via {'new entries' if kev_new_ids else 'first-run refresh'}",
+            status=status,
             docs_delta=ingested,
         )
-        return f"{ingested} chunks from {len(docs)} docs"
+        summary = f"{ingested} chunks from {len(docs)} docs"
+        if refresh_ran:
+            summary += f"; refreshed {refreshed_chunks} held chunks"
+        return summary
 
     async def _ingest_enriched(
         self,

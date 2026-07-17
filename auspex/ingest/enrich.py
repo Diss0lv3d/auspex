@@ -25,7 +25,10 @@ def _finite(value) -> float | None:
     return out if math.isfinite(out) else None
 
 
-def enrich_doc(doc: KBDoc, kev_entry: dict | None, epss_row: dict | None) -> KBDoc:
+def enrichment_fields(kev_entry: dict | None, epss_row: dict | None) -> dict:
+    """The evidence fields one (kev_entry, epss_row) pair yields — shared by
+    doc-level enrichment (ingest) and the field-only update_by_query path
+    (first-run refresh of docs the KB already holds)."""
     updates: dict = {}
     if kev_entry:
         updates["kev_listed"] = True  # presence keyed on the entry, not its date (S8)
@@ -39,4 +42,9 @@ def enrich_doc(doc: KBDoc, kev_entry: dict | None, epss_row: dict | None) -> KBD
             updates["epss_date"] = epss_row.get("date", "")
         if percentile is not None:
             updates["epss_percentile"] = percentile
+    return updates
+
+
+def enrich_doc(doc: KBDoc, kev_entry: dict | None, epss_row: dict | None) -> KBDoc:
+    updates = enrichment_fields(kev_entry, epss_row)
     return replace(doc, **updates) if updates else doc

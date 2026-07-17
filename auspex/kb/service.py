@@ -368,6 +368,35 @@ class KnowledgeService:
         )
         resp.raise_for_status()
 
+    async def apply_enrichment(self, updates: dict[str, dict]) -> int:
+        """Set evidence fields on every chunk of the given doc ids WITHOUT
+        re-fetching or re-embedding (update_by_query; enrichment fields are
+        not part of the embedded text). The S7 first-run refresh re-fetched
+        one NVD single per held KEV id — up to ~1,647 paced fetches in one
+        all-or-nothing pass (S8 review); one UBQ is seconds and idempotent."""
+        if not updates:
+            return 0
+        body = {
+            "query": {"terms": {"doc_id": list(updates)}},
+            "script": {
+                "lang": "painless",
+                "source": (
+                    "def u = params.updates[ctx._source.doc_id];"
+                    "if (u != null) { for (e in u.entrySet()) {"
+                    " ctx._source[e.getKey()] = e.getValue(); } }"
+                ),
+                "params": {"updates": updates},
+            },
+        }
+        resp = await self._get_client().post(
+            f"/{KNOWLEDGE_INDEX}/_update_by_query",
+            json=body,
+            params={"conflicts": "proceed", "refresh": "true"},
+            timeout=BOOTSTRAP_CALL_TIMEOUT_SECONDS,
+        )
+        resp.raise_for_status()
+        return int(resp.json().get("updated", 0))
+
     async def ingest_docs(self, docs: list[KBDoc]) -> int:
         """Chunk, embed (batched), bulk-index. Returns chunk count."""
         chunks = [c for d in docs for c in chunk_doc(d)]
@@ -584,8 +613,17 @@ class KnowledgeService:
         try:
             resp = await self._get_client().post(f"/{KNOWLEDGE_INDEX}/_search", json=body)
             resp.raise_for_status()
-            buckets = resp.json()["aggregations"]["cve_ids"]["buckets"]
-            ids = [b["key"] for b in buckets]
+            agg = resp.json()["aggregations"]["cve_ids"]
+            ids = [b["key"] for b in agg["buckets"]]
+            if agg.get("sum_other_doc_count", 0):
+                # terms aggs truncate SILENTLY — at ~770 docs/day the corpus
+                # reaches max_ids within weeks; callers (first-run refresh)
+                # would quietly miss the tail (S8 review).
+                logger.warning(
+                    "list_cve_ids truncated at %d buckets (%s chunks uncounted)",
+                    max_ids,
+                    agg["sum_other_doc_count"],
+                )
         except httpx.HTTPError as err:
             self._breaker.record_failure()
             raise KBUnavailable(
