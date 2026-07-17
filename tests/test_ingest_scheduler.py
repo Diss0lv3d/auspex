@@ -123,6 +123,7 @@ class FakeKB:
         self.active = active
         self.held_cves = held_cves or []
         self.ingested: list[list] = []  # one entry per ingest_docs call
+        self.deleted: list[list[str]] = []  # one entry per delete_docs call
         self.bootstrap_calls = 0
         self.fail_ingest = False
         self.bootstrapped = True  # set False to simulate a failed boot bootstrap
@@ -139,6 +140,10 @@ class FakeKB:
             raise KBUnavailable("knowledge base unreachable: simulated")
         self.ingested.append(list(docs))
         return len(docs)  # 1 chunk per doc is fine for tests
+
+    async def delete_docs(self, doc_ids) -> int:
+        self.deleted.append(list(doc_ids))
+        return len(doc_ids)
 
     async def list_cve_ids(self, *, max_ids: int = 10_000) -> list[str]:
         return list(self.held_cves)
@@ -214,7 +219,8 @@ async def test_first_run_ingests_backfill_window_skips_rejected_and_enriches():
     assert state.rows[KEV_FEED]["done_ids"] == ["CVE-2026-58644"]
     assert nvd.single_calls == []  # nothing KEV-fetched (KB held nothing)
     kinds = {(e.feed, e.kind) for e in sink.events}
-    assert kinds == {(NVD_FEED, "upserted")}
+    # the rejected CVE emits a delete (held-chunk cleanup is a no-op here)
+    assert kinds == {(NVD_FEED, "upserted"), (NVD_FEED, "deleted")}
 
 
 async def test_first_run_refreshes_kb_held_cves_from_kev():
@@ -529,6 +535,53 @@ async def test_kb_refreshed_only_recorded_when_refresh_ran():
     await sched.run_cycle()
     assert nvd.single_calls == ["CVE-2026-58644", "CVE-2021-44228"]
     assert state.rows[KEV_FEED]["kb_refreshed"] is True
+
+
+# ── rejected CVEs delete held chunks (S8 review: withdrawn ≠ current) ────────
+
+
+async def test_rejected_cve_in_delta_deletes_held_chunks():
+    # The rejection rides the same delta stream; a doc ingested before its
+    # rejection must not keep rendering pre-rejection text as current NVD
+    # evidence. (Never-held ids delete as a free no-op.)
+    since = NOW - timedelta(days=1)
+    state = FakeState(
+        rows={
+            NVD_FEED: {"last_mod_end": since.isoformat()},
+            KEV_FEED: kev_cursor(date_added_horizon="2026-07-16"),
+        }
+    )
+    kb = FakeKB()
+    sink = RecordingSink()
+    nvd = FakeNVD(
+        window_cves=[nvd_cve("CVE-2024-0001"), nvd_cve("CVE-2020-9999", status="Rejected")]
+    )
+    sched = scheduler(kb=kb, nvd=nvd, state=state, sink=sink)
+    summary = await sched.run_cycle()
+    assert kb.deleted == [["CVE-2020-9999"]]
+    assert DocChange("CVE-2020-9999", NVD_FEED, "deleted") in sink.events
+    assert "1 rejected chunks removed" in summary
+    assert "CVE-2020-9999" not in all_docs(kb)  # and it was never ingested
+
+
+async def test_rejected_kev_single_deletes_instead_of_ingesting():
+    state = FakeState(
+        rows={
+            NVD_FEED: {"last_mod_end": NOW.isoformat()},
+            KEV_FEED: kev_cursor(date_added_horizon="2026-07-15"),
+        }
+    )
+    kb = FakeKB()
+    sink = RecordingSink()
+    # the KEV-new SharePoint CVE comes back from NVD as Rejected
+    nvd = FakeNVD(singles={"CVE-2026-58644": nvd_cve("CVE-2026-58644", status="Rejected")})
+    sched = scheduler(kb=kb, nvd=nvd, state=state, sink=sink)
+    await sched.run_cycle()
+    assert kb.deleted == [["CVE-2026-58644"]]
+    assert DocChange("CVE-2026-58644", KEV_FEED, "deleted") in sink.events
+    assert all_docs(kb) == {}
+    # still marked done — a rejected KEV entry must not re-surface hourly
+    assert state.rows[KEV_FEED]["done_ids"] == ["CVE-2026-58644"]
 
 
 # ── KEV failure isolation (S8 review: one bad feed silenced the other) ──────

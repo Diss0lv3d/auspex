@@ -251,7 +251,7 @@ class IngestScheduler:
             since = datetime.fromisoformat(prior.cursor["last_mod_end"])
         else:
             since = now - timedelta(days=FIRST_RUN_BACKFILL_DAYS)
-        total = skipped = 0
+        total = skipped = removed = 0
         ingested_ids: set[str] = set()
         window_list = windows(since, now)
         for start, end in window_list:
@@ -263,6 +263,17 @@ class IngestScheduler:
                 skipped += len(page) - len(docs)
                 window_chunks += await self._ingest_enriched(docs, kev_catalog, feed=NVD_FEED)
                 ingested_ids.update(d.doc_id for d in docs)
+                # A rejection rides the same delta stream — a held doc must
+                # not keep rendering its pre-rejection text as current NVD
+                # evidence (S8 review). Never-held ids delete as a no-op.
+                rejected = [
+                    c["id"].upper() for c in page if is_rejected(c) and has_valid_id(c)
+                ]
+                if rejected:
+                    removed += await self._kb.delete_docs(rejected)
+                    await self._sink.emit(
+                        [DocChange(r, NVD_FEED, "deleted") for r in rejected]
+                    )
             total += window_chunks
             # Watermark advances per WINDOW, only after its docs are in the KB.
             await self._state.record(
@@ -273,7 +284,8 @@ class IngestScheduler:
             )
         status = (
             f"{len(window_list)} window(s) since {since.date()}, "
-            f"{total} chunks, {skipped} skipped (rejected/invalid)"
+            f"{total} chunks, {skipped} skipped (rejected/invalid), "
+            f"{removed} rejected chunks removed"
         )
         return status, ingested_ids
 
@@ -310,6 +322,9 @@ class IngestScheduler:
             cve = await self._nvd.fetch_cve(cve_id)
             if cve is not None and not is_rejected(cve) and has_valid_id(cve):
                 docs.append(nvd_to_doc(cve))
+            elif cve is not None and is_rejected(cve):
+                await self._kb.delete_docs([cve_id])
+                await self._sink.emit([DocChange(cve_id, KEV_FEED, "deleted")])
         ingested = await self._ingest_enriched(
             docs, kev_catalog, feed=KEV_FEED, kind="kev-added"
         )

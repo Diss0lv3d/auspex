@@ -15,7 +15,7 @@ from typing import Protocol
 class DocChange:
     doc_id: str  # "CVE-2026-58644"
     feed: str  # "nvd-delta" | "kev"
-    kind: str  # "upserted" | "kev-added"
+    kind: str  # "upserted" | "kev-added" | "deleted" (NVD rejected a held CVE)
 
 
 class ChangeSink(Protocol):

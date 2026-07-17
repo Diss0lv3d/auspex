@@ -414,6 +414,8 @@ class BootstrapRouter:
         self.mapping_properties: dict = {}  # what GET _mapping reports as present
         self.mapping_fields_added: list[str] = []  # what PUT _mapping upgraded
         self.refresh_calls = 0
+        self.dbq_bodies: list[dict] = []  # _delete_by_query payloads seen
+        self.dbq_deleted = 0  # what DBQ responses report as deleted
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         path, method = request.url.path, request.method
@@ -484,6 +486,9 @@ class BootstrapRouter:
         if path == f"/{KNOWLEDGE_INDEX}/_refresh":
             self.refresh_calls += 1
             return httpx.Response(200, json={"_shards": {"failed": 0}})
+        if path == f"/{KNOWLEDGE_INDEX}/_delete_by_query":
+            self.dbq_bodies.append(json.loads(request.read()))
+            return httpx.Response(200, json={"deleted": self.dbq_deleted})
         return httpx.Response(404, json={"error": f"unrouted {method} {path}"})
 
 
@@ -514,6 +519,48 @@ async def test_bootstrap_fresh_volume_runs_all_steps():
 
 def _real_seed_fingerprint() -> str:
     return seed_fingerprint([c for d in load_seed_docs() for c in chunk_doc(d)])
+
+
+async def test_ingest_docs_prunes_orphaned_chunks_of_shrunken_docs():
+    # S8 review: chunks upsert by _id, so a doc re-chunked to FEWER chunks
+    # left stale tail chunks rendering as current source text. Every ingest
+    # must sweep chunks under its doc_ids that it didn't just write.
+    router = BootstrapRouter()
+    router.index_created = True
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(router), base_url="http://opensearch.test"
+    )
+    svc = KnowledgeService("http://opensearch.test", client=client)
+    svc._model_id = MODEL_ID  # skip bootstrap; predict is routed
+    doc = KBDoc(
+        doc_id="CVE-2024-0001",
+        title="CVE-2024-0001",
+        content="Short description.",
+        doc_type="cve",
+        source="nvd",
+        source_ref="https://nvd.nist.gov/vuln/detail/CVE-2024-0001",
+        ids=("CVE-2024-0001",),
+    )
+    await svc.ingest_docs([doc])
+    assert len(router.dbq_bodies) == 1
+    q = router.dbq_bodies[0]["query"]["bool"]
+    assert q["filter"] == [{"terms": {"doc_id": ["CVE-2024-0001"]}}]
+    written = q["must_not"][0]["ids"]["values"]
+    assert written == ["CVE-2024-0001#0"]  # everything else under the doc dies
+    assert router.refresh_calls == 1
+
+
+async def test_delete_docs_removes_all_chunks_by_doc_id():
+    router = BootstrapRouter()
+    router.dbq_deleted = 3
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(router), base_url="http://opensearch.test"
+    )
+    svc = KnowledgeService("http://opensearch.test", client=client)
+    assert await svc.delete_docs(["CVE-2020-9999"]) == 3
+    assert router.dbq_bodies == [{"query": {"terms": {"doc_id": ["CVE-2020-9999"]}}}]
+    assert await svc.delete_docs([]) == 0  # no call for an empty list
+    assert len(router.dbq_bodies) == 1
 
 
 def test_json_line_refuses_nan_and_infinity():

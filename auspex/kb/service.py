@@ -332,6 +332,42 @@ class KnowledgeService:
         results = resp.json()["inference_results"]
         return [r["output"][0]["data"] for r in results]
 
+    async def delete_docs(self, doc_ids: list[str]) -> int:
+        """Remove every chunk of the given doc ids. Used when NVD REJECTS a
+        CVE the KB holds — keeping the pre-rejection text would render
+        withdrawn evidence as current (S8 review). Deleting ids never held
+        is a free no-op."""
+        if not doc_ids:
+            return 0
+        resp = await self._get_client().post(
+            f"/{KNOWLEDGE_INDEX}/_delete_by_query",
+            json={"query": {"terms": {"doc_id": doc_ids}}},
+            params={"conflicts": "proceed", "refresh": "true"},
+            timeout=BOOTSTRAP_CALL_TIMEOUT_SECONDS,
+        )
+        resp.raise_for_status()
+        return int(resp.json().get("deleted", 0))
+
+    async def _prune_orphan_chunks(self, doc_ids: list[str], keep_chunk_ids: list[str]) -> None:
+        """Chunks upsert by _id, so a doc whose new content chunks to FEWER
+        chunks leaves stale tail chunks behind — rendered as current source
+        text under the same doc (S8 review). After a write, anything under
+        these doc_ids that isn't a just-written chunk id is an orphan."""
+        resp = await self._get_client().post(
+            f"/{KNOWLEDGE_INDEX}/_delete_by_query",
+            json={
+                "query": {
+                    "bool": {
+                        "filter": [{"terms": {"doc_id": doc_ids}}],
+                        "must_not": [{"ids": {"values": keep_chunk_ids}}],
+                    }
+                }
+            },
+            params={"conflicts": "proceed"},
+            timeout=BOOTSTRAP_CALL_TIMEOUT_SECONDS,
+        )
+        resp.raise_for_status()
+
     async def ingest_docs(self, docs: list[KBDoc]) -> int:
         """Chunk, embed (batched), bulk-index. Returns chunk count."""
         chunks = [c for d in docs for c in chunk_doc(d)]
@@ -365,6 +401,9 @@ class KnowledgeService:
                 raise RuntimeError(f"bulk ingest errors: {failed[:3]}")
             total += len(batch)
         if total:
+            await self._prune_orphan_chunks(
+                [d.doc_id for d in docs], [c.chunk_id for c in chunks]
+            )
             # One refresh per ingest call, not one per 16-chunk bulk batch — a
             # catch-up window is thousands of batches and per-batch forced
             # refreshes churn segments on the 1 GiB single node (S8 review).
