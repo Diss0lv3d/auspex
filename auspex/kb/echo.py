@@ -46,6 +46,26 @@ def _chunk_order(hit: KBHit) -> int:
         return 0
 
 
+def _exploitation_lines(hit: KBHit) -> list[str]:
+    """KEV/EPSS enrichment, rendered only from held evidence (S7). No KEV row
+    ⇒ no exploitation claim either way; no EPSS row ⇒ no likelihood number.
+    'Unknown' ransomware use renders as nothing — absence of evidence."""
+    lines: list[str] = []
+    if hit.kev_date_added:
+        line = f"  Known exploited — in CISA KEV since {hit.kev_date_added}"
+        if hit.kev_ransomware:
+            line += "; used in ransomware campaigns"
+        lines.append(line + ".")
+    if hit.epss_score is not None:
+        line = f"  EPSS {hit.epss_score:.2f}"
+        if hit.epss_percentile is not None:
+            line += f" — {hit.epss_percentile * 100:.1f}th percentile"
+        if hit.epss_date:
+            line += f" (as of {hit.epss_date})"
+        lines.append(line + ".")
+    return lines
+
+
 def _cve_block(cve_id: str, hits: list[KBHit]) -> str:
     if not hits:
         return f"- {cve_id} — {CVE_MISS_LINE}"
@@ -57,7 +77,8 @@ def _cve_block(cve_id: str, hits: list[KBHit]) -> str:
             header += f" (CVSS {first.cvss_score})"
     elif first.cvss_score is not None:
         header += f" — CVSS {first.cvss_score}"
-    body = "\n".join(f"  {h.text}" for h in hits)
+    body_lines = [f"  {h.text}" for h in hits] + _exploitation_lines(first)
+    body = "\n".join(body_lines)
     trailer = f"  Source: {_source_label(first)}"
     if first.source_ref:
         trailer += f" · {first.source_ref}"

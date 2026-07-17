@@ -19,6 +19,13 @@ class KBDoc:
     ids: tuple[str, ...] = ()  # exact-match rail: normalized IDs this doc answers for
     severity: str = ""  # CVSS severity for cve docs ("" when n/a)
     cvss_score: float | None = None
+    # S7 enrichment (CISA KEV + FIRST EPSS). Absence is meaningful and rendered
+    # as absence: "" / None / False mean "no evidence held", never "no".
+    kev_date_added: str = ""  # "" = not in KEV; else the KEV dateAdded (YYYY-MM-DD)
+    kev_ransomware: bool = False  # True ONLY for KEV knownRansomwareCampaignUse == "Known"
+    epss_score: float | None = None
+    epss_percentile: float | None = None
+    epss_date: str = ""  # scoring day — EPSS moves daily; staleness stays visible
 
 
 @dataclass(frozen=True)
@@ -46,6 +53,11 @@ class KBHit:
     severity: str
     cvss_score: float | None
     score: float
+    kev_date_added: str = ""
+    kev_ransomware: bool = False
+    epss_score: float | None = None
+    epss_percentile: float | None = None
+    epss_date: str = ""
 
 
 class KBUnavailable(Exception):

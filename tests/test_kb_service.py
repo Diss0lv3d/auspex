@@ -12,7 +12,7 @@ import pytest
 
 from auspex.enrich.breaker import CircuitBreaker
 from auspex.kb.chunking import chunk_doc
-from auspex.kb.mapping import KNOWLEDGE_INDEX
+from auspex.kb.mapping import KNOWLEDGE_INDEX, KNOWLEDGE_MAPPING
 from auspex.kb.seed import load_seed_docs
 from auspex.kb.service import MODEL_LOOKUP_RETRY_SECONDS, KnowledgeService, seed_fingerprint
 from auspex.kb.types import KBDoc, KBUnavailable
@@ -390,6 +390,8 @@ class BootstrapRouter:
         self.bulk_batches = 0
         self.seed_fp: str | None = None  # what PUT _mapping stamped
         self.cluster_setting: str | None = None  # operator-set value, if any
+        self.mapping_properties: dict = {}  # what GET _mapping reports as present
+        self.mapping_fields_added: list[str] = []  # what PUT _mapping upgraded
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         path, method = request.url.path, request.method
@@ -406,10 +408,24 @@ class BootstrapRouter:
         if path == f"/{KNOWLEDGE_INDEX}/_mapping" and method == "GET":
             meta = {"_meta": {"seed_fingerprint": self.seed_fp}} if self.seed_fp else {}
             return httpx.Response(
-                200, json={KNOWLEDGE_INDEX: {"mappings": {"dynamic": "strict", **meta}}}
+                200,
+                json={
+                    KNOWLEDGE_INDEX: {
+                        "mappings": {
+                            "dynamic": "strict",
+                            "properties": self.mapping_properties,
+                            **meta,
+                        }
+                    }
+                },
             )
         if path == f"/{KNOWLEDGE_INDEX}/_mapping" and method == "PUT":
-            self.seed_fp = json.loads(request.read())["_meta"]["seed_fingerprint"]
+            body = json.loads(request.read())
+            if "_meta" in body:
+                self.seed_fp = body["_meta"]["seed_fingerprint"]
+            else:  # additive field upgrade (S7)
+                self.mapping_fields_added.extend(sorted(body["properties"]))
+                self.mapping_properties.update(body["properties"])
             return httpx.Response(200, json={"acknowledged": True})
         if path == "/_plugins/_ml/models/_search":
             return httpx.Response(200, json=model_search_response(False))
@@ -428,6 +444,8 @@ class BootstrapRouter:
             return httpx.Response(200 if self.index_created else 404)
         if path == f"/{KNOWLEDGE_INDEX}" and method == "PUT":
             self.index_created = True
+            # a real index create carries the full mapping — mirror that
+            self.mapping_properties = dict(json.loads(request.read())["mappings"]["properties"])
             return httpx.Response(200, json={"acknowledged": True})
         if path.startswith(f"/_plugins/_ml/_predict/text_embedding/{MODEL_ID}"):
             body = json.loads(request.read())
@@ -473,6 +491,7 @@ async def test_bootstrap_warm_volume_no_ops():
     router = BootstrapRouter()
     router.index_created = True
     router.seed_fp = _real_seed_fingerprint()  # index already carries this seed
+    router.mapping_properties = dict(KNOWLEDGE_MAPPING["mappings"]["properties"])
     original_call = router.__call__
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -487,8 +506,42 @@ async def test_bootstrap_warm_volume_no_ops():
     summary = await svc.bootstrap()
     assert "already deployed" in summary
     assert "exists" in summary
+    assert "mapping current" in summary
     assert "seed present" in summary
     assert router.bulk_batches == 0  # matching fingerprint ⇒ no re-ingest
+    assert router.mapping_fields_added == []  # nothing missing ⇒ no upgrade PUT
+
+
+async def test_bootstrap_upgrades_s6_era_mapping_with_new_fields():
+    # S7: dynamic:strict rejects unknown fields at ingest — a volume whose
+    # index predates the KEV/EPSS fields must get an additive-only upgrade.
+    router = BootstrapRouter()
+    router.index_created = True
+    router.seed_fp = _real_seed_fingerprint()
+    router.mapping_properties = {
+        k: v
+        for k, v in KNOWLEDGE_MAPPING["mappings"]["properties"].items()
+        if not (k.startswith("kev_") or k.startswith("epss_"))
+    }
+    original_call = router.__call__
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/_plugins/_ml/models/_search":
+            return httpx.Response(200, json=model_search_response(True))
+        return original_call(request)
+
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://opensearch.test"
+    )
+    summary = await KnowledgeService("http://opensearch.test", client=client).bootstrap()
+    assert "mapping upgraded (+5 fields)" in summary
+    assert router.mapping_fields_added == [
+        "epss_date",
+        "epss_percentile",
+        "epss_score",
+        "kev_date_added",
+        "kev_ransomware",
+    ]
 
 
 async def test_bootstrap_reingests_when_seed_content_changed():

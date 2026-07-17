@@ -136,6 +136,7 @@ class KnowledgeService:
             self._model_id, model_step = await self._ensure_model()
             steps.append(model_step)
             steps.append(await self._ensure_index())
+            steps.append(await self._ensure_mapping_fields())
             steps.append(await self._ensure_seed())
             self._breaker.record_success()
             return "; ".join(steps)
@@ -249,6 +250,28 @@ class KnowledgeService:
         )
         resp.raise_for_status()
         return f"index {KNOWLEDGE_INDEX} created"
+
+    async def _ensure_mapping_fields(self) -> str:
+        """Additive mapping upgrade for indexes created before a field existed.
+        dynamic:strict rejects unknown fields at ingest, so a volume that
+        predates S7's KEV/EPSS fields would fail every ingest without this.
+        Only ADDS missing properties — never mutates existing ones (OpenSearch
+        forbids in-place type changes anyway)."""
+        client = self._get_client()
+        resp = await client.get(f"/{KNOWLEDGE_INDEX}/_mapping")
+        resp.raise_for_status()
+        have = resp.json()[KNOWLEDGE_INDEX]["mappings"].get("properties", {})
+        wanted: dict = KNOWLEDGE_MAPPING["mappings"]["properties"]
+        missing = {name: spec for name, spec in wanted.items() if name not in have}
+        if not missing:
+            return "mapping current"
+        resp = await client.put(
+            f"/{KNOWLEDGE_INDEX}/_mapping",
+            json={"properties": missing},
+            timeout=BOOTSTRAP_CALL_TIMEOUT_SECONDS,
+        )
+        resp.raise_for_status()
+        return f"mapping upgraded (+{len(missing)} fields)"
 
     async def _ensure_seed(self) -> str:
         docs = load_seed_docs()
@@ -495,6 +518,11 @@ def _chunk_payload(chunk: KBChunk) -> dict:
         "source_ref": chunk.doc.source_ref,
         "severity": chunk.doc.severity,
         "cvss_score": chunk.doc.cvss_score,
+        "kev_date_added": chunk.doc.kev_date_added,
+        "kev_ransomware": chunk.doc.kev_ransomware,
+        "epss_score": chunk.doc.epss_score,
+        "epss_percentile": chunk.doc.epss_percentile,
+        "epss_date": chunk.doc.epss_date,
         "workspace_id": "",
     }
 
@@ -523,6 +551,11 @@ def _hit_to_kbhit(hit: dict) -> KBHit:
         severity=src.get("severity", ""),
         cvss_score=src.get("cvss_score"),
         score=float(hit.get("_score") or 0.0),
+        kev_date_added=src.get("kev_date_added") or "",
+        kev_ransomware=bool(src.get("kev_ransomware")),
+        epss_score=src.get("epss_score"),
+        epss_percentile=src.get("epss_percentile"),
+        epss_date=src.get("epss_date") or "",
     )
 
 
