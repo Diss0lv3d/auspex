@@ -31,7 +31,9 @@ DEFINITION_MISS_COPY = (
 
 _SOURCE_LABELS = {
     "nvd": "NVD",
-    "attack-seed-summary": "MITRE ATT&CK (Auspex seed summary)",  # transitional: overwritten by STIX docs
+    # transitional label: pre-S8 volumes hold seed summaries until the first
+    # attack cycle overwrites them (same doc_ids)
+    "attack-seed-summary": "MITRE ATT&CK (Auspex seed summary)",
     "mitre-attack-stix": "MITRE ATT&CK (STIX-derived)",
     "auspex-seed": "Auspex seed corpus",
 }
