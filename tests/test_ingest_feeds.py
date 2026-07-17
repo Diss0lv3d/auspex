@@ -188,7 +188,12 @@ def _doc():
 
 def test_enrich_doc_merges_kev_and_epss_evidence():
     kev = KEV_CATALOG["vulnerabilities"][2]  # Log4Shell: ransomware Known
-    epss = {"cve": "CVE-2023-4346", "epss": "0.974080000", "percentile": "0.998900000", "date": "2026-07-16"}
+    epss = {
+        "cve": "CVE-2023-4346",
+        "epss": "0.974080000",
+        "percentile": "0.998900000",
+        "date": "2026-07-16",
+    }
     doc = enrich_doc(_doc(), kev, epss)
     assert doc.kev_date_added == "2021-12-10" and doc.kev_ransomware is True
     assert doc.epss_score == pytest.approx(0.97408)  # string → float here, once
