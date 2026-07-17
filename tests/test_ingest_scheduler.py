@@ -192,8 +192,10 @@ async def test_first_run_ingests_backfill_window_skips_rejected_and_enriches():
     assert nvd.window_calls == [(NOW - timedelta(days=1), NOW)]
     # watermark advanced to NOW only after ingest
     assert state.rows[NVD_FEED]["last_mod_end"] == NOW.isoformat()
-    # KEV first run: horizon set to catalog max, no historical backfill
-    assert state.rows[KEV_FEED]["date_added_horizon"] == "2026-07-16"
+    # KEV first run: horizon = last FULLY-covered date; the newest date's ids
+    # sit in done_ids so a same-day follow-up release is still picked up
+    assert state.rows[KEV_FEED]["date_added_horizon"] == "2024-04-12"
+    assert state.rows[KEV_FEED]["done_ids"] == ["CVE-2026-58644"]
     assert nvd.single_calls == []  # nothing KEV-fetched (KB held nothing)
     kinds = {(e.feed, e.kind) for e in sink.events}
     assert kinds == {(NVD_FEED, "upserted")}
@@ -269,7 +271,7 @@ async def test_failed_ingest_never_advances_the_watermark():
 # ── KEV increments ──────────────────────────────────────────────────────────
 
 
-async def test_new_kev_entry_is_fetched_enriched_and_horizon_advances():
+async def test_new_kev_entry_is_fetched_enriched_and_marked_done():
     state = FakeState(
         rows={
             NVD_FEED: {"last_mod_end": NOW.isoformat()},
@@ -289,7 +291,10 @@ async def test_new_kev_entry_is_fetched_enriched_and_horizon_advances():
     doc = all_docs(kb)["CVE-2026-58644"]
     assert doc.kev_date_added == "2026-07-16"
     assert doc.kev_ransomware is False  # fixture: "Unknown" stays absence
-    assert state.rows[KEV_FEED]["date_added_horizon"] == "2026-07-16"
+    # 2026-07-16 is the catalog's NEWEST date — it never becomes the horizon
+    # (CISA appends same-day follow-ups); the processed id waits in done_ids.
+    assert state.rows[KEV_FEED]["date_added_horizon"] == "2026-07-15"
+    assert state.rows[KEV_FEED]["done_ids"] == ["CVE-2026-58644"]
     assert DocChange("CVE-2026-58644", KEV_FEED, "kev-added") in sink.events
     assert "1 chunks from 1 docs" in summary
 
@@ -319,8 +324,8 @@ async def test_304_cycle_reuses_cached_catalog_for_enrichment():
 
 async def test_kev_new_id_already_ingested_via_nvd_is_not_refetched():
     # A CVE that is both KEV-new AND in this cycle's NVD window was already
-    # enriched from this same catalog — no second NVD fetch; the horizon must
-    # still advance past it (or it would re-surface every cycle forever).
+    # enriched from this same catalog — no second NVD fetch; it must still be
+    # marked done (or it would re-surface every cycle forever).
     state = FakeState(
         rows={
             NVD_FEED: {"last_mod_end": (NOW - timedelta(days=1)).isoformat()},
@@ -332,10 +337,150 @@ async def test_kev_new_id_already_ingested_via_nvd_is_not_refetched():
         }
     )
     nvd = FakeNVD(window_cves=[nvd_cve("CVE-2026-58644")])  # KEV-new AND in the window
-    sched = scheduler(nvd=nvd, state=state)
+    sched = scheduler(nvd=nvd, state=state, kev=FakeKEV([kev_catalog(), None]))
     await sched.run_cycle()
     assert nvd.single_calls == []  # no double fetch
-    assert state.rows[KEV_FEED]["date_added_horizon"] == "2026-07-16"  # still advances
+    assert state.rows[KEV_FEED]["done_ids"] == ["CVE-2026-58644"]
+    # the invariant itself: a later 304 cycle must not re-surface the id
+    await sched.run_cycle()
+    assert nvd.single_calls == []
+
+
+# ── KEV cursor boundary math (S8 review: the cap lost same-date entries) ────
+
+
+def make_catalog(
+    dated_ids: dict[str, str], *, last_modified: str = "LM-1", version: str = "v1"
+) -> KEVCatalog:
+    return KEVCatalog(
+        catalog_version=version,
+        date_released="",
+        last_modified=last_modified,
+        entries={
+            cve: {"cveID": cve, "dateAdded": date, "knownRansomwareCampaignUse": "Unknown"}
+            for cve, date in dated_ids.items()
+        },
+    )
+
+
+def kev_cursor(**overrides) -> dict:
+    base = {"last_modified": "LM-0", "date_added_horizon": "2026-07-10", "kb_refreshed": True}
+    base.update(overrides)
+    return base
+
+
+async def test_kev_cap_same_date_batch_processes_remainder_across_304_cycles():
+    # S8 review regression: 6 same-date entries, cap 4 — the old horizon (max
+    # of processed dateAdded + strict >) lost the last 2 FOREVER. They must be
+    # fetched on the next cycle, even though that cycle sees a 304.
+    ids = {f"CVE-2026-1000{i}": "2026-07-16" for i in range(6)}
+    catalog = make_catalog(ids)
+    nvd = FakeNVD(singles={c: nvd_cve(c) for c in ids})
+    state = FakeState(
+        rows={NVD_FEED: {"last_mod_end": NOW.isoformat()}, KEV_FEED: kev_cursor()}
+    )
+    sched = scheduler(
+        nvd=nvd, state=state, kev=FakeKEV([catalog, None]), kev_single_fetch_cap=4
+    )
+    await sched.run_cycle()
+    assert len(nvd.single_calls) == 4
+    assert state.rows[KEV_FEED]["done_ids"] == sorted(ids)[:4]
+    await sched.run_cycle()  # 304 — the cached catalog must still be scanned
+    assert len(nvd.single_calls) == 6
+    assert sorted(nvd.single_calls) == sorted(ids)
+    assert state.rows[KEV_FEED]["done_ids"] == sorted(ids)
+    # same-date == newest date: the horizon must NOT advance into it
+    assert state.rows[KEV_FEED]["date_added_horizon"] == "2026-07-10"
+
+
+async def test_second_same_day_kev_release_is_picked_up():
+    # CISA sometimes ships twice in one day with the same dateAdded. The
+    # follow-up entry must be selected even though the first release's ids
+    # were already processed.
+    first = make_catalog({"CVE-2026-20001": "2026-07-16"}, last_modified="LM-1")
+    second = make_catalog(
+        {"CVE-2026-20001": "2026-07-16", "CVE-2026-20002": "2026-07-16"},
+        last_modified="LM-2",
+    )
+    nvd = FakeNVD(
+        singles={"CVE-2026-20001": nvd_cve("CVE-2026-20001"),
+                 "CVE-2026-20002": nvd_cve("CVE-2026-20002")}
+    )
+    state = FakeState(
+        rows={NVD_FEED: {"last_mod_end": NOW.isoformat()}, KEV_FEED: kev_cursor()}
+    )
+    sched = scheduler(nvd=nvd, state=state, kev=FakeKEV([first, second]))
+    await sched.run_cycle()
+    assert nvd.single_calls == ["CVE-2026-20001"]
+    await sched.run_cycle()
+    assert nvd.single_calls == ["CVE-2026-20001", "CVE-2026-20002"]
+
+
+async def test_horizon_advances_only_past_fully_covered_dates():
+    catalog = make_catalog(
+        {"CVE-2026-30001": "2026-07-12", "CVE-2026-30002": "2026-07-12",
+         "CVE-2026-30003": "2026-07-16"}
+    )
+    nvd = FakeNVD(singles={f"CVE-2026-3000{i}": nvd_cve(f"CVE-2026-3000{i}") for i in (1, 2, 3)})
+    state = FakeState(
+        rows={NVD_FEED: {"last_mod_end": NOW.isoformat()}, KEV_FEED: kev_cursor()}
+    )
+    sched = scheduler(
+        nvd=nvd, state=state, kev=FakeKEV([catalog, None, None]), kev_single_fetch_cap=1
+    )
+    await sched.run_cycle()  # processes 30001 — 07-12 incomplete, horizon holds
+    assert state.rows[KEV_FEED]["date_added_horizon"] == "2026-07-10"
+    assert state.rows[KEV_FEED]["done_ids"] == ["CVE-2026-30001"]
+    await sched.run_cycle()  # processes 30002 — 07-12 complete → horizon advances, done pruned
+    assert state.rows[KEV_FEED]["date_added_horizon"] == "2026-07-12"
+    assert state.rows[KEV_FEED]["done_ids"] == []
+    await sched.run_cycle()  # processes 30003 — newest date never becomes the horizon
+    assert state.rows[KEV_FEED]["date_added_horizon"] == "2026-07-12"
+    assert state.rows[KEV_FEED]["done_ids"] == ["CVE-2026-30003"]
+
+
+async def test_kev_freshness_persisted_even_when_nothing_to_ingest():
+    # A 200 whose entries are all covered (dueDate/notes-only re-release) must
+    # still persist Last-Modified — else every later fetch is a full-body 200
+    # until CISA next adds an entry.
+    state = FakeState(
+        rows={
+            NVD_FEED: {"last_mod_end": NOW.isoformat()},
+            KEV_FEED: {
+                "last_modified": "STALE",
+                "date_added_horizon": "2026-07-16",
+                "kb_refreshed": True,
+            },
+        }
+    )
+    sched = scheduler(state=state)  # default FakeKEV serves one fresh catalog
+    summary = await sched.run_cycle()
+    assert "nothing to do" in summary
+    assert state.rows[KEV_FEED]["last_modified"] == "Thu, 16 Jul 2026 17:00:15 GMT"
+
+
+async def test_kb_refreshed_only_recorded_when_refresh_ran():
+    # Cycle 1 has new KEV ids, so the first-run refresh branch is skipped —
+    # kb_refreshed must NOT be recorded (the old code stamped it anyway,
+    # permanently losing the refresh). Cycle 2 has no new ids → refresh runs.
+    state = FakeState(
+        rows={
+            NVD_FEED: {"last_mod_end": NOW.isoformat()},
+            KEV_FEED: {"last_modified": "LM-0", "date_added_horizon": "2026-07-15"},
+        }
+    )
+    kb = FakeKB(held_cves=["CVE-2021-44228"])
+    nvd = FakeNVD(
+        singles={"CVE-2026-58644": nvd_cve("CVE-2026-58644"),
+                 "CVE-2021-44228": nvd_cve("CVE-2021-44228")}
+    )
+    sched = scheduler(kb=kb, nvd=nvd, state=state, kev=FakeKEV([kev_catalog(), None]))
+    await sched.run_cycle()
+    assert nvd.single_calls == ["CVE-2026-58644"]
+    assert "kb_refreshed" not in state.rows[KEV_FEED]
+    await sched.run_cycle()
+    assert nvd.single_calls == ["CVE-2026-58644", "CVE-2021-44228"]
+    assert state.rows[KEV_FEED]["kb_refreshed"] is True
 
 
 # ── run() task body ─────────────────────────────────────────────────────────
