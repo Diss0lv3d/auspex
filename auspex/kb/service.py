@@ -419,22 +419,38 @@ class KnowledgeService:
 
     async def lookup_ids(self, ids: tuple[str, ...], *, top_k: int = 8) -> list[KBHit]:
         """Exact-ID rail: term (boosted) + technique-parent prefix on `ids`.
-        No CVE prefix clauses ever — CVE-2021-4 must not match CVE-2021-44228."""
+        No CVE prefix clauses ever — CVE-2021-4 must not match CVE-2021-44228.
+
+        Requested ids with zero hits get ONE narrow re-query: term scores are
+        BM25, so a many-chunk doc's id has lower idf and ALL its chunks sort
+        last — a held doc could fall entirely past `size` and render as the
+        false miss the cap copy was built to prevent (S8 review). A genuinely
+        unknown id stays an honest miss (all-missing skips the identical
+        re-query)."""
         if not ids:
             return []
+        normalized = tuple(i.upper() for i in ids)
+        hits = await self._search_call(self._ids_body(normalized, top_k))
+        covered = {i for h in hits for i in h.ids}
+        missing = tuple(i for i in normalized if i not in covered)
+        if missing and len(missing) < len(normalized):
+            hits += await self._search_call(
+                self._ids_body(missing, max(top_k, 4 * len(missing)))
+            )
+        return hits
+
+    def _ids_body(self, normalized_ids: tuple[str, ...], size: int) -> dict:
         should: list[dict] = []
-        for id_ in ids:
-            normalized = id_.upper()
-            should.append({"term": {"ids": {"value": normalized, "boost": 10}}})
-            if _is_parent_technique(normalized):
-                should.append({"prefix": {"ids": {"value": f"{normalized}.", "boost": 2}}})
-        body = {
-            "size": top_k,
+        for id_ in normalized_ids:
+            should.append({"term": {"ids": {"value": id_, "boost": 10}}})
+            if _is_parent_technique(id_):
+                should.append({"prefix": {"ids": {"value": f"{id_}.", "boost": 2}}})
+        return {
+            "size": size,
             "_source": {"excludes": SOURCE_EXCLUDES},
             "query": {"bool": {"should": should, "minimum_should_match": 1}},
             "sort": [{"_score": "desc"}, {"chunk_index": "asc"}],
         }
-        return await self._search_call(body)
 
     async def search(
         self, query: str, *, top_k: int = 5, doc_types: tuple[str, ...] | None = None

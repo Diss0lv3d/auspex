@@ -143,6 +143,39 @@ async def test_lookup_ids_empty_input_short_circuits():
     assert router.requests == []
 
 
+async def test_lookup_ids_requeries_ids_truncated_out_of_the_first_page():
+    # S8 review: term scores are BM25 — a many-chunk doc's id has lower idf,
+    # ALL its chunks sort last, and past `size` it rendered as a false
+    # "not in the knowledge base" miss. Zero-hit requested ids must get one
+    # narrow re-query before a miss is ever printed.
+    calls: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(json.loads(request.read()))
+        if len(calls) == 1:  # first page: the low-idf id got truncated out
+            return httpx.Response(
+                200, json=search_response([kb_hit("CVE-2021-44228#0", 10.0)])
+            )
+        return httpx.Response(200, json=search_response([kb_hit("CVE-2017-0144#0", 10.0)]))
+
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://opensearch.test"
+    )
+    svc = KnowledgeService("http://opensearch.test", client=client)
+    hits = await svc.lookup_ids(("CVE-2021-44228", "CVE-2017-0144"))
+    assert len(calls) == 2
+    second_terms = [c["term"]["ids"]["value"] for c in calls[1]["query"]["bool"]["should"]]
+    assert second_terms == ["CVE-2017-0144"]  # ONLY the truncated id
+    assert {h.doc_id for h in hits} == {"CVE-2021-44228", "CVE-2017-0144"}
+
+
+async def test_lookup_ids_unknown_id_is_an_honest_single_query_miss():
+    router = Router()  # id_hits stays empty
+    svc = service_with(router)
+    assert await svc.lookup_ids(("CVE-9999-99999",)) == []
+    assert len(router.requests) == 1  # all-missing ⇒ the re-query would be identical
+
+
 # ── search: ID bypass ──────────────────────────────────────────────────────
 
 

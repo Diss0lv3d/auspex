@@ -20,10 +20,13 @@ KB_UNAVAILABLE_COPY = (
 
 CVE_MISS_LINE = "not in the knowledge base yet — curated feeds grow over time"
 
+# "no curated definition", NOT "isn't in the knowledge base": definitions
+# search only curated doc_types, and the term may well appear in ingested CVE
+# prose — claiming KB-wide absence would be a lie (S8 review).
 DEFINITION_MISS_COPY = (
-    "That term isn't in the knowledge base yet — curated content grows over "
-    'time. Ask me to reason about it in context — e.g. "explain how this '
-    "shows up in an investigation\" — and I'll take the deep path."
+    "I don't have a curated definition for that term yet — curated content "
+    'grows over time. Ask me to reason about it in context — e.g. "explain '
+    "how this shows up in an investigation\" — and I'll take the deep path."
 )
 
 _SOURCE_LABELS = {
