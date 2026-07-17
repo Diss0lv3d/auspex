@@ -1,5 +1,55 @@
 # Technical debt — logged the moment it's taken
 
+## TD-009 (S8 review) — feed-derived KB text replays into deep-turn LLM context unfenced
+**Where:** `auspex/kb/echo.py` (rendered verbatim into `answer_text`) →
+`auspex/routes/chat.py` (`_insert_message` … `_history` → `chat_stream`).
+**Risk:** a poisoned NVD/KEV description carrying instructions lands in the KB,
+renders into a stored assistant message (honest so far — analysts should see the
+source text), and then rides EVERY later deep turn of that session as
+assistant-role context — a persisted prompt-injection channel from feed to
+model. Blast radius today is answer manipulation only (no tools wired into
+chat); it becomes real capability the day S3 proposals/S9 modes execute.
+**Mitigation shipped in S8:** descriptions cap at 20k chars at parse
+(`kb/seed.py::MAX_DESCRIPTION_CHARS`).
+**Why deferred:** the correct fix is data-vs-instruction fencing of replayed
+history (SARA's instructions-in-system/data-in-user pattern) — that is S9
+agent-loop architecture, not an ingest patch.
+**Path to fix (S9, WITH the modes work):** mark feed/KB-derived spans in stored
+messages; on deep turns, replay them fenced (system-side "quoted data, not
+instructions" wrapper or user-role data blocks), and add a regression test with
+an instruction-bearing description.
+
+## TD-010 (S8 review) — feed HTTP responses have no byte ceiling (decompression bomb)
+**Where:** `auspex/ingest/kev.py` (1.5 MB gzip → httpx transparent inflate),
+`auspex/ingest/nvd.py`, `auspex/ingest/epss.py` — all read the full body before
+any size check.
+**Risk:** a compromised origin/CDN (TLS is verified, URLs are constants — this
+requires upstream compromise) serves a small gzip inflating to multi-GB;
+httpx inflates fully into memory → app-process OOM (single process serves chat
+too). Timeouts don't help; the bytes arrive fast.
+**Why deferred:** the real fix is streamed reads with an inflated-bytes cap on
+all three clients — mechanical but cross-cutting, and the page-cap +
+description-cap work already bounds the *parsed* blast radius. Upstream
+compromise of CISA/NVD/FIRST is a low-likelihood, high-noise event.
+**Path to fix:** shared `bounded_json(resp_stream, max_bytes)` helper
+(`client.stream()` + `iter_bytes()` counting DECOMPRESSED bytes, abort past
+cap: KEV 50 MB, NVD 200 MB/page-call, EPSS 5 MB), MockTransport bomb tests.
+
+## TD-011 (S8 review) — auspex-knowledge grows unbounded (no rollover/retention)
+**Where:** the single `auspex-knowledge` index; growth ~770 docs/day (~5k/week)
+while the container runs (STATE.md host notes).
+**Risk:** months out, the HNSW graph + segment volume outgrow the 1 GiB
+single-node heap: slower searches, then allocation failures. No tracked
+trigger existed — only a "watch RSS/disk" note.
+**Why deferred:** at ~2.5k chunks the index is far from pressure; rollover
+design (ISM policy vs dated indices vs retention-by-doc_type) deserves its own
+session with real growth data.
+**Trigger to act:** >150k chunks OR OpenSearch RSS >70% of its 1 GiB heap OR
+p95 search latency >500 ms (check via `_cat/indices` + `docker stats` at
+session starts).
+**Path to fix:** ISM rollover on the `auspex-*` prefix or per-doc_type
+retention (CVEs decay by lastModified; curated docs never expire).
+
 ## TD-007 (S6 review) — BM25-only degrade can surface weak matches during neural outages
 **Where:** `auspex/kb/service.py::search` (neural-leg *unavailability* branch).
 **Risk:** when the neural leg is down (no model), free-text queries serve
