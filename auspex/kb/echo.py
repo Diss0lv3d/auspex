@@ -155,8 +155,10 @@ def render_definition_answer(hits: list[KBHit]) -> str | None:
         for h in related:
             label = h.title or h.doc_id
             # Parenthesize ids analysts recognize (CVE-…, T1059) — never our
-            # internal CONCEPT-* naming scheme (S6 review: copy leak).
-            if h.title and h.title != h.doc_id and not h.doc_id.startswith("CONCEPT-"):
+            # internal CONCEPT-* naming scheme (S6 review: copy leak), and
+            # never when the title already carries the id (STIX titles are
+            # "T1059.007: JavaScript" — S8: no "(T1059.007)" echo).
+            if h.title and h.doc_id not in h.title and not h.doc_id.startswith("CONCEPT-"):
                 label = f"{h.title} ({h.doc_id})"
             seen.setdefault(label)
         lines += ["", "Related entries: " + "; ".join(list(seen)[:3])]
