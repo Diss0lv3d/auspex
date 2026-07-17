@@ -1,62 +1,67 @@
 # NEXT-SESSION — paste everything below the line into a fresh Claude Code window opened in /home/burhan/auspex-new
 
-_(No standing follow-ups. S5 is reviewed (5-lens adversarial pass, 7 fixes),
-promoted to `main` as promote #5, and keyed enrichment is live-verified —
-a defanged ClearFake domain returns "malicious 1.00, ThreatFox + URLhaus"
-with zero LLM. TD-004 resolved.)_
+_(Standing follow-up: S6 is complete, live-verified, CI-green (320 tests) on
+`staging` — but NOT yet reviewed or promoted. S7 starts with the review+promote
+drill, then the ingestion work. The S6 KB demo: `CVE-2021-44228` → "CRITICAL
+(CVSS 10.0) … Source: NVD", `what is lateral movement` → seed-corpus answer,
+`what is quantum entanglement` → honest miss — all zero LLM.)_
 
 ---
 
-SESSION S6 of Auspex. Working dir must be /home/burhan/auspex-new — run
-`/session-start S6` first (full ritual). Primary dev LLM is **Llama-4-Scout via
+SESSION S7 of Auspex. Working dir must be /home/burhan/auspex-new — run
+`/session-start S7` first (full ritual). Primary dev LLM is **Llama-4-Scout via
 Northflank (D-015)**; local Ollama `qwen3:14b` is the secondary/offline endpoint
 (D-013) and is what the session-start local-Ollama gate validates. Any mismatch
 → STOP and tell me.
 
-Goal (scope-locked, from ROADMAP.md S6 — KB/RAG on OpenSearch):
+Step 0 (carried follow-up, do BEFORE new scope):
+- **Adversarial review of S6** (`auspex/kb/` + chat wiring + Dockerfile
+  change) — same multi-lens drill as S5's review (correctness, honesty/copy,
+  security, test-hygiene, ops lenses; verify findings before fixing). Fix
+  what's real with regression tests, then **`/promote`** (promote #7 = S6
+  milestone). Only then start S7 scope.
 
-1. **Index design, mapping probe first**: probe our OWN OpenSearch container
-   (D-009 — never SARA's cluster) for 2.19.x mapping/analyzer/kNN behavior
-   before writing any mapping code (`/probe` → docs/probes/). Design the
-   `auspex-knowledge` index (auspex-* prefix): chunk docs, metadata fields,
-   knn_vector mapping.
-2. **Embeddings — measure, then decide** (open blocker from S2): probe
-   server-side OpenSearch ML-plugin embedding on the local container first;
-   fallback decision = in-process sentence-transformers all-MiniLM-L6-v2.
-   Save latency/footprint numbers to the probe file; D-entry the choice.
-3. **Chunking + ingestion of a seed corpus** (small: a handful of MITRE
-   ATT&CK technique summaries / CVE descriptions as fixtures) — enough to
-   prove the pipeline; real feeds land S7/S8.
-4. **Retrieval: BM25 + kNN + client-side RRF** (SARA pattern,
-   sara_retriever.py:538,599 — re-snapshot the pattern to docs/probes/ before
-   coding, worktree paths rot). **CVE/MITRE ID-query neural bypass** (an exact
-   ID match must not depend on vector similarity) + regime-aware score floors.
-5. **Wire into the S4/S5 shortcut rail**: cve_lookup + definition categories
-   consult the KB (still NO LLM on these paths — same pattern as S5
-   enrichment: code fetches, code renders, deferred copy stands when the KB
-   is empty/unavailable). The S5 ioc_check echo may cite KB context for CVEs
-   found via InternetDB `vulns[]` if trivial — else park in IDEAS.md.
+Goal (scope-locked, from ROADMAP.md S7 — Ingestion 1):
 
-Design inputs / reality already in the repo (cite, don't re-derive):
-- OpenSearch container: 2.19.4 live (health-checked in /api/health/ready);
-  probe conventions in docs/probes/2026-07-14-opensearch-cluster.md (SARA
-  cluster study — schema conventions ONLY, D-009).
-- S5 enrichment rail to imitate: `auspex/enrich/` (service on app.state,
-  hermetic-test seam, honest deferred copy, breaker pattern).
-- Shortcut handlers to extend: `auspex/classify/shortcuts.py`
-  (CVE_DEFERRED_COPY / DEFINITION_DEFERRED_COPY are the strings to replace
-  when the KB answers) + `auspex/routes/chat.py` ioc_check wiring as the
-  template for KB-backed shortcut turns.
-- Verdict store exists (D-017): retro-hunt hooks come S7 — do NOT build them
-  in S6; new ideas → IDEAS.md.
+1. **Probes first** (`/probe` → docs/probes/): NVD CVE API 2.0 *delta*
+   querying (lastModStartDate/lastModEndDate windows, pagination,
+   resultsPerPage caps, rate limits keyless vs keyed) — the single-CVE shape
+   is already probed (2026-07-17-nvd-api.md); CISA KEV JSON feed (shape,
+   size, update cadence, caching headers); FIRST EPSS API (shape, batch
+   query, daily scoring). Save real trimmed responses; fixtures come from
+   these probes.
+2. **One enriched doc per CVE:** merge NVD (description, CVSS) + KEV
+   (known-exploited flag, dates, ransomware use) + EPSS (score, percentile)
+   into a single `auspex-knowledge` doc per CVE — extend `KBDoc`/mapping
+   only if measured need (KEV/EPSS fields); `nvd_to_doc()`
+   (auspex/kb/seed.py) is the parser to extend, `ingest_docs()` the writer
+   (upsert by chunk_id makes re-ingest idempotent). KEV/EPSS presence must
+   upgrade the cve_lookup echo (e.g. "known exploited — KEV since …; EPSS
+   0.97") — code renders, zero LLM, honesty rails intact.
+3. **`ingest_state` table + startup catch-up scheduler:** Postgres table
+   (feed name, cursor/last-modified watermark, last run, doc counts);
+   startup task catches up missed windows (host reboots between sessions —
+   the scheduler must tolerate multi-day gaps); SKIP LOCKED job pattern from
+   S1 if a jobs table is the right shape. NO live feed calls in pytest —
+   fixtures from probes; the scheduler gets a hermetic seam like
+   app.state.kb/enrichment.
+4. **Retro-hunt hooks stay OUT (S14)** — but new-KEV-entry events will be the
+   retro-hunt trigger later; leave a clean extension point (e.g. ingest
+   emits per-doc change events to a no-op sink), don't build consumers.
+5. Stretch (only if 1–3 land clean): wire the S5 ioc_check echo to cite KB
+   CVE context for InternetDB `vulns[]` hits (parked in IDEAS.md with the
+   wiring sketch).
 
 Constraints:
-- Tests ship with each step (CLAUDE.md rule 8); CI hermetic — OpenSearch is a
-  compose dependency (fine, like Postgres), but no live external feeds in
-  pytest; KB fixtures from probe snapshots.
-- Every new env var → `.env.example` + `docs/ENV_VARS.md` at birth.
+- Tests ship with each step (CLAUDE.md rule 8); CI hermetic — no live feeds
+  in pytest, fixtures from probe snapshots only.
+- Every new env var → `.env.example` + `docs/ENV_VARS.md` at birth (NVD API
+  key is optional-but-recommended — probe both).
 - No new LLM calls on shortcut paths. Errors bias deep (S4 rule).
+- TD-005 note: if ingestion meaningfully grows the corpus, spot-check the
+  0.6 neural floor against a few known-good/known-bad definition queries;
+  full recalibration can wait for S8.
 - Thrash brake: two failed approaches on one problem → STATE.md Blockers,
   move on. Tired human = short session; rituals anyway.
-- End with `/session-end`; S6 done = KB-backed cve_lookup/definition answers
-  demoable → consider `/promote`.
+- End with `/session-end`; S7 done = a fresh CVE (post-seed) answerable via
+  cve_lookup with KEV/EPSS context, catch-up proven across a simulated gap.

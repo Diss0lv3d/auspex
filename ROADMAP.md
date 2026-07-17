@@ -45,10 +45,16 @@ may not grow mid-session (IDEAS.md exists for that).
   CIRCL hashlookup), submit-all/poll-all parallelism, per-provider circuit
   breaker, `verdicts` table **with decay curve fields from day one**
   (first Living Verdicts brick), observables table keyed by normalized IOC.
-- [ ] **S6 — KB/RAG on OpenSearch.** `auspex-knowledge` index design (mapping
+- [x] **S6 — KB/RAG on OpenSearch.** `auspex-knowledge` index design (mapping
   probe first), chunking, embeddings (probe own-container ML-plugin server-side; fallback
   in-process MiniLM), BM25 + kNN + client-side RRF, CVE/MITRE ID-query neural
   bypass, regime-aware score floors.
+  _(Shipped 2026-07-17: server-side embeddings ratified D-018 — ONNX pinned,
+  TORCH_SCRIPT broken on 2.19.4; idempotent bootstrap incl. 14-chunk seed
+  corpus (5 live-fetched NVD CVEs + ATT&CK/concept seed summaries);
+  cve_lookup + definition shortcuts consult the KB with zero LLM; live verify
+  caught 2 fabrication bugs — absolute neural floor 0.6 + neural-as-relevance-
+  gate now regression-pinned; 320 tests, CI green.)_
 - [ ] **S7 — Ingestion 1.** NVD delta + CISA KEV + FIRST EPSS merged into one
   enriched doc per CVE; `ingest_state` table + startup catch-up scheduler.
 - [ ] **S8 — Ingestion 2.** MITRE ATT&CK (lazy + cached), Sigma rules, abuse.ch
