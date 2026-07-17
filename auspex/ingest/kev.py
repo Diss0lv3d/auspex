@@ -61,7 +61,8 @@ class KEVFeed:
         malformed = 0
         for v in body.get("vulnerabilities", ()):
             cve_id, date_added = v.get("cveID"), v.get("dateAdded")
-            if not (isinstance(cve_id, str) and cve_id and isinstance(date_added, str) and date_added):
+            valid = isinstance(cve_id, str) and cve_id and isinstance(date_added, str)
+            if not (valid and date_added):
                 malformed += 1
                 continue
             entries[cve_id.upper()] = v
