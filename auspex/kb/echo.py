@@ -37,6 +37,15 @@ def _source_label(hit: KBHit) -> str:
     return _SOURCE_LABELS.get(hit.source, hit.source or "knowledge base")
 
 
+def _chunk_order(hit: KBHit) -> int:
+    # chunk_id is "<doc_id>#<index>" — lexicographic sort put #10 before #2
+    # once a doc grows past ten chunks (S6 review; S7 feeds bring long docs).
+    try:
+        return int(hit.chunk_id.rsplit("#", 1)[1])
+    except (IndexError, ValueError):
+        return 0
+
+
 def _cve_block(cve_id: str, hits: list[KBHit]) -> str:
     if not hits:
         return f"- {cve_id} — {CVE_MISS_LINE}"
@@ -66,7 +75,7 @@ def render_cve_answer(requested: list[str], hits: list[KBHit], *, omitted: int =
             if cve.upper() in hit.ids:
                 by_id[cve].append(hit)
     for group in by_id.values():
-        group.sort(key=lambda h: h.chunk_id)
+        group.sort(key=_chunk_order)
     count = len(requested)
     noun = "vulnerability" if count == 1 else "vulnerabilities"
     blocks = "\n".join(_cve_block(cve, by_id[cve]) for cve in requested)
@@ -93,7 +102,9 @@ def render_definition_answer(hits: list[KBHit]) -> str | None:
         seen: dict[str, None] = {}
         for h in related:
             label = h.title or h.doc_id
-            if h.title and h.title != h.doc_id:  # avoid "CVE-X (CVE-X)"
+            # Parenthesize ids analysts recognize (CVE-…, T1059) — never our
+            # internal CONCEPT-* naming scheme (S6 review: copy leak).
+            if h.title and h.title != h.doc_id and not h.doc_id.startswith("CONCEPT-"):
                 label = f"{h.title} ({h.doc_id})"
             seen.setdefault(label)
         lines += ["", "Related entries: " + "; ".join(list(seen)[:3])]

@@ -130,3 +130,28 @@ def test_cve_answer_omitted_count_is_stated_never_a_false_miss():
     assert "1 more was requested" in single
     unomitted = render_cve_answer(["CVE-2021-44228"], [])
     assert "more w" not in unomitted  # no trailer when nothing was capped
+
+
+def test_cve_chunks_render_in_numeric_order_past_ten():
+    # S6 review: lexicographic chunk_id sort put "#10" before "#2"; long docs
+    # (S7 feeds) cross ten chunks. Order must be numeric.
+    hits = [hit(f"CVE-2024-0001#{i}", text=f"part-{i}.") for i in (10, 2, 0, 11, 1)]
+    answer = render_cve_answer(["CVE-2024-0001"], hits)
+    positions = [answer.index(f"part-{i}.") for i in (0, 1, 2, 10, 11)]
+    assert positions == sorted(positions), "chunks must render in document order"
+
+
+def test_related_entries_never_leak_internal_concept_ids():
+    # S6 review: "Command and Control (CONCEPT-C2)" leaked our internal id
+    # scheme; recognizable ids (T1059, CVE-…) still render in parentheses.
+    top = hit("CONCEPT-LM#0", title="Lateral movement", doc_type="concept", source="auspex-seed")
+    related_concept = hit(
+        "CONCEPT-C2#0", title="Command and Control", doc_type="concept", source="auspex-seed"
+    )
+    related_technique = hit(
+        "T1021#0", title="Remote Services", doc_type="technique", source="attack-seed-summary"
+    )
+    answer = render_definition_answer([top, related_concept, related_technique])
+    assert "CONCEPT-" not in answer
+    assert "Command and Control" in answer
+    assert "Remote Services (T1021)" in answer
