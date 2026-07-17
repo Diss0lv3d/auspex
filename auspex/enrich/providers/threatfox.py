@@ -14,7 +14,7 @@ import httpx
 
 from auspex.classify.observables import Observable, ObservableType
 from auspex.enrich.providers.base import Provider, parse_json, raise_for_status
-from auspex.enrich.types import ProviderError, ProviderSignal, VerdictLabel
+from auspex.enrich.types import ProviderInputError, ProviderSignal, VerdictLabel
 
 BASE_URL = "https://threatfox-api.abuse.ch"
 
@@ -54,7 +54,9 @@ class ThreatFox(Provider):
         if _is_no_result(status):
             return None
         if status != "ok":
-            raise ProviderError(f"{self.name}: query_status={status or 'missing'}")
+            # Rejected query / contract drift = client-side problem (probe
+            # rule) — surfaced in the trailer, never breaker food.
+            raise ProviderInputError(f"{self.name}: query_status={status or 'missing'}")
         rows = [r for r in data.get("data") or [] if isinstance(r, dict)]
         if not rows:
             return None

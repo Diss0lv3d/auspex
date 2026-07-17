@@ -35,12 +35,15 @@ class InternetDB(Provider):
         evidence = {"ports": ports, "vulns": vulns, "hostnames": hostnames[:5], "tags": tags}
 
         if vulns:
+            # Context, not a verdict (probe §1: exposure is not maliciousness —
+            # a vulnerable university server is a victim candidate, not an IOC).
+            # S5 review aligned this with the probe; ports below are the same.
             shown = ", ".join(sorted(vulns)[:5])
             more = f" (+{len(vulns) - 5} more)" if len(vulns) > 5 else ""
             return ProviderSignal(
                 provider=self.name,
-                label=VerdictLabel.SUSPICIOUS,
-                confidence=0.4,
+                label=VerdictLabel.UNKNOWN,
+                confidence=0.0,
                 summary=f"exposed host with known vulnerabilities: {shown}{more}",
                 evidence=evidence,
             )

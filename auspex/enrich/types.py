@@ -33,10 +33,18 @@ SEVERITY: dict[VerdictLabel, int] = {
 
 
 class ProviderError(Exception):
-    """A provider call failed (network, 5xx, auth, rate limit, contract break).
+    """A provider call failed (network, 5xx, auth, rate limit).
 
     Distinct from "no data": failures feed the circuit breaker and the
     DEFERRED rail ("source unavailable"), never a verdict.
+    """
+
+
+class ProviderInputError(ProviderError):
+    """The provider rejected OUR query (abuse.ch `invalid_*`, unknown
+    query_status = contract drift). That is an input/contract problem on our
+    side, not provider health — it surfaces in the trailer but MUST NOT feed
+    the circuit breaker (probe contract: "a client bug, not provider-down").
     """
 
 
@@ -56,6 +64,10 @@ class ObservableEnrichment:
     observable: Observable
     signals: tuple[ProviderSignal, ...] = ()
     skip_reason: str | None = None  # set ⇒ never sent to any provider
+    # Providers that actually COMPLETED a lookup for this observable (returned
+    # a signal or a clean no-data). Timeouts/errors/breaker-skips don't count —
+    # the echo may only claim "unknown to them" about sources that answered.
+    sources_answered: int = 0
 
 
 @dataclass(frozen=True)

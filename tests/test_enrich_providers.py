@@ -19,7 +19,7 @@ from auspex.enrich.providers.internetdb import InternetDB
 from auspex.enrich.providers.otx import OTX
 from auspex.enrich.providers.threatfox import ThreatFox
 from auspex.enrich.providers.urlhaus import URLhaus
-from auspex.enrich.types import ProviderError, VerdictLabel
+from auspex.enrich.types import ProviderError, ProviderInputError, VerdictLabel
 
 
 def obs(type_: ObservableType, value: str) -> Observable:
@@ -63,13 +63,16 @@ async def test_internetdb_ports_are_context_not_a_verdict():
     assert "53, 443" in signal.summary and "dns.google" in signal.summary
 
 
-async def test_internetdb_vulns_lean_suspicious():
+async def test_internetdb_vulns_are_exposure_context_not_a_verdict():
+    """Probe §1: exposure is not maliciousness — a vulnerable host is a victim
+    candidate, not an IOC (S5 review aligned the label with the probe)."""
     body = {**INTERNETDB_8888, "vulns": ["CVE-2023-44487"]}  # derived from probed shape
     signal = await lookup(
         InternetDB(), obs(ObservableType.IPV4, "8.8.8.8"), lambda r: json_response(200, body)
     )
-    assert signal.label is VerdictLabel.SUSPICIOUS
-    assert "CVE-2023-44487" in signal.summary
+    assert signal.label is VerdictLabel.UNKNOWN
+    assert signal.confidence == 0.0
+    assert "CVE-2023-44487" in signal.summary and "exposed" in signal.summary
 
 
 async def test_internetdb_404_is_no_data_not_an_error():
@@ -506,19 +509,50 @@ async def test_urlhaus_no_results_is_no_signal():
     assert signal is None
 
 
-async def test_urlhaus_401_and_unknown_status_are_provider_errors():
+async def test_urlhaus_401_feeds_breaker_but_bad_status_is_an_input_error():
+    """S5 review: invalid_*/unknown query_status is OUR problem (probe rule) —
+    it must raise ProviderInputError so the fan-out never feeds the breaker."""
     with pytest.raises(ProviderError):
         await lookup(
             URLhaus("bad"),
             obs(ObservableType.DOMAIN, "x.example"),
             lambda r: json_response(401, URLHAUS_401),
         )
-    with pytest.raises(ProviderError):  # docs-coded contract drift must fail SOFT
-        await lookup(
-            URLhaus("k"),
-            obs(ObservableType.DOMAIN, "x.example"),
-            lambda r: json_response(200, {"query_status": "weird_new_status"}),
-        )
+    for status in ("invalid_host", "weird_new_status"):
+        with pytest.raises(ProviderInputError):
+            await lookup(
+                URLhaus("k"),
+                obs(ObservableType.DOMAIN, "x.example"),
+                lambda r, s=status: json_response(200, {"query_status": s}),
+            )
+
+
+async def test_urlhaus_url_endpoint_maps_online_and_offline():
+    """The /v1/url/ 200-ok branch, pinned to the live-probed shape (Mozi URL:
+    url_status online, threat malware_download, tags)."""
+    body = {
+        "query_status": "ok",
+        "url_status": "online",
+        "threat": "malware_download",
+        "tags": ["Mozi", "elf"],
+        "date_added": "2026-07-16 15:33:28 UTC",
+    }
+    online = await lookup(
+        URLhaus("k"),
+        obs(ObservableType.URL, "http://bad.example/bin.sh"),
+        lambda r: json_response(200, body),
+    )
+    assert online.label is VerdictLabel.MALICIOUS
+    assert online.confidence == 0.9
+    assert "currently online" in online.summary
+
+    offline = await lookup(
+        URLhaus("k"),
+        obs(ObservableType.URL, "http://bad.example/bin.sh"),
+        lambda r: json_response(200, {**body, "url_status": "offline"}),
+    )
+    assert offline.label is VerdictLabel.SUSPICIOUS
+    assert offline.confidence == 0.6
 
 
 # -- ThreatFox (probe §7: 401 live-verified; ok-shape docs-coded) -----------------
@@ -594,14 +628,14 @@ async def test_threatfox_no_result_is_no_signal_even_with_string_data():
     assert signal is None
 
 
-async def test_threatfox_401_and_unknown_status_are_provider_errors():
+async def test_threatfox_401_feeds_breaker_but_bad_status_is_an_input_error():
     with pytest.raises(ProviderError):
         await lookup(
             ThreatFox("bad"),
             obs(ObservableType.IPV4, "1.2.3.4"),
             lambda r: json_response(401, {"error": "Unauthorized"}),
         )
-    with pytest.raises(ProviderError):
+    with pytest.raises(ProviderInputError):  # contract drift = our side, no breaker
         await lookup(
             ThreatFox("k"),
             obs(ObservableType.IPV4, "1.2.3.4"),

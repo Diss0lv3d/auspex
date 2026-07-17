@@ -7,7 +7,12 @@ exception — partial results are results.
 
 The circuit breaker is consulted per provider before its calls launch and fed
 after each call settles. Breaker state lives in the service (persists across
-turns); this module only reads/records.
+turns); this module only reads/records. Two exceptions to the feed:
+ProviderInputError (the provider rejected OUR query — a client/contract
+problem, probe rule "client bug, not provider-down") and per-observable
+answered-tracking, which exists so the echo can distinguish "this source said
+it knows nothing" from "this source never answered" (D-014: never claim a
+lookup result that didn't happen).
 """
 
 import asyncio
@@ -18,11 +23,12 @@ import httpx
 from auspex.classify.observables import Observable
 from auspex.enrich.breaker import CircuitBreaker
 from auspex.enrich.providers.base import Provider
-from auspex.enrich.types import ProviderError, ProviderSignal
+from auspex.enrich.types import ProviderError, ProviderInputError, ProviderSignal
 
 logger = logging.getLogger("auspex.enrich")
 
 BREAKER_OPEN_REASON = "temporarily disabled after repeated failures"
+INPUT_REJECTED_REASON = "could not process one of the queries"
 
 
 async def fan_out(
@@ -32,9 +38,11 @@ async def fan_out(
     breakers: dict[str, CircuitBreaker],
     *,
     call_timeout: float,
-) -> tuple[dict[str, list[ProviderSignal]], dict[str, str]]:
-    """Returns (signals keyed by obs_id, provider failures keyed by name)."""
+) -> tuple[dict[str, list[ProviderSignal]], dict[str, str], dict[str, int]]:
+    """Returns (signals by obs_id, provider failures by name, completed-lookup
+    counts by obs_id)."""
     signals: dict[str, list[ProviderSignal]] = {o.obs_id: [] for o in observables}
+    answered: dict[str, int] = {o.obs_id: 0 for o in observables}
     failures: dict[str, str] = {}
 
     async def run_one(provider: Provider, observable: Observable) -> None:
@@ -45,6 +53,11 @@ async def fan_out(
         except TimeoutError:
             breaker.record_failure()
             failures.setdefault(provider.name, f"timed out after {call_timeout:g}s")
+            return
+        except ProviderInputError as err:
+            # Our query was rejected — visible in the trailer, NOT breaker food.
+            failures.setdefault(provider.name, INPUT_REJECTED_REASON)
+            logger.warning("enrichment provider rejected our query: %s", err)
             return
         except (ProviderError, httpx.HTTPError) as err:
             breaker.record_failure()
@@ -58,6 +71,7 @@ async def fan_out(
             logger.exception("enrichment provider crashed: %s", provider.name)
             return
         breaker.record_success()
+        answered[observable.obs_id] += 1
         if signal is not None:
             signals[observable.obs_id].append(signal)
 
@@ -76,4 +90,4 @@ async def fan_out(
     # Deterministic echo/persist order regardless of completion order.
     for obs_signals in signals.values():
         obs_signals.sort(key=lambda s: s.provider)
-    return signals, failures
+    return signals, failures, answered

@@ -13,12 +13,22 @@ from _fakes import FORBIDDEN_ENGINE_NAMES
 
 from auspex.classify.observables import Observable, ObservableType, observable_id
 from auspex.enrich.breaker import CircuitBreaker
-from auspex.enrich.echo import render_ioc_answer
-from auspex.enrich.fanout import BREAKER_OPEN_REASON
-from auspex.enrich.filters import COMMON_DOMAIN_SKIP, PRIVATE_IP_SKIP, skip_reason
+from auspex.enrich.echo import NOT_CHECKED_COPY, render_ioc_answer
+from auspex.enrich.fanout import BREAKER_OPEN_REASON, INPUT_REJECTED_REASON
+from auspex.enrich.filters import (
+    COMMON_DOMAIN_SKIP,
+    INTERNAL_URL_SKIP,
+    PRIVATE_IP_SKIP,
+    skip_reason,
+)
 from auspex.enrich.providers.base import Provider
-from auspex.enrich.service import CAP_SKIP, EnrichmentService
-from auspex.enrich.types import ProviderError, ProviderSignal, VerdictLabel
+from auspex.enrich.service import CAP_SKIP, NO_COVERAGE_SKIP, EnrichmentService
+from auspex.enrich.types import (
+    ProviderError,
+    ProviderInputError,
+    ProviderSignal,
+    VerdictLabel,
+)
 from auspex.enrich.verdict import effective_confidence, synthesize
 
 ALL_TYPES = frozenset(ObservableType)
@@ -195,6 +205,37 @@ def test_skip_reasons_cover_private_reserved_and_common():
     assert skip_reason(obs(ObservableType.DOMAIN, "google.com", defanged=True)) is not None
 
 
+def test_internal_urls_are_never_sent_to_providers():
+    """S5 review (major): URL observables used to bypass the private-IP skip —
+    http://10.0.0.1:8080/admin would ship internal topology (and possibly
+    tokens in the path) to third-party providers."""
+    assert skip_reason(obs(ObservableType.URL, "http://10.0.0.1:8080/admin")) == INTERNAL_URL_SKIP
+    assert skip_reason(obs(ObservableType.URL, "http://192.168.1.5/x?tok=s3cr3t")) is not None
+    assert skip_reason(obs(ObservableType.URL, "http://[fe80::1]/status")) == INTERNAL_URL_SKIP
+    assert skip_reason(obs(ObservableType.URL, "http://localhost/admin")) == INTERNAL_URL_SKIP
+    assert skip_reason(obs(ObservableType.URL, "http://intranet/wiki")) == INTERNAL_URL_SKIP
+    # routable URLs still enrich — public host as domain or IP literal
+    assert skip_reason(obs(ObservableType.URL, "http://evil.example/payload.exe")) is None
+    assert skip_reason(obs(ObservableType.URL, "http://185.220.101.34/x")) is None
+
+
+async def test_provider_input_error_reports_but_never_feeds_the_breaker(poisoned_client):
+    """S5 review: abuse.ch invalid_* / contract drift is a client-side problem
+    (probe rule) — three malformed inputs must NOT open the circuit for
+    everyone's subsequent turns."""
+    picky = ScriptedProvider("picky", error=ProviderInputError("picky: query_status=invalid_url"))
+    breakers = {"picky": CircuitBreaker(threshold=3)}
+    svc = service([picky], client=poisoned_client, breakers=breakers)
+    one_ip = (obs(ObservableType.IPV4, "185.220.101.34"),)
+    for _ in range(4):
+        outcome = await svc.enrich(one_ip)
+    assert breakers["picky"].state == "closed"  # never fed
+    assert len(picky.calls) == 4  # still being asked every turn
+    assert outcome.provider_failures["picky"] == INPUT_REJECTED_REASON
+    # and the observable line stays honest: nothing answered
+    assert outcome.items[0].sources_answered == 0
+
+
 async def test_skipped_observables_never_reach_providers(poisoned_client):
     provider = ScriptedProvider("p", result=signal("p"))
     svc = service([provider], client=poisoned_client)
@@ -223,6 +264,28 @@ async def test_per_turn_cap_bounds_fanout_and_skips_dont_consume_it(poisoned_cli
     outcome = await svc.enrich(observables)
     assert provider.calls == ["a" * 64, "b" * 64]
     assert outcome.items[3].skip_reason == CAP_SKIP
+
+
+async def test_uncovered_types_dont_consume_cap_slots_or_get_asked(poisoned_client):
+    """S5 review (confirmed): 8 CVEs/emails — types no provider accepts —
+    must not starve the enrichable IOC behind them out of the cap."""
+    hash_only = ScriptedProvider(
+        "hashes", frozenset({ObservableType.SHA256}), result=signal("hashes")
+    )
+    svc = service([hash_only], client=poisoned_client, cap=1)
+    observables = (
+        obs(ObservableType.EMAIL, "a@evil.example"),  # coverage 0 — no cap slot
+        obs(ObservableType.CVE, "CVE-2026-0001"),  # coverage 0 — no cap slot
+        obs(ObservableType.SHA256, "a" * 64),  # must still fit in cap=1
+    )
+    outcome = await svc.enrich(observables)
+    assert hash_only.calls == ["a" * 64]
+    assert outcome.items[0].skip_reason == NO_COVERAGE_SKIP
+    assert outcome.items[1].skip_reason == NO_COVERAGE_SKIP
+    assert outcome.items[2].skip_reason is None
+    assert [s.provider for s in outcome.items[2].signals] == ["hashes"]
+    # and skipped-as-uncovered items are excluded from persistence
+    assert [i.observable.type for i in outcome.enriched] == [ObservableType.SHA256]
 
 
 # -- verdict synthesis + decay ---------------------------------------------------
@@ -296,26 +359,51 @@ def outcome_for_render():
                 observable=obs(ObservableType.IPV4, "10.0.0.1"),
                 skip_reason=PRIVATE_IP_SKIP,
             ),
-            ObservableEnrichment(observable=obs(ObservableType.SHA256, "c" * 64)),
-            ObservableEnrichment(observable=obs(ObservableType.EMAIL, "a@evil.example")),
+            # sha: two sources completed lookups and found nothing
+            ObservableEnrichment(
+                observable=obs(ObservableType.SHA256, "c" * 64), sources_answered=2
+            ),
+            # email: no provider covers the type — service-level skip
+            ObservableEnrichment(
+                observable=obs(ObservableType.EMAIL, "a@evil.example"),
+                skip_reason=NO_COVERAGE_SKIP,
+            ),
         ),
         provider_failures={"GreyNoise": BREAKER_OPEN_REASON},
     )
 
 
-COVERAGE = {ObservableType.IPV4: 3, ObservableType.SHA256: 2}  # email: no coverage
-
-
 def test_render_reports_verdicts_skips_gaps_and_failures_honestly():
-    text = render_ioc_answer(outcome_for_render(), COVERAGE)
+    text = render_ioc_answer(outcome_for_render())
     assert "Parsed 4 observables:" in text
     assert "verdict: malicious (confidence 0.75)" in text
     assert "ThreatFox: known IOC: Cobalt Strike" in text
     assert PRIVATE_IP_SKIP in text
-    assert "no signal from 2 connected sources" in text  # sha: asked, nobody knew
-    assert "no connected source covers this observable type" in text  # email
+    assert "no signal from 2 connected sources" in text  # sha: ANSWERED, nobody knew
+    assert NO_COVERAGE_SKIP in text  # email
     assert "Sources unavailable this turn: GreyNoise" in text
     assert "185.220.101[.]34" not in text  # normalized forms only
+
+
+def test_render_never_claims_unknown_to_them_when_no_source_answered():
+    """S5 review (confirmed): a timed-out/breaker-skipped source must not be
+    counted as having found the observable unknown — that fabricates a
+    negative lookup result (D-014)."""
+    from auspex.enrich.types import EnrichmentOutcome, ObservableEnrichment
+
+    outcome = EnrichmentOutcome(
+        items=(
+            ObservableEnrichment(
+                observable=obs(ObservableType.DOMAIN, "evil.example"),
+                signals=(),
+                sources_answered=0,  # the only covering source timed out
+            ),
+        ),
+        provider_failures={"OTX": "timed out after 6s"},
+    )
+    text = render_ioc_answer(outcome)
+    assert NOT_CHECKED_COPY in text
+    assert "unknown to them" not in text
 
 
 def test_render_context_only_signals_do_not_claim_a_verdict():
@@ -331,7 +419,7 @@ def test_render_context_only_signals_do_not_claim_a_verdict():
             ),
         ),
     )
-    text = render_ioc_answer(outcome, COVERAGE)
+    text = render_ioc_answer(outcome)
     assert "no reputation verdict — context: InternetDB: open ports" in text
     assert "verdict: unknown" not in text
 
@@ -351,13 +439,24 @@ def test_render_marks_a_failure_as_partial_when_the_provider_also_answered():
         ),
         provider_failures={"OTX": "timed out after 6s", "GreyNoise": BREAKER_OPEN_REASON},
     )
-    text = render_ioc_answer(outcome, COVERAGE)
+    text = render_ioc_answer(outcome)
     assert "OTX (partial — timed out after 6s)" in text
     assert f"GreyNoise ({BREAKER_OPEN_REASON})" in text  # fully-failed stays plain
 
 
 def test_render_never_names_the_engine_and_stays_plain_text():
-    text = render_ioc_answer(outcome_for_render(), COVERAGE).lower()
-    for name in [*FORBIDDEN_ENGINE_NAMES, "model"]:
-        assert name not in text, f"{name!r} leaked into enriched copy"
-    assert "`" not in text and "**" not in text  # UI renders plain text verbatim
+    for recorded in (True, False):
+        text = render_ioc_answer(outcome_for_render(), recorded=recorded).lower()
+        for name in [*FORBIDDEN_ENGINE_NAMES, "model"]:
+            assert name not in text, f"{name!r} leaked into enriched copy"
+        assert "`" not in text and "**" not in text  # UI renders plain text verbatim
+
+
+def test_render_unrecorded_results_say_so():
+    from auspex.enrich.echo import VERDICTS_NOT_RECORDED_COPY, VERDICTS_RECORDED_COPY
+
+    outcome = outcome_for_render()
+    assert VERDICTS_RECORDED_COPY in render_ioc_answer(outcome)
+    unrecorded = render_ioc_answer(outcome, recorded=False)
+    assert VERDICTS_NOT_RECORDED_COPY in unrecorded
+    assert VERDICTS_RECORDED_COPY not in unrecorded

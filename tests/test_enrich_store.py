@@ -47,9 +47,19 @@ async def pool(client, settings):
     await pool.close()
 
 
+async def _get_or_create_workspace(pool, name: str):
+    """Upsert-get: a leaked row from a crashed earlier run must not lock every
+    later run out via the UNIQUE(name) index (S5 review finding)."""
+    return await pool.fetchval(
+        "INSERT INTO workspaces (name) VALUES ($1)"
+        " ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id",
+        name,
+    )
+
+
 @pytest.fixture
 async def workspace_id(pool):
-    ws = await pool.fetchval("INSERT INTO workspaces (name) VALUES ('t-enrich') RETURNING id")
+    ws = await _get_or_create_workspace(pool, "t-enrich")
     yield ws
     await pool.execute("DELETE FROM workspaces WHERE id = $1", ws)
 
@@ -120,9 +130,7 @@ async def test_skipped_observables_are_not_persisted(pool, workspace_id):
 
 
 async def test_workspace_scoping_keeps_same_value_in_separate_rows(pool, workspace_id):
-    other = await pool.fetchval(
-        "INSERT INTO workspaces (name) VALUES ('t-enrich-other') RETURNING id"
-    )
+    other = await _get_or_create_workspace(pool, "t-enrich-other")
     try:
         for ws in (workspace_id, other):
             await persist_enrichment(pool, ws, EnrichmentOutcome(items=(malicious_item(),)))

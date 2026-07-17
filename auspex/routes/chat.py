@@ -22,6 +22,7 @@ org policy that multi-LLM / BYO-LLM stays internal infrastructure.
 """
 
 import json
+import logging
 from dataclasses import dataclass
 from typing import Annotated
 from uuid import UUID
@@ -38,6 +39,8 @@ from auspex.enrich import EnrichmentService, persist_enrichment, render_ioc_answ
 from auspex.llm.client import LLMClient, LLMError, Usage
 from auspex.llm.registry import DevEndpoint
 from auspex.llm.scorecard import load_latest_scorecard
+
+logger = logging.getLogger("auspex.chat")
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -295,8 +298,16 @@ async def chat(
             and classification.observables
         ):
             outcome = await enrichment.enrich(classification.observables)
-            await persist_enrichment(pool, auth.workspace_id, outcome)
-            answer_text = render_ioc_answer(outcome, enrichment.coverage)
+            # A persistence hiccup must not 500 away a fully-computed answer;
+            # the copy then says the results were NOT recorded (D-014 — never
+            # claim storage that didn't happen). S5 review finding.
+            recorded = True
+            try:
+                await persist_enrichment(pool, auth.workspace_id, outcome)
+            except Exception:
+                logger.exception("verdict persistence failed; streaming unrecorded results")
+                recorded = False
+            answer_text = render_ioc_answer(outcome, recorded=recorded)
         await _insert_message(pool, auth, session_id, "assistant", answer_text)
 
         async def shortcut_stream():

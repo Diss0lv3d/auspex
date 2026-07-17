@@ -15,7 +15,7 @@ import httpx
 
 from auspex.classify.observables import Observable, ObservableType
 from auspex.enrich.providers.base import Provider, parse_json, raise_for_status
-from auspex.enrich.types import ProviderError, ProviderSignal, VerdictLabel
+from auspex.enrich.types import ProviderInputError, ProviderSignal, VerdictLabel
 
 BASE_URL = "https://urlhaus-api.abuse.ch"
 
@@ -60,8 +60,9 @@ class URLhaus(Provider):
             return None
         if status != "ok":
             # invalid_url/invalid_host/… mean OUR request was malformed; anything
-            # unrecognized means the docs-coded contract drifted. Either way: soft-fail.
-            raise ProviderError(f"{self.name}: query_status={status or 'missing'}")
+            # unrecognized means the contract drifted. Either way it is a
+            # client-side problem (probe rule) — surfaced, but never breaker food.
+            raise ProviderInputError(f"{self.name}: query_status={status or 'missing'}")
 
         if endpoint == "/v1/payload/":
             try:

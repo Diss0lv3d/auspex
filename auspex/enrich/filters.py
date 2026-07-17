@@ -12,12 +12,29 @@ Skips are echoed honestly per-observable (DEFERRED rail), never silent.
 """
 
 import ipaddress
+from urllib.parse import urlsplit
 
 from auspex.classify.classifier import is_common_domain
 from auspex.classify.observables import Observable, ObservableType
 
 PRIVATE_IP_SKIP = "private/reserved address — not routable, never enriched"
 COMMON_DOMAIN_SKIP = "ubiquitous domain — skipped to keep provider quota for real signals"
+INTERNAL_URL_SKIP = "URL points at a private/internal host — never sent to third-party sources"
+
+
+def _internal_url(value: str) -> bool:
+    """A URL whose host is a private/reserved IP literal or a dotless name
+    (localhost, bare intranet hostnames) describes internal topology — and its
+    path/query may carry tokens. It must never reach a third party.
+    (S5 review finding: URL observables bypassed the private-IP skip.)"""
+    try:
+        host = urlsplit(value).hostname or ""
+    except ValueError:
+        return True  # unparseable ⇒ treat as internal, fail closed
+    try:
+        return not ipaddress.ip_address(host).is_global
+    except ValueError:
+        return "." not in host  # not an IP: dotless names are internal
 
 
 def skip_reason(observable: Observable) -> str | None:
@@ -26,6 +43,8 @@ def skip_reason(observable: Observable) -> str | None:
         # value is canonical (S4 normalization) — parse cannot fail here.
         if not ipaddress.ip_address(observable.value).is_global:
             return PRIVATE_IP_SKIP
+    if observable.type is ObservableType.URL and _internal_url(observable.value):
+        return INTERNAL_URL_SKIP
     if observable.type is ObservableType.DOMAIN and is_common_domain(observable.value):
         return COMMON_DOMAIN_SKIP
     return None

@@ -22,8 +22,12 @@ from auspex.enrich.verdict import synthesize
 async def persist_enrichment(pool: asyncpg.Pool, workspace_id, outcome: EnrichmentOutcome) -> int:
     """Upsert observables + append verdict rows. Returns verdicts written."""
     written = 0
+    # Deterministic (type, value) order: two concurrent turns upserting an
+    # overlapping observable set in one transaction each can deadlock if they
+    # lock rows in different orders (S5 review finding).
+    items = sorted(outcome.enriched, key=lambda i: (i.observable.type.value, i.observable.value))
     async with pool.acquire() as conn, conn.transaction():
-        for item in outcome.enriched:
+        for item in items:
             o = item.observable
             observable_row_id = await conn.fetchval(
                 """

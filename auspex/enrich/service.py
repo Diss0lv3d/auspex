@@ -23,6 +23,7 @@ from auspex.enrich.types import EnrichmentOutcome, ObservableEnrichment
 CALL_TIMEOUT_SECONDS = 6.0
 ENRICH_MAX_OBSERVABLES = 8
 CAP_SKIP = "beyond this turn's enrichment cap — parsed and recorded as text only"
+NO_COVERAGE_SKIP = "no connected source covers this observable type yet"
 
 
 class EnrichmentService:
@@ -70,10 +71,16 @@ class EnrichmentService:
         return self._client
 
     async def enrich(self, observables: tuple[Observable, ...]) -> EnrichmentOutcome:
+        coverage = self.coverage
         skips: dict[str, str] = {}
         eligible: list[Observable] = []
         for o in observables:
             reason = skip_reason(o)
+            if reason is None and not coverage.get(o.type):
+                # A type no active provider accepts (email, CVE for now) must
+                # not eat a cap slot the turn spends zero calls on, and must
+                # not be persisted as if a lookup happened (store contract).
+                reason = NO_COVERAGE_SKIP
             if reason is not None:
                 skips[o.obs_id] = reason
             elif len(eligible) >= self._cap:
@@ -83,8 +90,9 @@ class EnrichmentService:
 
         signals: dict[str, list] = {}
         failures: dict[str, str] = {}
+        answered: dict[str, int] = {}
         if eligible and self._providers:
-            signals, failures = await fan_out(
+            signals, failures, answered = await fan_out(
                 self._get_client(),
                 self._providers,
                 eligible,
@@ -97,6 +105,7 @@ class EnrichmentService:
                 observable=o,
                 signals=tuple(signals.get(o.obs_id, ())),
                 skip_reason=skips.get(o.obs_id),
+                sources_answered=answered.get(o.obs_id, 0),
             )
             for o in observables
         )

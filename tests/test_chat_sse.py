@@ -338,6 +338,9 @@ def test_ioc_check_with_active_enrichment_streams_verdicts_with_zero_llm_calls(c
     from _fakes import FakeEnrichmentService
 
     message = "check 185.220.101[.]34"
+    # Purge FIRST too: rows left by earlier runs must not let the verdict-count
+    # assertion pass vacuously (S5 review finding).
+    _purge_observable(settings, "185.220.101.34")
     fake_llm = StreamingFakeLLMClient([StreamEvent(kind="content", text="NEVER SENT")])
     _use(client.app, fake_llm, native_reasoning=True)
     fake_enrichment = FakeEnrichmentService(_enriched_outcome(message))
@@ -380,6 +383,40 @@ def test_ioc_check_with_active_enrichment_streams_verdicts_with_zero_llm_calls(c
         client.app.state.enrichment = real_enrichment
         client.app.dependency_overrides.clear()
         _purge_observable(settings, "185.220.101.34")
+
+
+def test_persistence_failure_streams_the_answer_and_says_not_recorded(client, monkeypatch):
+    """S5 review: a persistence hiccup must not 500 away a fully-computed
+    answer — and the copy must not claim the verdicts were recorded."""
+    from _fakes import FakeEnrichmentService
+
+    from auspex.enrich.echo import VERDICTS_NOT_RECORDED_COPY
+    from auspex.routes import chat as chat_module
+
+    async def broken_persist(*args, **kwargs):
+        raise RuntimeError("simulated storage failure")
+
+    monkeypatch.setattr(chat_module, "persist_enrichment", broken_persist)
+    message = "check 185.220.101[.]34"
+    fake_enrichment = FakeEnrichmentService(_enriched_outcome(message))
+    real_enrichment = client.app.state.enrichment
+    client.app.state.enrichment = fake_enrichment
+    _use(client.app, StreamingFakeLLMClient([]), native_reasoning=True)
+    try:
+        resp = client.post(
+            "/api/chat",
+            json={"message": message},
+            headers={"Authorization": f"Bearer {_token(client)}"},
+        )
+        assert resp.status_code == 200
+        frames = _frames(resp.text)
+        assert frames[-1]["done"]["path"] == "shortcut"
+        content = "".join(f["content"] for f in frames if "content" in f)
+        assert "verdict: malicious" in content  # the computed answer survives
+        assert VERDICTS_NOT_RECORDED_COPY in content  # honesty about storage
+    finally:
+        client.app.state.enrichment = real_enrichment
+        client.app.dependency_overrides.clear()
 
 
 def test_inactive_enrichment_service_keeps_the_deferred_copy(client):
