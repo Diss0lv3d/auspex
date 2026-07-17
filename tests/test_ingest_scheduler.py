@@ -369,26 +369,34 @@ async def test_new_kev_entry_is_fetched_enriched_and_marked_done():
 
 
 async def test_304_cycle_reuses_cached_catalog_for_enrichment():
+    # S8 test-hygiene: the old version gave cycle 2 no work (windows(NOW, NOW)
+    # is empty), so its headline assert checked CYCLE 1's batch — a mutant
+    # with cache reuse deleted passed. The clock now advances so cycle 2
+    # genuinely ingests, and its batch must carry KEV evidence from the CACHE.
+    clock = {"now": NOW}
     state = FakeState(
         rows={
+            NVD_FEED: {"last_mod_end": (NOW - timedelta(hours=1)).isoformat()},
             KEV_FEED: {
                 "last_modified": "Thu, 16 Jul 2026 17:00:15 GMT",
                 "date_added_horizon": "2026-07-16",
                 "kb_refreshed": True,
-            }
+            },
         }
     )
     kev = FakeKEV([kev_catalog(), None])  # cycle 1: full body; cycle 2: 304
     nvd = FakeNVD(window_cves=[nvd_cve("CVE-2024-3400")])  # in KEV
     kb = FakeKB()
-    sched = scheduler(kb=kb, kev=kev, nvd=nvd, state=state)
+    sched = scheduler(kb=kb, kev=kev, nvd=nvd, state=state, now=lambda: clock["now"])
     await sched.run_cycle()
+    clock["now"] = NOW + timedelta(hours=1)  # cycle 2 has a fresh window to cover
     await sched.run_cycle()
     # cycle 1 fetched unconditionally (no cache to back a 304 after a boot)
     assert kev.conditional_args[0] == ""
     assert kev.conditional_args[1] == "Thu, 16 Jul 2026 17:00:15 GMT"
-    # cycle 2's NVD doc still got KEV evidence — from the in-memory cache
-    assert kb.ingested[-1][0].kev_date_added != ""
+    # cycle 2 DID ingest, and its doc got KEV evidence — from the in-memory cache
+    assert len(kb.ingested) == 2
+    assert kb.ingested[-1][0].kev_date_added == "2024-04-12"
 
 
 async def test_kev_new_id_already_ingested_via_nvd_is_not_refetched():
@@ -642,6 +650,47 @@ async def test_run_bootstraps_kb_then_idles_when_ingest_disabled():
     await sched.run()  # must return (not loop) — the task ends after bootstrap
     assert kb.bootstrap_calls == 1
     assert kb.ingested == []  # no cycle ran
+
+
+async def test_run_survives_a_cycle_failure_and_keeps_cycling():
+    # S8 test-hygiene: 'the loop never dies from a cycle failure' was a
+    # headline claim with no pin. Cycle 1 fails at ingest; the loop must log,
+    # sleep, and let cycle 2 succeed over the SAME window (watermark held).
+    import asyncio
+
+    since = NOW - timedelta(days=1)
+    state = FakeState(
+        rows={
+            NVD_FEED: {"last_mod_end": since.isoformat()},
+            KEV_FEED: {
+                "last_modified": "x",
+                "date_added_horizon": "2026-07-16",
+                "kb_refreshed": True,
+            },
+        }
+    )
+    kb = FakeKB()
+    kb.fail_ingest = True
+    naps = {"n": 0}
+
+    async def interval_sleep(_: float) -> None:
+        naps["n"] += 1
+        if naps["n"] == 1:
+            kb.fail_ingest = False  # "OpenSearch recovered" before cycle 2
+            return
+        raise asyncio.CancelledError  # end the otherwise-infinite loop
+
+    sched = scheduler(
+        kb=kb,
+        nvd=FakeNVD(window_cves=[nvd_cve("CVE-2024-0001")]),
+        kev=FakeKEV([kev_catalog(), None]),
+        state=state,
+        sleep=interval_sleep,
+    )
+    with pytest.raises(asyncio.CancelledError):
+        await sched.run()
+    assert len(kb.ingested) == 1  # cycle 2 ingested the window cycle 1 failed
+    assert state.rows[NVD_FEED]["last_mod_end"] == NOW.isoformat()
 
 
 async def test_cycle_skips_feeds_until_bootstrap_succeeds():

@@ -97,6 +97,8 @@ async def test_nvd_fetch_window_pages_to_total_with_spacing():
     assert len(router.requests) == 2  # paged, not slurped
     assert router.requests[1]["startIndex"] == "2"
     assert router.requests[0]["lastModStartDate"] == "2026-07-16T00:00:00.000Z"
+    # the probed hard cap: >2000 is a 404 live — the client must SEND ≤2000
+    assert router.requests[0]["resultsPerPage"] == "2000"
     assert naps == [3.0]  # keyed spacing BETWEEN pages only
 
 
