@@ -60,6 +60,7 @@ class Router:
         self.fail_neural = False
         self.fail_bm25 = False
         self.model_found = True
+        self.garbage_search = False  # 200 with a non-search body (proxy page)
 
     def body_of(self, request: httpx.Request) -> dict | None:
         content = request.read()
@@ -77,6 +78,8 @@ class Router:
         if path == "/_plugins/_ml/models/_search":
             return httpx.Response(200, json=model_search_response(self.model_found))
         if path == f"/{KNOWLEDGE_INDEX}/_search":
+            if self.garbage_search:
+                return httpx.Response(200, text="<html>502 Bad Gateway</html>")
             query = body["query"]
             if "multi_match" in query:
                 if self.fail_bm25:
@@ -221,6 +224,17 @@ async def test_off_corpus_query_is_an_honest_miss_not_fabricated():
     router.neural_hits = [kb_hit("CONCEPT-C2#0", 0.586), kb_hit("T1055#0", 0.553)]
     svc = service_with(router)
     assert await svc.search("what is quantum entanglement") == []
+
+
+async def test_garbage_200_response_is_kb_unavailable_not_a_crash():
+    # S6 review: the never-a-500 invariant (types.KBUnavailable docstring) must
+    # survive a 200 whose body is not a search response (intercepting proxy,
+    # truncated JSON) — parse errors must not escape to the route layer.
+    router = Router()
+    router.garbage_search = True
+    svc = service_with(router)
+    with pytest.raises(KBUnavailable, match="answered unusably"):
+        await svc.lookup_ids(("CVE-2021-44228",))
 
 
 async def test_both_legs_dead_raises_unavailable_and_counts_breaker_failure():

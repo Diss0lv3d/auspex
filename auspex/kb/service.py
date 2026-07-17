@@ -417,8 +417,17 @@ class KnowledgeService:
         except httpx.HTTPError as err:
             self._breaker.record_failure()
             raise KBUnavailable(f"knowledge base unreachable: {err.__class__.__name__}") from err
+        try:
+            hits = [_hit_to_kbhit(h) for h in resp.json()["hits"]["hits"]]
+        except (ValueError, KeyError, TypeError) as err:
+            # A 200 that isn't a search response (intercepting proxy, truncated
+            # body) is a KB-didn't-answer turn, never a 500 (types.KBUnavailable).
+            self._breaker.record_failure()
+            raise KBUnavailable(
+                f"knowledge base answered unusably: {err.__class__.__name__}"
+            ) from err
         self._breaker.record_success()
-        return [_hit_to_kbhit(h) for h in resp.json()["hits"]["hits"]]
+        return hits
 
 
 def _is_parent_technique(id_: str) -> bool:
