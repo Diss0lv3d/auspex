@@ -1,5 +1,7 @@
 """FastAPI app factory. Async throughout; state lives on app.state, never globals."""
 
+import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -10,6 +12,7 @@ from auspex import __version__
 from auspex.config import Settings, get_settings
 from auspex.db import create_pool
 from auspex.enrich import EnrichmentService
+from auspex.ingest import IngestScheduler
 from auspex.kb import KnowledgeService
 from auspex.llm.registry import load_dev_registry
 from auspex.migrations import run_migrations
@@ -31,17 +34,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.enrichment = EnrichmentService.from_settings(settings)
         # Knowledge base (S6): bootstrap is idempotent and never raises — a cold
         # or unreachable OpenSearch leaves the service up with the deferred rail
-        # answering honestly. Warm boots are 4 cheap round trips; a fresh volume
-        # additionally downloads the embedding model (~12 s, probed).
+        # answering honestly. Since S7 it runs INSIDE the ingest scheduler's
+        # background task (TD-008 resolved): the port binds immediately and KB
+        # turns during warm-up get the honest "didn't answer this turn" copy.
         app.state.kb = KnowledgeService.from_settings(settings)
-        if app.state.kb.active:
-            logging.getLogger("auspex.kb").info("kb bootstrap: %s", await app.state.kb.bootstrap())
         app.state.pool = await create_pool(settings.database_url)
         # try/finally covers migrations too: a failure there must still close the pool.
         try:
             await run_migrations(app.state.pool)
+            # Feed ingestion (S7): one background task owns KB bootstrap +
+            # watermark catch-up + the hourly cycle. Inert (bootstrap-only)
+            # when INGEST_ENABLED=false or the KB is off.
+            app.state.ingest = IngestScheduler.from_settings(settings, app.state.kb, app.state.pool)
+            app.state.ingest_task = asyncio.create_task(app.state.ingest.run())
             yield
         finally:
+            task = getattr(app.state, "ingest_task", None)
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+                await app.state.ingest.aclose()
             await app.state.pool.close()
             await app.state.enrichment.aclose()
             await app.state.kb.aclose()

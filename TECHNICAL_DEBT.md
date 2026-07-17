@@ -1,5 +1,55 @@
 # Technical debt — logged the moment it's taken
 
+## TD-009 (S8 review) — feed-derived KB text replays into deep-turn LLM context unfenced
+**Where:** `auspex/kb/echo.py` (rendered verbatim into `answer_text`) →
+`auspex/routes/chat.py` (`_insert_message` … `_history` → `chat_stream`).
+**Risk:** a poisoned NVD/KEV description carrying instructions lands in the KB,
+renders into a stored assistant message (honest so far — analysts should see the
+source text), and then rides EVERY later deep turn of that session as
+assistant-role context — a persisted prompt-injection channel from feed to
+model. Blast radius today is answer manipulation only (no tools wired into
+chat); it becomes real capability the day S3 proposals/S9 modes execute.
+**Mitigation shipped in S8:** descriptions cap at 20k chars at parse
+(`kb/seed.py::MAX_DESCRIPTION_CHARS`).
+**Why deferred:** the correct fix is data-vs-instruction fencing of replayed
+history (SARA's instructions-in-system/data-in-user pattern) — that is S9
+agent-loop architecture, not an ingest patch.
+**Path to fix (S9, WITH the modes work):** mark feed/KB-derived spans in stored
+messages; on deep turns, replay them fenced (system-side "quoted data, not
+instructions" wrapper or user-role data blocks), and add a regression test with
+an instruction-bearing description.
+
+## TD-010 (S8 review) — feed HTTP responses have no byte ceiling (decompression bomb)
+**Where:** `auspex/ingest/kev.py` (1.5 MB gzip → httpx transparent inflate),
+`auspex/ingest/nvd.py`, `auspex/ingest/epss.py` — all read the full body before
+any size check.
+**Risk:** a compromised origin/CDN (TLS is verified, URLs are constants — this
+requires upstream compromise) serves a small gzip inflating to multi-GB;
+httpx inflates fully into memory → app-process OOM (single process serves chat
+too). Timeouts don't help; the bytes arrive fast.
+**Why deferred:** the real fix is streamed reads with an inflated-bytes cap on
+all three clients — mechanical but cross-cutting, and the page-cap +
+description-cap work already bounds the *parsed* blast radius. Upstream
+compromise of CISA/NVD/FIRST is a low-likelihood, high-noise event.
+**Path to fix:** shared `bounded_json(resp_stream, max_bytes)` helper
+(`client.stream()` + `iter_bytes()` counting DECOMPRESSED bytes, abort past
+cap: KEV 50 MB, NVD 200 MB/page-call, EPSS 5 MB), MockTransport bomb tests.
+
+## TD-011 (S8 review) — auspex-knowledge grows unbounded (no rollover/retention)
+**Where:** the single `auspex-knowledge` index; growth ~770 docs/day (~5k/week)
+while the container runs (STATE.md host notes).
+**Risk:** months out, the HNSW graph + segment volume outgrow the 1 GiB
+single-node heap: slower searches, then allocation failures. No tracked
+trigger existed — only a "watch RSS/disk" note.
+**Why deferred:** at ~2.5k chunks the index is far from pressure; rollover
+design (ISM policy vs dated indices vs retention-by-doc_type) deserves its own
+session with real growth data.
+**Trigger to act:** >150k chunks OR OpenSearch RSS >70% of its 1 GiB heap OR
+p95 search latency >500 ms (check via `_cat/indices` + `docker stats` at
+session starts).
+**Path to fix:** ISM rollover on the `auspex-*` prefix or per-doc_type
+retention (CVEs decay by lastModified; curated docs never expire).
+
 ## TD-007 (S6 review) — BM25-only degrade can surface weak matches during neural outages
 **Where:** `auspex/kb/service.py::search` (neural-leg *unavailability* branch).
 **Risk:** when the neural leg is down (no model), free-text queries serve
@@ -13,19 +63,12 @@ outage window is now bounded by the 60 s model-lookup retry (S6 review fix).
 **Path to fix:** fold into the TD-005 calibration (S8) — a labeled query set can
 decide whether BM25-only needs its own absolute floor.
 
-## TD-008 (S6 review) — KB bootstrap runs inline in app lifespan
-**Where:** `auspex/app.py` lifespan (`await app.state.kb.bootstrap()`).
-**Risk:** uvicorn binds the port only after lifespan completes, so a slow
-bootstrap blocks ALL serving including liveness. Bounded: poll budget 180 s +
-per-call timeouts ≈ ~3.5 min worst case vs the compose healthcheck tolerance of
-210 s (start_period 30 s + 18×10 s) — a pathological fresh-volume boot (hung
-model download) can get the container killed into a crash loop. Warm boots are
-seconds; probed fresh boots ~30-40 s.
-**Why accepted for promote #7:** live-verified S6 behavior; the degraded path
-is honest (bootstrap failure ⇒ deferred copy, app boots).
-**Path to fix:** S7.3's ingest scheduler runs as a background startup task —
-move bootstrap into it (KB turns during warm-up get the honest "didn't answer
-this turn" copy). Should land in S7; if it doesn't, revisit here.
+## ~~TD-008 (S6 review) — KB bootstrap runs inline in app lifespan~~ RESOLVED in S7 (same day)
+**Resolved 2026-07-17 (96e42df):** the S7 ingest scheduler runs as a background
+startup task and owns the KB bootstrap — lifespan yields immediately, the port
+binds before bootstrap, and KB turns during warm-up get the honest "didn't
+answer this turn" copy. Worst-case bootstrap latency no longer intersects the
+compose healthcheck window at all.
 
 ## TD-001 (S1) — OAuth identity keyed on email, not Google `sub`
 **Where:** `auspex/auth.py` `get_or_create_user` (matches users by `(workspace_id, email)`).
@@ -75,11 +118,18 @@ one live query (0.586) on a 14-chunk corpus. A bigger corpus or oddly-phrased bu
 legitimate queries could false-miss (annoying, self-healing via the deep path) or a
 semantically-adjacent-but-wrong doc could clear 0.6 (worse). Errors currently bias
 toward the honest miss, per the S4 rule.
+**S7 spot-check (2026-07-17, ~2 500 chunks) CONFIRMED both failure modes for
+UNFILTERED search** — plus an HNSW recall collapse at k=10 the original entry
+didn't predict (docs/probes/2026-07-17-s7-ingest-live.md). The definition
+shortcut is now structurally safe (doc_types filter ⇒ exact kNN over the
+curated subset), so no user-facing path currently depends on the unfiltered
+floor — but S8's free-text-over-CVEs search will.
 **Why deferred:** a defensible threshold needs a labeled query set, which needs the
-real S7/S8 corpora.
-**Path to fix:** after S7/S8 ingestion, build a small labeled relevant/irrelevant
-query fixture set from live probes and calibrate (consider per-doc_type floors);
-regression-pin the chosen operating point.
+real S7/S8 corpora (now materializing).
+**Path to fix (S8, before any unfiltered free-text surface ships):** labeled
+relevant/irrelevant query fixtures from live probes; calibrate per-doc_type
+floors AND neural-leg k/ef sizing together (recall and floor interact);
+regression-pin the operating point.
 
 ## ~~TD-004 (S5) — URLhaus / ThreatFox / AbuseIPDB happy paths are docs-coded, not probe-verified~~ RESOLVED same day
 **Resolved 2026-07-16 (evening):** Burhan registered both keys; all three happy paths

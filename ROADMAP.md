@@ -55,8 +55,15 @@ may not grow mid-session (IDEAS.md exists for that).
   cve_lookup + definition shortcuts consult the KB with zero LLM; live verify
   caught 2 fabrication bugs — absolute neural floor 0.6 + neural-as-relevance-
   gate now regression-pinned; 320 tests, CI green.)_
-- [ ] **S7 — Ingestion 1.** NVD delta + CISA KEV + FIRST EPSS merged into one
+- [x] **S7 — Ingestion 1.** NVD delta + CISA KEV + FIRST EPSS merged into one
   enriched doc per CVE; `ingest_state` table + startup catch-up scheduler.
+  _(Done 2026-07-17: `auspex/ingest/` package, probe-pinned feed clients,
+  watermarks advance per-window after ingest, KB bootstrap moved into the
+  scheduler task (TD-008 resolved), DocChange→NullSink hook for S14. Also:
+  S6 review verified inline (10 fixes) + promote #7. Live: simulated 2-day
+  gap → 1 844 chunks; fresh CVE answers with KEV+EPSS, zero LLM. The TD-005
+  spot-check caught HNSW-recall + floor-erosion at ~2.5k chunks — fixed via
+  doc_types-filtered retrieval; full calibration is an S8 gate. 357 tests.)_
 - [ ] **S8 — Ingestion 2.** MITRE ATT&CK (lazy + cached), Sigma rules, abuse.ch
   quartet; auto-promotion to KB on miss.
 - [ ] **S9 — Response modes.** 6 modes only (definition, ioc_enrichment,

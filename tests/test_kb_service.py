@@ -12,7 +12,7 @@ import pytest
 
 from auspex.enrich.breaker import CircuitBreaker
 from auspex.kb.chunking import chunk_doc
-from auspex.kb.mapping import KNOWLEDGE_INDEX
+from auspex.kb.mapping import KNOWLEDGE_INDEX, KNOWLEDGE_MAPPING
 from auspex.kb.seed import load_seed_docs
 from auspex.kb.service import MODEL_LOOKUP_RETRY_SECONDS, KnowledgeService, seed_fingerprint
 from auspex.kb.types import KBDoc, KBUnavailable
@@ -83,7 +83,7 @@ class Router:
             if self.garbage_search:
                 return httpx.Response(200, text="<html>502 Bad Gateway</html>")
             query = body["query"]
-            if "multi_match" in query:
+            if "multi_match" in json.dumps(query):  # may be bool-wrapped (doc_types filter)
                 if self.fail_bm25:
                     return httpx.Response(500, json={"error": "bm25 boom"})
                 return httpx.Response(200, json=search_response(self.bm25_hits))
@@ -141,6 +141,39 @@ async def test_lookup_ids_empty_input_short_circuits():
     svc = service_with(router)
     assert await svc.lookup_ids(()) == []
     assert router.requests == []
+
+
+async def test_lookup_ids_requeries_ids_truncated_out_of_the_first_page():
+    # S8 review: term scores are BM25 — a many-chunk doc's id has lower idf,
+    # ALL its chunks sort last, and past `size` it rendered as a false
+    # "not in the knowledge base" miss. Zero-hit requested ids must get one
+    # narrow re-query before a miss is ever printed.
+    calls: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(json.loads(request.read()))
+        if len(calls) == 1:  # first page: the low-idf id got truncated out
+            return httpx.Response(
+                200, json=search_response([kb_hit("CVE-2021-44228#0", 10.0)])
+            )
+        return httpx.Response(200, json=search_response([kb_hit("CVE-2017-0144#0", 10.0)]))
+
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://opensearch.test"
+    )
+    svc = KnowledgeService("http://opensearch.test", client=client)
+    hits = await svc.lookup_ids(("CVE-2021-44228", "CVE-2017-0144"))
+    assert len(calls) == 2
+    second_terms = [c["term"]["ids"]["value"] for c in calls[1]["query"]["bool"]["should"]]
+    assert second_terms == ["CVE-2017-0144"]  # ONLY the truncated id
+    assert {h.doc_id for h in hits} == {"CVE-2021-44228", "CVE-2017-0144"}
+
+
+async def test_lookup_ids_unknown_id_is_an_honest_single_query_miss():
+    router = Router()  # id_hits stays empty
+    svc = service_with(router)
+    assert await svc.lookup_ids(("CVE-9999-99999",)) == []
+    assert len(router.requests) == 1  # all-missing ⇒ the re-query would be identical
 
 
 # ── search: ID bypass ──────────────────────────────────────────────────────
@@ -202,6 +235,27 @@ async def test_bm25_leg_pins_stopword_damping():
         if p == f"/{KNOWLEDGE_INDEX}/_search" and "multi_match" in b["query"]
     )
     assert bm25["minimum_should_match"] == "2<75%"
+
+
+async def test_doc_types_filter_applies_to_both_legs():
+    # Live-probed 2026-07-17 at ~2.5k chunks: unfiltered lucene kNN (k=10)
+    # MISSED the true best match (cosine 0.840) entirely — all ten neighbors
+    # were mid-0.5s CVE chunks — and off-corpus noise crossed the 0.6 floor.
+    # The doc_type filter makes lucene kNN exact over the small curated subset;
+    # BM25 gets the same filter so definitions never match CVE record prose.
+    router = Router()
+    svc = service_with(router)
+    await svc.search("what is lateral movement", doc_types=("concept", "technique"))
+    bodies = [b for _, p, b in router.requests if p == f"/{KNOWLEDGE_INDEX}/_search"]
+    assert len(bodies) == 2
+    for body in bodies:
+        rendered = json.dumps(body)
+        assert '"filter": {"terms": {"doc_type": ["concept", "technique"]}}' in rendered
+    # and without the param, no filter appears anywhere
+    router.requests.clear()
+    await svc.search("what is lateral movement")
+    for _, _, body in router.requests:
+        assert "filter" not in json.dumps(body)
 
 
 async def test_hybrid_excludes_embedding_from_source():
@@ -390,6 +444,12 @@ class BootstrapRouter:
         self.bulk_batches = 0
         self.seed_fp: str | None = None  # what PUT _mapping stamped
         self.cluster_setting: str | None = None  # operator-set value, if any
+        self.mapping_properties: dict = {}  # what GET _mapping reports as present
+        self.mapping_fields_added: list[str] = []  # what PUT _mapping upgraded
+        self.refresh_calls = 0
+        self.dbq_bodies: list[dict] = []  # _delete_by_query payloads seen
+        self.dbq_deleted = 0  # what DBQ responses report as deleted
+        self.ubq_bodies: list[dict] = []  # _update_by_query payloads seen
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         path, method = request.url.path, request.method
@@ -406,10 +466,24 @@ class BootstrapRouter:
         if path == f"/{KNOWLEDGE_INDEX}/_mapping" and method == "GET":
             meta = {"_meta": {"seed_fingerprint": self.seed_fp}} if self.seed_fp else {}
             return httpx.Response(
-                200, json={KNOWLEDGE_INDEX: {"mappings": {"dynamic": "strict", **meta}}}
+                200,
+                json={
+                    KNOWLEDGE_INDEX: {
+                        "mappings": {
+                            "dynamic": "strict",
+                            "properties": self.mapping_properties,
+                            **meta,
+                        }
+                    }
+                },
             )
         if path == f"/{KNOWLEDGE_INDEX}/_mapping" and method == "PUT":
-            self.seed_fp = json.loads(request.read())["_meta"]["seed_fingerprint"]
+            body = json.loads(request.read())
+            if "_meta" in body:
+                self.seed_fp = body["_meta"]["seed_fingerprint"]
+            else:  # additive field upgrade (S7)
+                self.mapping_fields_added.extend(sorted(body["properties"]))
+                self.mapping_properties.update(body["properties"])
             return httpx.Response(200, json={"acknowledged": True})
         if path == "/_plugins/_ml/models/_search":
             return httpx.Response(200, json=model_search_response(False))
@@ -428,6 +502,8 @@ class BootstrapRouter:
             return httpx.Response(200 if self.index_created else 404)
         if path == f"/{KNOWLEDGE_INDEX}" and method == "PUT":
             self.index_created = True
+            # a real index create carries the full mapping — mirror that
+            self.mapping_properties = dict(json.loads(request.read())["mappings"]["properties"])
             return httpx.Response(200, json={"acknowledged": True})
         if path.startswith(f"/_plugins/_ml/_predict/text_embedding/{MODEL_ID}"):
             body = json.loads(request.read())
@@ -439,7 +515,18 @@ class BootstrapRouter:
             )
         if path == "/_bulk":
             self.bulk_batches += 1
+            assert "refresh" not in dict(request.url.params)  # S8: refresh once, at the end
             return httpx.Response(200, json={"errors": False, "items": []})
+        if path == f"/{KNOWLEDGE_INDEX}/_refresh":
+            self.refresh_calls += 1
+            return httpx.Response(200, json={"_shards": {"failed": 0}})
+        if path == f"/{KNOWLEDGE_INDEX}/_delete_by_query":
+            self.dbq_bodies.append(json.loads(request.read()))
+            return httpx.Response(200, json={"deleted": self.dbq_deleted})
+        if path == f"/{KNOWLEDGE_INDEX}/_update_by_query":
+            body = json.loads(request.read())
+            self.ubq_bodies.append(body)
+            return httpx.Response(200, json={"updated": len(body["query"]["terms"]["doc_id"])})
         return httpx.Response(404, json={"error": f"unrouted {method} {path}"})
 
 
@@ -449,12 +536,15 @@ async def test_bootstrap_fresh_volume_runs_all_steps():
         transport=httpx.MockTransport(router), base_url="http://opensearch.test"
     )
     svc = KnowledgeService("http://opensearch.test", client=client)
+    assert svc.bootstrapped is False  # nothing has run yet
     summary = await svc.bootstrap()
+    assert svc.bootstrapped is True
     assert "registered + deployed" in summary
     assert "created" in summary
     assert "seeded" in summary
     assert router.model_registered and router.index_created
     assert router.bulk_batches >= 1
+    assert router.refresh_calls == 1  # once per ingest call, not per bulk batch
     # fingerprint stamps only AFTER the ingest — a crash mid-bulk must leave
     # no stamp, so the next boot re-ingests (self-heal)
     assert router.seed_fp is not None
@@ -469,10 +559,123 @@ def _real_seed_fingerprint() -> str:
     return seed_fingerprint([c for d in load_seed_docs() for c in chunk_doc(d)])
 
 
+async def test_ingest_docs_prunes_orphaned_chunks_of_shrunken_docs():
+    # S8 review: chunks upsert by _id, so a doc re-chunked to FEWER chunks
+    # left stale tail chunks rendering as current source text. Every ingest
+    # must sweep chunks under its doc_ids that it didn't just write.
+    router = BootstrapRouter()
+    router.index_created = True
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(router), base_url="http://opensearch.test"
+    )
+    svc = KnowledgeService("http://opensearch.test", client=client)
+    svc._model_id = MODEL_ID  # skip bootstrap; predict is routed
+    doc = KBDoc(
+        doc_id="CVE-2024-0001",
+        title="CVE-2024-0001",
+        content="Short description.",
+        doc_type="cve",
+        source="nvd",
+        source_ref="https://nvd.nist.gov/vuln/detail/CVE-2024-0001",
+        ids=("CVE-2024-0001",),
+    )
+    await svc.ingest_docs([doc])
+    assert len(router.dbq_bodies) == 1
+    q = router.dbq_bodies[0]["query"]["bool"]
+    assert q["filter"] == [{"terms": {"doc_id": ["CVE-2024-0001"]}}]
+    written = q["must_not"][0]["ids"]["values"]
+    assert written == ["CVE-2024-0001#0"]  # everything else under the doc dies
+    assert router.refresh_calls == 1
+
+
+async def test_apply_enrichment_updates_fields_in_place_by_doc_id():
+    # S8: the first-run refresh sets evidence fields on held docs via ONE
+    # update_by_query — no re-fetch, no re-embed (enrichment fields are not
+    # part of the embedded text).
+    router = BootstrapRouter()
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(router), base_url="http://opensearch.test"
+    )
+    svc = KnowledgeService("http://opensearch.test", client=client)
+    updates = {
+        "CVE-2021-44228": {"kev_listed": True, "kev_date_added": "2021-12-10"},
+        "CVE-2024-3400": {"kev_listed": True, "epss_score": 0.94},
+    }
+    assert await svc.apply_enrichment(updates) == 2
+    body = router.ubq_bodies[0]
+    assert body["query"] == {"terms": {"doc_id": ["CVE-2021-44228", "CVE-2024-3400"]}}
+    assert body["script"]["params"]["updates"] == updates
+    assert "ctx._source[e.getKey()]" in body["script"]["source"]
+    assert await svc.apply_enrichment({}) == 0  # no call for an empty map
+    assert len(router.ubq_bodies) == 1
+
+
+async def test_delete_docs_removes_all_chunks_by_doc_id():
+    router = BootstrapRouter()
+    router.dbq_deleted = 3
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(router), base_url="http://opensearch.test"
+    )
+    svc = KnowledgeService("http://opensearch.test", client=client)
+    assert await svc.delete_docs(["CVE-2020-9999"]) == 3
+    assert router.dbq_bodies == [{"query": {"terms": {"doc_id": ["CVE-2020-9999"]}}}]
+    assert await svc.delete_docs([]) == 0  # no call for an empty list
+    assert len(router.dbq_bodies) == 1
+
+
+def test_json_line_refuses_nan_and_infinity():
+    # S8 review: json.dumps default allow_nan emits bare NaN tokens that
+    # OpenSearch rejects — failing the whole bulk batch and wedging the feed
+    # watermark. The serializer must raise loudly instead.
+    from auspex.kb.service import _json_line
+
+    with pytest.raises(ValueError):
+        _json_line({"epss_score": float("nan")})
+    with pytest.raises(ValueError):
+        _json_line({"epss_score": float("inf")})
+
+
+async def test_failed_bootstrap_leaves_bootstrapped_false():
+    # S8 review: ingest gates cycles on `bootstrapped` — a swallowed bootstrap
+    # failure must not read as ready (a _bulk before _ensure_index would
+    # auto-create a poisoned dynamic-mapping index).
+    down = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(503)),
+        base_url="http://opensearch.test",
+    )
+    svc = KnowledgeService("http://opensearch.test", client=down)
+    summary = await svc.bootstrap()
+    assert "failed" in summary
+    assert svc.bootstrapped is False
+
+
+async def test_embed_resolves_model_lazily_after_failed_bootstrap():
+    # S8 review: embed() read self._model_id directly — a failed boot-time
+    # bootstrap bricked ingest until app restart even after OpenSearch
+    # recovered. It must lazy-resolve exactly like the neural search leg.
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/_plugins/_ml/models/_search":
+            return httpx.Response(200, json=model_search_response(True))
+        if request.url.path.startswith("/_plugins/_ml/_predict/text_embedding/"):
+            assert request.url.path.endswith(MODEL_ID)  # the lazily-found id
+            return httpx.Response(
+                200, json={"inference_results": [{"output": [{"data": [0.1, 0.2]}]}]}
+            )
+        return httpx.Response(404)
+
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://opensearch.test"
+    )
+    svc = KnowledgeService("http://opensearch.test", client=client)
+    # no bootstrap ever ran — the old code raised KBUnavailable here
+    assert await svc.embed(["some text"]) == [[0.1, 0.2]]
+
+
 async def test_bootstrap_warm_volume_no_ops():
     router = BootstrapRouter()
     router.index_created = True
     router.seed_fp = _real_seed_fingerprint()  # index already carries this seed
+    router.mapping_properties = dict(KNOWLEDGE_MAPPING["mappings"]["properties"])
     original_call = router.__call__
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -487,8 +690,43 @@ async def test_bootstrap_warm_volume_no_ops():
     summary = await svc.bootstrap()
     assert "already deployed" in summary
     assert "exists" in summary
+    assert "mapping current" in summary
     assert "seed present" in summary
     assert router.bulk_batches == 0  # matching fingerprint ⇒ no re-ingest
+    assert router.mapping_fields_added == []  # nothing missing ⇒ no upgrade PUT
+
+
+async def test_bootstrap_upgrades_s6_era_mapping_with_new_fields():
+    # S7: dynamic:strict rejects unknown fields at ingest — a volume whose
+    # index predates the KEV/EPSS fields must get an additive-only upgrade.
+    router = BootstrapRouter()
+    router.index_created = True
+    router.seed_fp = _real_seed_fingerprint()
+    router.mapping_properties = {
+        k: v
+        for k, v in KNOWLEDGE_MAPPING["mappings"]["properties"].items()
+        if not (k.startswith("kev_") or k.startswith("epss_"))
+    }
+    original_call = router.__call__
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/_plugins/_ml/models/_search":
+            return httpx.Response(200, json=model_search_response(True))
+        return original_call(request)
+
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://opensearch.test"
+    )
+    summary = await KnowledgeService("http://opensearch.test", client=client).bootstrap()
+    assert "mapping upgraded (+6 fields)" in summary
+    assert router.mapping_fields_added == [
+        "epss_date",
+        "epss_percentile",
+        "epss_score",
+        "kev_date_added",
+        "kev_listed",
+        "kev_ransomware",
+    ]
 
 
 async def test_bootstrap_reingests_when_seed_content_changed():

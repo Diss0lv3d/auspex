@@ -17,12 +17,19 @@ from auspex.kb.types import KBDoc
 _CVSS_KEYS = ("cvssMetricV31", "cvssMetricV30", "cvssMetricV2")
 
 
+MAX_DESCRIPTION_CHARS = 20_000  # untrusted feed text: bound the chunk fan-out
+# (chunking caps chunk SIZE, never count — a poisoned multi-MB description
+# would embed and index thousands of chunks; real NVD descriptions are <4k).
+
+
 def nvd_to_doc(cve: dict) -> KBDoc:
     """One NVD `vulnerabilities[i].cve` object → KBDoc."""
     cve_id = cve["id"].upper()
     description = next(
         (d["value"] for d in cve.get("descriptions", ()) if d.get("lang") == "en"), ""
     )
+    if len(description) > MAX_DESCRIPTION_CHARS:
+        description = description[:MAX_DESCRIPTION_CHARS] + " […]"
     severity = ""
     score: float | None = None
     metrics = cve.get("metrics", {})

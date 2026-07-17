@@ -134,6 +134,7 @@ class FakeKnowledgeService:
         self.lookup_calls: list[tuple] = []
         self.lookup_topks: list[int] = []  # top_k per lookup_ids call, in order
         self.search_calls: list[str] = []
+        self.search_doc_types: list[tuple[str, ...] | None] = []
 
     def _answer(self) -> list:
         if self.unavailable:
@@ -152,8 +153,11 @@ class FakeKnowledgeService:
         self.lookup_topks.append(top_k)
         return self._answer()
 
-    async def search(self, query: str, *, top_k: int = 5) -> list:
+    async def search(
+        self, query: str, *, top_k: int = 5, doc_types: tuple[str, ...] | None = None
+    ) -> list:
         self.search_calls.append(query)
+        self.search_doc_types.append(doc_types)
         return self._answer()
 
     async def aclose(self) -> None:

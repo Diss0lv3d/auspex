@@ -53,6 +53,13 @@ class Settings(BaseSettings):
     # default is on — bootstrap is idempotent and survives a cold cluster.
     kb_enabled: bool = True
 
+    # --- Feed ingestion (S7): NVD delta + CISA KEV + FIRST EPSS into the KB.
+    # Inert unless the KB is also enabled. Tests/host runs pin
+    # INGEST_ENABLED=false (hermetic — the scheduler would otherwise hit live
+    # feeds); the scheduler is mockable at app.state.ingest.
+    ingest_enabled: bool = True
+    nvd_api_key: str = ""  # optional; raises NVD quota 5→50 req/30 s (probed)
+
     # --- Auth ---
     secret_key: str = ""  # JWT signing key; required in prod, ephemeral fallback in dev
     jwt_ttl_minutes: int = 720

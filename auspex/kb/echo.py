@@ -20,10 +20,13 @@ KB_UNAVAILABLE_COPY = (
 
 CVE_MISS_LINE = "not in the knowledge base yet — curated feeds grow over time"
 
+# "no curated definition", NOT "isn't in the knowledge base": definitions
+# search only curated doc_types, and the term may well appear in ingested CVE
+# prose — claiming KB-wide absence would be a lie (S8 review).
 DEFINITION_MISS_COPY = (
-    "That term isn't in the knowledge base yet — curated content grows over "
-    'time. Ask me to reason about it in context — e.g. "explain how this '
-    "shows up in an investigation\" — and I'll take the deep path."
+    "I don't have a curated definition for that term yet — curated content "
+    'grows over time. Ask me to reason about it in context — e.g. "explain '
+    "how this shows up in an investigation\" — and I'll take the deep path."
 )
 
 _SOURCE_LABELS = {
@@ -46,6 +49,53 @@ def _chunk_order(hit: KBHit) -> int:
         return 0
 
 
+def _fmt_epss_score(score: float) -> str:
+    """2dp, but rounding must never manufacture a boundary claim: most real
+    EPSS scores are <0.005 and rendered 'EPSS 0.00' — a zero the system does
+    not hold — and ≥0.995 rendered '1.00' — certainty it does not hold
+    (S8 review)."""
+    out = f"{score:.2f}"
+    if out == "0.00" and score > 0:
+        return "<0.01"
+    if out == "1.00" and score < 1:
+        return ">0.99"
+    return out
+
+
+def _fmt_epss_percentile(percentile: float) -> str:
+    out = f"{percentile * 100:.1f}"
+    if out == "0.0" and percentile > 0:
+        return "<0.1"
+    if out == "100.0" and percentile < 1:
+        return ">99.9"
+    return out
+
+
+def _exploitation_lines(hit: KBHit) -> list[str]:
+    """KEV/EPSS enrichment, rendered only from held evidence (S7). No KEV row
+    ⇒ no exploitation claim either way; no EPSS row ⇒ no likelihood number.
+    'Unknown' ransomware use renders as nothing — absence of evidence.
+    KEV presence is its own field (S8 review: keying it on dateAdded rendered
+    held ransomware evidence as silence when the date was absent); the date
+    check keeps docs enriched before kev_listed existed rendering."""
+    lines: list[str] = []
+    if hit.kev_listed or hit.kev_date_added:
+        line = "  Known exploited — in CISA KEV"
+        if hit.kev_date_added:
+            line += f" since {hit.kev_date_added}"
+        if hit.kev_ransomware:
+            line += "; used in ransomware campaigns"
+        lines.append(line + ".")
+    if hit.epss_score is not None:
+        line = f"  EPSS {_fmt_epss_score(hit.epss_score)}"
+        if hit.epss_percentile is not None:
+            line += f" — {_fmt_epss_percentile(hit.epss_percentile)}th percentile"
+        if hit.epss_date:
+            line += f" (as of {hit.epss_date})"
+        lines.append(line + ".")
+    return lines
+
+
 def _cve_block(cve_id: str, hits: list[KBHit]) -> str:
     if not hits:
         return f"- {cve_id} — {CVE_MISS_LINE}"
@@ -57,7 +107,8 @@ def _cve_block(cve_id: str, hits: list[KBHit]) -> str:
             header += f" (CVSS {first.cvss_score})"
     elif first.cvss_score is not None:
         header += f" — CVSS {first.cvss_score}"
-    body = "\n".join(f"  {h.text}" for h in hits)
+    body_lines = [f"  {h.text}" for h in hits] + _exploitation_lines(first)
+    body = "\n".join(body_lines)
     trailer = f"  Source: {_source_label(first)}"
     if first.source_ref:
         trailer += f" · {first.source_ref}"

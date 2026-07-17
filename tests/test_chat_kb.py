@@ -197,6 +197,11 @@ def test_definition_with_active_kb_streams_the_kb_answer(client):
         assert frames[-1]["done"]["path"] == "shortcut"
         assert fake_llm.stream_calls == []
         assert fake_kb.search_calls == ["what is lateral movement"]
+        # Definitions retrieve from curated docs only — never CVE record chunks
+        # (live-caught 2026-07-17: at ~2.5k chunks the unfiltered kNN answered
+        # "what is credential dumping" with a random CVE and off-corpus queries
+        # crossed the floor — recall AND honesty depend on this filter).
+        assert fake_kb.search_doc_types == [("concept", "technique")]
         assert content.startswith("Lateral movement — from the knowledge base:")
         assert "Source: Auspex seed corpus" in content
     finally:

@@ -95,6 +95,7 @@ class KnowledgeService:
         self._clock = clock
         self._model_id: str | None = None
         self._model_lookup_failed_at: float | None = None
+        self._bootstrapped = False
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "KnowledgeService":
@@ -106,6 +107,14 @@ class KnowledgeService:
     @property
     def active(self) -> bool:
         return self._enabled
+
+    @property
+    def bootstrapped(self) -> bool:
+        """True once a bootstrap fully succeeded (or the KB is disabled — no
+        work pending). Ingest gates cycles on this: writing through _bulk
+        before _ensure_index ran would auto-create a dynamic-mapping index
+        that later boots accept as healthy forever (S8 review)."""
+        return self._bootstrapped
 
     def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -129,6 +138,7 @@ class KnowledgeService:
         calls this and logs the summary — a failure leaves the service up
         with the breaker/deferred rail handling requests honestly."""
         if not self._enabled:
+            self._bootstrapped = True  # nothing pending — don't gate ingest forever
             return "kb disabled"
         steps: list[str] = []
         try:
@@ -136,8 +146,10 @@ class KnowledgeService:
             self._model_id, model_step = await self._ensure_model()
             steps.append(model_step)
             steps.append(await self._ensure_index())
+            steps.append(await self._ensure_mapping_fields())
             steps.append(await self._ensure_seed())
             self._breaker.record_success()
+            self._bootstrapped = True
             return "; ".join(steps)
         except Exception as err:  # noqa: BLE001 — startup must survive anything
             logger.exception("kb bootstrap failed")
@@ -250,6 +262,28 @@ class KnowledgeService:
         resp.raise_for_status()
         return f"index {KNOWLEDGE_INDEX} created"
 
+    async def _ensure_mapping_fields(self) -> str:
+        """Additive mapping upgrade for indexes created before a field existed.
+        dynamic:strict rejects unknown fields at ingest, so a volume that
+        predates S7's KEV/EPSS fields would fail every ingest without this.
+        Only ADDS missing properties — never mutates existing ones (OpenSearch
+        forbids in-place type changes anyway)."""
+        client = self._get_client()
+        resp = await client.get(f"/{KNOWLEDGE_INDEX}/_mapping")
+        resp.raise_for_status()
+        have = resp.json()[KNOWLEDGE_INDEX]["mappings"].get("properties", {})
+        wanted: dict = KNOWLEDGE_MAPPING["mappings"]["properties"]
+        missing = {name: spec for name, spec in wanted.items() if name not in have}
+        if not missing:
+            return "mapping current"
+        resp = await client.put(
+            f"/{KNOWLEDGE_INDEX}/_mapping",
+            json={"properties": missing},
+            timeout=BOOTSTRAP_CALL_TIMEOUT_SECONDS,
+        )
+        resp.raise_for_status()
+        return f"mapping upgraded (+{len(missing)} fields)"
+
     async def _ensure_seed(self) -> str:
         docs = load_seed_docs()
         chunks = [c for d in docs for c in chunk_doc(d)]
@@ -279,10 +313,14 @@ class KnowledgeService:
     # ── Ingestion (bootstrap now; S7 feeds call this too) ────────────────
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        if self._model_id is None:
+        # Resolve lazily, exactly like the neural search leg — a bootstrap
+        # that failed at boot must not brick ingest until app restart
+        # (S8 review: only _neural had the lazy heal).
+        model_id = await self._resolve_model_id()
+        if model_id is None:
             raise KBUnavailable("embedding model not resolved")
         resp = await self._get_client().post(
-            f"/_plugins/_ml/_predict/text_embedding/{self._model_id}",
+            f"/_plugins/_ml/_predict/text_embedding/{model_id}",
             json={
                 "text_docs": texts,
                 "return_number": True,
@@ -293,6 +331,71 @@ class KnowledgeService:
         resp.raise_for_status()
         results = resp.json()["inference_results"]
         return [r["output"][0]["data"] for r in results]
+
+    async def delete_docs(self, doc_ids: list[str]) -> int:
+        """Remove every chunk of the given doc ids. Used when NVD REJECTS a
+        CVE the KB holds — keeping the pre-rejection text would render
+        withdrawn evidence as current (S8 review). Deleting ids never held
+        is a free no-op."""
+        if not doc_ids:
+            return 0
+        resp = await self._get_client().post(
+            f"/{KNOWLEDGE_INDEX}/_delete_by_query",
+            json={"query": {"terms": {"doc_id": doc_ids}}},
+            params={"conflicts": "proceed", "refresh": "true"},
+            timeout=BOOTSTRAP_CALL_TIMEOUT_SECONDS,
+        )
+        resp.raise_for_status()
+        return int(resp.json().get("deleted", 0))
+
+    async def _prune_orphan_chunks(self, doc_ids: list[str], keep_chunk_ids: list[str]) -> None:
+        """Chunks upsert by _id, so a doc whose new content chunks to FEWER
+        chunks leaves stale tail chunks behind — rendered as current source
+        text under the same doc (S8 review). After a write, anything under
+        these doc_ids that isn't a just-written chunk id is an orphan."""
+        resp = await self._get_client().post(
+            f"/{KNOWLEDGE_INDEX}/_delete_by_query",
+            json={
+                "query": {
+                    "bool": {
+                        "filter": [{"terms": {"doc_id": doc_ids}}],
+                        "must_not": [{"ids": {"values": keep_chunk_ids}}],
+                    }
+                }
+            },
+            params={"conflicts": "proceed"},
+            timeout=BOOTSTRAP_CALL_TIMEOUT_SECONDS,
+        )
+        resp.raise_for_status()
+
+    async def apply_enrichment(self, updates: dict[str, dict]) -> int:
+        """Set evidence fields on every chunk of the given doc ids WITHOUT
+        re-fetching or re-embedding (update_by_query; enrichment fields are
+        not part of the embedded text). The S7 first-run refresh re-fetched
+        one NVD single per held KEV id — up to ~1,647 paced fetches in one
+        all-or-nothing pass (S8 review); one UBQ is seconds and idempotent."""
+        if not updates:
+            return 0
+        body = {
+            "query": {"terms": {"doc_id": list(updates)}},
+            "script": {
+                "lang": "painless",
+                "source": (
+                    "def u = params.updates[ctx._source.doc_id];"
+                    "if (u != null) { for (e in u.entrySet()) {"
+                    " ctx._source[e.getKey()] = e.getValue(); } }"
+                ),
+                "params": {"updates": updates},
+            },
+        }
+        resp = await self._get_client().post(
+            f"/{KNOWLEDGE_INDEX}/_update_by_query",
+            json=body,
+            params={"conflicts": "proceed", "refresh": "true"},
+            timeout=BOOTSTRAP_CALL_TIMEOUT_SECONDS,
+        )
+        resp.raise_for_status()
+        return int(resp.json().get("updated", 0))
 
     async def ingest_docs(self, docs: list[KBDoc]) -> int:
         """Chunk, embed (batched), bulk-index. Returns chunk count."""
@@ -314,7 +417,6 @@ class KnowledgeService:
                 "/_bulk",
                 content="\n".join(lines) + "\n",
                 headers={"Content-Type": "application/x-ndjson"},
-                params={"refresh": "true"},
                 timeout=BOOTSTRAP_CALL_TIMEOUT_SECONDS,
             )
             resp.raise_for_status()
@@ -327,39 +429,78 @@ class KnowledgeService:
                 ]
                 raise RuntimeError(f"bulk ingest errors: {failed[:3]}")
             total += len(batch)
+        if total:
+            await self._prune_orphan_chunks(
+                [d.doc_id for d in docs], [c.chunk_id for c in chunks]
+            )
+            # One refresh per ingest call, not one per 16-chunk bulk batch — a
+            # catch-up window is thousands of batches and per-batch forced
+            # refreshes churn segments on the 1 GiB single node (S8 review).
+            # Nothing reads-after-write WITHIN a cycle; searches need the data
+            # visible once the call completes.
+            resp = await self._get_client().post(
+                f"/{KNOWLEDGE_INDEX}/_refresh", timeout=BOOTSTRAP_CALL_TIMEOUT_SECONDS
+            )
+            resp.raise_for_status()
         return total
 
     # ── Retrieval ─────────────────────────────────────────────────────────
 
     async def lookup_ids(self, ids: tuple[str, ...], *, top_k: int = 8) -> list[KBHit]:
         """Exact-ID rail: term (boosted) + technique-parent prefix on `ids`.
-        No CVE prefix clauses ever — CVE-2021-4 must not match CVE-2021-44228."""
+        No CVE prefix clauses ever — CVE-2021-4 must not match CVE-2021-44228.
+
+        Requested ids with zero hits get ONE narrow re-query: term scores are
+        BM25, so a many-chunk doc's id has lower idf and ALL its chunks sort
+        last — a held doc could fall entirely past `size` and render as the
+        false miss the cap copy was built to prevent (S8 review). A genuinely
+        unknown id stays an honest miss (all-missing skips the identical
+        re-query)."""
         if not ids:
             return []
+        normalized = tuple(i.upper() for i in ids)
+        hits = await self._search_call(self._ids_body(normalized, top_k))
+        covered = {i for h in hits for i in h.ids}
+        missing = tuple(i for i in normalized if i not in covered)
+        if missing and len(missing) < len(normalized):
+            hits += await self._search_call(
+                self._ids_body(missing, max(top_k, 4 * len(missing)))
+            )
+        return hits
+
+    def _ids_body(self, normalized_ids: tuple[str, ...], size: int) -> dict:
         should: list[dict] = []
-        for id_ in ids:
-            normalized = id_.upper()
-            should.append({"term": {"ids": {"value": normalized, "boost": 10}}})
-            if _is_parent_technique(normalized):
-                should.append({"prefix": {"ids": {"value": f"{normalized}.", "boost": 2}}})
-        body = {
-            "size": top_k,
+        for id_ in normalized_ids:
+            should.append({"term": {"ids": {"value": id_, "boost": 10}}})
+            if _is_parent_technique(id_):
+                should.append({"prefix": {"ids": {"value": f"{id_}.", "boost": 2}}})
+        return {
+            "size": size,
             "_source": {"excludes": SOURCE_EXCLUDES},
             "query": {"bool": {"should": should, "minimum_should_match": 1}},
             "sort": [{"_score": "desc"}, {"chunk_index": "asc"}],
         }
-        return await self._search_call(body)
 
-    async def search(self, query: str, *, top_k: int = 5) -> list[KBHit]:
+    async def search(
+        self, query: str, *, top_k: int = 5, doc_types: tuple[str, ...] | None = None
+    ) -> list[KBHit]:
         """The retrieval front door. ID-dominant → ID rail only (an unknown ID
         is an honest miss — no fuzzy-prose fallback; SARA's BM25 fallback
         existed for its prefixed doc-id zoo, which our `ids` field replaces);
         otherwise hybrid BM25+neural RRF with a regime-aware floor.
-        Raises KBUnavailable when the KB can't answer."""
+        Raises KBUnavailable when the KB can't answer.
+
+        `doc_types` filters BOTH legs. This is load-bearing for recall, not
+        just relevance (live-probed 2026-07-17 at ~2.5k chunks): unfiltered
+        lucene kNN at k=10 returned ten mid-0.5s CVE chunks while the true
+        best match (cosine 0.840) wasn't in the list at all — HNSW recall
+        collapses at small k on a grown graph — and two noise chunks crossed
+        the 0.6 floor for an off-corpus query (max-of-N cosine grows with N).
+        A filter over a small doc_type subset makes lucene kNN exact."""
         if is_id_query(query):
             return await self.lookup_ids(extract_kb_ids(query), top_k=top_k)
-        bm25_task = self._bm25(query, top_k * 2)
-        neural_task = self._neural(query, top_k * 2)
+        bm25_task = self._bm25(query, top_k * 2, doc_types)
+        neural_task = self._neural(query, top_k * 2, doc_types)
         bm25, neural = await asyncio.gather(bm25_task, neural_task, return_exceptions=True)
         if isinstance(bm25, BaseException) and isinstance(neural, BaseException):
             # Each leg already recorded its own breaker failure in _search_call —
@@ -382,36 +523,44 @@ class KnowledgeService:
             return apply_floor(neural[:top_k])
         return apply_floor(rrf_fuse(bm25, neural, top_k=top_k))
 
-    async def _bm25(self, query: str, size: int) -> list[KBHit]:
-        return await self._search_call(
-            {
-                "size": size,
-                "_source": {"excludes": SOURCE_EXCLUDES},
-                "query": {
-                    "multi_match": {
-                        "query": query,
-                        "fields": ["content^3", "title^2"],
-                        "type": "best_fields",
-                        "fuzziness": "AUTO",
-                        # Damp stopword-only matches ("what is …" hits every
-                        # doc): >2 terms ⇒ 75% must match.
-                        "minimum_should_match": "2<75%",
-                    }
-                },
+    async def _bm25(
+        self, query: str, size: int, doc_types: tuple[str, ...] | None = None
+    ) -> list[KBHit]:
+        match: dict = {
+            "multi_match": {
+                "query": query,
+                "fields": ["content^3", "title^2"],
+                "type": "best_fields",
+                "fuzziness": "AUTO",
+                # Damp stopword-only matches ("what is …" hits every
+                # doc): >2 terms ⇒ 75% must match.
+                "minimum_should_match": "2<75%",
             }
+        }
+        if doc_types:
+            match = {"bool": {"must": match, "filter": {"terms": {"doc_type": list(doc_types)}}}}
+        return await self._search_call(
+            {"size": size, "_source": {"excludes": SOURCE_EXCLUDES}, "query": match}
         )
 
-    async def _neural(self, query: str, size: int) -> list[KBHit]:
+    async def _neural(
+        self, query: str, size: int, doc_types: tuple[str, ...] | None = None
+    ) -> list[KBHit]:
         model_id = await self._resolve_model_id()
         if model_id is None:
             raise KBUnavailable("embedding model not available")
+        embedding: dict = {"query_text": query, "model_id": model_id, "k": size}
+        if doc_types:
+            # lucene kNN evaluates the filter DURING traversal and goes exact
+            # on small subsets — this restores recall, it doesn't just trim
+            # (probe 2026-07-17: filtered top = cosine 0.840; unfiltered k=10
+            # missed that chunk entirely).
+            embedding["filter"] = {"terms": {"doc_type": list(doc_types)}}
         hits = await self._search_call(
             {
                 "size": size,
                 "_source": {"excludes": SOURCE_EXCLUDES},
-                "query": {
-                    "neural": {"embedding": {"query_text": query, "model_id": model_id, "k": size}}
-                },
+                "query": {"neural": {"embedding": embedding}},
             }
         )
         # kNN returns k neighbors for ANY query — cut noise before fusion so an
@@ -442,6 +591,53 @@ class KnowledgeService:
         self._model_id = found[0]
         self._model_lookup_failed_at = None
         return self._model_id
+
+    async def list_cve_ids(self, *, max_ids: int = 10_000) -> list[str]:
+        """Distinct CVE doc ids currently in the KB (terms agg on the keyword
+        doc_id). S7 ingestion intersects this with the KEV catalog on its
+        first run. Same failure semantics as search: KBUnavailable, never a 500."""
+        if not self._enabled:
+            raise KBUnavailable(
+                "knowledge base disabled", public="it isn't enabled in this deployment"
+            )
+        if not self._breaker.allow():
+            raise KBUnavailable(
+                "knowledge base temporarily unavailable (breaker open)",
+                public="it's paused briefly after repeated failures and retries on its own",
+            )
+        body = {
+            "size": 0,
+            "query": {"term": {"doc_type": "cve"}},
+            "aggs": {"cve_ids": {"terms": {"field": "doc_id", "size": max_ids}}},
+        }
+        try:
+            resp = await self._get_client().post(f"/{KNOWLEDGE_INDEX}/_search", json=body)
+            resp.raise_for_status()
+            agg = resp.json()["aggregations"]["cve_ids"]
+            ids = [b["key"] for b in agg["buckets"]]
+            if agg.get("sum_other_doc_count", 0):
+                # terms aggs truncate SILENTLY — at ~770 docs/day the corpus
+                # reaches max_ids within weeks; callers (first-run refresh)
+                # would quietly miss the tail (S8 review).
+                logger.warning(
+                    "list_cve_ids truncated at %d buckets (%s chunks uncounted)",
+                    max_ids,
+                    agg["sum_other_doc_count"],
+                )
+        except httpx.HTTPError as err:
+            self._breaker.record_failure()
+            raise KBUnavailable(
+                f"knowledge base unreachable: {err.__class__.__name__}",
+                public="it was unreachable",
+            ) from err
+        except (ValueError, KeyError, TypeError) as err:
+            self._breaker.record_failure()
+            raise KBUnavailable(
+                f"knowledge base answered unusably: {err.__class__.__name__}",
+                public="it returned an unusable response",
+            ) from err
+        self._breaker.record_success()
+        return ids
 
     async def _search_call(self, body: dict) -> list[KBHit]:
         if not self._enabled:
@@ -495,6 +691,12 @@ def _chunk_payload(chunk: KBChunk) -> dict:
         "source_ref": chunk.doc.source_ref,
         "severity": chunk.doc.severity,
         "cvss_score": chunk.doc.cvss_score,
+        "kev_listed": chunk.doc.kev_listed,
+        "kev_date_added": chunk.doc.kev_date_added,
+        "kev_ransomware": chunk.doc.kev_ransomware,
+        "epss_score": chunk.doc.epss_score,
+        "epss_percentile": chunk.doc.epss_percentile,
+        "epss_date": chunk.doc.epss_date,
         "workspace_id": "",
     }
 
@@ -523,8 +725,18 @@ def _hit_to_kbhit(hit: dict) -> KBHit:
         severity=src.get("severity", ""),
         cvss_score=src.get("cvss_score"),
         score=float(hit.get("_score") or 0.0),
+        kev_listed=bool(src.get("kev_listed")),
+        kev_date_added=src.get("kev_date_added") or "",
+        kev_ransomware=bool(src.get("kev_ransomware")),
+        epss_score=src.get("epss_score"),
+        epss_percentile=src.get("epss_percentile"),
+        epss_date=src.get("epss_date") or "",
     )
 
 
 def _json_line(obj: dict) -> str:
-    return json.dumps(obj, ensure_ascii=False)
+    # allow_nan=False: a NaN/Infinity float would serialize as a bare token
+    # OpenSearch rejects — failing the WHOLE bulk batch and wedging the feed
+    # watermark on the same window forever (S8 review). Raising here names
+    # the real problem instead.
+    return json.dumps(obj, ensure_ascii=False, allow_nan=False)
