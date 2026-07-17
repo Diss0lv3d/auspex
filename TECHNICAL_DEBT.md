@@ -68,11 +68,18 @@ one live query (0.586) on a 14-chunk corpus. A bigger corpus or oddly-phrased bu
 legitimate queries could false-miss (annoying, self-healing via the deep path) or a
 semantically-adjacent-but-wrong doc could clear 0.6 (worse). Errors currently bias
 toward the honest miss, per the S4 rule.
+**S7 spot-check (2026-07-17, ~2 500 chunks) CONFIRMED both failure modes for
+UNFILTERED search** — plus an HNSW recall collapse at k=10 the original entry
+didn't predict (docs/probes/2026-07-17-s7-ingest-live.md). The definition
+shortcut is now structurally safe (doc_types filter ⇒ exact kNN over the
+curated subset), so no user-facing path currently depends on the unfiltered
+floor — but S8's free-text-over-CVEs search will.
 **Why deferred:** a defensible threshold needs a labeled query set, which needs the
-real S7/S8 corpora.
-**Path to fix:** after S7/S8 ingestion, build a small labeled relevant/irrelevant
-query fixture set from live probes and calibrate (consider per-doc_type floors);
-regression-pin the chosen operating point.
+real S7/S8 corpora (now materializing).
+**Path to fix (S8, before any unfiltered free-text surface ships):** labeled
+relevant/irrelevant query fixtures from live probes; calibrate per-doc_type
+floors AND neural-leg k/ef sizing together (recall and floor interact);
+regression-pin the operating point.
 
 ## ~~TD-004 (S5) — URLhaus / ThreatFox / AbuseIPDB happy paths are docs-coded, not probe-verified~~ RESOLVED same day
 **Resolved 2026-07-16 (evening):** Burhan registered both keys; all three happy paths
