@@ -83,7 +83,7 @@ class Router:
             if self.garbage_search:
                 return httpx.Response(200, text="<html>502 Bad Gateway</html>")
             query = body["query"]
-            if "multi_match" in query:
+            if "multi_match" in json.dumps(query):  # may be bool-wrapped (doc_types filter)
                 if self.fail_bm25:
                     return httpx.Response(500, json={"error": "bm25 boom"})
                 return httpx.Response(200, json=search_response(self.bm25_hits))
@@ -202,6 +202,27 @@ async def test_bm25_leg_pins_stopword_damping():
         if p == f"/{KNOWLEDGE_INDEX}/_search" and "multi_match" in b["query"]
     )
     assert bm25["minimum_should_match"] == "2<75%"
+
+
+async def test_doc_types_filter_applies_to_both_legs():
+    # Live-probed 2026-07-17 at ~2.5k chunks: unfiltered lucene kNN (k=10)
+    # MISSED the true best match (cosine 0.840) entirely — all ten neighbors
+    # were mid-0.5s CVE chunks — and off-corpus noise crossed the 0.6 floor.
+    # The doc_type filter makes lucene kNN exact over the small curated subset;
+    # BM25 gets the same filter so definitions never match CVE record prose.
+    router = Router()
+    svc = service_with(router)
+    await svc.search("what is lateral movement", doc_types=("concept", "technique"))
+    bodies = [b for _, p, b in router.requests if p == f"/{KNOWLEDGE_INDEX}/_search"]
+    assert len(bodies) == 2
+    for body in bodies:
+        rendered = json.dumps(body)
+        assert '"filter": {"terms": {"doc_type": ["concept", "technique"]}}' in rendered
+    # and without the param, no filter appears anywhere
+    router.requests.clear()
+    await svc.search("what is lateral movement")
+    for _, _, body in router.requests:
+        assert "filter" not in json.dumps(body)
 
 
 async def test_hybrid_excludes_embedding_from_source():

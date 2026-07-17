@@ -373,16 +373,26 @@ class KnowledgeService:
         }
         return await self._search_call(body)
 
-    async def search(self, query: str, *, top_k: int = 5) -> list[KBHit]:
+    async def search(
+        self, query: str, *, top_k: int = 5, doc_types: tuple[str, ...] | None = None
+    ) -> list[KBHit]:
         """The retrieval front door. ID-dominant → ID rail only (an unknown ID
         is an honest miss — no fuzzy-prose fallback; SARA's BM25 fallback
         existed for its prefixed doc-id zoo, which our `ids` field replaces);
         otherwise hybrid BM25+neural RRF with a regime-aware floor.
-        Raises KBUnavailable when the KB can't answer."""
+        Raises KBUnavailable when the KB can't answer.
+
+        `doc_types` filters BOTH legs. This is load-bearing for recall, not
+        just relevance (live-probed 2026-07-17 at ~2.5k chunks): unfiltered
+        lucene kNN at k=10 returned ten mid-0.5s CVE chunks while the true
+        best match (cosine 0.840) wasn't in the list at all — HNSW recall
+        collapses at small k on a grown graph — and two noise chunks crossed
+        the 0.6 floor for an off-corpus query (max-of-N cosine grows with N).
+        A filter over a small doc_type subset makes lucene kNN exact."""
         if is_id_query(query):
             return await self.lookup_ids(extract_kb_ids(query), top_k=top_k)
-        bm25_task = self._bm25(query, top_k * 2)
-        neural_task = self._neural(query, top_k * 2)
+        bm25_task = self._bm25(query, top_k * 2, doc_types)
+        neural_task = self._neural(query, top_k * 2, doc_types)
         bm25, neural = await asyncio.gather(bm25_task, neural_task, return_exceptions=True)
         if isinstance(bm25, BaseException) and isinstance(neural, BaseException):
             # Each leg already recorded its own breaker failure in _search_call —
@@ -405,36 +415,44 @@ class KnowledgeService:
             return apply_floor(neural[:top_k])
         return apply_floor(rrf_fuse(bm25, neural, top_k=top_k))
 
-    async def _bm25(self, query: str, size: int) -> list[KBHit]:
-        return await self._search_call(
-            {
-                "size": size,
-                "_source": {"excludes": SOURCE_EXCLUDES},
-                "query": {
-                    "multi_match": {
-                        "query": query,
-                        "fields": ["content^3", "title^2"],
-                        "type": "best_fields",
-                        "fuzziness": "AUTO",
-                        # Damp stopword-only matches ("what is …" hits every
-                        # doc): >2 terms ⇒ 75% must match.
-                        "minimum_should_match": "2<75%",
-                    }
-                },
+    async def _bm25(
+        self, query: str, size: int, doc_types: tuple[str, ...] | None = None
+    ) -> list[KBHit]:
+        match: dict = {
+            "multi_match": {
+                "query": query,
+                "fields": ["content^3", "title^2"],
+                "type": "best_fields",
+                "fuzziness": "AUTO",
+                # Damp stopword-only matches ("what is …" hits every
+                # doc): >2 terms ⇒ 75% must match.
+                "minimum_should_match": "2<75%",
             }
+        }
+        if doc_types:
+            match = {"bool": {"must": match, "filter": {"terms": {"doc_type": list(doc_types)}}}}
+        return await self._search_call(
+            {"size": size, "_source": {"excludes": SOURCE_EXCLUDES}, "query": match}
         )
 
-    async def _neural(self, query: str, size: int) -> list[KBHit]:
+    async def _neural(
+        self, query: str, size: int, doc_types: tuple[str, ...] | None = None
+    ) -> list[KBHit]:
         model_id = await self._resolve_model_id()
         if model_id is None:
             raise KBUnavailable("embedding model not available")
+        embedding: dict = {"query_text": query, "model_id": model_id, "k": size}
+        if doc_types:
+            # lucene kNN evaluates the filter DURING traversal and goes exact
+            # on small subsets — this restores recall, it doesn't just trim
+            # (probe 2026-07-17: filtered top = cosine 0.840; unfiltered k=10
+            # missed that chunk entirely).
+            embedding["filter"] = {"terms": {"doc_type": list(doc_types)}}
         hits = await self._search_call(
             {
                 "size": size,
                 "_source": {"excludes": SOURCE_EXCLUDES},
-                "query": {
-                    "neural": {"embedding": {"query_text": query, "model_id": model_id, "k": size}}
-                },
+                "query": {"neural": {"embedding": embedding}},
             }
         )
         # kNN returns k neighbors for ANY query — cut noise before fusion so an
