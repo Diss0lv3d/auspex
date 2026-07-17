@@ -29,6 +29,7 @@ packages = [
     "auspex.classify",
     "auspex.enrich",
     "auspex.enrich.providers",
+    "auspex.ingest",
     "auspex.kb",
 ]
 
