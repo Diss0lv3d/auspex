@@ -177,10 +177,14 @@ def test_cve_lookup_inactive_kb_keeps_the_deferred_copy(client):
     """Host runs pin KB_ENABLED=false — the S4 static copy must still stand."""
     assert client.app.state.kb.active is False  # the premise, explicit
     _use(client.app, StreamingFakeLLMClient([]))
-    content, _ = _content(_post(client, "CVE-2021-44228"))
-    assert "deferred" in content
-    assert "CVE-2021-44228" in content
-    client.app.dependency_overrides.clear()
+    try:
+        content, _ = _content(_post(client, "CVE-2021-44228"))
+        assert "deferred" in content
+        assert "CVE-2021-44228" in content
+    finally:
+        # the app is session-scoped: a failed assert must not leak the LLM
+        # override into every later test (S6 review)
+        client.app.dependency_overrides.clear()
 
 
 def test_definition_with_active_kb_streams_the_kb_answer(client):
@@ -227,6 +231,8 @@ def test_definition_kb_down_says_didnt_answer(client):
 def test_definition_inactive_kb_keeps_the_deferred_copy(client):
     assert client.app.state.kb.active is False
     _use(client.app, StreamingFakeLLMClient([]))
-    content, _ = _content(_post(client, "what is lateral movement"))
-    assert "deferred" in content
-    client.app.dependency_overrides.clear()
+    try:
+        content, _ = _content(_post(client, "what is lateral movement"))
+        assert "deferred" in content
+    finally:
+        client.app.dependency_overrides.clear()

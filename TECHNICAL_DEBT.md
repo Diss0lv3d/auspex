@@ -1,5 +1,32 @@
 # Technical debt — logged the moment it's taken
 
+## TD-007 (S6 review) — BM25-only degrade can surface weak matches during neural outages
+**Where:** `auspex/kb/service.py::search` (neural-leg *unavailability* branch).
+**Risk:** when the neural leg is down (no model), free-text queries serve
+BM25-only results. The `minimum_should_match: 2<75%` damping and the relative
+floor gate most noise, but an off-corpus query CAN surface a weak lexical match
+labeled as a KB answer with a source line — the fixed live bug (7446fbc) only
+covers neural-ran-and-disagreed, not neural-couldn't-run.
+**Why accepted:** deliberate degradation (docstring service.py; STATE.md S6):
+during an outage a mostly-right lexical answer beats a blanket miss, and the
+outage window is now bounded by the 60 s model-lookup retry (S6 review fix).
+**Path to fix:** fold into the TD-005 calibration (S8) — a labeled query set can
+decide whether BM25-only needs its own absolute floor.
+
+## TD-008 (S6 review) — KB bootstrap runs inline in app lifespan
+**Where:** `auspex/app.py` lifespan (`await app.state.kb.bootstrap()`).
+**Risk:** uvicorn binds the port only after lifespan completes, so a slow
+bootstrap blocks ALL serving including liveness. Bounded: poll budget 180 s +
+per-call timeouts ≈ ~3.5 min worst case vs the compose healthcheck tolerance of
+210 s (start_period 30 s + 18×10 s) — a pathological fresh-volume boot (hung
+model download) can get the container killed into a crash loop. Warm boots are
+seconds; probed fresh boots ~30-40 s.
+**Why accepted for promote #7:** live-verified S6 behavior; the degraded path
+is honest (bootstrap failure ⇒ deferred copy, app boots).
+**Path to fix:** S7.3's ingest scheduler runs as a background startup task —
+move bootstrap into it (KB turns during warm-up get the honest "didn't answer
+this turn" copy). Should land in S7; if it doesn't, revisit here.
+
 ## TD-001 (S1) — OAuth identity keyed on email, not Google `sub`
 **Where:** `auspex/auth.py` `get_or_create_user` (matches users by `(workspace_id, email)`).
 **Risk:** For OAuth logins the immutable Google `sub` is stored but never compared to

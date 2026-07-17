@@ -189,6 +189,21 @@ async def test_hybrid_fuses_bm25_and_neural_with_rrf():
     assert all(h.score < 0.1 for h in hits)  # RRF regime scores
 
 
+async def test_bm25_leg_pins_stopword_damping():
+    # The minimum_should_match half of live-caught fix 7446fbc had no
+    # regression pin (S6 review): without "2<75%", "what is …" stopwords +
+    # fuzziness score against every doc in the corpus.
+    router = Router()
+    svc = service_with(router)
+    await svc.search("how does lateral movement work")
+    bm25 = next(
+        b["query"]["multi_match"]
+        for _, p, b in router.requests
+        if p == f"/{KNOWLEDGE_INDEX}/_search" and "multi_match" in b["query"]
+    )
+    assert bm25["minimum_should_match"] == "2<75%"
+
+
 async def test_hybrid_excludes_embedding_from_source():
     router = Router()
     svc = service_with(router)
