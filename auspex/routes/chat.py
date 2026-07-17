@@ -34,8 +34,17 @@ from pydantic import BaseModel, Field
 
 from auspex.auth import AuthContext, resolve_user
 from auspex.classify import Category, classify, shortcut_answer
+from auspex.classify.observables import ObservableType
 from auspex.config import Settings
 from auspex.enrich import EnrichmentService, persist_enrichment, render_ioc_answer
+from auspex.kb import (
+    DEFINITION_MISS_COPY,
+    KB_UNAVAILABLE_COPY,
+    KBUnavailable,
+    KnowledgeService,
+    render_cve_answer,
+    render_definition_answer,
+)
 from auspex.llm.client import LLMClient, LLMError, Usage
 from auspex.llm.registry import DevEndpoint
 from auspex.llm.scorecard import load_latest_scorecard
@@ -287,11 +296,29 @@ async def chat(
 
     if shortcut is not None:
         # Shortcut path: LLM-free always. ioc_check turns additionally run the
-        # S5 enrichment fan-out (direct provider HTTP, bounded by per-call
-        # timeouts) when the service is active; otherwise the static copy's
-        # honest "enrichment deferred" stands.
+        # S5 enrichment fan-out; cve_lookup/definition turns consult the S6
+        # knowledge base (code fetches, code renders). When a service is
+        # inactive the static deferred copy stands; when it's active but down,
+        # distinct honest copy says so — three different truths, three strings.
         answer_text = shortcut.text
         enrichment: EnrichmentService = request.app.state.enrichment
+        kb: KnowledgeService = request.app.state.kb
+        if shortcut.category is Category.CVE_LOOKUP and kb.active:
+            cve_ids = [
+                o.value for o in classification.observables if o.type is ObservableType.CVE
+            ]
+            try:
+                answer_text = render_cve_answer(cve_ids, await kb.lookup_ids(tuple(cve_ids)))
+            except KBUnavailable as err:
+                answer_text = KB_UNAVAILABLE_COPY.format(detail=err)
+        elif shortcut.category is Category.DEFINITION and kb.active:
+            try:
+                rendered = render_definition_answer(await kb.search(body.message))
+                # A connected-but-ignorant KB is a miss, not "deferred" — the
+                # static deferred copy would claim the KB isn't connected.
+                answer_text = rendered if rendered is not None else DEFINITION_MISS_COPY
+            except KBUnavailable as err:
+                answer_text = KB_UNAVAILABLE_COPY.format(detail=err)
         if (
             shortcut.category is Category.IOC_CHECK
             and enrichment.active

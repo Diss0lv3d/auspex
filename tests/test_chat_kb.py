@@ -1,0 +1,194 @@
+"""S6: KB-backed cve_lookup/definition shortcut turns — LLM-free, KB-mockable
+at app.state.kb (the S5 enrichment seam pattern). Three truths, three copies:
+inactive ⇒ static deferred; active-but-down ⇒ "didn't answer this turn";
+active-but-ignorant ⇒ explicit miss."""
+
+import json
+
+from _fakes import FakeKnowledgeService, StreamingFakeLLMClient
+
+from auspex.kb.echo import CVE_MISS_LINE, DEFINITION_MISS_COPY
+from auspex.kb.types import KBHit
+from auspex.llm.client import StreamEvent
+from auspex.routes.chat import ChatEndpoint, ChatEndpointResolver, get_endpoint_resolver
+
+CHAT_EMAIL = "analyst@auspex.dev"
+
+
+def _token(client) -> str:
+    return client.post("/api/auth/dev-login", json={"email": CHAT_EMAIL}).json()["access_token"]
+
+
+def _frames(body: str) -> list[dict]:
+    out = []
+    for line in body.splitlines():
+        line = line.strip()
+        if line.startswith("data:"):
+            out.append(json.loads(line[len("data:") :].strip()))
+    return out
+
+
+def _use(app, fake, *, native_reasoning: bool = True):
+    app.dependency_overrides[get_endpoint_resolver] = lambda: ChatEndpointResolver.fixed(
+        ChatEndpoint(client=fake, native_reasoning=native_reasoning, id="test")
+    )
+
+
+def _post(client, message: str):
+    return client.post(
+        "/api/chat",
+        json={"message": message},
+        headers={"Authorization": f"Bearer {_token(client)}"},
+    )
+
+
+def _content(resp) -> tuple[str, list[dict]]:
+    frames = _frames(resp.text)
+    return "".join(f["content"] for f in frames if "content" in f), frames
+
+
+def log4shell_hit() -> KBHit:
+    return KBHit(
+        chunk_id="CVE-2021-44228#0",
+        doc_id="CVE-2021-44228",
+        title="CVE-2021-44228",
+        text="Apache Log4j2 JNDI features do not protect against attacker controlled endpoints.",
+        doc_type="cve",
+        source="nvd",
+        source_ref="https://nvd.nist.gov/vuln/detail/CVE-2021-44228",
+        ids=("CVE-2021-44228",),
+        severity="CRITICAL",
+        cvss_score=10.0,
+        score=10.0,
+    )
+
+
+def concept_hit() -> KBHit:
+    return KBHit(
+        chunk_id="CONCEPT-LATERAL-MOVEMENT#0",
+        doc_id="CONCEPT-LATERAL-MOVEMENT",
+        title="Lateral movement",
+        text="Lateral movement is the phase of an intrusion where an adversary moves…",
+        doc_type="concept",
+        source="auspex-seed",
+        source_ref="",
+        ids=(),
+        severity="",
+        cvss_score=None,
+        score=0.016,
+    )
+
+
+def _swap_kb(app, fake):
+    real = app.state.kb
+    app.state.kb = fake
+    return real
+
+
+def test_cve_lookup_with_active_kb_answers_with_zero_llm_calls(client):
+    fake_llm = StreamingFakeLLMClient([StreamEvent(kind="content", text="NEVER SENT")])
+    _use(client.app, fake_llm)
+    fake_kb = FakeKnowledgeService(hits=[log4shell_hit()])
+    real_kb = _swap_kb(client.app, fake_kb)
+    try:
+        resp = _post(client, "CVE-2021-44228")
+        assert resp.status_code == 200
+        content, frames = _content(resp)
+        assert frames[-1]["done"]["path"] == "shortcut"
+        assert fake_llm.stream_calls == []  # the KB answered; the model never ran
+        assert fake_kb.lookup_calls == [("CVE-2021-44228",)]
+        assert fake_kb.search_calls == []  # exact-ID rail, not free-text search
+        assert "CVE-2021-44228 — CRITICAL (CVSS 10.0)" in content
+        assert "Log4j2" in content
+        assert "Source: NVD" in content
+        assert "NEVER SENT" not in content and "deferred" not in content
+    finally:
+        _swap_kb(client.app, real_kb)
+        client.app.dependency_overrides.clear()
+
+
+def test_cve_lookup_kb_miss_is_explicit_not_deferred(client):
+    _use(client.app, StreamingFakeLLMClient([]))
+    fake_kb = FakeKnowledgeService(hits=[])  # connected, knows nothing
+    real_kb = _swap_kb(client.app, fake_kb)
+    try:
+        content, _ = _content(_post(client, "CVE-2099-9999"))
+        assert CVE_MISS_LINE in content
+        assert "deferred" not in content  # connected-but-ignorant ≠ not connected
+    finally:
+        _swap_kb(client.app, real_kb)
+        client.app.dependency_overrides.clear()
+
+
+def test_cve_lookup_kb_down_says_didnt_answer_this_turn(client):
+    _use(client.app, StreamingFakeLLMClient([]))
+    fake_kb = FakeKnowledgeService(unavailable=True)
+    real_kb = _swap_kb(client.app, fake_kb)
+    try:
+        content, frames = _content(_post(client, "CVE-2021-44228"))
+        assert frames[-1]["done"]["path"] == "shortcut"  # still no model fallback
+        assert "didn't answer this turn" in content
+        assert "unreachable" in content  # the honest detail
+        assert "deferred" not in content
+    finally:
+        _swap_kb(client.app, real_kb)
+        client.app.dependency_overrides.clear()
+
+
+def test_cve_lookup_inactive_kb_keeps_the_deferred_copy(client):
+    """Host runs pin KB_ENABLED=false — the S4 static copy must still stand."""
+    assert client.app.state.kb.active is False  # the premise, explicit
+    _use(client.app, StreamingFakeLLMClient([]))
+    content, _ = _content(_post(client, "CVE-2021-44228"))
+    assert "deferred" in content
+    assert "CVE-2021-44228" in content
+    client.app.dependency_overrides.clear()
+
+
+def test_definition_with_active_kb_streams_the_kb_answer(client):
+    fake_llm = StreamingFakeLLMClient([StreamEvent(kind="content", text="NEVER SENT")])
+    _use(client.app, fake_llm)
+    fake_kb = FakeKnowledgeService(hits=[concept_hit()])
+    real_kb = _swap_kb(client.app, fake_kb)
+    try:
+        content, frames = _content(_post(client, "what is lateral movement"))
+        assert frames[-1]["done"]["path"] == "shortcut"
+        assert fake_llm.stream_calls == []
+        assert fake_kb.search_calls == ["what is lateral movement"]
+        assert content.startswith("Lateral movement — from the knowledge base:")
+        assert "Source: Auspex seed corpus" in content
+    finally:
+        _swap_kb(client.app, real_kb)
+        client.app.dependency_overrides.clear()
+
+
+def test_definition_kb_miss_gets_the_miss_copy_not_deferred(client):
+    _use(client.app, StreamingFakeLLMClient([]))
+    fake_kb = FakeKnowledgeService(hits=[])
+    real_kb = _swap_kb(client.app, fake_kb)
+    try:
+        content, _ = _content(_post(client, "what is quantum hardening"))
+        assert content == DEFINITION_MISS_COPY
+    finally:
+        _swap_kb(client.app, real_kb)
+        client.app.dependency_overrides.clear()
+
+
+def test_definition_kb_down_says_didnt_answer(client):
+    _use(client.app, StreamingFakeLLMClient([]))
+    fake_kb = FakeKnowledgeService(unavailable=True)
+    real_kb = _swap_kb(client.app, fake_kb)
+    try:
+        content, _ = _content(_post(client, "what is lateral movement"))
+        assert "didn't answer this turn" in content
+    finally:
+        _swap_kb(client.app, real_kb)
+        client.app.dependency_overrides.clear()
+
+
+def test_definition_inactive_kb_keeps_the_deferred_copy(client):
+    assert client.app.state.kb.active is False
+    _use(client.app, StreamingFakeLLMClient([]))
+    content, _ = _content(_post(client, "what is lateral movement"))
+    assert "deferred" in content
+    client.app.dependency_overrides.clear()

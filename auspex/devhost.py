@@ -17,6 +17,11 @@ def pin_host_defaults() -> None:
     # HTTP on every ioc_check test turn. Enriched-path tests inject a fake
     # service; a host-run live check can override with ENRICHMENT_ENABLED=true.
     os.environ.setdefault("ENRICHMENT_ENABLED", "false")
+    # Hermetic tests: the KB would otherwise bootstrap (cluster settings, model
+    # registry, seed ingest) against the live dev OpenSearch on every app start.
+    # KB-path tests inject a fake service at app.state.kb; host-run live checks
+    # can override with KB_ENABLED=true.
+    os.environ.setdefault("KB_ENABLED", "false")
     # No LLM_BASE_URL pin: the primary dev endpoint (Scout via Northflank, D-015)
     # is a public URL that resolves identically from host and container, so .env
     # is the single source of truth. Only if you flip .env back to the local
