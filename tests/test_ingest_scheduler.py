@@ -68,6 +68,7 @@ class FakeNVD:
         self.window_cves = window_cves or []
         self.window_pages = window_pages  # explicit multi-page script, if set
         self.singles = singles or {}
+        self.spacing_seconds = 3.0  # the real feed derives this from key presence
         self.window_calls: list[tuple[datetime, datetime]] = []
         self.single_calls: list[str] = []
 

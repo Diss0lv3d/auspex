@@ -77,7 +77,6 @@ def _advance_kev_cursor(cursor: dict, catalog, processed: list[str]) -> dict:
 CYCLE_INTERVAL_SECONDS = 3600.0
 FIRST_RUN_BACKFILL_DAYS = 1  # ~768 modified CVEs/day (probed) — keep first boot sane
 KEV_SINGLE_FETCH_CAP = 50  # new-KEV NVD fetches per cycle; remainder next cycle
-SINGLE_FETCH_SPACING_SECONDS = 3.0  # NVD etiquette between single-CVE fetches
 
 
 class IngestScheduler:
@@ -289,8 +288,8 @@ class IngestScheduler:
             return "nothing to do"
         docs: list[KBDoc] = []
         for i, cve_id in enumerate(target_ids):
-            if i:  # NVD etiquette: space single fetches, quota is a rolling 30 s
-                await self._sleep(SINGLE_FETCH_SPACING_SECONDS)
+            if i:  # NVD quota is a rolling 30 s — spacing is the feed's (key-aware)
+                await self._sleep(self._nvd.spacing_seconds)
             cve = await self._nvd.fetch_cve(cve_id)
             if cve is not None and not is_rejected(cve):
                 docs.append(nvd_to_doc(cve))

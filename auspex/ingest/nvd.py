@@ -26,7 +26,11 @@ RESULTS_PER_PAGE = 2000  # hard API cap (probed: 404 above it)
 # The pager trusts server-supplied totalResults for termination, so a
 # poisoned/broken response must hit a hard ceiling, not page forever.
 MAX_PAGES_PER_WINDOW = 100
-REQUEST_SPACING_SECONDS = 3.0
+REQUEST_SPACING_SECONDS = 3.0  # keyed quota: 50 req/rolling-30 s (probed)
+# Keyless quota is 5 req/rolling-30 s (probe 2026-07-17-nvd-api.md) — 3 s
+# spacing is 10/30 s and wedges any keyless catch-up needing >5 pages at the
+# same 403 every hour forever (S8 review). 6.5 s keeps margin under 5/30.
+KEYLESS_SPACING_SECONDS = 6.5
 CALL_TIMEOUT_SECONDS = 60.0
 
 
@@ -64,14 +68,22 @@ class NVDFeed:
         *,
         api_key: str = "",
         client: httpx.AsyncClient | None = None,
-        spacing_seconds: float = REQUEST_SPACING_SECONDS,
+        spacing_seconds: float | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._api_key = api_key
         self._client = client
         self._owns_client = client is None
+        if spacing_seconds is None:
+            spacing_seconds = REQUEST_SPACING_SECONDS if api_key else KEYLESS_SPACING_SECONDS
         self._spacing = spacing_seconds
         self._sleep = sleep
+
+    @property
+    def spacing_seconds(self) -> float:
+        """Quota-aware request spacing — callers doing their own pacing (the
+        KEV singles loop) must use this, not a constant of their own."""
+        return self._spacing
 
     def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -92,6 +104,14 @@ class NVDFeed:
             # Empty body; never json-parse it. Distinct from CVE-not-found.
             raise NVDError(
                 resp.headers.get("message", "NVD 404 with no message header (check key/params)")
+            )
+        if resp.status_code in (403, 429):
+            # Quota exceeded. NVDError holds the watermark; the cycle retries
+            # next interval with quota-aware spacing.
+            raise NVDError(
+                f"NVD rate limited (HTTP {resp.status_code}) — quota is "
+                f"{'50' if self._api_key else '5 (keyless)'} req/30 s; "
+                "watermark held, retrying next cycle"
             )
         resp.raise_for_status()
         return resp.json()

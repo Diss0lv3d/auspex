@@ -91,13 +91,31 @@ async def test_nvd_fetch_window_pages_to_total_with_spacing():
     async def fake_sleep(s: float) -> None:
         naps.append(s)
 
-    feed = _nvd_feed(router, sleep=fake_sleep)
+    feed = _nvd_feed(router, sleep=fake_sleep, api_key="test-key")
     cves = await feed.fetch_window(_dt("2026-07-16T00:00:00"), _dt("2026-07-17T00:00:00"))
     assert [c["id"] for c in cves] == ["CVE-2023-4346", "CVE-2024-8751", "CVE-2024-7038"]
     assert len(router.requests) == 2  # paged, not slurped
     assert router.requests[1]["startIndex"] == "2"
     assert router.requests[0]["lastModStartDate"] == "2026-07-16T00:00:00.000Z"
-    assert naps == [3.0]  # polite spacing BETWEEN pages only
+    assert naps == [3.0]  # keyed spacing BETWEEN pages only
+
+
+async def test_nvd_keyless_spacing_stays_under_the_five_per_thirty_quota():
+    # S8 review: 3 s spacing is 10 req/30 s — double the keyless quota — so an
+    # unkeyed catch-up needing >5 pages 403'd at the same page every hour
+    # forever. Keyless must derive ≥6 s spacing; a key restores 3 s.
+    keyless = NVDFeed()
+    assert keyless.spacing_seconds == 6.5
+    assert 30 / keyless.spacing_seconds < 5  # the actual quota constraint
+    assert NVDFeed(api_key="k").spacing_seconds == 3.0
+
+
+async def test_nvd_quota_403_raises_nvderror_not_httpstatuserror():
+    # A quota 403 must hold the watermark via NVDError (clean hourly retry
+    # with key-aware spacing), not bubble as a raw httpx error.
+    feed = _nvd_feed(lambda r: httpx.Response(403), sleep=_no_sleep)
+    with pytest.raises(NVDError, match="rate limited"):
+        await feed.fetch_cve("CVE-2024-0001")
 
 
 async def test_nvd_pages_yields_per_page_never_materializing_the_window():
