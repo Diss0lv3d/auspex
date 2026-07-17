@@ -658,12 +658,13 @@ async def test_bootstrap_upgrades_s6_era_mapping_with_new_fields():
         transport=httpx.MockTransport(handler), base_url="http://opensearch.test"
     )
     summary = await KnowledgeService("http://opensearch.test", client=client).bootstrap()
-    assert "mapping upgraded (+5 fields)" in summary
+    assert "mapping upgraded (+6 fields)" in summary
     assert router.mapping_fields_added == [
         "epss_date",
         "epss_percentile",
         "epss_score",
         "kev_date_added",
+        "kev_listed",
         "kev_ransomware",
     ]
 

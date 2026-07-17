@@ -38,6 +38,7 @@ KNOWLEDGE_MAPPING: dict = {
             "cvss_score": {"type": "float"},
             # S7 enrichment (KEV + EPSS). keyword (not date) for the two date
             # fields: "" encodes not-in-KEV / no-score, which `date` rejects.
+            "kev_listed": {"type": "boolean"},  # presence ≠ date held (S8)
             "kev_date_added": {"type": "keyword"},
             "kev_ransomware": {"type": "boolean"},
             "epss_score": {"type": "float"},

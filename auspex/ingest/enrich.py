@@ -28,6 +28,7 @@ def _finite(value) -> float | None:
 def enrich_doc(doc: KBDoc, kev_entry: dict | None, epss_row: dict | None) -> KBDoc:
     updates: dict = {}
     if kev_entry:
+        updates["kev_listed"] = True  # presence keyed on the entry, not its date (S8)
         updates["kev_date_added"] = kev_entry.get("dateAdded", "")
         updates["kev_ransomware"] = kev_entry.get("knownRansomwareCampaignUse") == "Known"
     if epss_row:

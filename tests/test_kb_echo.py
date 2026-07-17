@@ -182,10 +182,43 @@ def test_cve_answer_renders_kev_and_epss_evidence():
     )
     answer = render_cve_answer(["CVE-2021-44228"], [enriched])
     assert "Known exploited — in CISA KEV since 2021-12-10; used in ransomware campaigns." in answer
-    assert "EPSS 1.00 — 100.0th percentile (as of 2026-07-16)." in answer
+    # 0.99999 is NOT 1.00 — rounding must not manufacture certainty (S8);
+    # percentile exactly 1.0 IS 100.0th and renders as held.
+    assert "EPSS >0.99 — 100.0th percentile (as of 2026-07-16)." in answer
     # ordering: evidence lines sit between description and the Source trailer
     assert answer.index("remote code execution") < answer.index("Known exploited")
     assert answer.index("EPSS") < answer.index("Source: NVD")
+
+
+def test_epss_rendering_never_crosses_boundaries_it_does_not_hold():
+    # S8 review: the majority of real EPSS scores are <0.005 and rendered
+    # "EPSS 0.00" — a zero the system does not hold; ≥0.9995 percentiles
+    # rendered "100.0th" — a maximal rank the data contradicts.
+    tiny = _enriched_log4shell(epss_score=0.0004, epss_percentile=0.153, epss_date="2026-07-17")
+    answer = render_cve_answer(["CVE-2021-44228"], [tiny])
+    assert "EPSS <0.01 — 15.3th percentile (as of 2026-07-17)." in answer
+    near_top = _enriched_log4shell(epss_score=0.996, epss_percentile=0.9996)
+    answer2 = render_cve_answer(["CVE-2021-44228"], [near_top])
+    assert "EPSS >0.99 — >99.9th percentile." in answer2
+    near_zero_pct = _enriched_log4shell(epss_score=0.5, epss_percentile=0.0004)
+    answer3 = render_cve_answer(["CVE-2021-44228"], [near_zero_pct])
+    assert "EPSS 0.50 — <0.1th percentile." in answer3
+    exact = _enriched_log4shell(epss_score=1.0, epss_percentile=1.0)
+    answer4 = render_cve_answer(["CVE-2021-44228"], [exact])
+    assert "EPSS 1.00 — 100.0th percentile." in answer4  # actually held ⇒ renders
+
+
+def test_kev_presence_renders_even_without_a_date():
+    # S8 review: presence was keyed on dateAdded, so a KEV entry with held
+    # ransomware evidence but no date rendered as TOTAL silence.
+    dateless = _enriched_log4shell(kev_listed=True, kev_ransomware=True)
+    answer = render_cve_answer(["CVE-2021-44228"], [dateless])
+    assert "Known exploited — in CISA KEV; used in ransomware campaigns." in answer
+    assert "since" not in answer  # no date claim without a held date
+    # docs enriched before kev_listed existed keep rendering via the date
+    legacy = _enriched_log4shell(kev_listed=False, kev_date_added="2021-12-10")
+    answer2 = render_cve_answer(["CVE-2021-44228"], [legacy])
+    assert "Known exploited — in CISA KEV since 2021-12-10." in answer2
 
 
 def test_cve_answer_absent_enrichment_makes_no_exploitation_claims():

@@ -21,7 +21,8 @@ class KBDoc:
     cvss_score: float | None = None
     # S7 enrichment (CISA KEV + FIRST EPSS). Absence is meaningful and rendered
     # as absence: "" / None / False mean "no evidence held", never "no".
-    kev_date_added: str = ""  # "" = not in KEV; else the KEV dateAdded (YYYY-MM-DD)
+    kev_listed: bool = False  # presence is its own field — not keyed on the date (S8)
+    kev_date_added: str = ""  # "" = date not held; else the KEV dateAdded (YYYY-MM-DD)
     kev_ransomware: bool = False  # True ONLY for KEV knownRansomwareCampaignUse == "Known"
     epss_score: float | None = None
     epss_percentile: float | None = None
@@ -53,6 +54,7 @@ class KBHit:
     severity: str
     cvss_score: float | None
     score: float
+    kev_listed: bool = False
     kev_date_added: str = ""
     kev_ransomware: bool = False
     epss_score: float | None = None
