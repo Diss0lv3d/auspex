@@ -136,6 +136,10 @@ class RecordingSink:
         self.events.extend(changes)
 
 
+async def _no_sleep(_: float) -> None:
+    return None
+
+
 def scheduler(**overrides) -> IngestScheduler:
     defaults = dict(
         kb=FakeKB(),
@@ -145,6 +149,7 @@ def scheduler(**overrides) -> IngestScheduler:
         epss=FakeEPSS(),
         sink=RecordingSink(),
         now=lambda: NOW,
+        sleep=_no_sleep,
     )
     defaults.update(overrides)
     return IngestScheduler(**defaults)
@@ -310,6 +315,27 @@ async def test_304_cycle_reuses_cached_catalog_for_enrichment():
     assert kev.conditional_args[1] == "Thu, 16 Jul 2026 17:00:15 GMT"
     # cycle 2's NVD doc still got KEV evidence — from the in-memory cache
     assert kb.ingested[-1][0].kev_date_added != ""
+
+
+async def test_kev_new_id_already_ingested_via_nvd_is_not_refetched():
+    # A CVE that is both KEV-new AND in this cycle's NVD window was already
+    # enriched from this same catalog — no second NVD fetch; the horizon must
+    # still advance past it (or it would re-surface every cycle forever).
+    state = FakeState(
+        rows={
+            NVD_FEED: {"last_mod_end": (NOW - timedelta(days=1)).isoformat()},
+            KEV_FEED: {
+                "last_modified": "Wed, 15 Jul 2026 17:00:00 GMT",
+                "date_added_horizon": "2026-07-15",
+                "kb_refreshed": True,
+            },
+        }
+    )
+    nvd = FakeNVD(window_cves=[nvd_cve("CVE-2026-58644")])  # KEV-new AND in the window
+    sched = scheduler(nvd=nvd, state=state)
+    await sched.run_cycle()
+    assert nvd.single_calls == []  # no double fetch
+    assert state.rows[KEV_FEED]["date_added_horizon"] == "2026-07-16"  # still advances
 
 
 # ── run() task body ─────────────────────────────────────────────────────────

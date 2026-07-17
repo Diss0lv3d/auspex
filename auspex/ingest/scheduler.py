@@ -44,6 +44,7 @@ KEV_FEED = "kev"
 CYCLE_INTERVAL_SECONDS = 3600.0
 FIRST_RUN_BACKFILL_DAYS = 1  # ~768 modified CVEs/day (probed) — keep first boot sane
 KEV_SINGLE_FETCH_CAP = 50  # new-KEV NVD fetches per cycle; remainder next cycle
+SINGLE_FETCH_SPACING_SECONDS = 3.0  # NVD etiquette between single-CVE fetches
 
 
 class IngestScheduler:
@@ -111,8 +112,8 @@ class IngestScheduler:
 
     async def run_cycle(self) -> str:
         kev_catalog, kev_new_ids, kev_status = await self._kev_phase()
-        nvd_status = await self._nvd_phase(kev_catalog)
-        kev_doc_status = await self._kev_docs_phase(kev_catalog, kev_new_ids)
+        nvd_status, nvd_ingested_ids = await self._nvd_phase(kev_catalog)
+        kev_doc_status = await self._kev_docs_phase(kev_catalog, kev_new_ids, nvd_ingested_ids)
         return f"kev: {kev_status}; nvd: {nvd_status}; kev-docs: {kev_doc_status}"
 
     async def _kev_phase(self) -> tuple[KEVCatalog | None, list[str], str]:
@@ -158,7 +159,7 @@ class IngestScheduler:
             )
         return catalog, capped, f"{len(capped)}/{len(new)} new entries"
 
-    async def _nvd_phase(self, kev_catalog: KEVCatalog | None) -> str:
+    async def _nvd_phase(self, kev_catalog: KEVCatalog | None) -> tuple[str, set[str]]:
         prior = await self._state.get(NVD_FEED)
         now = self._now()
         if prior and prior.cursor.get("last_mod_end"):
@@ -166,6 +167,7 @@ class IngestScheduler:
         else:
             since = now - timedelta(days=FIRST_RUN_BACKFILL_DAYS)
         total = skipped = 0
+        ingested_ids: set[str] = set()
         window_list = windows(since, now)
         for start, end in window_list:
             cves = await self._nvd.fetch_window(start, end)
@@ -173,6 +175,7 @@ class IngestScheduler:
             skipped += len(cves) - len(docs)
             ingested = await self._ingest_enriched(docs, kev_catalog, feed=NVD_FEED)
             total += ingested
+            ingested_ids.update(d.doc_id for d in docs)
             # Watermark advances per WINDOW, only after its docs are in the KB.
             await self._state.record(
                 NVD_FEED,
@@ -180,17 +183,23 @@ class IngestScheduler:
                 status=f"window {start.date()}→{end.date()}: {ingested} chunks",
                 docs_delta=ingested,
             )
-        return (
+        status = (
             f"{len(window_list)} window(s) since {since.date()}, "
             f"{total} chunks, {skipped} rejected skipped"
         )
+        return status, ingested_ids
 
     async def _kev_docs_phase(
-        self, kev_catalog: KEVCatalog | None, kev_new_ids: list[str]
+        self,
+        kev_catalog: KEVCatalog | None,
+        kev_new_ids: list[str],
+        covered_this_cycle: set[str],
     ) -> str:
         """Docs entering via KEV: new entries since the horizon (NVD single
         fetches, oldest first), or — on the first run — CVE docs already in
-        the KB re-enriched with KEV/EPSS evidence."""
+        the KB re-enriched with KEV/EPSS evidence. Ids the NVD delta already
+        ingested THIS cycle are excluded (they were enriched from this same
+        catalog); their dateAdded still advances the horizon below."""
         if kev_catalog is None:
             return "no catalog this cycle"
         prior = await self._state.get(KEV_FEED)
@@ -198,12 +207,16 @@ class IngestScheduler:
         first_run_refresh: list[str] = []
         if not kev_new_ids and not cursor.get("kb_refreshed"):
             held = await self._kb.list_cve_ids()
-            first_run_refresh = [c for c in held if c in kev_catalog.entries]
-        target_ids = kev_new_ids or first_run_refresh
-        if not target_ids:
+            first_run_refresh = [
+                c for c in held if c in kev_catalog.entries and c not in covered_this_cycle
+            ]
+        target_ids = [c for c in (kev_new_ids or first_run_refresh) if c not in covered_this_cycle]
+        if not target_ids and not kev_new_ids:
             return "nothing to do"
         docs: list[KBDoc] = []
-        for cve_id in target_ids:
+        for i, cve_id in enumerate(target_ids):
+            if i:  # NVD etiquette: space single fetches, quota is a rolling 30 s
+                await self._sleep(SINGLE_FETCH_SPACING_SECONDS)
             cve = await self._nvd.fetch_cve(cve_id)
             if cve is not None and not is_rejected(cve):
                 docs.append(nvd_to_doc(cve))
