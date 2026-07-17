@@ -248,6 +248,23 @@ async def test_both_legs_dead_raises_unavailable_and_counts_breaker_failure():
     assert breaker.state == "open"
 
 
+async def test_one_failing_turn_does_not_open_the_default_breaker():
+    # S6 review: a dead hybrid turn is TWO leg failures, not three — with the
+    # default threshold (3) a single transient blip must not cost 60 s of
+    # "temporarily unavailable"; the second consecutive dead turn opens it.
+    router = Router()
+    router.fail_bm25 = True
+    router.fail_neural = True
+    breaker = CircuitBreaker(clock=lambda: 0.0)  # default threshold = 3
+    svc = service_with(router, breaker=breaker)
+    with pytest.raises(KBUnavailable):
+        await svc.search("how does lateral movement work")
+    assert breaker.state == "closed"  # one blip ≠ an outage
+    with pytest.raises(KBUnavailable):
+        await svc.search("how does lateral movement work")
+    assert breaker.state == "open"  # two consecutive dead turns do
+
+
 async def test_missing_model_makes_hybrid_serve_bm25_only():
     router = Router()
     router.model_found = False  # cold volume: no model registered

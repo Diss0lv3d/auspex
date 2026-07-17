@@ -334,7 +334,9 @@ class KnowledgeService:
         neural_task = self._neural(query, top_k * 2)
         bm25, neural = await asyncio.gather(bm25_task, neural_task, return_exceptions=True)
         if isinstance(bm25, BaseException) and isinstance(neural, BaseException):
-            self._breaker.record_failure()
+            # Each leg already recorded its own breaker failure in _search_call —
+            # recording a third here made ONE failing turn open the breaker
+            # (threshold 3) on a single transient blip. S6 review finding.
             raise KBUnavailable(f"search failed: {bm25}")
         if isinstance(neural, BaseException):
             # Missing/undeployed model etc. — BM25 alone is still a KB answer.
