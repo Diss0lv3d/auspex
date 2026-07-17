@@ -7,11 +7,16 @@ from auspex.ingest.epss import EPSSFeed
 from auspex.ingest.events import ChangeSink, DocChange, NullSink
 from auspex.ingest.kev import KEVCatalog, KEVFeed
 from auspex.ingest.nvd import NVDError, NVDFeed, is_rejected, windows
+from auspex.ingest.scheduler import IngestScheduler
+from auspex.ingest.state import FeedState, IngestStateStore
 
 __all__ = [
     "ChangeSink",
     "DocChange",
     "EPSSFeed",
+    "FeedState",
+    "IngestScheduler",
+    "IngestStateStore",
     "KEVCatalog",
     "KEVFeed",
     "NVDError",

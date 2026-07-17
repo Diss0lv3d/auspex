@@ -466,6 +466,44 @@ class KnowledgeService:
         self._model_lookup_failed_at = None
         return self._model_id
 
+    async def list_cve_ids(self, *, max_ids: int = 10_000) -> list[str]:
+        """Distinct CVE doc ids currently in the KB (terms agg on the keyword
+        doc_id). S7 ingestion intersects this with the KEV catalog on its
+        first run. Same failure semantics as search: KBUnavailable, never a 500."""
+        if not self._enabled:
+            raise KBUnavailable(
+                "knowledge base disabled", public="it isn't enabled in this deployment"
+            )
+        if not self._breaker.allow():
+            raise KBUnavailable(
+                "knowledge base temporarily unavailable (breaker open)",
+                public="it's paused briefly after repeated failures and retries on its own",
+            )
+        body = {
+            "size": 0,
+            "query": {"term": {"doc_type": "cve"}},
+            "aggs": {"cve_ids": {"terms": {"field": "doc_id", "size": max_ids}}},
+        }
+        try:
+            resp = await self._get_client().post(f"/{KNOWLEDGE_INDEX}/_search", json=body)
+            resp.raise_for_status()
+            buckets = resp.json()["aggregations"]["cve_ids"]["buckets"]
+            ids = [b["key"] for b in buckets]
+        except httpx.HTTPError as err:
+            self._breaker.record_failure()
+            raise KBUnavailable(
+                f"knowledge base unreachable: {err.__class__.__name__}",
+                public="it was unreachable",
+            ) from err
+        except (ValueError, KeyError, TypeError) as err:
+            self._breaker.record_failure()
+            raise KBUnavailable(
+                f"knowledge base answered unusably: {err.__class__.__name__}",
+                public="it returned an unusable response",
+            ) from err
+        self._breaker.record_success()
+        return ids
+
     async def _search_call(self, body: dict) -> list[KBHit]:
         if not self._enabled:
             raise KBUnavailable(

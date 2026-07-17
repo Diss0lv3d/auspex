@@ -15,6 +15,7 @@ EXPECTED_TABLES = {
     "proposals",
     "observables",
     "verdicts",
+    "ingest_state",
 }
 
 # D-008: workspace_id on EVERY table. `workspaces` is the sole exception —

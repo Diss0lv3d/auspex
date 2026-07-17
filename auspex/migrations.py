@@ -159,6 +159,28 @@ SCHEMA_V0: list[str] = [
     CREATE INDEX IF NOT EXISTS idx_verdicts_ws_obs
         ON verdicts (workspace_id, observable_id, created_at DESC)
     """,
+    # S7: per-feed ingestion watermarks (NVD delta / KEV / EPSS). KB content is
+    # platform-global (workspace_id "" in the OpenSearch index), so feed state
+    # is too: workspace_id is NULLABLE here — NULL = global feed — keeping the
+    # D-008 column for the day workspace-private sources exist. `cursor` is
+    # jsonb because watermark shapes differ per feed (NVD: lastMod window end;
+    # KEV: HTTP Last-Modified + dateAdded horizon).
+    """
+    CREATE TABLE IF NOT EXISTS ingest_state (
+        id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id  uuid REFERENCES workspaces(id) ON DELETE CASCADE,
+        feed          text NOT NULL,
+        cursor        jsonb NOT NULL DEFAULT '{}',
+        last_run_at   timestamptz,
+        last_status   text NOT NULL DEFAULT '',
+        docs_upserted bigint NOT NULL DEFAULT 0,
+        updated_at    timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ingest_state_global_feed
+        ON ingest_state (feed) WHERE workspace_id IS NULL
+    """,
     "CREATE INDEX IF NOT EXISTS idx_users_workspace ON users (workspace_id)",
     "CREATE INDEX IF NOT EXISTS idx_api_keys_workspace ON api_keys (workspace_id)",
     "CREATE INDEX IF NOT EXISTS idx_chat_sessions_ws_user ON chat_sessions (workspace_id, user_id)",

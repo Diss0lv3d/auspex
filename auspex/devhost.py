@@ -22,6 +22,10 @@ def pin_host_defaults() -> None:
     # KB-path tests inject a fake service at app.state.kb; host-run live checks
     # can override with KB_ENABLED=true.
     os.environ.setdefault("KB_ENABLED", "false")
+    # Hermetic tests: the S7 ingest scheduler would otherwise pull LIVE feeds
+    # (NVD/KEV/EPSS) from every app start. Scheduler tests drive run_cycle()
+    # directly with fake feeds; host-run live checks override INGEST_ENABLED=true.
+    os.environ.setdefault("INGEST_ENABLED", "false")
     # No LLM_BASE_URL pin: the primary dev endpoint (Scout via Northflank, D-015)
     # is a public URL that resolves identically from host and container, so .env
     # is the single source of truth. Only if you flip .env back to the local
