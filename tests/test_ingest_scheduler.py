@@ -191,7 +191,7 @@ async def test_first_run_ingests_backfill_window_skips_rejected_and_enriches():
     sink = RecordingSink()
     sched = scheduler(kb=kb, nvd=nvd, epss=epss, state=state, sink=sink)
     summary = await sched.run_cycle()
-    assert "1 window(s)" in summary and "1 rejected skipped" in summary
+    assert "1 window(s)" in summary and "1 skipped (rejected/invalid)" in summary
     docs = all_docs(kb)
     assert set(docs) == {"CVE-2024-3400", "CVE-2024-9999"}
     enriched = docs["CVE-2024-3400"]

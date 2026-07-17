@@ -244,6 +244,43 @@ async def test_epss_batches_at_one_hundred_ids_with_spacing_between():
     assert naps == [0.5]  # spaced BETWEEN batches only (S8: a 2000-CVE page is 20 batches)
 
 
+# ── feed-shape validation (S8 review: untrusted values wedged the watermark) ─
+
+
+def test_has_valid_id_rejects_non_cve_shapes():
+    from auspex.ingest.nvd import has_valid_id
+
+    assert has_valid_id({"id": "CVE-2024-3400"})
+    assert has_valid_id({"id": "cve-2024-3400"})  # case-insensitive
+    assert not has_valid_id({"id": "GHSA-xxxx-yyyy"})
+    assert not has_valid_id({"id": "CVE-2024-3400; DROP"})
+    assert not has_valid_id({"id": "CVE-2024-" + "9" * 600})  # would blow the 512-byte _id
+    assert not has_valid_id({})
+
+
+def test_enrich_doc_degrades_malformed_epss_values_to_absence():
+    # float("NaN")/float("Infinity") parse fine but serialize as bare tokens
+    # OpenSearch rejects — one poisoned row must not wedge the whole window.
+    doc = _doc()
+    for bad in ("NaN", "Infinity", "-Infinity", "not-a-number", None):
+        out = enrich_doc(doc, None, {"cve": doc.doc_id, "epss": bad, "percentile": bad})
+        assert out.epss_score is None and out.epss_percentile is None
+    # a valid score with a malformed percentile keeps the score
+    out = enrich_doc(doc, None, {"cve": doc.doc_id, "epss": "0.5", "percentile": "NaN",
+                                 "date": "2026-07-17"})
+    assert out.epss_score == 0.5 and out.epss_percentile is None
+
+
+def test_nvd_to_doc_bounds_untrusted_description_length():
+    from auspex.kb.seed import MAX_DESCRIPTION_CHARS
+
+    huge = dict(NVD_PAGE["vulnerabilities"][0]["cve"])
+    huge["descriptions"] = [{"lang": "en", "value": "A" * (MAX_DESCRIPTION_CHARS * 3)}]
+    doc = nvd_to_doc(huge)
+    assert len(doc.content) <= MAX_DESCRIPTION_CHARS + 10
+    assert doc.content.endswith("[…]")  # truncation is visible, not silent
+
+
 # ── enrichment merge (pure) ─────────────────────────────────────────────────
 
 

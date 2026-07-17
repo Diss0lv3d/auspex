@@ -516,6 +516,18 @@ def _real_seed_fingerprint() -> str:
     return seed_fingerprint([c for d in load_seed_docs() for c in chunk_doc(d)])
 
 
+def test_json_line_refuses_nan_and_infinity():
+    # S8 review: json.dumps default allow_nan emits bare NaN tokens that
+    # OpenSearch rejects — failing the whole bulk batch and wedging the feed
+    # watermark. The serializer must raise loudly instead.
+    from auspex.kb.service import _json_line
+
+    with pytest.raises(ValueError):
+        _json_line({"epss_score": float("nan")})
+    with pytest.raises(ValueError):
+        _json_line({"epss_score": float("inf")})
+
+
 async def test_failed_bootstrap_leaves_bootstrapped_false():
     # S8 review: ingest gates cycles on `bootstrapped` — a swallowed bootstrap
     # failure must not read as ready (a _bulk before _ensure_index would

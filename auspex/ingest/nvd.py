@@ -12,6 +12,7 @@ Reality bites encoded here:
 """
 
 import asyncio
+import re
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
@@ -41,6 +42,16 @@ class NVDError(Exception):
 
 def is_rejected(cve: dict) -> bool:
     return cve.get("vulnStatus") == "Rejected"
+
+
+_CVE_ID_RE = re.compile(r"CVE-\d{4}-\d{4,12}", re.IGNORECASE)
+
+
+def has_valid_id(cve: dict) -> bool:
+    """Feed records are untrusted — an id that isn't CVE-shaped (or is huge)
+    would become an OpenSearch _id and can poison or wedge ingest (the bulk
+    _id limit is 512 bytes; a failed batch holds the watermark forever)."""
+    return bool(_CVE_ID_RE.fullmatch(str(cve.get("id", ""))))
 
 
 def windows(

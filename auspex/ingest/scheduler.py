@@ -36,7 +36,7 @@ from auspex.ingest.enrich import enrich_doc
 from auspex.ingest.epss import EPSSFeed
 from auspex.ingest.events import ChangeSink, DocChange, NullSink
 from auspex.ingest.kev import KEVCatalog, KEVFeed
-from auspex.ingest.nvd import NVDFeed, is_rejected, windows
+from auspex.ingest.nvd import NVDFeed, has_valid_id, is_rejected, windows
 from auspex.ingest.state import IngestStateStore
 from auspex.kb.seed import nvd_to_doc
 from auspex.kb.types import KBDoc
@@ -242,7 +242,7 @@ class IngestScheduler:
             # Page-streamed: a 120-day catch-up window is ~92k records — one
             # page (≤2000) in memory at a time, ingested as it arrives.
             async for page in self._nvd.pages(start, end):
-                docs = [nvd_to_doc(c) for c in page if not is_rejected(c)]
+                docs = [nvd_to_doc(c) for c in page if not is_rejected(c) and has_valid_id(c)]
                 skipped += len(page) - len(docs)
                 window_chunks += await self._ingest_enriched(docs, kev_catalog, feed=NVD_FEED)
                 ingested_ids.update(d.doc_id for d in docs)
@@ -256,7 +256,7 @@ class IngestScheduler:
             )
         status = (
             f"{len(window_list)} window(s) since {since.date()}, "
-            f"{total} chunks, {skipped} rejected skipped"
+            f"{total} chunks, {skipped} skipped (rejected/invalid)"
         )
         return status, ingested_ids
 
@@ -291,7 +291,7 @@ class IngestScheduler:
             if i:  # NVD quota is a rolling 30 s — spacing is the feed's (key-aware)
                 await self._sleep(self._nvd.spacing_seconds)
             cve = await self._nvd.fetch_cve(cve_id)
-            if cve is not None and not is_rejected(cve):
+            if cve is not None and not is_rejected(cve) and has_valid_id(cve):
                 docs.append(nvd_to_doc(cve))
         ingested = await self._ingest_enriched(
             docs, kev_catalog, feed=KEV_FEED, kind="kev-added"

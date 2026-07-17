@@ -640,4 +640,8 @@ def _hit_to_kbhit(hit: dict) -> KBHit:
 
 
 def _json_line(obj: dict) -> str:
-    return json.dumps(obj, ensure_ascii=False)
+    # allow_nan=False: a NaN/Infinity float would serialize as a bare token
+    # OpenSearch rejects — failing the WHOLE bulk batch and wedging the feed
+    # watermark on the same window forever (S8 review). Raising here names
+    # the real problem instead.
+    return json.dumps(obj, ensure_ascii=False, allow_nan=False)
