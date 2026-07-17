@@ -1,102 +1,108 @@
 # STATE — Auspex
 
-_Last updated: 2026-07-17 (S6 complete — KB/RAG on OpenSearch, live-verified)_
+_Last updated: 2026-07-17 (S7 complete — Ingestion 1 live-verified; promote #7 shipped S6 to main)_
 
 ## Where we are
-- **S6 COMPLETE** (all 5 steps + 2 live-caught fixes, tests shipping with each)
-  → **next is S7** (Ingestion 1: NVD delta + CISA KEV + FIRST EPSS — see
-  NEXT-SESSION.md). S6 is on `staging`, NOT yet promoted — run the adversarial
-  review, then `/promote` (standing follow-up #1 below).
-- **Promoted:** promote #5/#6 on `main` == full S5 milestone. `main` does NOT
-  have S6 yet.
+- **S7 COMPLETE** (steps 1–4 + live verify; stretch skipped deliberately)
+  → **next is S8** (Ingestion 2 + the now-mandatory TD-005 calibration — see
+  NEXT-SESSION.md). S7 is on `staging`, NOT yet reviewed/promoted — S8 starts
+  with the adversarial review, then `/promote` (#8).
+- **Promoted:** promote #7 on `main` (e760567) == full S6 milestone + the 10
+  S6-review fixes (see below). `main` does NOT have S7.
 - **Primary dev LLM (D-015):** Llama-4-Scout via Northflank; secondary/offline
-  Ollama `qwen3:14b` (D-013). S6 touched no LLM paths (KB shortcuts are
-  LLM-free by design, test-enforced: `done.path == "shortcut"`).
-- **CI-green: 320 tests** (was 246 at S5 end; +74 across S6). `./ci.sh` passes
-  end-to-end: ruff, pytest, container build + health + ready.
+  Ollama `qwen3:14b` (D-013). S7 touched no LLM paths (ingest + shortcuts are
+  LLM-free; the one "deep turn" seen live — sourdough — was correct routing).
+- **CI-green: 357 tests** (was 320 at S6 end). `./ci.sh` green end-to-end at
+  session close; `/api/health/ready` 200.
 
-## S6 shipped (all committed on staging, 2026-07-17)
-- **Probes first (rule 4):** docs/probes/2026-07-17-opensearch-knn-ml.md — our
-  OWN 2.19.4 container measured. Headline reality bites: **TORCH_SCRIPT of
-  all-MiniLM-L6-v2 FAILS to deploy on 2.19.4** (`aten::scaled_dot_product_attention`
-  unknown to bundled DJL) — **ONNX works and is pinned**; standard analyzer
-  SPLITS `CVE-2024-3400` into 3 tokens (exact-ID matching must be keyword-rail);
-  `only_run_on_ml_node` default blocks single-node deploy; model auto-redeploys
-  after container restart (data volume intact). Also
-  2026-07-17-sara-rrf-retriever-pattern.md (RRF/ID-bypass/floor constants) and
-  2026-07-17-nvd-api.md (NVD 2.0 shape; terse 54-char MSRC descriptions exist).
-- **D-018 ratified (measured):** embeddings are server-side (OpenSearch ML
-  plugin, all-MiniLM-L6-v2 1.0.2 ONNX, dim 384): 25–30 ms warm single,
-  ~8 ms/text batch-16, +0.5 GiB container RSS, 609 MB disk — vs 2 821 MB of
-  wheels for in-process sentence-transformers (disqualified on footprint;
-  latency deliberately unmeasured).
-- **`auspex/kb/` package:** KnowledgeService on `app.state.kb` (S5 service
-  pattern: settings-built, breaker, hermetic seam, KBUnavailable → deferred
-  copy, never a 500). Idempotent never-raising bootstrap: ML cluster setting →
-  model find/register/deploy (by NAME — model_id is volume-specific) → strict
-  mapping `auspex-knowledge` (keyword `ids` rail, knn_vector 384
-  lucene/hnsw/cosinesimil) → seed ingest (upsert by chunk_id, self-healing).
-  Live-verified both cold ("seeded 14 chunks") and warm ("seed present").
-- **Seed corpus (14 chunks):** 5 CVEs live-fetched from NVD (values verbatim,
-  incl. the 54-char CVE-2023-23397), 6 ATT&CK technique summaries + 3 concepts
-  hand-curated and **honestly labeled** (`attack-seed-summary` / `auspex-seed`
-  — never passed off as verbatim MITRE). `nvd_to_doc()` is S7's parser.
-- **Retrieval:** ID-dominant queries (ported SARA `is_id_query`) take the
-  keyword ID rail — term boost 10 + parent-technique prefix (`T1059.` pulls
-  sub-techniques; NEVER prefix for CVEs) — and neural never runs. Free text =
-  BM25 + neural fused client-side (RRF k=60, weights 0.4/0.6, legs at
-  top_k×2), regime-aware relative floor + **absolute neural floor 0.6**.
-  Per-leg degradation: neural *unavailability* ⇒ BM25-only; neural
-  *disagreement* (post-floor empty) ⇒ honest miss.
-- **Chat wiring:** cve_lookup + definition shortcuts consult the KB, zero LLM
-  (test: KB answers, fake LLM never called). Three truths, three copies:
-  KB inactive ⇒ S4 static deferred; active-but-down ⇒ "didn't answer this
-  turn"; connected-but-ignorant ⇒ explicit per-CVE miss / definition miss
-  copy. `KB_ENABLED` born in .env.example + docs/ENV_VARS.md; host pytest
-  pins it false (hermetic; fake at `app.state.kb`).
-- **Live-verified in-container** (docs/probes/2026-07-17-s6-kb-live.md): full
-  turn matrix — Log4Shell CRITICAL/10.0 with NVD source line; multi-CVE with
-  explicit miss; hybrid definition (real neural, cosine 0.84); `what is T1059`
-  via ID rail; `what is T1566` surfaces T1566.001 via prefix rail; off-corpus
-  and unknown-ID queries return honest miss copy. All `path=shortcut`.
-- **Two real bugs caught BY the live verify, fixed + pinned as regressions:**
-  (1) missing absolute neural floor — kNN returns k neighbors for ANY query;
-  off-corpus questions would have fused noise into a fabricated "KB answer"
-  (`b0a026a`); (2) BM25 stopword/fuzzy leak — "what is quantum entanglement"
-  scored 4.4 on the C2 doc via "what"/"is"+fuzziness; post-floor-empty neural
-  leg is now the relevance gate, ID-rail misses stop falling back to fuzzy
-  prose, `minimum_should_match: 2<75%` damping (`7446fbc`).
+## S7 shipped (all committed on staging, 2026-07-17)
+- **Step 0 first:** adversarial multi-lens review of S6 ran (subagent budget
+  died mid-run — 14 findings verified INLINE instead; 10 fixed with regression
+  tests, 2 refuted → TD-007/TD-008, 2 test-hygiene). Highlights: never-a-500
+  on malformed OpenSearch 200s; per-turn CVE cap (25) + scaled fetch with
+  honest "N more requested" copy (false-miss + maxClauseCount DoS); analyst-
+  calm `KBUnavailable.public` (no "(breaker open)"/httpx names in copy);
+  breaker counts a dead turn once not thrice; seed content FINGERPRINT in
+  index `_meta` (count check served stale edits forever); model-lookup memo
+  expires (60 s); cluster setting written only when absent; numeric chunk
+  order; CONCEPT-* ids never in copy. Then **promote #7** (PR squash-merged,
+  staging back-merged, tree-identity verified, ready 200 on main's tree).
+- **Probes first (rule 4):** 2026-07-17-nvd-delta.md (768 modified CVEs in ONE
+  day; 404-with-empty-body + `message` HEADER for ≥3 unrelated client errors;
+  caps 2000/page, 120-day window; Rejected CVEs ride the stream),
+  2026-07-17-cisa-kev.md (If-Modified-Since→304 works, **ETag lies across
+  encodings**; gzip 1.5 MB→178 KB; ransomware enum Known/Unknown only),
+  2026-07-17-first-epss.md (comma-batch keyed by RESPONSE cve, arbitrary
+  order; unknown ids silently dropped; scores are 9-decimal STRINGS; daily
+  bulk CSV behind a dated 302). Fixtures trimmed verbatim → tests/fixtures/.
+- **`auspex/ingest/` package:** NVDFeed (full paging + spacing, NVDError from
+  the message header, windows() chunks gaps at 120 d), KEVFeed (conditional
+  GET only when the in-memory cache can back a 304 — reboots never go blind),
+  EPSSFeed (≤100-id batches), enrich_doc() pure merge (absence stays absent;
+  ransomware "Unknown" ⇒ False ⇒ silence), events.NullSink = the S14
+  retro-hunt extension point (emit-only: DocChange per doc, "kev-added" kind).
+- **KEV/EPSS end-to-end:** KBDoc/KBHit/mapping grew 5 fields;
+  `_ensure_mapping_fields` upgrades strict S6-era indexes additively
+  (live-verified: "mapping upgraded (+5 fields)"); cve_lookup echo renders
+  held evidence only — "Known exploited — in CISA KEV since …; used in
+  ransomware campaigns." / "EPSS 1.00 — 100.0th percentile (as of …)".
+- **`ingest_state` + scheduler:** Postgres watermarks (jsonb cursor; partial
+  unique index on global feeds; workspace_id nullable = D-008-compliant
+  global), IngestScheduler as ONE background task that also owns KB bootstrap
+  (**TD-008 resolved** — port binds immediately). Watermark advances
+  per-window AFTER ingest; KEV first run skips the 1 647-entry backfill and
+  re-enriches KB-held docs; new-KEV singles paced + deduped against the
+  cycle's NVD coverage. INGEST_ENABLED born; devhost pins it false.
+- **Live-verified** (docs/probes/2026-07-17-s7-ingest-live.md): first run
+  643 chunks + 3 live Rejected skipped; **simulated 2-day gap** → 1 844
+  chunks, 30 rejected skipped, ~2.5 min; fresh post-seed CVE-2026-58644
+  answerable with KEV+EPSS context, zero LLM, path=shortcut.
+- **TD-005 spot-check CAUGHT 2 SCALE BUGS** (corpus 14→~2 500 chunks): lucene
+  HNSW recall collapse at k=10 (the 0.840 best match absent from top-10 — the
+  S6 demo query silently missed) and floor erosion (two CVE chunks ≥0.6 for
+  "quantum entanglement" — fabrication returned). Fixed the probed way:
+  `search(doc_types=…)` filters BOTH legs (lucene kNN goes exact on small
+  subsets — restores recall); definition shortcut pins ("concept",
+  "technique"). Full matrix re-verified live post-fix.
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Run the S6 adversarial review, then `/promote`** — S6 is demoable and
-   CI-green on staging but unreviewed. Same drill as S5: multi-lens review
-   pass over `auspex/kb/` + chat wiring, fix what's real, then promote #7.
-   (S5's review found 7 real fixes; don't skip.)
-2. **TD-005** — `NEURAL_MIN_SCORE=0.6` is calibrated on a 3-point sample;
-   recalibrate with a labeled query set once S7/S8 corpora exist.
+1. **Run the S7 adversarial review, then `/promote` (#8)** — S7 is demoable
+   and CI-green on staging but unreviewed. Scope: `auspex/ingest/` (whole
+   package), kb changes (mapping upgrade, fingerprint, list_cve_ids,
+   doc_types filter, public copy), chat/echo changes, app lifespan rewiring,
+   migrations. Same multi-lens drill; verify findings before fixing.
+2. **TD-005 is now S8-BLOCKING for any unfiltered free-text surface:** the
+   spot-check confirmed both failure modes live (see probe doc). S8 must
+   calibrate per-doc_type floors AND neural k/ef together with a labeled
+   query set before shipping search over CVE prose.
 
 ## Blockers / open risks
-1. ~~Embeddings approach unmeasured~~ RESOLVED: D-018 (measured, ONNX pinned).
-2. **TD-001 (OAuth identity keyed on email)** — hard gate before any
+1. **TD-001 (OAuth identity keyed on email)** — hard gate before any
    GOOGLE_CLIENT_ID is configured.
-3. **Deep path is conversational-only (v1)** — AgentLoop still not wired into
-   /api/chat; history replay unbounded; shortcut answers replayed into
-   deep-turn history. Parked in IDEAS.md; modes land S9.
-4. **KB bootstrap needs outbound HTTPS once per fresh volume** (model download
-   from artifacts.opensearch.org, ~12 s). Air-gapped path parked in IDEAS.md;
-   failure degrades to honest deferred copy, app boots fine.
+2. **Deep path is conversational-only (v1)** — AgentLoop still not wired into
+   /api/chat; modes land S9.
+3. **KB bootstrap needs outbound HTTPS once per fresh volume** (model
+   download ~12 s); ingest additionally needs NVD/CISA/FIRST reachability —
+   failures degrade honestly (watermark holds, catch-up on recovery).
+4. **Corpus now grows ~770 docs/day while the container runs** (hourly
+   cycles). OpenSearch 1 GiB heap fine at current scale; watch RSS/disk as
+   it accumulates (~5 k docs/week). Multi-day host gaps catch up on boot by
+   design — a many-week gap will chunk into ≤120-day windows and take
+   minutes, politely paced.
 
 ## Host notes (reality snapshot)
-- Postgres host port **55432**; app 8000; OpenSearch 9200. Host runs pin via
-  `auspex.devhost` (DB/OpenSearch/APP_ENV + ENRICHMENT_ENABLED=false +
-  **KB_ENABLED=false** new in S6 — override in shell for host-run live KB).
-- OpenSearch container now carries the embedding model: +0.5 GiB RSS
-  (~2.2 GiB total), 609 MB ml_cache on the data volume. 1 GiB heap unchanged.
+- Postgres 55432; app 8000; OpenSearch 9200. Host runs pin via `auspex.devhost`
+  (…, ENRICHMENT_ENABLED=false, KB_ENABLED=false, **INGEST_ENABLED=false** new
+  in S7 — override in shell for host-run live ingest).
+- `ingest_state` rows: `nvd-delta` (cursor = last window end) and `kev`
+  (Last-Modified + dateAdded horizon 2026-07-16 + kb_refreshed). Rewinding
+  `nvd-delta.cursor.last_mod_end` + app restart = the gap-catch-up demo.
+- auspex-knowledge: ~2 500 chunks (14 seed + live NVD/KEV/EPSS). Index _meta
+  carries the seed fingerprint.
 - Ollama 0.24.0 on :11434; models qwen3:14b / llama3.1:8b / mistral:latest.
-- Host reboots between sessions — `docker compose up -d --wait` at start;
-  the KB model auto-redeploys (probed).
 - `gh` may wake up as SIRP-Burhan — session-start switches to
-  bh3082336888-cell (D-011); happened again this session.
+  bh3082336888-cell (D-011); **it flipped back MID-SESSION this time** (after
+  the morning switch) — re-check before any `gh` call, not just at start.
 
 ## Reference intelligence (from the SARA Open architecture study, 2026-07-14)
 Base: `/home/burhan/sara-open/` (paths re-verified 2026-07-15):
@@ -105,13 +111,12 @@ Base: `/home/burhan/sara-open/` (paths re-verified 2026-07-15):
   (worktrees get cleaned; re-snapshot to docs/probes/ before S8)
 - Permission hard-rails: /home/burhan/sara-open/sara/core/permissions.py:65-176
 - Fast classifier / 92-8: docs/probes/2026-07-16-sara-fastpath-pattern.md
-- Enrichment/fan-out: probe docs 2026-07-16 (supersede SARA notes)
+- Enrichment/fan-out: probe docs 2026-07-16
 - RRF retrieval + ID bypass: docs/probes/2026-07-17-sara-rrf-retriever-pattern.md
-  (snapshot — the live sara_retriever.py no longer needs to exist)
 - DEFERRED rail: /home/burhan/sara-open/sara/agents/alert_triage.py:1429
 - Capability shape: /home/burhan/sara-open/sara/core/unified_registry.py:37
 
 ## Next session should
-Review S6 (`/review` drill or the S5-style multi-lens pass) → `/promote` →
-then run S7 exactly as written in NEXT-SESSION.md (Ingestion 1: NVD delta +
-KEV + EPSS with ingest_state + catch-up scheduler).
+Review S7 (multi-lens, verify before fixing) → `/promote` (#8) → then S8
+exactly as written in NEXT-SESSION.md (Ingestion 2: ATT&CK + Sigma + abuse.ch;
+TD-005 calibration FIRST if any unfiltered search surface is touched).
