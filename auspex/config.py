@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     otx_api_key: str = ""  # optional — OTX answers keyless (probed); key raises limits
     greynoise_api_key: str = ""
 
+    # --- Knowledge base (S6). Lives on the OpenSearch container (D-009);
+    # embeddings are server-side via the ML plugin (D-018). Tests/host runs pin
+    # KB_ENABLED=false (hermetic; KB mockable at app.state.kb); container
+    # default is on — bootstrap is idempotent and survives a cold cluster.
+    kb_enabled: bool = True
+
     # --- Auth ---
     secret_key: str = ""  # JWT signing key; required in prod, ephemeral fallback in dev
     jwt_ttl_minutes: int = 720

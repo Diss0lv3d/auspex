@@ -21,3 +21,5 @@
 - Verdict combining v2: cross-provider agreement boost + per-provider trust weights (v1 = worst-label-wins, D-017 provisional rule).
 - obs_id re-check flow: "check ipv4-9c463859 again" resolves the id from the observables table (ws+obs_id index exists since S5) — echo copy currently only promises paste-again.
 - OTX CVE endpoint (/indicators/cve/) exists but was not probed in S5 — could give cve_lookup a real source before the S6 KB lands.
+- technique_lookup shortcut category: "T1566 overview" classifies DEEP today — routing bare/qualified MITRE technique ids to the KB id-rail (like cve_lookup) would answer with zero LLM; needs an S4-classifier category + copy (out of S6 scope; "what is T1059" already reaches the KB via DEFINITION).
+- ioc_check echo cites KB context for CVEs found in InternetDB `vulns[]` (S6 step-5 stretch): non-trivial — needs cross-service wiring in chat.py (enrichment outcome → kb.lookup_ids → merged echo copy in enrich/echo.py); do alongside S7 CVE feed when KB coverage makes it worth it.

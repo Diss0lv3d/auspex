@@ -122,6 +122,44 @@ class FakeEnrichmentService:
         pass
 
 
+class FakeKnowledgeService:
+    """Duck-typed KnowledgeService for the chat route (S6): scripted hits,
+    records what each turn asked, never touches OpenSearch. Set
+    `unavailable` to make every call raise KBUnavailable (KB down, not off)."""
+
+    def __init__(self, hits: list | None = None, *, active: bool = True, unavailable: bool = False):
+        self.hits = hits or []
+        self.active = active
+        self.unavailable = unavailable
+        self.lookup_calls: list[tuple] = []
+        self.lookup_topks: list[int] = []  # top_k per lookup_ids call, in order
+        self.search_calls: list[str] = []
+
+    def _answer(self) -> list:
+        if self.unavailable:
+            from auspex.kb import KBUnavailable
+
+            # Diagnostic message vs analyst-facing public clause, like the real
+            # service — chat tests assert the PUBLIC one is what gets rendered.
+            raise KBUnavailable(
+                "knowledge base unreachable: SimulatedConnectError",
+                public="it was unreachable",
+            )
+        return self.hits
+
+    async def lookup_ids(self, ids: tuple, *, top_k: int = 8) -> list:
+        self.lookup_calls.append(ids)
+        self.lookup_topks.append(top_k)
+        return self._answer()
+
+    async def search(self, query: str, *, top_k: int = 5) -> list:
+        self.search_calls.append(query)
+        return self._answer()
+
+    async def aclose(self) -> None:
+        pass
+
+
 class InMemoryProposalStore(ProposalStore):
     """Records proposals in a list; returns a synthetic id."""
 

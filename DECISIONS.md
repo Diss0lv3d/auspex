@@ -169,3 +169,29 @@ brick).** Every `verdicts` row carries, from day one: `label`
 - **v1 combining rule (provisional):** worst credible label wins; confidence =
   strongest signal of the winning label. Cross-provider agreement boosting and
   per-provider trust weights are parked in IDEAS.md, not silently improvised.
+
+**D-018 (2026-07-17) — Embeddings are server-side: OpenSearch ML plugin,
+all-MiniLM-L6-v2 v1.0.2, ONNX format (measured, resolves the S2 blocker).**
+Probe: docs/probes/2026-07-17-opensearch-knn-ml.md. The pretrained
+`huggingface/sentence-transformers/all-MiniLM-L6-v2` deployed on OUR
+2.19.4 container answers in 25–30 ms warm (single text), ~8 ms/text
+amortized at batch-16, dim 384, +0.5 GiB container RSS, 609 MB disk —
+against a fallback (in-process sentence-transformers) that would add
+~2.8 GB of wheels to an app image that has no torch, plus a second
+RAM-resident model copy. **Format is pinned ONNX** — TORCH_SCRIPT of the
+same model FAILS to deploy on 2.19.4 (`aten::scaled_dot_product_attention`
+unknown to the bundled DJL engine). Consequences:
+- Bootstrap code (idempotent, at service init) owns: cluster setting
+  `plugins.ml_commons.only_run_on_ml_node=false`, model register+deploy
+  when absent, `auspex-knowledge` index creation. A fresh volume re-runs
+  all three; first boot needs outbound HTTPS to artifacts.opensearch.org
+  (air-gapped path parked in IDEAS.md).
+- `model_id` is volume-specific → always resolved by model name at
+  startup, cached on app.state, never hardcoded/persisted in config.
+- Model missing/undeployed at query time (404 "Failed to find model") →
+  KB deferred copy (S5 breaker pattern); auto-redeploy after container
+  restart is measured-good so this is a cold-volume/first-boot path.
+- The in-process fallback stays a documented option, NOT a dependency:
+  latency was deliberately not measured because footprint alone
+  disqualifies it while the primary works. Revisit only if a customer
+  cluster bans the ML plugin (that day: probe first).

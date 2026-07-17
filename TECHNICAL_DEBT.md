@@ -1,5 +1,32 @@
 # Technical debt — logged the moment it's taken
 
+## TD-007 (S6 review) — BM25-only degrade can surface weak matches during neural outages
+**Where:** `auspex/kb/service.py::search` (neural-leg *unavailability* branch).
+**Risk:** when the neural leg is down (no model), free-text queries serve
+BM25-only results. The `minimum_should_match: 2<75%` damping and the relative
+floor gate most noise, but an off-corpus query CAN surface a weak lexical match
+labeled as a KB answer with a source line — the fixed live bug (7446fbc) only
+covers neural-ran-and-disagreed, not neural-couldn't-run.
+**Why accepted:** deliberate degradation (docstring service.py; STATE.md S6):
+during an outage a mostly-right lexical answer beats a blanket miss, and the
+outage window is now bounded by the 60 s model-lookup retry (S6 review fix).
+**Path to fix:** fold into the TD-005 calibration (S8) — a labeled query set can
+decide whether BM25-only needs its own absolute floor.
+
+## TD-008 (S6 review) — KB bootstrap runs inline in app lifespan
+**Where:** `auspex/app.py` lifespan (`await app.state.kb.bootstrap()`).
+**Risk:** uvicorn binds the port only after lifespan completes, so a slow
+bootstrap blocks ALL serving including liveness. Bounded: poll budget 180 s +
+per-call timeouts ≈ ~3.5 min worst case vs the compose healthcheck tolerance of
+210 s (start_period 30 s + 18×10 s) — a pathological fresh-volume boot (hung
+model download) can get the container killed into a crash loop. Warm boots are
+seconds; probed fresh boots ~30-40 s.
+**Why accepted for promote #7:** live-verified S6 behavior; the degraded path
+is honest (bootstrap failure ⇒ deferred copy, app boots).
+**Path to fix:** S7.3's ingest scheduler runs as a background startup task —
+move bootstrap into it (KB turns during warm-up get the honest "didn't answer
+this turn" copy). Should land in S7; if it doesn't, revisit here.
+
 ## TD-001 (S1) — OAuth identity keyed on email, not Google `sub`
 **Where:** `auspex/auth.py` `get_or_create_user` (matches users by `(workspace_id, email)`).
 **Risk:** For OAuth logins the immutable Google `sub` is stored but never compared to
@@ -30,6 +57,30 @@ probed its scorecard flips it to single-call automatically.
 the pre-pass for short/conversational turns (92/8, S4); (c) a single-pass
 `<thinking>`-tag variant could halve cost for endpoints that reliably honor it.
 
+## TD-006 (S6) — KB bootstrap has no multi-replica guard
+**Where:** `auspex/kb/service.py::bootstrap` (model register/deploy, seed ingest).
+**Risk:** two app replicas booting against one fresh OpenSearch volume could
+double-register the embedding model (harmless but messy) or double-seed (benign —
+chunk-id upserts). Zero risk in today's single-replica compose.
+**Why deferred:** no multi-replica deploy shape exists yet; inventing a lock for it
+now would be speculative.
+**Path to fix:** advisory lock (Postgres `pg_advisory_lock`) or find-before-register
+double-check with jittered retry, added when a second replica becomes real.
+
+## TD-005 (S6) — NEURAL_MIN_SCORE=0.6 calibrated on a 3-point sample
+**Where:** `auspex/kb/fuse.py::NEURAL_MIN_SCORE` (the pre-fusion absolute floor that
+turns off-corpus queries into honest misses).
+**Risk:** calibrated against one probed pair (relevant 0.695 / unrelated 0.498) plus
+one live query (0.586) on a 14-chunk corpus. A bigger corpus or oddly-phrased but
+legitimate queries could false-miss (annoying, self-healing via the deep path) or a
+semantically-adjacent-but-wrong doc could clear 0.6 (worse). Errors currently bias
+toward the honest miss, per the S4 rule.
+**Why deferred:** a defensible threshold needs a labeled query set, which needs the
+real S7/S8 corpora.
+**Path to fix:** after S7/S8 ingestion, build a small labeled relevant/irrelevant
+query fixture set from live probes and calibrate (consider per-doc_type floors);
+regression-pin the chosen operating point.
+
 ## ~~TD-004 (S5) — URLhaus / ThreatFox / AbuseIPDB happy paths are docs-coded, not probe-verified~~ RESOLVED same day
 **Resolved 2026-07-16 (evening):** Burhan registered both keys; all three happy paths
 probed live (docs/probes/2026-07-16-keyed-providers-live.md). Docs-coded shapes were
@@ -49,3 +100,5 @@ other file's parser silently drop frames and pass on a broken stream.
 touches three test files and deserved its own change, not a rider on the 92/8 work.
 **Path to fix:** hoist both into `tests/_fakes.py` (FORBIDDEN_ENGINE_NAMES already
 moved there in S4) and import everywhere; delete the copies.
+**Grew in S6:** `tests/test_chat_kb.py` added another copy of `_frames`/`_token`/
+`_use` (now 3 SSE-parser copies + 2 token helpers). Same fix, more call sites.

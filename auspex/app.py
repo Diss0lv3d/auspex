@@ -10,6 +10,7 @@ from auspex import __version__
 from auspex.config import Settings, get_settings
 from auspex.db import create_pool
 from auspex.enrich import EnrichmentService
+from auspex.kb import KnowledgeService
 from auspex.llm.registry import load_dev_registry
 from auspex.migrations import run_migrations
 from auspex.routes import auth, chat, health, ui
@@ -28,6 +29,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Enrichment fan-out service (S5): providers resolved from settings;
         # inert (active=False) when disabled or no providers configured.
         app.state.enrichment = EnrichmentService.from_settings(settings)
+        # Knowledge base (S6): bootstrap is idempotent and never raises — a cold
+        # or unreachable OpenSearch leaves the service up with the deferred rail
+        # answering honestly. Warm boots are 4 cheap round trips; a fresh volume
+        # additionally downloads the embedding model (~12 s, probed).
+        app.state.kb = KnowledgeService.from_settings(settings)
+        if app.state.kb.active:
+            logging.getLogger("auspex.kb").info("kb bootstrap: %s", await app.state.kb.bootstrap())
         app.state.pool = await create_pool(settings.database_url)
         # try/finally covers migrations too: a failure there must still close the pool.
         try:
@@ -36,6 +44,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             await app.state.pool.close()
             await app.state.enrichment.aclose()
+            await app.state.kb.aclose()
 
     app = FastAPI(
         title="Auspex",

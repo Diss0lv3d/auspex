@@ -1,97 +1,102 @@
 # STATE — Auspex
 
-_Last updated: 2026-07-16 (S5 complete — enrichment fan-out + verdict store, live-verified)_
+_Last updated: 2026-07-17 (S6 complete — KB/RAG on OpenSearch, live-verified)_
 
 ## Where we are
-- **S5 COMPLETE** (all 4 steps + 2 live-caught fixes, tests shipping with each)
-  → **next is S6** (KB/RAG on OpenSearch — see NEXT-SESSION.md).
-- **Promoted:** promote #5 (S5 + TD-004 resolution + review fixes) is on
-  `main` (`a0d99e5`, PR #5, back-merged into staging as `72aa0b8`).
-  `main` == full S5 milestone incl. keyed providers.
+- **S6 COMPLETE** (all 5 steps + 2 live-caught fixes, tests shipping with each)
+  → **next is S7** (Ingestion 1: NVD delta + CISA KEV + FIRST EPSS — see
+  NEXT-SESSION.md). S6 is on `staging`, NOT yet promoted — run the adversarial
+  review, then `/promote` (standing follow-up #1 below).
+- **Promoted:** promote #5/#6 on `main` == full S5 milestone. `main` does NOT
+  have S6 yet.
 - **Primary dev LLM (D-015):** Llama-4-Scout via Northflank; secondary/offline
-  Ollama `qwen3:14b` (D-013). S5 touched no LLM paths (enrichment is LLM-free
-  by design, test-enforced).
-- **CI-green: 246 tests** (was 177 at S4 end; +69 across S5 + follow-ups).
-  `./ci.sh` passes end-to-end: ruff, pytest, container build + health + ready.
+  Ollama `qwen3:14b` (D-013). S6 touched no LLM paths (KB shortcuts are
+  LLM-free by design, test-enforced: `done.path == "shortcut"`).
+- **CI-green: 320 tests** (was 246 at S5 end; +74 across S6). `./ci.sh` passes
+  end-to-end: ruff, pytest, container build + health + ready.
 
-## S5 shipped (all committed on staging, 2026-07-16)
-- **Probes first (rule 4):** docs/probes/2026-07-16-enrichment-providers.md —
-  all 7 providers hit live. Headline reality-vs-plan mismatches: **abuse.ch
-  (URLhaus+ThreatFox) is Auth-Key-gated now** (keyless = 401; one free
-  auth.abuse.ch key covers both); **OTX works keyless** (key optional);
-  GreyNoise keyless = 25 req/WEEK (useless → key-gated); OTX `pulse_info.count`
-  is poisoned for famous domains (whitelist `validation[]` must veto);
-  hashlookup is a known-GOOD-file DB (hit = weak benign, miss = nothing).
-- **`auspex/enrich/` package:** 7 probe-pinned provider clients (always-on
-  keyless: InternetDB ipv4/ipv6, CIRCL hashlookup md5/sha1/sha256, OTX
-  ipv4/ipv6/domain/url/hashes; key-gated: URLhaus, ThreatFox, AbuseIPDB,
-  GreyNoise). Per-(provider,observable) asyncio fan-out, 6 s per-call timeout,
-  per-provider circuit breaker (3 strikes → open, half-open probe after 60 s,
-  state persists across turns on app.state). Failures degrade to an honest
-  trailer (DEFERRED rail); "partial" marker when a provider failed one lookup
-  but answered another. Skip filters: private/reserved IPs (`is_global`) and
-  ubiquitous domains (even defanged) never enriched; per-turn cap 8
-  observables, capped tail echoed, never silent.
-- **Storage (D-008 scoped):** `observables` upsert-keyed (workspace, type,
-  value) + obs_id index; `verdicts` APPEND-ONLY with decay fields from day one
-  — **D-017 ratifies the semantics** (formula executable + test-pinned in
-  `auspex/enrich/verdict.py::effective_confidence`; half-lives IP 14 d /
-  domain 30 d / hash 365 d; decay never flips labels; v1 combining =
-  worst-label-wins).
-- **Chat wiring:** ioc_check shortcut now runs extract → skip-filter → fan-out
-  → verdict echo → persist, still ZERO LLM (test: enrichment runs, fake LLM
-  never called). No providers/disabled ⇒ the honest S4 "deferred" copy stands.
-  Host pytest pins `ENRICHMENT_ENABLED=false` (hermetic; enrichment mockable
-  at `app.state.enrichment`); container default is on.
-- **Live-verified in-container** (docs/probes/2026-07-16-s5-enrichment-live.md):
-  defanged Tor exit → real InternetDB context; WannaCry SHA-256 → "suspicious
-  0.70 — 50 threat pulses · linked adversary: Lazarus Group"; private IP
-  skipped honestly; verdict rows in Postgres with correct decay fields.
+## S6 shipped (all committed on staging, 2026-07-17)
+- **Probes first (rule 4):** docs/probes/2026-07-17-opensearch-knn-ml.md — our
+  OWN 2.19.4 container measured. Headline reality bites: **TORCH_SCRIPT of
+  all-MiniLM-L6-v2 FAILS to deploy on 2.19.4** (`aten::scaled_dot_product_attention`
+  unknown to bundled DJL) — **ONNX works and is pinned**; standard analyzer
+  SPLITS `CVE-2024-3400` into 3 tokens (exact-ID matching must be keyword-rail);
+  `only_run_on_ml_node` default blocks single-node deploy; model auto-redeploys
+  after container restart (data volume intact). Also
+  2026-07-17-sara-rrf-retriever-pattern.md (RRF/ID-bypass/floor constants) and
+  2026-07-17-nvd-api.md (NVD 2.0 shape; terse 54-char MSRC descriptions exist).
+- **D-018 ratified (measured):** embeddings are server-side (OpenSearch ML
+  plugin, all-MiniLM-L6-v2 1.0.2 ONNX, dim 384): 25–30 ms warm single,
+  ~8 ms/text batch-16, +0.5 GiB container RSS, 609 MB disk — vs 2 821 MB of
+  wheels for in-process sentence-transformers (disqualified on footprint;
+  latency deliberately unmeasured).
+- **`auspex/kb/` package:** KnowledgeService on `app.state.kb` (S5 service
+  pattern: settings-built, breaker, hermetic seam, KBUnavailable → deferred
+  copy, never a 500). Idempotent never-raising bootstrap: ML cluster setting →
+  model find/register/deploy (by NAME — model_id is volume-specific) → strict
+  mapping `auspex-knowledge` (keyword `ids` rail, knn_vector 384
+  lucene/hnsw/cosinesimil) → seed ingest (upsert by chunk_id, self-healing).
+  Live-verified both cold ("seeded 14 chunks") and warm ("seed present").
+- **Seed corpus (14 chunks):** 5 CVEs live-fetched from NVD (values verbatim,
+  incl. the 54-char CVE-2023-23397), 6 ATT&CK technique summaries + 3 concepts
+  hand-curated and **honestly labeled** (`attack-seed-summary` / `auspex-seed`
+  — never passed off as verbatim MITRE). `nvd_to_doc()` is S7's parser.
+- **Retrieval:** ID-dominant queries (ported SARA `is_id_query`) take the
+  keyword ID rail — term boost 10 + parent-technique prefix (`T1059.` pulls
+  sub-techniques; NEVER prefix for CVEs) — and neural never runs. Free text =
+  BM25 + neural fused client-side (RRF k=60, weights 0.4/0.6, legs at
+  top_k×2), regime-aware relative floor + **absolute neural floor 0.6**.
+  Per-leg degradation: neural *unavailability* ⇒ BM25-only; neural
+  *disagreement* (post-floor empty) ⇒ honest miss.
+- **Chat wiring:** cve_lookup + definition shortcuts consult the KB, zero LLM
+  (test: KB answers, fake LLM never called). Three truths, three copies:
+  KB inactive ⇒ S4 static deferred; active-but-down ⇒ "didn't answer this
+  turn"; connected-but-ignorant ⇒ explicit per-CVE miss / definition miss
+  copy. `KB_ENABLED` born in .env.example + docs/ENV_VARS.md; host pytest
+  pins it false (hermetic; fake at `app.state.kb`).
+- **Live-verified in-container** (docs/probes/2026-07-17-s6-kb-live.md): full
+  turn matrix — Log4Shell CRITICAL/10.0 with NVD source line; multi-CVE with
+  explicit miss; hybrid definition (real neural, cosine 0.84); `what is T1059`
+  via ID rail; `what is T1566` surfaces T1566.001 via prefix rail; off-corpus
+  and unknown-ID queries return honest miss copy. All `path=shortcut`.
 - **Two real bugs caught BY the live verify, fixed + pinned as regressions:**
-  (1) OTX `validation[source=tor_exits]` would have whitelisted a Tor exit —
-  benign veto now restricted to whitelist/false_positive/majestic/akamai
-  (fixture `OTX_TOR_EXIT`); (2) trailer said "OTX unavailable" beside an OTX
-  signal (per-call fan-out) → "partial — timed out" marker.
-- **Measured quirk:** OTX takes 14–16.6 s on pulse-heavy indicators (limit
-  param ignored). Kept the 6 s cap: fast path must not stall; misses are
-  reported honestly; keyed curated feeds cover exactly those cases (TD-004).
+  (1) missing absolute neural floor — kNN returns k neighbors for ANY query;
+  off-corpus questions would have fused noise into a fabricated "KB answer"
+  (`b0a026a`); (2) BM25 stopword/fuzzy leak — "what is quantum entanglement"
+  scored 4.4 on the C2 doc via "what"/"is"+fuzziness; post-floor-empty neural
+  leg is now the relevance gate, ID-rail misses stop falling back to fuzzy
+  prose, `minimum_should_match: 2<75%` damping (`7446fbc`).
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. ~~Re-run the S5 adversarial review, then `/promote`~~ **DONE 2026-07-17:**
-   the 5-lens/2-skeptic review ran (25 agents; 10 verifiers died on a second
-   quota window — findings they covered were re-judged inline). 15 raw
-   findings → 7 real code fixes (2 major: echo "unknown to them" counted
-   sources that never answered — D-014; URL observables bypassed the
-   private-IP skip) + 3 test-hygiene fixes, all in commit `7507900` with
-   regression tests (246 green). Then promote #5 → `main` (`a0d99e5`).
-2. ~~TD-004 — register keys, re-probe~~ **DONE same evening:** Burhan
-   registered both keys (`.env`, gitignored); all three docs-coded happy
-   paths probed live (docs/probes/2026-07-16-keyed-providers-live.md). One
-   trap caught + fixed: URLhaus empty-payload false-malicious (file_size 0 ⇒
-   no signal; unclassified payloads ⇒ suspicious). Live keyed verdict
-   verified in-container: defanged ClearFake domain → "malicious 1.00 —
-   ThreatFox: ClearFake (payload_delivery) 100/100; URLhaus: historically
-   hosted malware", zero LLM. Now 239 tests.
+1. **Run the S6 adversarial review, then `/promote`** — S6 is demoable and
+   CI-green on staging but unreviewed. Same drill as S5: multi-lens review
+   pass over `auspex/kb/` + chat wiring, fix what's real, then promote #7.
+   (S5's review found 7 real fixes; don't skip.)
+2. **TD-005** — `NEURAL_MIN_SCORE=0.6` is calibrated on a 3-point sample;
+   recalibrate with a labeled query set once S7/S8 corpora exist.
 
 ## Blockers / open risks
-1. **Embeddings approach unmeasured** — probe in S6 (decided).
+1. ~~Embeddings approach unmeasured~~ RESOLVED: D-018 (measured, ONNX pinned).
 2. **TD-001 (OAuth identity keyed on email)** — hard gate before any
    GOOGLE_CLIENT_ID is configured.
 3. **Deep path is conversational-only (v1)** — AgentLoop still not wired into
    /api/chat; history replay unbounded; shortcut answers replayed into
    deep-turn history. Parked in IDEAS.md; modes land S9.
-4. ~~Keyless verdicts cap at "suspicious"~~ RESOLVED: keys configured on this
-   host (TD-004 follow-up above); curated feeds now assert MALICIOUS with a
-   named family, live-verified.
+4. **KB bootstrap needs outbound HTTPS once per fresh volume** (model download
+   from artifacts.opensearch.org, ~12 s). Air-gapped path parked in IDEAS.md;
+   failure degrades to honest deferred copy, app boots fine.
 
 ## Host notes (reality snapshot)
 - Postgres host port **55432**; app 8000; OpenSearch 9200. Host runs pin via
-  `auspex.devhost` (DB/OpenSearch/APP_ENV + **ENRICHMENT_ENABLED=false** new
-  in S5 — override in shell for host-run live enrichment checks).
+  `auspex.devhost` (DB/OpenSearch/APP_ENV + ENRICHMENT_ENABLED=false +
+  **KB_ENABLED=false** new in S6 — override in shell for host-run live KB).
+- OpenSearch container now carries the embedding model: +0.5 GiB RSS
+  (~2.2 GiB total), 609 MB ml_cache on the data volume. 1 GiB heap unchanged.
 - Ollama 0.24.0 on :11434; models qwen3:14b / llama3.1:8b / mistral:latest.
-- Host reboots between sessions — `docker compose up -d --wait` at start.
-- Claude-side note: the account session usage limit can kill subagent fan-outs
-  mid-session (it did today at ~19:20 PKT); the main loop keeps working.
+- Host reboots between sessions — `docker compose up -d --wait` at start;
+  the KB model auto-redeploys (probed).
+- `gh` may wake up as SIRP-Burhan — session-start switches to
+  bh3082336888-cell (D-011); happened again this session.
 
 ## Reference intelligence (from the SARA Open architecture study, 2026-07-14)
 Base: `/home/burhan/sara-open/` (paths re-verified 2026-07-15):
@@ -100,13 +105,13 @@ Base: `/home/burhan/sara-open/` (paths re-verified 2026-07-15):
   (worktrees get cleaned; re-snapshot to docs/probes/ before S8)
 - Permission hard-rails: /home/burhan/sara-open/sara/core/permissions.py:65-176
 - Fast classifier / 92-8: docs/probes/2026-07-16-sara-fastpath-pattern.md
-- Enrichment/fan-out pattern: reused in S5 (probe doc above supersedes the
-  SARA notes for provider truth)
-- RRF retrieval + ID bypass: /home/burhan/sara-open/sara_retriever.py:538,599
-  (S6 pattern source — snapshot before use, rule 4)
+- Enrichment/fan-out: probe docs 2026-07-16 (supersede SARA notes)
+- RRF retrieval + ID bypass: docs/probes/2026-07-17-sara-rrf-retriever-pattern.md
+  (snapshot — the live sara_retriever.py no longer needs to exist)
 - DEFERRED rail: /home/burhan/sara-open/sara/agents/alert_triage.py:1429
 - Capability shape: /home/burhan/sara-open/sara/core/unified_registry.py:37
 
 ## Next session should
-Run S6 exactly as written in NEXT-SESSION.md (KB/RAG on OpenSearch). No
-carried follow-ups — S5 is reviewed, fixed, and promoted.
+Review S6 (`/review` drill or the S5-style multi-lens pass) → `/promote` →
+then run S7 exactly as written in NEXT-SESSION.md (Ingestion 1: NVD delta +
+KEV + EPSS with ingest_state + catch-up scheduler).

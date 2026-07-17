@@ -9,10 +9,11 @@ COPY pyproject.toml ./
 # Skeleton must satisfy every declared package/package-data in pyproject so the
 # metadata build succeeds with no real source present (deps-only layer).
 RUN mkdir -p auspex/routes auspex/agent auspex/llm auspex/classify \
-             auspex/enrich/providers auspex/static \
+             auspex/enrich/providers auspex/kb/seed_data auspex/static \
     && touch auspex/__init__.py auspex/routes/__init__.py auspex/agent/__init__.py \
              auspex/llm/__init__.py auspex/classify/__init__.py \
              auspex/enrich/__init__.py auspex/enrich/providers/__init__.py \
+             auspex/kb/__init__.py auspex/kb/seed_data/placeholder.json \
              auspex/static/placeholder.html server.py \
     && pip install --no-cache-dir . \
     && rm -rf auspex server.py
