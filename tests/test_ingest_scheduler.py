@@ -10,7 +10,7 @@ import pytest
 
 from auspex.ingest.events import DocChange
 from auspex.ingest.kev import KEVCatalog
-from auspex.ingest.scheduler import KEV_FEED, NVD_FEED, IngestScheduler
+from auspex.ingest.scheduler import ATTACK_FEED, KEV_FEED, NVD_FEED, IngestScheduler
 from auspex.ingest.state import FeedState
 from auspex.kb.types import KBUnavailable
 
@@ -639,6 +639,119 @@ async def test_kev_outage_with_cold_cache_holds_the_whole_cycle():
     with pytest.raises(RuntimeError):
         await sched.run_cycle()
     assert kb.ingested == []
+
+
+# ── ATT&CK phase (S8): index-as-cursor, bundle only on version change ───────
+
+
+class FakeATTACK:
+    def __init__(self, version="19.1", objects=None, fail_index=False):
+        from auspex.ingest.attack import ATTACKVersion
+
+        self.latest = ATTACKVersion(
+            version=version,
+            modified="2026-05-12T14:00:00.188Z",
+            url="https://raw.githubusercontent.com/mitre-attack/attack-stix-data/x.json",
+        )
+        self.objects = objects if objects is not None else ATTACK_BUNDLE["objects"]
+        self.fail_index = fail_index
+        self.index_polls = 0
+        self.bundle_fetches = 0
+
+    async def latest_version(self):
+        self.index_polls += 1
+        if self.fail_index:
+            raise RuntimeError("github is down")
+        return self.latest
+
+    async def fetch_objects(self, url):
+        self.bundle_fetches += 1
+        return self.objects
+
+    async def aclose(self) -> None:
+        pass
+
+
+ATTACK_BUNDLE = json.loads((FIXTURES / "attack_bundle.json").read_text())
+
+
+def idle_cursors() -> FakeState:
+    return FakeState(
+        rows={
+            NVD_FEED: {"last_mod_end": NOW.isoformat()},
+            KEV_FEED: {
+                "last_modified": "Thu, 16 Jul 2026 17:00:15 GMT",
+                "date_added_horizon": "2026-07-16",
+                "kb_refreshed": True,
+            },
+        }
+    )
+
+
+async def test_attack_new_version_ingests_and_records_cursor():
+    kb, state, sink = FakeKB(), idle_cursors(), RecordingSink()
+    attack = FakeATTACK()
+    sched = scheduler(kb=kb, state=state, sink=sink, attack=attack)
+    summary = await sched.run_cycle()
+    assert attack.bundle_fetches == 1
+    assert "attack: v19.1: 3 chunks from 3 docs" in summary
+    assert {d.doc_id for batch in kb.ingested for d in batch} == {"T1059", "T1059.001", "TA0006"}
+    assert state.rows[ATTACK_FEED] == {
+        "version": "19.1",
+        "modified": "2026-05-12T14:00:00.188Z",
+    }
+    assert DocChange("T1059", ATTACK_FEED, "upserted") in sink.events
+
+
+async def test_attack_current_version_never_downloads_the_bundle():
+    state = idle_cursors()
+    state.rows[ATTACK_FEED] = {"version": "19.1", "modified": "x"}
+    attack = FakeATTACK()
+    sched = scheduler(state=state, attack=attack)
+    summary = await sched.run_cycle()
+    assert "attack: current (v19.1)" in summary
+    assert attack.index_polls == 1  # the 31 KB index IS polled each cycle
+    assert attack.bundle_fetches == 0  # the 53 MB bundle is NOT
+
+
+async def test_attack_empty_parse_never_advances_the_cursor():
+    # a claimed-new version whose bundle parses to zero docs is broken or
+    # poisoned — cursor must hold so the next cycle retries
+    attack = FakeATTACK(objects=[])
+    state = idle_cursors()
+    sched = scheduler(state=state, attack=attack)
+    summary = await sched.run_cycle()
+    assert "attack: failed" in summary
+    assert ATTACK_FEED not in state.rows
+
+
+async def test_attack_failure_is_isolated_from_the_cve_phases():
+    state = FakeState(
+        rows={
+            NVD_FEED: {"last_mod_end": (NOW - timedelta(days=1)).isoformat()},
+            KEV_FEED: {
+                "last_modified": "Thu, 16 Jul 2026 17:00:15 GMT",
+                "date_added_horizon": "2026-07-16",
+                "kb_refreshed": True,
+            },
+        }
+    )
+    kb = FakeKB()
+    sched = scheduler(
+        kb=kb,
+        state=state,
+        nvd=FakeNVD(window_cves=[nvd_cve("CVE-2024-0001")]),
+        attack=FakeATTACK(fail_index=True),
+    )
+    summary = await sched.run_cycle()  # must NOT raise
+    assert "attack: failed" in summary
+    assert state.rows[NVD_FEED]["last_mod_end"] == NOW.isoformat()  # NVD advanced
+    assert len(kb.ingested) == 1
+
+
+async def test_no_attack_feed_reports_disabled():
+    summary = await scheduler(state=idle_cursors()).run_cycle()
+    assert "attack: disabled" in summary
 
 
 # ── run() task body ─────────────────────────────────────────────────────────

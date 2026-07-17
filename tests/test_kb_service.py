@@ -245,12 +245,12 @@ async def test_doc_types_filter_applies_to_both_legs():
     # BM25 gets the same filter so definitions never match CVE record prose.
     router = Router()
     svc = service_with(router)
-    await svc.search("what is lateral movement", doc_types=("concept", "technique"))
+    await svc.search("what is lateral movement", doc_types=("concept", "technique", "tactic"))
     bodies = [b for _, p, b in router.requests if p == f"/{KNOWLEDGE_INDEX}/_search"]
     assert len(bodies) == 2
     for body in bodies:
         rendered = json.dumps(body)
-        assert '"filter": {"terms": {"doc_type": ["concept", "technique"]}}' in rendered
+        assert '"filter": {"terms": {"doc_type": ["concept", "technique", "tactic"]}}' in rendered
     # and without the param, no filter appears anywhere
     router.requests.clear()
     await svc.search("what is lateral movement")

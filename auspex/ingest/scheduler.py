@@ -22,8 +22,12 @@ Per cycle:
    backfill) — parse via nvd_to_doc (Rejected CVEs skipped, counted), enrich
    from the KEV catalog + an EPSS batch, ingest, advance the watermark
    per-window.
-3. Emit one DocChange per upserted doc to the sink (NullSink until S14's
-   retro-hunt consumers land) — "kev-added" for docs that entered via KEV.
+3. ATT&CK (S8): poll the 31 KB version index; on a new Enterprise version
+   (~2×/year) download the STIX bundle and land techniques + tactics as
+   plain docs (same ids as the old hand seeds — real content overwrites).
+4. Emit one DocChange per upserted doc to the sink (NullSink until S14's
+   retro-hunt consumers land) — "kev-added" for docs that entered via KEV,
+   "deleted" when NVD rejects a held CVE.
 """
 
 import asyncio
@@ -32,6 +36,7 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
 from auspex.config import Settings
+from auspex.ingest.attack import ATTACKFeed, bundle_to_docs
 from auspex.ingest.enrich import enrich_doc, enrichment_fields
 from auspex.ingest.epss import EPSSFeed
 from auspex.ingest.events import ChangeSink, DocChange, NullSink
@@ -45,6 +50,7 @@ logger = logging.getLogger("auspex.ingest")
 
 NVD_FEED = "nvd-delta"
 KEV_FEED = "kev"
+ATTACK_FEED = "attack-enterprise"
 
 
 def _advance_kev_cursor(cursor: dict, catalog, processed: list[str]) -> dict:
@@ -88,6 +94,7 @@ class IngestScheduler:
         nvd: NVDFeed,
         kev: KEVFeed,
         epss: EPSSFeed,
+        attack: ATTACKFeed | None = None,
         sink: ChangeSink | None = None,
         enabled: bool = True,
         interval_seconds: float = CYCLE_INTERVAL_SECONDS,
@@ -100,6 +107,7 @@ class IngestScheduler:
         self._nvd = nvd
         self._kev = kev
         self._epss = epss
+        self._attack = attack
         self._sink = sink or NullSink()
         self.enabled = enabled
         self._interval = interval_seconds
@@ -116,11 +124,15 @@ class IngestScheduler:
             nvd=NVDFeed(api_key=settings.nvd_api_key),
             kev=KEVFeed(),
             epss=EPSSFeed(),
+            attack=ATTACKFeed(),
             enabled=settings.ingest_enabled and kb.active,
         )
 
     async def aclose(self) -> None:
-        for feed in (self._nvd, self._kev, self._epss):
+        feeds = [self._nvd, self._kev, self._epss]
+        if self._attack is not None:
+            feeds.append(self._attack)
+        for feed in feeds:
             await feed.aclose()
 
     # ── the background task body ──────────────────────────────────────────
@@ -172,7 +184,47 @@ class IngestScheduler:
             )
         nvd_status, nvd_ingested_ids = await self._nvd_phase(kev_catalog)
         kev_doc_status = await self._kev_docs_phase(kev_catalog, kev_new_ids, nvd_ingested_ids)
-        return f"kev: {kev_status}; nvd: {nvd_status}; kev-docs: {kev_doc_status}"
+        try:
+            attack_status = await self._attack_phase()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Cursor holds; retries next cycle. Isolated so a GitHub outage
+            # can't mark the whole (already-recorded) CVE work as failed.
+            logger.exception("attack phase failed; retrying next cycle")
+            attack_status = "failed (see log)"
+        return (
+            f"kev: {kev_status}; nvd: {nvd_status}; kev-docs: {kev_doc_status}; "
+            f"attack: {attack_status}"
+        )
+
+    async def _attack_phase(self) -> str:
+        """ATT&CK rides the hourly cycle but downloads the 53 MB bundle ONLY
+        when the 31 KB version index shows a version the cursor hasn't seen
+        (~2×/year). Techniques + tactics land as plain (unenriched) docs;
+        same doc_ids as the old hand-curated seeds, so real STIX-derived
+        content overwrites them and orphan pruning sweeps the tails."""
+        if self._attack is None:
+            return "disabled"
+        latest = await self._attack.latest_version()
+        prior = await self._state.get(ATTACK_FEED)
+        if prior and prior.cursor.get("version") == latest.version:
+            return f"current (v{latest.version})"
+        objects = await self._attack.fetch_objects(latest.url)
+        docs = bundle_to_docs(objects)
+        if not docs:
+            # An empty parse of a claimed-new version means a broken or
+            # poisoned bundle — never advance the cursor over it.
+            raise RuntimeError(f"ATT&CK bundle v{latest.version} yielded no docs")
+        ingested = await self._kb.ingest_docs(docs)
+        await self._sink.emit([DocChange(d.doc_id, ATTACK_FEED, "upserted") for d in docs])
+        await self._state.record(
+            ATTACK_FEED,
+            cursor={"version": latest.version, "modified": latest.modified},
+            status=f"v{latest.version}: {ingested} chunks from {len(docs)} docs",
+            docs_delta=ingested,
+        )
+        return f"v{latest.version}: {ingested} chunks from {len(docs)} docs"
 
     async def _kev_phase(self) -> tuple[KEVCatalog | None, list[str], str]:
         """Fetch/refresh the catalog; decide which entries are NEW (above the
