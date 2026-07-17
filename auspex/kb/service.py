@@ -32,7 +32,7 @@ from auspex import __version__
 from auspex.config import Settings
 from auspex.enrich.breaker import CircuitBreaker
 from auspex.kb.chunking import chunk_doc
-from auspex.kb.fuse import apply_floor, rrf_fuse
+from auspex.kb.fuse import apply_floor, neural_leg_floor, rrf_fuse
 from auspex.kb.idquery import extract_kb_ids, is_id_query
 from auspex.kb.mapping import (
     EMBED_MODEL_FORMAT,
@@ -366,7 +366,7 @@ class KnowledgeService:
         model_id = await self._resolve_model_id()
         if model_id is None:
             raise KBUnavailable("embedding model not available")
-        return await self._search_call(
+        hits = await self._search_call(
             {
                 "size": size,
                 "_source": {"excludes": SOURCE_EXCLUDES},
@@ -375,6 +375,9 @@ class KnowledgeService:
                 },
             }
         )
+        # kNN returns k neighbors for ANY query — cut noise before fusion so an
+        # off-corpus question yields an honest miss, not a fabricated answer.
+        return neural_leg_floor(hits)
 
     async def _resolve_model_id(self) -> str | None:
         """Bootstrap normally sets the id; this lazy path covers a service

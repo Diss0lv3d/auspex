@@ -3,7 +3,7 @@ Pattern + constants: docs/probes/2026-07-17-sara-rrf-retriever-pattern.md §1,§
 
 import pytest
 
-from auspex.kb.fuse import RRF_K, apply_floor, regime_cutoff, rrf_fuse
+from auspex.kb.fuse import RRF_K, apply_floor, neural_leg_floor, regime_cutoff, rrf_fuse
 from auspex.kb.types import KBHit
 
 
@@ -78,3 +78,12 @@ def test_apply_floor_keeps_rrf_longtail():
 
 def test_apply_floor_empty():
     assert apply_floor([]) == []
+
+
+def test_neural_leg_floor_cuts_off_corpus_noise():
+    # Probed pair (2026-07-17): relevant 0.695 vs unrelated 0.498 — the 0.6
+    # absolute floor sits between them. kNN always returns k neighbors; the
+    # floor is what turns an off-corpus query into an honest miss.
+    hits = [hit("A#0", 0.695), hit("B#0", 0.598), hit("C#0", 0.498)]
+    assert [h.chunk_id for h in neural_leg_floor(hits)] == ["A#0"]
+    assert neural_leg_floor([]) == []

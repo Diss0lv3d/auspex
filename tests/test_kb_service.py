@@ -210,6 +210,17 @@ async def test_dead_bm25_leg_degrades_to_neural_only():
     assert [h.chunk_id for h in hits] == ["A#0"]
 
 
+async def test_off_corpus_query_is_an_honest_miss_not_fabricated():
+    # kNN always answers with k neighbors; BM25 finds nothing for off-corpus
+    # text. Without the absolute neural floor these noise hits would become
+    # the turn's "KB answer". Scores below 0.6 (probed noise regime) must die.
+    router = Router()
+    router.bm25_hits = []
+    router.neural_hits = [kb_hit("CONCEPT-C2#0", 0.512), kb_hit("T1055#0", 0.487)]
+    svc = service_with(router)
+    assert await svc.search("what is quantum entanglement") == []
+
+
 async def test_both_legs_dead_raises_unavailable_and_counts_breaker_failure():
     router = Router()
     router.fail_bm25 = True

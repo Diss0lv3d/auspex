@@ -21,6 +21,17 @@ _RRF_TOP_FRACTION = 0.25
 _LEXICAL_TOP_FRACTION = 0.4
 DEFAULT_SCORE_THRESHOLD = 0.005
 
+# Absolute floor for the kNN leg BEFORE fusion. kNN always returns k nearest
+# neighbors — for an off-corpus query those are pure noise, and RRF would
+# promote them into a fabricated "KB answer". lucene cosinesimil scores are
+# bounded [0,1], so an absolute cut is meaningful (probed 2026-07-17:
+# relevant pair 0.695, unrelated pair 0.498).
+NEURAL_MIN_SCORE = 0.6
+
+
+def neural_leg_floor(hits: list[KBHit]) -> list[KBHit]:
+    return [h for h in hits if h.score >= NEURAL_MIN_SCORE]
+
 
 def rrf_fuse(
     leg_a: list[KBHit],
