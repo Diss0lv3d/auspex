@@ -13,19 +13,12 @@ outage window is now bounded by the 60 s model-lookup retry (S6 review fix).
 **Path to fix:** fold into the TD-005 calibration (S8) — a labeled query set can
 decide whether BM25-only needs its own absolute floor.
 
-## TD-008 (S6 review) — KB bootstrap runs inline in app lifespan
-**Where:** `auspex/app.py` lifespan (`await app.state.kb.bootstrap()`).
-**Risk:** uvicorn binds the port only after lifespan completes, so a slow
-bootstrap blocks ALL serving including liveness. Bounded: poll budget 180 s +
-per-call timeouts ≈ ~3.5 min worst case vs the compose healthcheck tolerance of
-210 s (start_period 30 s + 18×10 s) — a pathological fresh-volume boot (hung
-model download) can get the container killed into a crash loop. Warm boots are
-seconds; probed fresh boots ~30-40 s.
-**Why accepted for promote #7:** live-verified S6 behavior; the degraded path
-is honest (bootstrap failure ⇒ deferred copy, app boots).
-**Path to fix:** S7.3's ingest scheduler runs as a background startup task —
-move bootstrap into it (KB turns during warm-up get the honest "didn't answer
-this turn" copy). Should land in S7; if it doesn't, revisit here.
+## ~~TD-008 (S6 review) — KB bootstrap runs inline in app lifespan~~ RESOLVED in S7 (same day)
+**Resolved 2026-07-17 (96e42df):** the S7 ingest scheduler runs as a background
+startup task and owns the KB bootstrap — lifespan yields immediately, the port
+binds before bootstrap, and KB turns during warm-up get the honest "didn't
+answer this turn" copy. Worst-case bootstrap latency no longer intersects the
+compose healthcheck window at all.
 
 ## TD-001 (S1) — OAuth identity keyed on email, not Google `sub`
 **Where:** `auspex/auth.py` `get_or_create_user` (matches users by `(workspace_id, email)`).
