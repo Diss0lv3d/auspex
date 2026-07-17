@@ -1,11 +1,9 @@
 # NEXT-SESSION — paste everything below the line into a fresh Claude Code window opened in /home/burhan/auspex-new
 
-_(Standing follow-up: S5 is complete on `staging` but NOT promoted — the
-multi-agent adversarial review was quota-blocked at S5 end (inline pass found
-nothing blocking); re-run it, fix anything confirmed, THEN `/promote`.
-TD-004 is DONE: keys registered + all key-gated providers live-probed the
-same evening; keyed enrichment verified end-to-end — a defanged ClearFake
-domain returns "malicious 1.00, ThreatFox + URLhaus" with zero LLM.)_
+_(No standing follow-ups. S5 is reviewed (5-lens adversarial pass, 7 fixes),
+promoted to `main` as promote #5, and keyed enrichment is live-verified —
+a defanged ClearFake domain returns "malicious 1.00, ThreatFox + URLhaus"
+with zero LLM. TD-004 resolved.)_
 
 ---
 
@@ -14,13 +12,6 @@ SESSION S6 of Auspex. Working dir must be /home/burhan/auspex-new — run
 Northflank (D-015)**; local Ollama `qwen3:14b` is the secondary/offline endpoint
 (D-013) and is what the session-start local-Ollama gate validates. Any mismatch
 → STOP and tell me.
-
-**Before S6 work (carried follow-up):** re-run the 5-lens adversarial review
-of the S5 diff (`git diff 67c4a76..e2a1381` plus later fixes — or simply
-`git diff main..staging` before promoting) — correctness/concurrency,
-security/tenancy, probe-contract fidelity, test hermeticity, copy honesty;
-adversarially verify findings, fix confirmed ones, then run `/promote`
-(S5 = demoable milestone: live keyless enrichment with verdict decay store).
 
 Goal (scope-locked, from ROADMAP.md S6 — KB/RAG on OpenSearch):
 

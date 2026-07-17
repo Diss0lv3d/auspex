@@ -5,15 +5,14 @@ _Last updated: 2026-07-16 (S5 complete — enrichment fan-out + verdict store, l
 ## Where we are
 - **S5 COMPLETE** (all 4 steps + 2 live-caught fixes, tests shipping with each)
   → **next is S6** (KB/RAG on OpenSearch — see NEXT-SESSION.md).
-- **Promoted:** promote #4 (S4) is on `main`. **S5 is on `staging` only — NOT
-  yet promoted.** S5 is a demoable milestone, but hold `/promote` until the
-  multi-agent adversarial review re-runs (see In-flight; it was quota-blocked
-  this session — an inline single-reviewer pass found nothing blocking).
+- **Promoted:** promote #5 (S5 + TD-004 resolution + review fixes) is on
+  `main` (`a0d99e5`, PR #5, back-merged into staging as `72aa0b8`).
+  `main` == full S5 milestone incl. keyed providers.
 - **Primary dev LLM (D-015):** Llama-4-Scout via Northflank; secondary/offline
   Ollama `qwen3:14b` (D-013). S5 touched no LLM paths (enrichment is LLM-free
   by design, test-enforced).
-- **CI-green: 237 tests** (was 177 at S4 end; +60 this session). `./ci.sh`
-  passes end-to-end: ruff, pytest, container build + health + ready.
+- **CI-green: 246 tests** (was 177 at S4 end; +69 across S5 + follow-ups).
+  `./ci.sh` passes end-to-end: ruff, pytest, container build + health + ready.
 
 ## S5 shipped (all committed on staging, 2026-07-16)
 - **Probes first (rule 4):** docs/probes/2026-07-16-enrichment-providers.md —
@@ -58,14 +57,13 @@ _Last updated: 2026-07-16 (S5 complete — enrichment fan-out + verdict store, l
   reported honestly; keyed curated feeds cover exactly those cases (TD-004).
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Re-run the S5 multi-agent adversarial review, then `/promote`.** The
-   5-lens review workflow died at launch — ALL agents hit the account session
-   limit (reset 8:20 pm Asia/Karachi, 2026-07-16). An inline single-reviewer
-   pass over the full diff (correctness/security/contract/tests/honesty)
-   found nothing blocking, but the S4 precedent is review-then-promote, so
-   S5 promote waits for the real pass. Script is reusable:
-   `.claude/.../workflows/scripts/s5-adversarial-review-wf_f4b4c4e5-0b2.js`
-   (or just re-ask for a fresh 5-lens review of `git diff 67c4a76..HEAD`).
+1. ~~Re-run the S5 adversarial review, then `/promote`~~ **DONE 2026-07-17:**
+   the 5-lens/2-skeptic review ran (25 agents; 10 verifiers died on a second
+   quota window — findings they covered were re-judged inline). 15 raw
+   findings → 7 real code fixes (2 major: echo "unknown to them" counted
+   sources that never answered — D-014; URL observables bypassed the
+   private-IP skip) + 3 test-hygiene fixes, all in commit `7507900` with
+   regression tests (246 green). Then promote #5 → `main` (`a0d99e5`).
 2. ~~TD-004 — register keys, re-probe~~ **DONE same evening:** Burhan
    registered both keys (`.env`, gitignored); all three docs-coded happy
    paths probed live (docs/probes/2026-07-16-keyed-providers-live.md). One
@@ -110,6 +108,5 @@ Base: `/home/burhan/sara-open/` (paths re-verified 2026-07-15):
 - Capability shape: /home/burhan/sara-open/sara/core/unified_registry.py:37
 
 ## Next session should
-Start with the carried follow-up: re-run the adversarial review of the S5
-diff, fix anything confirmed, then `/promote` S5. Then run S6 exactly as
-written in NEXT-SESSION.md (KB/RAG on OpenSearch).
+Run S6 exactly as written in NEXT-SESSION.md (KB/RAG on OpenSearch). No
+carried follow-ups — S5 is reviewed, fixed, and promoted.
