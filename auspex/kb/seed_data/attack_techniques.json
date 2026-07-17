@@ -1,0 +1,67 @@
+{
+  "_comment": "S6 seed corpus — hand-curated summaries written for Auspex, AFTER (not verbatim from) MITRE ATT&CK v15 technique pages. Real STIX feed ingestion lands S7/S8 and replaces these. Source labeling is honest: 'seed summary'.",
+  "techniques": [
+    {
+      "id": "T1059",
+      "name": "Command and Scripting Interpreter",
+      "tactics": ["execution"],
+      "url": "https://attack.mitre.org/techniques/T1059/",
+      "summary": "Adversaries abuse command and script interpreters to execute commands, scripts, and binaries on a target. Interpreters like Unix shells, PowerShell, Windows Command Shell, Python, JavaScript, and Visual Basic are present on most platforms and give an attacker a native, trusted execution surface — no dropped tooling required. Interpreter abuse shows up across the intrusion lifecycle: initial payload execution from a phishing document, post-exploitation reconnaissance one-liners, download cradles pulling second stages, and scheduled-task or service persistence that re-invokes a script. Detection leans on command-line logging and script-block logging: unusual parent-child process chains (an office application spawning a shell), encoded or obfuscated arguments, and interpreters reaching out to the network are the classic signals."
+    },
+    {
+      "id": "T1059.001",
+      "name": "Command and Scripting Interpreter: PowerShell",
+      "tactics": ["execution"],
+      "url": "https://attack.mitre.org/techniques/T1059/001/",
+      "summary": "Adversaries abuse PowerShell for execution — a powerful interactive shell and scripting environment included in every modern Windows build with deep OS and .NET integration. Common offensive uses: running download cradles (Invoke-WebRequest, Net.WebClient) to fetch payloads, executing in-memory tooling without touching disk, encoded commands (-EncodedCommand) to evade naive command-line inspection, and remote execution over WinRM. Because administrators use PowerShell legitimately, blanket blocking is rarely viable; defense centers on Script Block Logging and Module Logging (events 4103/4104), constrained language mode, AMSI integration, and alerting on suspicious invocation patterns — hidden windows, encoded commands, execution-policy bypass flags, and office or browser parents spawning powershell.exe."
+    },
+    {
+      "id": "T1566",
+      "name": "Phishing",
+      "tactics": ["initial-access"],
+      "url": "https://attack.mitre.org/techniques/T1566/",
+      "summary": "Adversaries send phishing messages to gain access to victim systems — the dominant initial-access vector in practice. Phishing is electronically delivered social engineering: mass campaigns harvest credentials or drop commodity malware, while targeted variants (spearphishing) tailor the lure to a specific person, role, or organization. Payload patterns include malicious attachments, links to credential-harvesting pages or drive-by downloads, and links or QR codes that route victims through legitimate services to evade reputation filtering. Defenses layer email gateway filtering, attachment detonation, URL rewriting, DMARC/DKIM/SPF enforcement, and user reporting; detection watches for anomalous senders, newly registered lookalike domains, and post-click behavior such as unusual OAuth grants or credential entry on non-corporate pages."
+    },
+    {
+      "id": "T1566.001",
+      "name": "Phishing: Spearphishing Attachment",
+      "tactics": ["initial-access"],
+      "url": "https://attack.mitre.org/techniques/T1566/001/",
+      "summary": "Adversaries send spearphishing emails with a malicious attachment to targeted individuals. The attachment carries the payload: weaponized office documents with macros or exploit chains, archive files hiding executables or LNK shortcuts, ISO/IMG containers that sidestep mark-of-the-web, or PDFs with embedded links. The email's social engineering persuades the target to open the file and, typically, to click through a security prompt (enable macros, extract the archive). Upon opening, execution usually pivots straight into T1059 interpreter abuse. Detection: attachment sandboxing/detonation, blocking or quarantining high-risk container formats, macro-from-internet restrictions, and alerting on office applications spawning shells or making network connections."
+    },
+    {
+      "id": "T1055",
+      "name": "Process Injection",
+      "tactics": ["defense-evasion", "privilege-escalation"],
+      "url": "https://attack.mitre.org/techniques/T1055/",
+      "summary": "Adversaries inject code into live processes to evade defenses and sometimes elevate privileges — the injected code executes under the target process's identity, masquerading as legitimate activity and inheriting its permissions and network access. Classic variants include DLL injection via CreateRemoteThread, process hollowing (starting a benign process suspended and replacing its image), thread execution hijacking, and reflective loading of code that never touches disk. Security products themselves and browsers are frequent targets, since their network traffic draws little suspicion. Detection focuses on cross-process API sequences (OpenProcess → WriteProcessMemory → CreateRemoteThread), unexpected memory regions that are both writable and executable, image-load anomalies, and processes whose behavior diverges from their binary's known profile."
+    },
+    {
+      "id": "T1548.002",
+      "name": "Abuse Elevation Control Mechanism: Bypass User Account Control",
+      "tactics": ["privilege-escalation", "defense-evasion"],
+      "url": "https://attack.mitre.org/techniques/T1548/002/",
+      "summary": "Adversaries bypass Windows User Account Control (UAC) to elevate from medium to high integrity without prompting the user. Most bypasses abuse auto-elevating binaries and their trusted paths: hijacking registry keys consulted by auto-elevated executables (fodhelper.exe, eventvwr.exe patterns), DLL search-order abuse against elevated processes, or COM interface abuse. UAC bypass is a stepping stone rather than a goal — it typically appears between initial execution and credential theft or persistence installation. Detection: registry writes to shell open command keys by non-installer processes, auto-elevate binaries spawning unexpected children, and integrity-level jumps in process telemetry without an accompanying consent prompt."
+    }
+  ],
+  "concepts": [
+    {
+      "id": "CONCEPT-LATERAL-MOVEMENT",
+      "name": "Lateral movement",
+      "url": "",
+      "summary": "Lateral movement is the phase of an intrusion where an adversary moves from an initially compromised host to other systems in the environment, hunting for higher-value access — domain controllers, file servers, admin workstations, cloud control planes. It usually combines harvested credentials (hashes, tickets, tokens, cached passwords) with legitimate remote-access mechanisms: SMB and admin shares, RDP, WinRM/PowerShell remoting, SSH, WMI, or remote service creation. Because the traffic rides protocols administrators use daily, detection is about context rather than mechanism: authentication patterns that don't match a user's history, one account fanning out to many hosts in a short window, workstation-to-workstation logons, and remote-execution artifacts appearing on machines with no admin-change ticket."
+    },
+    {
+      "id": "CONCEPT-C2",
+      "name": "Command and control (C2)",
+      "url": "",
+      "summary": "Command and control (C2) is the channel an adversary maintains with compromised systems to issue tasking, stage tooling, and exfiltrate data. Modern C2 hides in allowed egress: HTTPS to attacker infrastructure or abused cloud services, DNS tunneling, and legitimate platforms (chat services, code-hosting, file-sharing) repurposed as relays. Implants typically beacon — short, periodic check-ins with jitter — rather than holding connections open. Defensive signals include periodicity analysis of outbound flows, rare or newly registered destination domains, TLS fingerprint (JA3/JA4) anomalies, unusually long DNS labels or high-entropy subdomains, and processes generating network traffic that have no business doing so. Blocking known infrastructure helps but decays fast; behavioral beacon detection ages better."
+    },
+    {
+      "id": "CONCEPT-LOLBIN",
+      "name": "Living off the land (LOLBins)",
+      "url": "",
+      "summary": "Living off the land is the practice of conducting an intrusion using tools already present on the target — signed OS binaries, admin utilities, and scripting engines — instead of custom malware. The binaries involved are called LOLBins: certutil downloading payloads, mshta or rundll32 executing script and DLL payloads, bitsadmin fetching files, regsvr32 pulling scriptlets, wmic for remote execution. The appeal is evasion: the executables are signed, whitelisted, and routine, so file-reputation and simple allowlisting see nothing new. Detection shifts to arguments and context — the pairing of binary, command line, parent process, and network destination. A signed binary in an unusual role (certutil with a URL, rundll32 with no arguments, an office parent) is the signal, not the binary itself."
+    }
+  ]
+}

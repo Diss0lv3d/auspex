@@ -1,0 +1,196 @@
+{
+  "probe": "docs/probes/2026-07-17-nvd-api.md",
+  "fetched": "2026-07-17",
+  "vulnerabilities": [
+    {
+      "cve": {
+        "id": "CVE-2017-0144",
+        "sourceIdentifier": "secure@microsoft.com",
+        "published": "2017-03-17T00:59:04.010",
+        "vulnStatus": "Analyzed",
+        "descriptions": [
+          {
+            "lang": "en",
+            "value": "The SMBv1 server in Microsoft Windows Vista SP2; Windows Server 2008 SP2 and R2 SP1; Windows 7 SP1; Windows 8.1; Windows Server 2012 Gold and R2; Windows RT 8.1; and Windows 10 Gold, 1511, and 1607; and Windows Server 2016 allows remote attackers to execute arbitrary code via crafted packets, aka \"Windows SMB Remote Code Execution Vulnerability.\" This vulnerability is different from those described in CVE-2017-0143, CVE-2017-0145, CVE-2017-0146, and CVE-2017-0148."
+          }
+        ],
+        "metrics": {
+          "cvssMetricV31": [
+            {
+              "cvssData": {
+                "baseScore": 8.8,
+                "baseSeverity": "HIGH"
+              }
+            }
+          ]
+        },
+        "references": [
+          {
+            "url": "http://packetstormsecurity.com/files/154690/DOUBLEPULSAR-Payload-Execution-Neutralization.html",
+            "source": "secure@microsoft.com"
+          },
+          {
+            "url": "http://packetstormsecurity.com/files/156196/SMB-DOUBLEPULSAR-Remote-Code-Execution.html",
+            "source": "secure@microsoft.com"
+          },
+          {
+            "url": "http://www.securityfocus.com/bid/96704",
+            "source": "secure@microsoft.com"
+          }
+        ]
+      }
+    },
+    {
+      "cve": {
+        "id": "CVE-2019-19781",
+        "sourceIdentifier": "cve@mitre.org",
+        "published": "2019-12-27T14:15:12.070",
+        "vulnStatus": "Analyzed",
+        "descriptions": [
+          {
+            "lang": "en",
+            "value": "An issue was discovered in Citrix Application Delivery Controller (ADC) and Gateway 10.5, 11.1, 12.0, 12.1, and 13.0. They allow Directory Traversal."
+          }
+        ],
+        "metrics": {
+          "cvssMetricV31": [
+            {
+              "cvssData": {
+                "baseScore": 9.8,
+                "baseSeverity": "CRITICAL"
+              }
+            }
+          ]
+        },
+        "references": [
+          {
+            "url": "http://packetstormsecurity.com/files/155904/Citrix-Application-Delivery-Controller-Gateway-Remote-Code-Execution.html",
+            "source": "cve@mitre.org"
+          },
+          {
+            "url": "http://packetstormsecurity.com/files/155905/Citrix-Application-Delivery-Controller-Gateway-Remote-Code-Execution-Traversal.html",
+            "source": "cve@mitre.org"
+          },
+          {
+            "url": "http://packetstormsecurity.com/files/155930/Citrix-Application-Delivery-Controller-Gateway-10.5-Remote-Code-Execution.html",
+            "source": "cve@mitre.org"
+          }
+        ]
+      }
+    },
+    {
+      "cve": {
+        "id": "CVE-2021-44228",
+        "sourceIdentifier": "security@apache.org",
+        "published": "2021-12-10T10:15:09.143",
+        "vulnStatus": "Analyzed",
+        "descriptions": [
+          {
+            "lang": "en",
+            "value": "Apache Log4j2 2.0-beta9 through 2.15.0 (excluding security releases 2.12.2, 2.12.3, and 2.3.1) JNDI features used in configuration, log messages, and parameters do not protect against attacker controlled LDAP and other JNDI related endpoints. An attacker who can control log messages or log message parameters can execute arbitrary code loaded from LDAP servers when message lookup substitution is enabled. From log4j 2.15.0, this behavior has been disabled by default. From version 2.16.0 (along with 2.12.2, 2.12.3, and 2.3.1), this functionality has been completely removed. Note that this vulnerability is specific to log4j-core and does not affect log4net, log4cxx, or other Apache Logging Services projects."
+          }
+        ],
+        "metrics": {
+          "cvssMetricV31": [
+            {
+              "cvssData": {
+                "baseScore": 10.0,
+                "baseSeverity": "CRITICAL"
+              }
+            }
+          ]
+        },
+        "references": [
+          {
+            "url": "http://packetstormsecurity.com/files/165225/Apache-Log4j2-2.14.1-Remote-Code-Execution.html",
+            "source": "security@apache.org"
+          },
+          {
+            "url": "http://packetstormsecurity.com/files/165260/VMware-Security-Advisory-2021-0028.html",
+            "source": "security@apache.org"
+          },
+          {
+            "url": "http://packetstormsecurity.com/files/165261/Apache-Log4j2-2.14.1-Information-Disclosure.html",
+            "source": "security@apache.org"
+          }
+        ]
+      }
+    },
+    {
+      "cve": {
+        "id": "CVE-2023-23397",
+        "sourceIdentifier": "secure@microsoft.com",
+        "published": "2023-03-14T17:15:13.263",
+        "vulnStatus": "Analyzed",
+        "descriptions": [
+          {
+            "lang": "en",
+            "value": "Microsoft Outlook Elevation of Privilege Vulnerability"
+          }
+        ],
+        "metrics": {
+          "cvssMetricV31": [
+            {
+              "cvssData": {
+                "baseScore": 9.8,
+                "baseSeverity": "CRITICAL"
+              }
+            }
+          ]
+        },
+        "references": [
+          {
+            "url": "https://msrc.microsoft.com/update-guide/vulnerability/CVE-2023-23397",
+            "source": "secure@microsoft.com"
+          },
+          {
+            "url": "https://msrc.microsoft.com/update-guide/vulnerability/CVE-2023-23397",
+            "source": "af854a3a-2127-422b-91ae-364da2661108"
+          },
+          {
+            "url": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog?field_cve=CVE-2023-23397",
+            "source": "134c704f-9b21-4f2e-91b3-4a467353bcc0"
+          }
+        ]
+      }
+    },
+    {
+      "cve": {
+        "id": "CVE-2024-3400",
+        "sourceIdentifier": "psirt@paloaltonetworks.com",
+        "published": "2024-04-12T08:15:06.230",
+        "vulnStatus": "Analyzed",
+        "descriptions": [
+          {
+            "lang": "en",
+            "value": "A command injection as a result of arbitrary file creation vulnerability in the GlobalProtect feature of Palo Alto Networks PAN-OS software for specific PAN-OS versions and distinct feature configurations may enable an unauthenticated attacker to execute arbitrary code with root privileges on the firewall.\n\nCloud NGFW, Panorama appliances, and Prisma Access are not impacted by this vulnerability."
+          }
+        ],
+        "metrics": {
+          "cvssMetricV31": [
+            {
+              "cvssData": {
+                "baseScore": 10.0,
+                "baseSeverity": "CRITICAL"
+              }
+            }
+          ]
+        },
+        "references": [
+          {
+            "url": "https://security.paloaltonetworks.com/CVE-2024-3400",
+            "source": "psirt@paloaltonetworks.com"
+          },
+          {
+            "url": "https://unit42.paloaltonetworks.com/cve-2024-3400/",
+            "source": "psirt@paloaltonetworks.com"
+          },
+          {
+            "url": "https://www.paloaltonetworks.com/blog/2024/04/more-on-the-pan-os-cve/",
+            "source": "psirt@paloaltonetworks.com"
+          }
+        ]
+      }
+    }
+  ]
+}

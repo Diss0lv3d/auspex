@@ -29,10 +29,12 @@ packages = [
     "auspex.classify",
     "auspex.enrich",
     "auspex.enrich.providers",
+    "auspex.kb",
 ]
 
 [tool.setuptools.package-data]
 auspex = ["static/*.html"]
+"auspex.kb" = ["seed_data/*.json"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
