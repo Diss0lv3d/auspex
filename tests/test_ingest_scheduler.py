@@ -59,15 +59,22 @@ class FakeState:
 
 
 class FakeNVD:
-    def __init__(self, window_cves: list[dict] | None = None, singles: dict | None = None):
+    def __init__(
+        self,
+        window_cves: list[dict] | None = None,
+        singles: dict | None = None,
+        window_pages: list[list[dict]] | None = None,
+    ):
         self.window_cves = window_cves or []
+        self.window_pages = window_pages  # explicit multi-page script, if set
         self.singles = singles or {}
         self.window_calls: list[tuple[datetime, datetime]] = []
         self.single_calls: list[str] = []
 
-    async def fetch_window(self, start: datetime, end: datetime) -> list[dict]:
+    async def pages(self, start: datetime, end: datetime):
         self.window_calls.append((start, end))
-        return self.window_cves
+        for page in self.window_pages if self.window_pages is not None else [self.window_cves]:
+            yield page
 
     async def fetch_cve(self, cve_id: str) -> dict | None:
         self.single_calls.append(cve_id)
@@ -249,6 +256,38 @@ async def test_catchup_chunks_long_gap_and_advances_watermark_per_window():
     assert len(nvd_records) == 2
     assert nvd_records[0][0]["last_mod_end"] == nvd.window_calls[0][1].isoformat()
     assert nvd_records[1][0]["last_mod_end"] == NOW.isoformat()
+
+
+async def test_window_pages_ingest_as_they_arrive_watermark_after_last_page():
+    # S8 review: the whole window used to be materialized before one ingest —
+    # a 120-day catch-up (~92k records) OOMed. Pages must ingest one at a
+    # time; the watermark still records once, per window, after the last page.
+    since = NOW - timedelta(days=3)
+    state = FakeState(
+        rows={
+            NVD_FEED: {"last_mod_end": since.isoformat()},
+            KEV_FEED: {
+                "last_modified": "x",
+                "date_added_horizon": "2026-07-16",
+                "kb_refreshed": True,
+            },
+        }
+    )
+    kb = FakeKB()
+    nvd = FakeNVD(
+        window_pages=[[nvd_cve("CVE-2024-0001")], [nvd_cve("CVE-2024-0002")]]
+    )
+    sched = scheduler(kb=kb, nvd=nvd, state=state)
+    await sched.run_cycle()
+    assert len(kb.ingested) == 2  # one ingest call PER PAGE
+    assert [d.doc_id for batch in kb.ingested for d in batch] == [
+        "CVE-2024-0001",
+        "CVE-2024-0002",
+    ]
+    nvd_records = [(c, s) for f, c, s in state.records if f == NVD_FEED]
+    assert len(nvd_records) == 1  # but one watermark record per WINDOW
+    assert nvd_records[0][0]["last_mod_end"] == NOW.isoformat()
+    assert "2 chunks" in nvd_records[0][1]
 
 
 async def test_failed_ingest_never_advances_the_watermark():

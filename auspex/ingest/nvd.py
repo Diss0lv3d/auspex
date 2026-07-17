@@ -22,6 +22,10 @@ from auspex import __version__
 NVD_API_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 MAX_WINDOW_DAYS = 120  # hard API limit (probed: 404 past it)
 RESULTS_PER_PAGE = 2000  # hard API cap (probed: 404 above it)
+# A real 120-day window is ~46 pages at the probed ~768 modified CVEs/day.
+# The pager trusts server-supplied totalResults for termination, so a
+# poisoned/broken response must hit a hard ceiling, not page forever.
+MAX_PAGES_PER_WINDOW = 100
 REQUEST_SPACING_SECONDS = 3.0
 CALL_TIMEOUT_SECONDS = 60.0
 
@@ -92,12 +96,14 @@ class NVDFeed:
         resp.raise_for_status()
         return resp.json()
 
-    async def fetch_window(self, start: datetime, end: datetime) -> list[dict]:
-        """All CVE objects lastModified inside one ≤120-day window, fully paged.
-        Returns raw `vulnerabilities[i].cve` dicts (nvd_to_doc's input shape).
-        Page order is not contractual — callers upsert by id."""
-        out: list[dict] = []
+    async def pages(self, start: datetime, end: datetime):
+        """Yield raw `vulnerabilities[i].cve` dicts one PAGE at a time so a
+        120-day catch-up window (~92k records at the probed rate) is never
+        materialized in memory at once — callers ingest per page and keep
+        their watermark per window (S8 review). Page order is not
+        contractual — callers upsert by id."""
         start_index = 0
+        page_count = 0
         while True:
             body = await self._get(
                 {
@@ -107,12 +113,29 @@ class NVDFeed:
                     "startIndex": start_index,
                 }
             )
-            out.extend(v["cve"] for v in body.get("vulnerabilities", ()))
+            page_count += 1
+            cves = [v["cve"] for v in body.get("vulnerabilities", ())]
+            if cves:
+                yield cves
             page = body.get("resultsPerPage", 0)
             start_index += page
             if page == 0 or start_index >= body.get("totalResults", 0):
-                return out
+                return
+            if page_count >= MAX_PAGES_PER_WINDOW:
+                raise NVDError(
+                    f"window still paging after {MAX_PAGES_PER_WINDOW} pages "
+                    "(poisoned totalResults or a rate far past the probed one); "
+                    "watermark held"
+                )
             await self._sleep(self._spacing)
+
+    async def fetch_window(self, start: datetime, end: datetime) -> list[dict]:
+        """All of one window's CVEs in a single list — convenience over
+        pages() for small windows and tests."""
+        out: list[dict] = []
+        async for page in self.pages(start, end):
+            out.extend(page)
+        return out
 
     async def fetch_cve(self, cve_id: str) -> dict | None:
         """Single-CVE fetch (the KEV-new-entry path). None = NVD holds no such

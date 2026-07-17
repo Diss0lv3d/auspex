@@ -413,6 +413,7 @@ class BootstrapRouter:
         self.cluster_setting: str | None = None  # operator-set value, if any
         self.mapping_properties: dict = {}  # what GET _mapping reports as present
         self.mapping_fields_added: list[str] = []  # what PUT _mapping upgraded
+        self.refresh_calls = 0
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         path, method = request.url.path, request.method
@@ -478,7 +479,11 @@ class BootstrapRouter:
             )
         if path == "/_bulk":
             self.bulk_batches += 1
+            assert "refresh" not in dict(request.url.params)  # S8: refresh once, at the end
             return httpx.Response(200, json={"errors": False, "items": []})
+        if path == f"/{KNOWLEDGE_INDEX}/_refresh":
+            self.refresh_calls += 1
+            return httpx.Response(200, json={"_shards": {"failed": 0}})
         return httpx.Response(404, json={"error": f"unrouted {method} {path}"})
 
 
@@ -496,6 +501,7 @@ async def test_bootstrap_fresh_volume_runs_all_steps():
     assert "seeded" in summary
     assert router.model_registered and router.index_created
     assert router.bulk_batches >= 1
+    assert router.refresh_calls == 1  # once per ingest call, not per bulk batch
     # fingerprint stamps only AFTER the ingest — a crash mid-bulk must leave
     # no stamp, so the next boot re-ingests (self-heal)
     assert router.seed_fp is not None

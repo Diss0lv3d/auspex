@@ -239,18 +239,21 @@ class IngestScheduler:
         ingested_ids: set[str] = set()
         window_list = windows(since, now)
         for start, end in window_list:
-            cves = await self._nvd.fetch_window(start, end)
-            docs = [nvd_to_doc(c) for c in cves if not is_rejected(c)]
-            skipped += len(cves) - len(docs)
-            ingested = await self._ingest_enriched(docs, kev_catalog, feed=NVD_FEED)
-            total += ingested
-            ingested_ids.update(d.doc_id for d in docs)
+            window_chunks = 0
+            # Page-streamed: a 120-day catch-up window is ~92k records — one
+            # page (≤2000) in memory at a time, ingested as it arrives.
+            async for page in self._nvd.pages(start, end):
+                docs = [nvd_to_doc(c) for c in page if not is_rejected(c)]
+                skipped += len(page) - len(docs)
+                window_chunks += await self._ingest_enriched(docs, kev_catalog, feed=NVD_FEED)
+                ingested_ids.update(d.doc_id for d in docs)
+            total += window_chunks
             # Watermark advances per WINDOW, only after its docs are in the KB.
             await self._state.record(
                 NVD_FEED,
                 cursor={"last_mod_end": end.isoformat()},
-                status=f"window {start.date()}→{end.date()}: {ingested} chunks",
-                docs_delta=ingested,
+                status=f"window {start.date()}→{end.date()}: {window_chunks} chunks",
+                docs_delta=window_chunks,
             )
         status = (
             f"{len(window_list)} window(s) since {since.date()}, "

@@ -352,7 +352,6 @@ class KnowledgeService:
                 "/_bulk",
                 content="\n".join(lines) + "\n",
                 headers={"Content-Type": "application/x-ndjson"},
-                params={"refresh": "true"},
                 timeout=BOOTSTRAP_CALL_TIMEOUT_SECONDS,
             )
             resp.raise_for_status()
@@ -365,6 +364,16 @@ class KnowledgeService:
                 ]
                 raise RuntimeError(f"bulk ingest errors: {failed[:3]}")
             total += len(batch)
+        if total:
+            # One refresh per ingest call, not one per 16-chunk bulk batch — a
+            # catch-up window is thousands of batches and per-batch forced
+            # refreshes churn segments on the 1 GiB single node (S8 review).
+            # Nothing reads-after-write WITHIN a cycle; searches need the data
+            # visible once the call completes.
+            resp = await self._get_client().post(
+                f"/{KNOWLEDGE_INDEX}/_refresh", timeout=BOOTSTRAP_CALL_TIMEOUT_SECONDS
+            )
+            resp.raise_for_status()
         return total
 
     # ── Retrieval ─────────────────────────────────────────────────────────

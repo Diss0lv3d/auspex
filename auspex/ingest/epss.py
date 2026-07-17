@@ -7,7 +7,8 @@ Scores are 9-decimal strings; a missing row means "EPSS holds no score"
 (new/rejected CVE) and must render as absence, not 0.0.
 """
 
-from collections.abc import Sequence
+import asyncio
+from collections.abc import Awaitable, Callable, Sequence
 
 import httpx
 
@@ -15,13 +16,24 @@ from auspex import __version__
 
 EPSS_API_URL = "https://api.first.org/data/v1/epss"
 EPSS_BATCH_SIZE = 100  # URL-length safety; the API pages at ~this size anyway
+# Probed only at small batch counts — a 2000-CVE NVD page means 20 batches,
+# so keep them politely spaced instead of back-to-back (S8 review).
+BATCH_SPACING_SECONDS = 0.5
 CALL_TIMEOUT_SECONDS = 30.0
 
 
 class EPSSFeed:
-    def __init__(self, *, client: httpx.AsyncClient | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        client: httpx.AsyncClient | None = None,
+        spacing_seconds: float = BATCH_SPACING_SECONDS,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    ) -> None:
         self._client = client
         self._owns_client = client is None
+        self._spacing = spacing_seconds
+        self._sleep = sleep
 
     def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -43,6 +55,8 @@ class EPSSFeed:
         ids = [c.upper() for c in cve_ids]
         client = self._get_client()
         for start in range(0, len(ids), EPSS_BATCH_SIZE):
+            if start:  # space BETWEEN batches only
+                await self._sleep(self._spacing)
             batch = ids[start : start + EPSS_BATCH_SIZE]
             resp = await client.get(
                 EPSS_API_URL, params={"cve": ",".join(batch), "limit": len(batch)}

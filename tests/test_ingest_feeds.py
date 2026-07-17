@@ -12,8 +12,12 @@ import pytest
 from auspex.ingest.enrich import enrich_doc
 from auspex.ingest.epss import EPSSFeed
 from auspex.ingest.kev import KEVFeed
-from auspex.ingest.nvd import NVDError, NVDFeed, is_rejected, windows
+from auspex.ingest.nvd import MAX_PAGES_PER_WINDOW, NVDError, NVDFeed, is_rejected, windows
 from auspex.kb.seed import nvd_to_doc
+
+
+async def _no_sleep(_: float) -> None:
+    return None
 
 FIXTURES = Path(__file__).parent / "fixtures"
 NVD_PAGE = json.loads((FIXTURES / "nvd_delta_page.json").read_text())
@@ -96,6 +100,42 @@ async def test_nvd_fetch_window_pages_to_total_with_spacing():
     assert naps == [3.0]  # polite spacing BETWEEN pages only
 
 
+async def test_nvd_pages_yields_per_page_never_materializing_the_window():
+    router = NVDRouter(NVD_PAGE["vulnerabilities"], page_size=2)  # 3 cves → 2 pages
+    feed = _nvd_feed(router, sleep=_no_sleep)
+    pages = [
+        page
+        async for page in feed.pages(_dt("2026-07-16T00:00:00"), _dt("2026-07-17T00:00:00"))
+    ]
+    assert [len(p) for p in pages] == [2, 1]
+    assert [c["id"] for p in pages for c in p] == [
+        "CVE-2023-4346",
+        "CVE-2024-8751",
+        "CVE-2024-7038",
+    ]
+
+
+async def test_nvd_pager_refuses_to_page_past_the_window_ceiling():
+    # Termination trusts server-supplied totalResults — a poisoned feed
+    # claiming a billion results must hit a hard ceiling, not loop until OOM.
+    def endless(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "resultsPerPage": 1,
+                "totalResults": 10**9,
+                "vulnerabilities": [{"cve": {"id": "CVE-2024-0001", "vulnStatus": "Analyzed"}}],
+            },
+        )
+
+    feed = _nvd_feed(endless, sleep=_no_sleep)
+    with pytest.raises(NVDError, match="still paging"):
+        got = 0
+        async for _ in feed.pages(_dt("2026-07-01T00:00:00"), _dt("2026-07-17T00:00:00")):
+            got += 1
+            assert got <= MAX_PAGES_PER_WINDOW  # the generator must bail first
+
+
 async def test_nvd_404_surfaces_the_message_header_never_parses_the_body():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(404, headers={"message": "Date range cannot exceed 120 days."})
@@ -167,16 +207,23 @@ async def test_epss_scores_key_by_response_cve_and_drop_unknowns_silently():
     assert "CVE-9999-99999" not in scores  # unknown = absent, not 0.0
 
 
-async def test_epss_batches_at_one_hundred_ids():
+async def test_epss_batches_at_one_hundred_ids_with_spacing_between():
     calls: list[int] = []
+    naps: list[float] = []
+
+    async def fake_sleep(s: float) -> None:
+        naps.append(s)
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(len(request.url.params["cve"].split(",")))
         return httpx.Response(200, json={"data": []})
 
-    feed = EPSSFeed(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    feed = EPSSFeed(
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)), sleep=fake_sleep
+    )
     await feed.scores([f"CVE-2024-{i:05d}" for i in range(150)])
     assert calls == [100, 50]
+    assert naps == [0.5]  # spaced BETWEEN batches only (S8: a 2000-CVE page is 20 batches)
 
 
 # ── enrichment merge (pure) ─────────────────────────────────────────────────
