@@ -21,16 +21,31 @@ _RRF_TOP_FRACTION = 0.25
 _LEXICAL_TOP_FRACTION = 0.4
 DEFAULT_SCORE_THRESHOLD = 0.005
 
-# Absolute floor for the kNN leg BEFORE fusion. kNN always returns k nearest
+# Absolute floors for the kNN leg BEFORE fusion. kNN always returns k nearest
 # neighbors — for an off-corpus query those are pure noise, and RRF would
 # promote them into a fabricated "KB answer". lucene cosinesimil scores are
-# bounded [0,1], so an absolute cut is meaningful (probed 2026-07-17:
-# relevant pair 0.695, unrelated pair 0.498).
-NEURAL_MIN_SCORE = 0.6
+# bounded [0,1], so absolute cuts are meaningful — but max-of-N noise GROWS
+# with pool size, so the floor is per doc_type, calibrated against the live
+# grown corpus (probe 2026-07-18-td005-calibration.md, 3,417 chunks):
+# - curated pool (concept/technique/tactic, ~1.4k chunks, structurally
+#   bounded — ATT&CK is the full universe): noise ceiling 0.618 vs weakest
+#   true positive 0.691 → 0.65. At 0.6 the definition path FABRICATED
+#   (live: "quantum entanglement" → T1090.002 at 0.617).
+# - cve pool (grows ~770 docs/day, erosion-prone): noise ceiling 0.624 vs
+#   weakest true positive 0.766 → 0.70 with headroom for growth.
+# Re-run the calibration battery when the corpus passes ~30k chunks or a
+# new doc_type lands (TD-005).
+NEURAL_MIN_SCORE = 0.6  # unlabeled doc_types only — calibrated types override
+NEURAL_FLOORS = {
+    "concept": 0.65,
+    "technique": 0.65,
+    "tactic": 0.65,
+    "cve": 0.70,
+}
 
 
 def neural_leg_floor(hits: list[KBHit]) -> list[KBHit]:
-    return [h for h in hits if h.score >= NEURAL_MIN_SCORE]
+    return [h for h in hits if h.score >= NEURAL_FLOORS.get(h.doc_type, NEURAL_MIN_SCORE)]
 
 
 def rrf_fuse(
