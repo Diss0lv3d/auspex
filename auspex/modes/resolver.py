@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 
-from auspex.classify.classifier import _is_alert_paste
+from auspex.classify.classifier import _ioc_shaped, _is_alert_paste
 from auspex.classify.observables import Observable, ObservableType
 from auspex.modes.catalog import Mode
 
@@ -53,10 +53,15 @@ def _is_email_paste(q: str) -> bool:
     return len(_EMAIL_HEADER_RE.findall(q)) >= 2
 
 
-def _has_scoreable_ioc(observables: tuple[Observable, ...]) -> bool:
-    """Any non-CVE observable (IP/domain/URL/hash/email) makes the turn about
-    indicators. A CVE alone is threat-intel framing, not IOC enrichment."""
-    return any(o.type is not ObservableType.CVE for o in observables)
+def _has_scoreable_ioc(observables: tuple[Observable, ...], q: str) -> bool:
+    """Whether this turn is about indicators worth enriching. Delegates to the
+    classifier's `_ioc_shaped` so the resolver applies the SAME rule the 92/8
+    gate does — a bare CVE is threat-intel framing (not an indicator), and a
+    ubiquitous domain in prose (microsoft.com, github.com) is NOT a scoreable
+    IOC unless the query is short or defanged. The prior naive `any(non-CVE)`
+    hijacked ordinary prose ("brief on why campaigns abuse microsoft.com") into
+    IOC_ENRICHMENT, shadowing BRIEF/DEFINITION (S9 review, correctness lens)."""
+    return _ioc_shaped(observables, q)
 
 
 def resolve_mode(message: str, observables: tuple[Observable, ...]) -> Mode:
@@ -64,7 +69,7 @@ def resolve_mode(message: str, observables: tuple[Observable, ...]) -> Mode:
 
     1. alert/log envelope (CEF/LEEF/syslog/JSON)  → ALERT_TRIAGE
     2. email header envelope                       → PHISHING_ANALYSIS
-    3. any non-CVE observable present              → IOC_ENRICHMENT
+    3. a scoreable indicator (ioc-shaped)          → IOC_ENRICHMENT
     4. explicit brief/summary ask                  → BRIEF
     5. definition-shaped opener                    → DEFINITION
     6. threat-intel keywords (incl. bare CVE)      → THREAT_INTEL
@@ -76,7 +81,7 @@ def resolve_mode(message: str, observables: tuple[Observable, ...]) -> Mode:
         return Mode.ALERT_TRIAGE
     if _is_email_paste(q):
         return Mode.PHISHING_ANALYSIS
-    if _has_scoreable_ioc(observables):
+    if _has_scoreable_ioc(observables, q):
         return Mode.IOC_ENRICHMENT
     if _BRIEF_RE.search(q):
         return Mode.BRIEF

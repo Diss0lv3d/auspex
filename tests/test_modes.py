@@ -57,6 +57,25 @@ def test_observable_present_is_ioc_enrichment_over_keywords():
     assert resolve(q) is Mode.IOC_ENRICHMENT
 
 
+def test_scoreable_ioc_beats_a_brief_ask():
+    # format/observable (tier 3) beats the BRIEF keyword (tier 4): an IP to look
+    # at wins over "summarize". Pins the ioc>brief boundary (S9 review, T-F1).
+    assert resolve("summarize the recent activity from 8.8.8.8") is Mode.IOC_ENRICHMENT
+
+
+def test_common_domain_in_prose_is_not_a_scoreable_ioc():
+    # S9 review (correctness): the naive any(non-CVE) hijacked ordinary prose
+    # mentioning a ubiquitous domain into IOC_ENRICHMENT, shadowing BRIEF/intel.
+    # The resolver now reuses the classifier's ioc-shaping (common-domain exempt).
+    assert resolve("give me a brief on why campaigns abuse microsoft.com branding") is Mode.BRIEF
+    assert (
+        resolve("why are we seeing so much traffic to github.com from the DMZ")
+        is Mode.THREAT_INTEL
+    )
+    # a non-ubiquitous domain under a check verb is still a real indicator
+    assert resolve("check the reputation of evil-c2-domain.xyz") is Mode.IOC_ENRICHMENT
+
+
 def test_bare_cve_is_threat_intel_not_ioc_enrichment():
     # a CVE alone is threat framing, not indicator enrichment
     assert resolve("tell me about CVE-2021-44228 and its exploitation") is Mode.THREAT_INTEL
