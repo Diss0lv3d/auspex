@@ -1,0 +1,13 @@
+Received: from smtp.evil.example (smtp.evil.example [198.51.100.42])
+	by mx.acme.com with ESMTPS id def456
+	for <finance@acme.com>; Fri, 18 Jul 2026 09:12:00 +0000 (UTC)
+Authentication-Results: mx.acme.com;
+	spf=pass smtp.mailfrom=evil.example;
+	dkim=pass header.i=@evil.example header.s=default
+From: ceo@acme.com <attacker@evil.example>
+To: finance@acme.com
+Subject: Urgent wire transfer needed
+Date: Fri, 18 Jul 2026 09:12:00 +0000
+
+I need you to process a wire transfer of $48,000 to a new vendor today.
+Send me the confirmation once done. I'm in meetings so email only.

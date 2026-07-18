@@ -1,0 +1,15 @@
+Delivered-To: bob@acme.com
+Received: from mail.example.com (mail.example.com [203.0.113.10])
+	by mx.acme.com with ESMTPS id abc123
+	for <bob@acme.com>; Fri, 18 Jul 2026 10:00:00 +0000 (UTC)
+Authentication-Results: mx.acme.com;
+	spf=pass (mx.acme.com: domain of alice@example.com designates 203.0.113.10 as permitted sender) smtp.mailfrom=alice@example.com;
+	dkim=pass header.i=@example.com header.s=sel1;
+	dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=example.com
+From: Alice Carter <alice@example.com>
+To: Bob Jones <bob@acme.com>
+Subject: Q3 revenue figures
+Date: Fri, 18 Jul 2026 10:00:00 +0000
+Message-ID: <20260718100000.abc@example.com>
+
+Hi Bob, attaching the Q3 numbers as discussed. Regards, Alice
