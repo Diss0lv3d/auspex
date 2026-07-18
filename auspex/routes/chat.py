@@ -423,10 +423,14 @@ async def chat(
     # then hand the model the AUTHORITATIVE verdict — the Risk level is decided by
     # the additive scorer + DEFERRED rail, not the model. This also mitigates
     # TD-013: the model scores the code verdict, not the raw (untrusted) paste, so
-    # injected text in the alert can't steer the Risk level.
+    # injected text in the alert can't steer the Risk level. The rendered Risk is
+    # PINNED to the code level at validation below — a steered swap to a
+    # different (even in-enum) level fails the contract, in code, not by prompt.
+    pinned_values: dict[str, str] | None = None
     if mode is Mode.ALERT_TRIAGE:
         envelope = normalize(body.message)
         risk = score_alert(envelope)
+        pinned_values = {"Risk": risk.risk_level}
         messages.append({"role": "system", "content": deterministic_triage_block(envelope, risk)})
         logger.info(
             "alert triage: fmt=%s risk=%s score=%s deep=%s signals=%s",
@@ -500,7 +504,7 @@ async def chat(
         # output conformed, so drift is observable (and, later, correctable via
         # a re-ask). Code owns the check — the enum/section rules are not
         # trusted to the model (ADR 0006).
-        result = contract.validate(answer) if answer else None
+        result = contract.validate(answer, pinned=pinned_values) if answer else None
         if result and not result.ok:
             # Surface drift server-side so ops can measure it (a customer BYO
             # model that stops emitting `## Risk` shows up here). Log the mode +

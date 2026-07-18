@@ -150,6 +150,27 @@ def test_validate_flags_out_of_enum_risk_value():
     assert any(b.startswith("Risk=") for b in result.bad_enum)
 
 
+def test_validate_pins_a_field_to_the_code_verdict():
+    # S11 review of S10 (finding A): enum MEMBERSHIP alone let a steered model
+    # swap one valid Risk level for another with contract_valid=true. A pinned
+    # field must EQUAL the code-computed verdict — checked in code, not by
+    # prompt (ADR 0006).
+    c = contract_for(Mode.ALERT_TRIAGE)
+    steered = "## Risk\nLOW\n\n## Reasoning\nx\n\n## Recommendation\ny\n"
+    result = c.validate(steered, pinned={"Risk": "DEFERRED"})
+    assert not result.ok
+    assert result.pinned_mismatch == ("Risk=LOW≠DEFERRED",)
+    assert "code-verdict mismatch" in result.reason()
+
+
+def test_validate_pinned_match_passes_in_every_header_shape():
+    c = contract_for(Mode.ALERT_TRIAGE)
+    for lead in ("## Risk\nDEFERRED", "## Risk: DEFERRED", "## **Risk**\nDEFERRED"):
+        answer = f"{lead}\n\n## Reasoning\nx\n\n## Recommendation\ny\n"
+        result = c.validate(answer, pinned={"Risk": "DEFERRED"})
+        assert result.ok, result.reason()
+
+
 def test_deferred_is_a_valid_alert_triage_risk_value():
     # "no data ≠ low risk": DEFERRED must be an in-contract value from day one
     c = contract_for(Mode.ALERT_TRIAGE)
