@@ -78,10 +78,13 @@ may not grow mid-session (IDEAS.md exists for that).
   the pool) → per-doc_type floors (curated 0.65 / cve 0.70) regression-
   pinned. 412 tests. Sigma + abuse.ch + auto-promotion-on-miss → IDEAS,
   not reached — fold into a later ingestion slot.)_
-- [ ] **S9 — Response modes.** 6 modes only (definition, ioc_enrichment,
+- [x] **S9 — Response modes.** 6 modes only (definition, ioc_enrichment,
   threat_intel, alert_triage, phishing_analysis, brief), code-owned priority
   resolver (format beats keywords), typed output contracts that compile to
-  prompts + validators.
+  prompts + validators. _(Shipped on staging, live-verified against Scout —
+  brief + alert_triage DEFERRED — awaiting S10 Step-0 review + promote #11.
+  Also this session: the outstanding S8 adversarial review → 8 fix commits →
+  promote #10; TD-009 fence closed.)_
 
 ## Phase 2 — Analysis
 
