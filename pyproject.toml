@@ -25,6 +25,7 @@ packages = [
     "auspex",
     "auspex.routes",
     "auspex.agent",
+    "auspex.alerts",
     "auspex.llm",
     "auspex.classify",
     "auspex.enrich",
