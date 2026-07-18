@@ -155,6 +155,20 @@ def test_alert_pastes_go_deep_regardless_of_iocs():
     assert _cat("triage this CEF:0|X|Y|1|2|z|3| alert from overnight") is Category.DEEP
 
 
+def test_email_pastes_go_deep_not_ioc_check():
+    # S11: a short email paste carries only a couple of addresses; without the
+    # format-beats-keywords email gate it would be intercepted as IOC_CHECK and
+    # never reach PHISHING_ANALYSIS. ≥2 RFC-5322 headers → DEEP.
+    from auspex.classify.classifier import _is_email_paste
+
+    short = "From: x@somewhere.test\nTo: user@acme.com\nSubject: hi\nReceived: a\n\nbody"
+    assert _cat(short) is Category.DEEP
+    # even a bare two-header sender/recipient pair (pure IOC-shaped) goes deep
+    assert _cat("From: a@b.test\nTo: c@d.test") is Category.DEEP
+    # one header line alone is NOT an email paste (prose that mentions a header)
+    assert _is_email_paste("the From: line looked spoofed, thoughts?") is False
+
+
 # -- deep: fallthrough ----------------------------------------------------------
 
 

@@ -16,17 +16,14 @@ from __future__ import annotations
 
 import re
 
-from auspex.classify.classifier import _ioc_shaped, _is_alert_paste
+from auspex.classify.classifier import _ioc_shaped, _is_alert_paste, _is_email_paste
 from auspex.classify.observables import Observable, ObservableType
 from auspex.modes.catalog import Mode
 
-# Email/header envelope: two or more RFC-5322-ish header lines is a pasted
-# message, not prose about email. Matched at line starts, case-insensitive.
-_EMAIL_HEADER_RE = re.compile(
-    r"^(?:from|to|subject|date|received|return-path|reply-to|message-id|"
-    r"dkim-signature|x-originating-ip|authentication-results)\s*:",
-    re.IGNORECASE | re.MULTILINE,
-)
+# `_is_email_paste` (≥2 RFC-5322 header lines → a pasted email) is defined in
+# the classifier so the 92/8 gate and this resolver key PHISHING_ANALYSIS off
+# the SAME rule — the classifier fast-tracks email pastes to DEEP, and this
+# resolver then routes them to PHISHING_ANALYSIS. One definition, no drift.
 
 _BRIEF_RE = re.compile(
     r"\b(?:brief|briefing|summar(?:y|ize|ise)|tl;?dr|rundown|"
@@ -47,10 +44,6 @@ _THREAT_INTEL_RE = re.compile(
     r"vulnerabilit(?:y|ies)|intrusion\s+set|threat\s+intel)\b",
     re.IGNORECASE,
 )
-
-
-def _is_email_paste(q: str) -> bool:
-    return len(_EMAIL_HEADER_RE.findall(q)) >= 2
 
 
 def _has_scoreable_ioc(observables: tuple[Observable, ...], q: str) -> bool:
