@@ -1,5 +1,44 @@
 # Technical debt — logged the moment it's taken
 
+## TD-013 (S9 review) — attacker-authored paste rides the trusted `user` lane in triage/phishing modes
+**Where:** `auspex/routes/chat.py` `_history` (user turns replay UNfenced, `:290`)
++ the current turn's `body.message` stored as `role="user"` (`:334`), against the
+S9 resolver routing pasted content into ALERT_TRIAGE / PHISHING_ANALYSIS
+(`auspex/modes/resolver.py` `_is_alert_paste` / `_is_email_paste`).
+**Risk:** the TD-009 fence guards ASSISTANT (feed/KB) turns, but a pasted phishing
+email or alert IS attacker-authored and lands in a `user` message, which the
+fence directive explicitly declares trusted ("the user's own messages issue
+instructions"). An injection inside a pasted email body ("ignore all previous
+instructions…") is therefore replayed unfenced, on this turn and every later deep
+turn of the session. Blast radius today is answer manipulation only (no tools
+wired into chat); it becomes real capability the day S3 proposals / S9 modes
+execute — same escalation profile as TD-009.
+**Why deferred:** the correct fix is not to fence the whole user turn (the model
+must SEE the paste to analyze it) but to route the paste through structured
+parsing so raw attacker text never enters the instruction stream as free prose.
+**Path to fix (S10):** the S10 alert normalizer parses CEF/LEEF/syslog/JSON
+pastes into a typed, closed-vocabulary envelope (code-owned, no LLM on the parse)
+— alert_triage then scores the ENVELOPE, not the raw paste, closing this channel
+for the alert path. Phishing paste handling gets the same treatment when
+phishing_analysis grows its own normalizer. Add a regression fixture with an
+instruction-bearing pasted email when fixed.
+
+## TD-014 (S9 review) — deep-turn history fetch is unbounded (no turn/token cap)
+**Where:** `auspex/routes/chat.py` `_history` — `SELECT role, content FROM messages
+WHERE workspace_id=$1 AND session_id=$2 ORDER BY created_at` has no LIMIT; every
+deep turn replays the ENTIRE session (born S3, pre-dates S9).
+**Risk:** a long-running investigation session grows the prompt without bound —
+rising latency/cost and eventual context-window overflow (surfaces as an
+`LLMError` → SSE `error` frame, or silent truncation depending on the endpoint).
+The two-pass fallback (the safe default) sends the whole history TWICE per turn
+(TD-002), doubling the exposure. `ChatBody.message` is capped at 32k chars but
+history is N turns of that.
+**Why deferred:** picking the cap policy (last-N turns vs a token budget vs a
+summarize-and-drop) is a design choice with its own trade-offs, and it's
+pre-existing (not S9 feature work) — out of the S9-review fix scope.
+**Path to fix:** cap replayed turns in the `_history` SELECT (last-N or a token
+budget), oldest-first, keeping the system prompts + fence directive always.
+
 ## ~~TD-009 (S8 review) — feed-derived KB text replays into deep-turn LLM context unfenced~~ RESOLVED S9
 **Resolved 2026-07-18 (dba5aec):** `_history` now fences prior ASSISTANT turns
 as `⟦DATA⟧…⟦/DATA⟧` blocks and adds a system directive declaring nothing inside
@@ -7,8 +46,11 @@ a fence is an instruction; embedded fence markers in stored text are neutralized
 so a poisoned turn can't close the fence early. User turns replay unfenced (the
 human's own input). Regression tests: an instruction-bearing feed description is
 fenced on replay, and a break-out attempt via embedded markers is defanged
-(tests/test_chat_sse.py). Structure — not the model's goodwill — makes injected
-directives inert (ADR 0006). Original entry kept below for the record.
+(tests/test_chat_sse.py). Containment (a poisoned turn can't break out of the
+fence) is structural/code-owned; inertness (the model ignoring fenced directives)
+is a strong prompt-level defense, not a structural guarantee — the residual
+attacker-influenceable-text-in-the-instruction-stream gap is TD-013. Original
+entry kept below for the record.
 
 ## TD-012 (S9) — mode contract validation is post-hoc/observability-only
 **Where:** `auspex/routes/chat.py` `event_stream()` — `contract.validate(answer)`
