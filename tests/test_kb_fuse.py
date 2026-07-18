@@ -7,13 +7,13 @@ from auspex.kb.fuse import RRF_K, apply_floor, neural_leg_floor, regime_cutoff, 
 from auspex.kb.types import KBHit
 
 
-def hit(chunk_id: str, score: float = 1.0) -> KBHit:
+def hit(chunk_id: str, score: float = 1.0, doc_type: str = "cve") -> KBHit:
     return KBHit(
         chunk_id=chunk_id,
         doc_id=chunk_id.split("#")[0],
         title=chunk_id,
         text="body",
-        doc_type="cve",
+        doc_type=doc_type,
         source="nvd",
         source_ref="",
         ids=(),
@@ -80,10 +80,41 @@ def test_apply_floor_empty():
     assert apply_floor([]) == []
 
 
+# TD-005 operating point — every (doc_type, score, keep) row below is a
+# MEASURED value from the live 3,417-chunk corpus battery
+# (docs/probes/2026-07-18-td005-calibration.md). If a floor constant moves,
+# these labeled boundary cases flip and this test names the query that broke.
+TD005_OPERATING_POINT = [
+    # (query the score came from, doc_type, measured score, must_keep)
+    ("living off the land binaries → CONCEPT-LOLBIN", "concept", 0.691, True),
+    ("what is credential dumping → T1003", "technique", 0.788, True),
+    ("what is credential access → TA0006", "tactic", 0.864, True),
+    ("what is quantum entanglement → T1090.002 NOISE", "technique", 0.617, False),
+    ("employee vacation policy → T1556.009 NOISE", "technique", 0.618, False),
+    ("best hiking trails → T1518.001 NOISE (curated)", "technique", 0.594, False),
+    ("SharePoint deserialization RCE → CVE-2026-58644", "cve", 0.766, True),
+    ("Log4j JNDI RCE → CVE-2021-44228", "cve", 0.841, True),
+    ("k8s ingress config → CVE-2026-55723 (RELEVANT)", "cve", 0.793, True),
+    ("employee vacation policy → CVE-2026-52840 NOISE", "cve", 0.624, False),
+    ("hiking trails → CVE-2026-54468 NOISE", "cve", 0.609, False),
+]
+
+
+@pytest.mark.parametrize("label,doc_type,score,keep", TD005_OPERATING_POINT)
+def test_neural_floor_operating_point_matches_the_live_battery(label, doc_type, score, keep):
+    kept = neural_leg_floor([hit("X#0", score, doc_type=doc_type)])
+    assert bool(kept) is keep, label
+
+
 def test_neural_leg_floor_cuts_off_corpus_noise():
-    # Probed pair (2026-07-17): relevant 0.695 vs unrelated 0.498 — the 0.6
-    # absolute floor sits between them. kNN always returns k neighbors; the
-    # floor is what turns an off-corpus query into an honest miss.
-    hits = [hit("A#0", 0.695), hit("B#0", 0.598), hit("C#0", 0.498)]
+    # The original S6 probed pair (relevant 0.695 concept vs unrelated 0.498)
+    # still separates under the S8 per-doc_type floors; unlabeled doc_types
+    # keep the legacy 0.6 default.
+    hits = [
+        hit("A#0", 0.695, doc_type="concept"),
+        hit("B#0", 0.598, doc_type="concept"),
+        hit("C#0", 0.498, doc_type="concept"),
+    ]
     assert [h.chunk_id for h in neural_leg_floor(hits)] == ["A#0"]
     assert neural_leg_floor([]) == []
+    assert neural_leg_floor([hit("D#0", 0.61, doc_type="future-type")])  # default 0.6

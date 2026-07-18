@@ -6,11 +6,14 @@ from auspex.kb.seed import load_seed_docs, nvd_to_doc
 
 
 def test_load_seed_docs_shape():
+    # S8: hand-curated technique summaries are GONE from the seed — real
+    # techniques come from the ATT&CK STIX feed (same doc_ids overwrite any
+    # older volume's summaries on the first attack cycle).
     docs = load_seed_docs()
     by_type: dict[str, int] = {}
     for d in docs:
         by_type[d.doc_type] = by_type.get(d.doc_type, 0) + 1
-    assert by_type == {"cve": 5, "technique": 6, "concept": 3}
+    assert by_type == {"cve": 5, "concept": 3}
     assert len({d.doc_id for d in docs}) == len(docs)  # unique doc ids
 
 
@@ -56,21 +59,15 @@ def test_nvd_to_doc_v2_fallback_reads_severity_beside_cvss_data():
     assert doc.severity == "MEDIUM"
 
 
-def test_techniques_carry_ids_and_concepts_do_not():
+def test_concepts_carry_no_fake_exact_match_rail():
     docs = load_seed_docs()
-    techniques = [d for d in docs if d.doc_type == "technique"]
     concepts = [d for d in docs if d.doc_type == "concept"]
-    assert all(d.ids == (d.doc_id,) for d in techniques)
-    assert all(d.ids == () for d in concepts)  # no fake exact-match rail
-    # Sub-technique presence — the prefix-rail test data depends on these
-    ids = {d.doc_id for d in techniques}
-    assert {"T1059", "T1059.001", "T1566", "T1566.001"} <= ids
+    assert concepts and all(d.ids == () for d in concepts)
+    # technique ids/prefix-rail coverage lives with the ATT&CK feed tests now
 
 
 def test_seed_provenance_is_honestly_labeled():
     docs = load_seed_docs()
     for d in docs:
-        if d.doc_type == "technique":
-            assert d.source == "attack-seed-summary"  # never claims verbatim MITRE
-        elif d.doc_type == "concept":
+        if d.doc_type == "concept":
             assert d.source == "auspex-seed"

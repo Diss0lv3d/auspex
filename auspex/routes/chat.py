@@ -324,11 +324,11 @@ async def chat(
                 answer_text = KB_UNAVAILABLE_COPY.format(detail=err.public)
         elif shortcut.category is Category.DEFINITION and kb.active:
             try:
-                # Definitions come from curated concept/technique docs, never
-                # CVE record chunks. The filter is also load-bearing for
+                # Definitions come from curated concept/technique/tactic docs,
+                # never CVE record chunks. The filter is also load-bearing for
                 # retrieval recall at corpus scale (see KnowledgeService.search).
                 rendered = render_definition_answer(
-                    await kb.search(body.message, doc_types=("concept", "technique"))
+                    await kb.search(body.message, doc_types=("concept", "technique", "tactic"))
                 )
                 # A connected-but-ignorant KB is a miss, not "deferred" — the
                 # static deferred copy would claim the KB isn't connected.

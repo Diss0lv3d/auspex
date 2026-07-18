@@ -111,6 +111,18 @@ def test_definition_related_skips_same_doc_chunks():
     assert "Related entries" not in answer
 
 
+def test_definition_related_never_echoes_an_id_the_title_already_carries():
+    # S8: STIX-derived titles are "T1059.007: JavaScript" — parenthesizing the
+    # doc_id again rendered "T1059.007: JavaScript (T1059.007)".
+    hits = [
+        hit("T1059#0", title="T1059: Command and Scripting Interpreter", doc_type="technique"),
+        hit("T1059.007#0", title="T1059.007: JavaScript", doc_type="technique"),
+    ]
+    answer = render_definition_answer(hits)
+    assert "Related entries: T1059.007: JavaScript" in answer
+    assert "(T1059.007)" not in answer
+
+
 def test_kb_copy_never_names_the_engine_or_fabricates():
     for copy in (KB_UNAVAILABLE_COPY, DEFINITION_MISS_COPY, CVE_MISS_LINE):
         lowered = copy.lower()

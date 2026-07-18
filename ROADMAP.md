@@ -64,8 +64,20 @@ may not grow mid-session (IDEAS.md exists for that).
   gap → 1 844 chunks; fresh CVE answers with KEV+EPSS, zero LLM. The TD-005
   spot-check caught HNSW-recall + floor-erosion at ~2.5k chunks — fixed via
   doc_types-filtered retrieval; full calibration is an S8 gate. 357 tests.)_
-- [ ] **S8 — Ingestion 2.** MITRE ATT&CK (lazy + cached), Sigma rules, abuse.ch
+- [x] **S8 — Ingestion 2 (core).** MITRE ATT&CK (lazy + cached), Sigma rules, abuse.ch
   quartet; auto-promotion to KB on miss.
+  _(Done 2026-07-18: S7 adversarial review — 18 verified findings across 5
+  lenses, 13 fix commits (KEV cursor data loss, bootstrap-brick, page
+  streaming, NaN wedge, rejected-CVE deletion, orphan pruning, boundary-
+  honest EPSS copy, lookup-truncation false miss, UBQ first-run refresh) —
+  then promote #8. ATT&CK STIX feed: index-as-cursor, 712 live docs
+  (697 techniques + 15 tactics) replace the hand seeds; T1059 + never-seeded
+  sub-techniques + tactic definitions answer live with STIX provenance.
+  TD-005 RESOLVED: 14-query labeled battery on the 3,417-chunk corpus
+  re-caught fabrication live (quantum→T1090.002 at 0.617 after ATT&CK grew
+  the pool) → per-doc_type floors (curated 0.65 / cve 0.70) regression-
+  pinned. 412 tests. Sigma + abuse.ch + auto-promotion-on-miss → IDEAS,
+  not reached — fold into a later ingestion slot.)_
 - [ ] **S9 — Response modes.** 6 modes only (definition, ioc_enrichment,
   threat_intel, alert_triage, phishing_analysis, brief), code-owned priority
   resolver (format beats keywords), typed output contracts that compile to

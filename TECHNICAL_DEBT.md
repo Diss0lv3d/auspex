@@ -110,7 +110,20 @@ now would be speculative.
 **Path to fix:** advisory lock (Postgres `pg_advisory_lock`) or find-before-register
 double-check with jittered retry, added when a second replica becomes real.
 
-## TD-005 (S6) — NEURAL_MIN_SCORE=0.6 calibrated on a 3-point sample
+## ~~TD-005 (S6) — NEURAL_MIN_SCORE=0.6 calibrated on a 3-point sample~~ RESOLVED S8
+**Resolved 2026-07-18:** per-doc_type floors calibrated against the live
+3,417-chunk corpus with a 14-query labeled battery
+(docs/probes/2026-07-18-td005-calibration.md): curated 0.65 (noise ceiling
+0.618 vs weakest relevant 0.691), cve 0.70 (0.624 vs 0.766), default 0.6 for
+future types. The battery re-caught the fabrication LIVE the same day
+("quantum entanglement" → T1090.002 at 0.617 after ATT&CK grew the curated
+pool) before it could ship. Operating point regression-pinned in
+tests/test_kb_fuse.py — each boundary row names the live query that breaks
+if a constant moves. **Standing trigger to re-run the battery:** corpus
+> 30k chunks, any new doc_type, or an embedding-model change.
+Original entry kept below for the record.
+
+## TD-005-original (S6) — NEURAL_MIN_SCORE=0.6 calibrated on a 3-point sample
 **Where:** `auspex/kb/fuse.py::NEURAL_MIN_SCORE` (the pre-fusion absolute floor that
 turns off-corpus queries into honest misses).
 **Risk:** calibrated against one probed pair (relevant 0.695 / unrelated 0.498) plus

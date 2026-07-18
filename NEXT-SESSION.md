@@ -1,75 +1,73 @@
 # NEXT-SESSION — paste everything below the line into a fresh Claude Code window opened in /home/burhan/auspex-new
 
-_(Standing follow-up: S7 is complete, live-verified, CI-green (357 tests) on
-`staging` — but NOT yet reviewed or promoted. S8 starts with the review+promote
-drill, then the ingestion-2 work. The S7 demo: `CVE-2026-58644` → "CRITICAL
-(CVSS 9.8) … Known exploited — in CISA KEV since 2026-07-16. EPSS 0.01 —
-70.7th percentile (as of 2026-07-17)". Gap catch-up: rewind
-`ingest_state.nvd-delta.cursor.last_mod_end`, restart app, watch the cycle.)_
+_(Standing follow-up: S8 is complete, live-verified, CI-green (412 tests) on
+`staging` — but NOT yet reviewed or promoted. S9 starts with the
+review+promote drill (#9), then the response-modes work. The S8 demo:
+`what is T1059` → real STIX-derived ATT&CK content with "Source: MITRE
+ATT&CK (STIX-derived) · … (ATT&CK v19.1)"; `what is T1055.011` answers
+though it was never hand-seeded; `what is quantum entanglement` misses
+honestly again — the TD-005 battery caught live fabrication the same day
+ATT&CK landed, and the per-doc_type floors (curated 0.65 / cve 0.70) are
+regression-pinned.)_
 
 ---
 
-SESSION S8 of Auspex. Working dir must be /home/burhan/auspex-new — run
-`/session-start S8` first (full ritual). Primary dev LLM is **Llama-4-Scout via
-Northflank (D-015)**; local Ollama `qwen3:14b` is the secondary/offline endpoint
-(D-013) and is what the session-start local-Ollama gate validates. Any mismatch
-→ STOP and tell me. (D-011 note: `gh` flipped back to the work account
-MID-session in S7 — re-check the active account before every `gh` call.)
+SESSION S9 of Auspex. Working dir must be /home/burhan/auspex-new — run
+`/session-start S9` first (full ritual). Primary dev LLM is **Llama-4-Scout
+via Northflank (D-015)**; local Ollama `qwen3:14b` is the secondary/offline
+endpoint (D-013) and is what the session-start local-Ollama gate validates.
+Any mismatch → STOP and tell me. (D-011: `gh` flips to the work account
+between AND mid-session — re-check before every `gh` call.)
 
 Step 0 (carried follow-up, do BEFORE new scope):
-- **Adversarial review of S7** — scope: the whole `auspex/ingest/` package
-  (feeds, scheduler, state, events), kb changes (`_ensure_mapping_fields`,
-  seed fingerprint, `list_cve_ids`, `doc_types` filter, `KBUnavailable.public`),
-  chat/echo changes (CVE cap + omitted copy, KEV/EPSS lines), app lifespan
-  rewiring (background task owns bootstrap), `ingest_state` migration. Same
-  multi-lens drill as S5/S6 (correctness, honesty/copy, security,
-  test-hygiene, ops; verify findings against the code before fixing — S7's
-  review verified inline when subagents died; either mode is fine). Fix
-  what's real with regression tests, then **`/promote`** (promote #8 = S7
-  milestone). Only then start S8 scope.
+- **Adversarial review of S8's feature work** — scope: `auspex/ingest/attack.py`
+  (index-as-cursor, URL pinning, bundle_to_docs filtering/provenance),
+  scheduler attack phase + failure isolation, per-doc_type NEURAL_FLOORS
+  (fuse.py) + the battery-pinned tests, kev_listed field plumbing
+  (types/mapping/enrich/service/echo), seed technique removal, echo
+  related-entries + source-label changes, definition filter growing to
+  ("concept","technique","tactic"). The 13 S7-review fix commits are ALREADY
+  promoted and reviewed — the review scope is what landed AFTER promote #8
+  (da42735..HEAD). Same multi-lens drill (correctness, honesty/copy,
+  security, test-hygiene, ops; verify findings against code before fixing).
+  Fix what's real with regression tests, then **`/promote`** (#9). Only then
+  start S9 scope.
 
-Goal (scope-locked, from ROADMAP.md S8 — Ingestion 2):
+Goal (scope-locked, from ROADMAP.md S9 — Response modes):
 
-1. **TD-005 calibration GATE (do this FIRST if S8 adds ANY unfiltered
-   free-text search surface):** the S7 spot-check proved both failure modes
-   live at ~2.5k chunks (docs/probes/2026-07-17-s7-ingest-live.md): lucene
-   HNSW recall collapses at k=10 unfiltered, and the 0.6 absolute neural
-   floor erodes as max-of-N cosine grows. Build a labeled relevant/irrelevant
-   query fixture set from live probes; calibrate per-doc_type floors AND
-   neural k/ef sizing TOGETHER; regression-pin the operating point. The
-   definition path is already structurally safe (doc_types filter → exact
-   kNN) — do not regress that.
-2. **Probes first (`/probe` → docs/probes/):** MITRE ATT&CK STIX bundle
-   (size, shape, technique/sub-technique/tactic objects, revoked/deprecated
-   handling, update cadence — replaces the hand-curated attack-seed-summary
-   docs honestly); Sigma rules repo (shape, count, license, useful fields);
-   abuse.ch quartet feeds you don't already have probed (URLhaus/ThreatFox
-   are S5-probed for enrichment — the KB ingestion angle may differ).
-3. **ATT&CK ingestion (lazy + cached):** replace the 6 hand-curated technique
-   seeds with real STIX-derived docs (doc_type=technique, source honestly
-   labeled as derived-from-STIX with version); keep the ID rail + parent
-   prefix behavior (T1059 pulls T1059.001) — the probe decides chunking for
-   long technique pages (chunking.py's overlap note in IDEAS.md may activate).
-   Feed goes through the S7 scheduler + ingest_state (new feed row, own
-   cursor shape).
-4. **Sigma + abuse.ch into the KB** only as far as the probes justify — one
-   enriched doc type at a time, tests with each; auto-promotion-on-miss
-   (queries that miss the KB get queued for curation) only if time allows,
-   else park in IDEAS.md.
-5. Stretch (parked twice — S5, S7): wire the ioc_check echo to cite KB CVE
+1. **6 modes only:** definition, ioc_enrichment, threat_intel, alert_triage,
+   phishing_analysis, brief. Code-owned priority resolver — format beats
+   keywords (ADR 0006 spirit: code over prompts for routing).
+2. **Typed output contracts** (ADR 0007 spirit: specs over prompts):
+   contracts compile to prompts + validators — not the other way around.
+   The existing shortcut paths (cve_lookup, definition, ioc_check) stay
+   zero-LLM; modes shape the DEEP path's system prompt + output validation.
+3. **TD-009 rides along (from the S8 review):** feed/KB-derived text
+   replayed into deep-turn history must be fenced as data-not-instructions
+   (SARA instructions-in-system/data-in-user pattern,
+   docs/probes/2026-07-16-sara-fastpath-pattern.md + agent_loop reference).
+   Add the regression test with an instruction-bearing description.
+4. Reference intelligence before coding: re-snapshot the SARA orchestrator
+   worktree path if needed (STATE.md notes it gets cleaned), and re-read
+   the DEFERRED rail (alert_triage.py:1429) — alert_triage mode must ship
+   with "no data ≠ low risk" semantics from day one.
+5. Stretch (parked three times — S5/S7/S8): ioc_check echo cites KB CVE
    context for InternetDB `vulns[]` hits (IDEAS.md has the sketch).
 
 Constraints:
-- Tests ship with each step (CLAUDE.md rule 8); CI hermetic — no live feeds
-  in pytest, fixtures from probe snapshots only.
+- Tests ship with each step (CLAUDE.md rule 8); CI hermetic — mode/contract
+  tests use fixtures, no live LLM in pytest.
+- LLM-path changes MUST be live-verified against the real dev endpoint
+  (Scout via Northflank) before session end — probe file for anything new.
 - Every new env var → `.env.example` + `docs/ENV_VARS.md` at birth.
 - No new LLM calls on shortcut paths. Errors bias deep (S4 rule).
-- The corpus now grows hourly while the container runs (~770 docs/day) —
-  any retrieval change must be spot-checked against the LIVE grown corpus,
-  not just the 14-chunk fixture world (S7's lesson).
+- TD-005 standing trigger: any NEW doc_type (Sigma etc. stay parked in
+  IDEAS) or model change → re-run the calibration battery
+  (docs/probes/2026-07-18-td005-calibration.md has the pattern).
 - Thrash brake: two failed approaches on one problem → STATE.md Blockers,
   move on. Tired human = short session; rituals anyway.
-- End with `/session-end`; S8 done = real ATT&CK technique docs answering
-  `what is T1059` (and a sub-technique via prefix) from STIX-derived content
-  with honest provenance, through the S7 scheduler with its own watermark,
-  and the TD-005 operating point regression-pinned.
+- End with `/session-end`; S9 done = the 6 modes resolve by code (format
+  beats keywords, pinned by tests), at least one mode (definition or brief)
+  runs end-to-end live through a typed contract that validated real Scout
+  output, and deep-turn history fences feed-derived text (TD-009 closed
+  with a regression test).

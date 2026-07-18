@@ -1,0 +1,24 @@
+{
+ "collections": [
+  {
+   "name": "Enterprise ATT&CK",
+   "versions": [
+    {
+     "version": "19.0",
+     "url": "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/enterprise-attack/enterprise-attack-19.0.json",
+     "modified": "2026-04-28T14:00:00.188Z"
+    },
+    {
+     "version": "19.1",
+     "url": "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/enterprise-attack/enterprise-attack-19.1.json",
+     "modified": "2026-05-12T14:00:00.188Z"
+    },
+    {
+     "version": "18.1",
+     "url": "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/enterprise-attack/enterprise-attack-18.1.json",
+     "modified": "2025-11-13T14:00:00.188Z"
+    }
+   ]
+  }
+ ]
+}
