@@ -348,6 +348,31 @@ class KnowledgeService:
         resp.raise_for_status()
         return int(resp.json().get("deleted", 0))
 
+    async def retire_absent(self, source: str, keep_doc_ids: list[str]) -> int:
+        """Delete every chunk whose `source` matches but whose `doc_id` is NOT
+        in `keep_doc_ids` — the retirement sweep for feeds that re-publish a
+        full set each version (ATT&CK). A technique revoked/removed in a new
+        version would otherwise be served as current forever (S9 review). Empty
+        keep-set would delete the whole source, so refuse it — an empty parse is
+        the caller's 'never advance' signal, not a 'delete everything' one."""
+        if not keep_doc_ids:
+            return 0
+        resp = await self._get_client().post(
+            f"/{KNOWLEDGE_INDEX}/_delete_by_query",
+            json={
+                "query": {
+                    "bool": {
+                        "filter": [{"term": {"source": source}}],
+                        "must_not": [{"terms": {"doc_id": keep_doc_ids}}],
+                    }
+                }
+            },
+            params={"conflicts": "proceed", "refresh": "true"},
+            timeout=BOOTSTRAP_CALL_TIMEOUT_SECONDS,
+        )
+        resp.raise_for_status()
+        return int(resp.json().get("deleted", 0))
+
     async def _prune_orphan_chunks(self, doc_ids: list[str], keep_chunk_ids: list[str]) -> None:
         """Chunks upsert by _id, so a doc whose new content chunks to FEWER
         chunks leaves stale tail chunks behind — rendered as current source

@@ -128,6 +128,8 @@ class FakeKB:
         self.held_cves = held_cves or []
         self.ingested: list[list] = []  # one entry per ingest_docs call
         self.deleted: list[list[str]] = []  # one entry per delete_docs call
+        self.retired: list[tuple[str, list[str]]] = []  # one per retire_absent call
+        self.retire_count = 0  # what retire_absent returns
         self.enriched_in_place: list[dict] = []  # one entry per apply_enrichment call
         self.bootstrap_calls = 0
         self.fail_ingest = False
@@ -149,6 +151,10 @@ class FakeKB:
     async def delete_docs(self, doc_ids) -> int:
         self.deleted.append(list(doc_ids))
         return len(doc_ids)
+
+    async def retire_absent(self, source: str, keep_doc_ids) -> int:
+        self.retired.append((source, list(keep_doc_ids)))
+        return self.retire_count
 
     async def apply_enrichment(self, updates: dict) -> int:
         self.enriched_in_place.append(dict(updates))
@@ -711,19 +717,73 @@ async def test_attack_new_version_ingests_and_records_cursor():
     assert state.rows[ATTACK_FEED] == {
         "version": "19.1",
         "modified": "2026-05-12T14:00:00.188Z",
+        "doc_count": 3,  # stored so a later drastic shrink can be refused
     }
+    # first ingest of a fresh source retires nothing (keep-set == the new docs)
+    assert len(kb.retired) == 1
+    source, keep = kb.retired[0]
+    assert source == "mitre-attack-stix"
+    assert set(keep) == {"T1059", "T1059.001", "TA0006"}
     assert DocChange("T1059", ATTACK_FEED, "upserted") in sink.events
 
 
 async def test_attack_current_version_never_downloads_the_bundle():
     state = idle_cursors()
-    state.rows[ATTACK_FEED] = {"version": "19.1", "modified": "x"}
+    # version AND modified match the feed → current, no download
+    state.rows[ATTACK_FEED] = {"version": "19.1", "modified": "2026-05-12T14:00:00.188Z"}
     attack = FakeATTACK()
     sched = scheduler(state=state, attack=attack)
     summary = await sched.run_cycle()
     assert "attack: current (v19.1)" in summary
     assert attack.index_polls == 1  # the 31 KB index IS polled each cycle
     assert attack.bundle_fetches == 0  # the 53 MB bundle is NOT
+
+
+async def test_attack_in_place_rerelease_same_version_new_modified_reingests():
+    # S9 review (correctness lens): MITRE hotfixes a version in place — the
+    # index bumps `modified` but keeps the version number. Serving stale
+    # content until the next version ships would be a silent freshness bug.
+    state = idle_cursors()
+    state.rows[ATTACK_FEED] = {"version": "19.1", "modified": "OLD", "doc_count": 3}
+    attack = FakeATTACK()  # feed reports modified="2026-05-12T14:00:00.188Z"
+    sched = scheduler(state=state, attack=attack)
+    summary = await sched.run_cycle()
+    assert attack.bundle_fetches == 1  # re-downloaded despite same version
+    assert "attack: v19.1" in summary
+
+
+async def test_attack_retires_docs_absent_from_the_new_version():
+    # A technique present in v19 but revoked/removed in v20 must be deleted,
+    # not served forever (S9 review, ops + honesty lenses).
+    state = idle_cursors()
+    state.rows[ATTACK_FEED] = {"version": "18.0", "modified": "OLD", "doc_count": 3}
+    kb = FakeKB()
+    kb.retire_count = 7  # pretend 7 chunks of withdrawn techniques were swept
+    attack = FakeATTACK(version="19.1")
+    sched = scheduler(kb=kb, state=state, attack=attack)
+    summary = await sched.run_cycle()
+    assert len(kb.retired) == 1
+    source, keep = kb.retired[0]
+    assert source == "mitre-attack-stix"
+    assert set(keep) == {"T1059", "T1059.001", "TA0006"}
+    assert "7 retired" in summary
+
+
+async def test_attack_refuses_to_advance_over_a_drastic_shrink():
+    # If an upstream shape change drops most objects, the parse is non-empty
+    # but tiny — advancing would (with retirement) delete the real corpus.
+    # Refuse and hold the cursor (S9 review, ops lens).
+    state = idle_cursors()
+    state.rows[ATTACK_FEED] = {"version": "18.0", "modified": "OLD", "doc_count": 700}
+    kb = FakeKB()
+    # a bundle that parses to only the 3 fixture docs, vs a prior 700
+    attack = FakeATTACK(version="19.1")
+    sched = scheduler(kb=kb, state=state, attack=attack)
+    summary = await sched.run_cycle()
+    assert "attack: failed" in summary
+    assert kb.ingested == []  # nothing ingested
+    assert kb.retired == []  # nothing retired
+    assert state.rows[ATTACK_FEED] == {"version": "18.0", "modified": "OLD", "doc_count": 700}
 
 
 async def test_attack_empty_parse_never_advances_the_cursor():

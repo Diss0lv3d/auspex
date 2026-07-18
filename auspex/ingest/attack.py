@@ -24,6 +24,7 @@ from auspex.kb.types import KBDoc
 
 INDEX_URL = "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/index.json"
 COLLECTION_NAME = "Enterprise ATT&CK"
+ATTACK_SOURCE = "mitre-attack-stix"  # KBDoc.source for every STIX-derived doc
 # Bundle URLs come from the index (same repo) — pin the prefix so a poisoned
 # index can't redirect the 53 MB fetch anywhere else.
 BUNDLE_URL_PREFIX = "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/"
@@ -182,7 +183,7 @@ def _doc(
         title=f"{ext}: {name}",
         content=content,
         doc_type=doc_type,
-        source="mitre-attack-stix",
+        source=ATTACK_SOURCE,
         source_ref=ref,
         ids=(ext,),
     )

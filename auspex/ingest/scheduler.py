@@ -36,7 +36,7 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
 from auspex.config import Settings
-from auspex.ingest.attack import ATTACKFeed, bundle_to_docs
+from auspex.ingest.attack import ATTACK_SOURCE, ATTACKFeed, bundle_to_docs
 from auspex.ingest.enrich import enrich_doc, enrichment_fields
 from auspex.ingest.epss import EPSSFeed
 from auspex.ingest.events import ChangeSink, DocChange, NullSink
@@ -224,23 +224,58 @@ class IngestScheduler:
             return "disabled"
         latest = await self._attack.latest_version()
         prior = await self._state.get(ATTACK_FEED)
-        if prior and prior.cursor.get("version") == latest.version:
+        if prior and (
+            prior.cursor.get("version"),
+            prior.cursor.get("modified"),
+        ) == (latest.version, latest.modified):
+            # Version AND modified must match — an in-place re-release of the
+            # same version (MITRE hotfix bumps `modified`) is a real change
+            # (S9 review, correctness lens: `modified` was stored but never
+            # compared, so hotfixes were served stale until the next version).
             return f"current (v{latest.version})"
+        prior_version = prior.cursor.get("version") if prior else None
+        prior_count = prior.cursor.get("doc_count") if prior else None
+        logger.info(
+            "attack: v%s (was v%s) — fetching bundle", latest.version, prior_version or "none"
+        )
         objects = await self._attack.fetch_objects(latest.url)
         docs = bundle_to_docs(objects)
         if not docs:
             # An empty parse of a claimed-new version means a broken or
             # poisoned bundle — never advance the cursor over it.
             raise RuntimeError(f"ATT&CK bundle v{latest.version} yielded no docs")
+        if prior_count and len(docs) < prior_count // 2:
+            # A drastic shrink vs the prior version is almost always an upstream
+            # shape change that silently dropped most objects (e.g. an
+            # external-id format the id rail stopped matching) — refuse to
+            # advance the cursor over a 50%+ collapse (S9 review, ops lens).
+            raise RuntimeError(
+                f"ATT&CK v{latest.version} parsed {len(docs)} docs, under half of "
+                f"the prior {prior_count} — refusing to advance (likely upstream shape change)"
+            )
         ingested = await self._kb.ingest_docs(docs)
         await self._sink.emit([DocChange(d.doc_id, ATTACK_FEED, "upserted") for d in docs])
+        # Retire techniques/tactics revoked or removed in the new version BEFORE
+        # recording the cursor — a doc absent from the new bundle would otherwise
+        # be served as current forever (S9 review, ops + honesty lenses). A
+        # failure here holds the cursor for a clean retry.
+        retired = await self._kb.retire_absent(ATTACK_SOURCE, [d.doc_id for d in docs])
+        if retired:
+            logger.info(
+                "attack: retired %d chunks absent from v%s", retired, latest.version
+            )
         await self._state.record(
             ATTACK_FEED,
-            cursor={"version": latest.version, "modified": latest.modified},
-            status=f"v{latest.version}: {ingested} chunks from {len(docs)} docs",
+            cursor={
+                "version": latest.version,
+                "modified": latest.modified,
+                "doc_count": len(docs),
+            },
+            status=f"v{latest.version}: {ingested} chunks from {len(docs)} docs, "
+            f"{retired} retired",
             docs_delta=ingested,
         )
-        return f"v{latest.version}: {ingested} chunks from {len(docs)} docs"
+        return f"v{latest.version}: {ingested} chunks from {len(docs)} docs, {retired} retired"
 
     async def _kev_phase(self) -> tuple[KEVCatalog | None, list[str], str]:
         """Fetch/refresh the catalog; decide which entries are NEW (above the
