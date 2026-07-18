@@ -203,3 +203,50 @@ def test_informational_only_syslog_defers():
     # info-severity syslog with no other signal → signal-poor (a), not LOW
     r = score_alert(normalize(SYSLOG_INFO))
     assert r.risk_level == "DEFERRED"
+
+
+# -- S11 Step-0 review regressions (each finding verified by execution first) --
+
+
+def test_unparsed_envelope_never_scores_even_with_signals():
+    # finding C: a truncated JSON whose raw text carries -enc/powershell used to
+    # score a confident LOW(30) despite parsed=False. Unparsed must DEFER — the
+    # signals stay visible as contributions but never add up to a score.
+    trunc = '{"severity": "high", "cmdline": "powershell -enc SQBFAFgA"'
+    env = normalize(trunc)
+    assert env.parsed is False
+    assert env.signals  # the uniform detectors did fire…
+    r = score_alert(env)
+    assert r.risk_level == "DEFERRED"  # …and still must not produce a score
+    assert r.score is None
+    assert "could not be parsed" in (r.deferred_reason or "")
+
+
+def test_prose_with_signal_keywords_defers():
+    # finding C2: free prose mentioning -enc/iex/powershell scored MEDIUM(45)
+    r = score_alert(normalize("hey look at this -enc thing powershell iex whatever"))
+    assert r.risk_level == "DEFERRED"
+    assert r.score is None
+
+
+def test_enrichment_tail_only_when_there_are_iocs():
+    # finding D: an IOC-less alert has nothing to enrich — the pending-enrichment
+    # tail must not promise IOC verdicts that cannot come.
+    no_ioc = (
+        '{"severity": "critical", "rule": "Ransom note dropped", '
+        '"process": {"command_line": "powershell -enc AAA"}}'
+    )
+    r = score_alert(normalize(no_ioc))
+    assert r.risk_level in ("HIGH", "CRITICAL")
+    assert "pending enrichment" not in r.recommendation
+    # and the tail still fires when IOCs exist (JSON_RICH carries 10.0.0.9)
+    assert "pending enrichment" in score_alert(normalize(JSON_RICH)).recommendation
+
+
+def test_informational_only_deferral_names_it_honestly():
+    # finding E: the |0| CEF normalizes to INFORMATIONAL — the reason used to say
+    # "no severity", which is false; it must name the informational-only severity.
+    r = score_alert(normalize(CEF_SIGNAL_POOR))
+    assert "informational-only severity" in (r.deferred_reason or "")
+    assert "informational-only severity" in r.recommendation
+

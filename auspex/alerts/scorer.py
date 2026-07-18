@@ -143,6 +143,27 @@ def score_alert(env: AlertEnvelope, *, has_enrichment: bool = False) -> RiskScor
     has_ioc = env.has_iocs
 
     # ── DEFERRED rail — "no data ≠ low risk" ─────────────────────────────────
+    # (0) unparsed: the paste never became a triageable envelope. Signals the
+    #     uniform detectors matched in the raw text may still be listed as
+    #     contributions (transparency), but they must not add up to a confident
+    #     score — a paste we failed to parse is exactly the "un-triageable alert
+    #     scored anyway" failure this rail exists to prevent.
+    if not env.parsed:
+        reason = "the alert could not be parsed into a triageable envelope"
+        return RiskScore(
+            risk_level="DEFERRED",
+            score=None,
+            contributions=tuple(contributions),
+            recommendation=(
+                "The paste could not be parsed into a triageable envelope — "
+                "fast-path triage cannot honestly score it. Escalate to deep "
+                "triage with the original alert source."
+            ),
+            true_positive_estimate="UNKNOWN",
+            needs_deep_triage=True,
+            deferred_reason=reason,
+            notes=env.notes,
+        )
     # (a) signal-poor: no meaningful severity, no enrichment, no scoring signal,
     #     and no IOC artifact to enrich → nothing to honestly triage.
     if (
@@ -151,9 +172,12 @@ def score_alert(env: AlertEnvelope, *, has_enrichment: bool = False) -> RiskScor
         and not non_severity
         and not has_ioc
     ):
-        reason = "no severity, no IOCs, no MITRE mapping, and no process-level indicators"
-        if not env.parsed:
-            reason = "the alert could not be parsed into a triageable envelope"
+        sev_part = (
+            "informational-only severity"
+            if env.severity is Severity.INFORMATIONAL
+            else "no severity"
+        )
+        reason = f"{sev_part}, no IOCs, no MITRE mapping, and no process-level indicators"
         return RiskScore(
             risk_level="DEFERRED",
             score=None,
@@ -204,7 +228,10 @@ def score_alert(env: AlertEnvelope, *, has_enrichment: bool = False) -> RiskScor
     else:
         level = "LOW"
     recommendation, tpe = _recommendation(level)
-    if total >= _MEDIUM_AT and not has_enrichment:
+    # The pending-enrichment tail is only honest when there ARE IOCs whose
+    # verdicts could populate — an IOC-less alert has nothing to enrich, and
+    # "re-run after IOC verdicts populate" would promise a shift that can't come.
+    if total >= _MEDIUM_AT and not has_enrichment and has_ioc:
         recommendation += (
             " · ⏳ pending enrichment — re-run after IOC verdicts populate; score may shift"
         )
