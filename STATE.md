@@ -1,18 +1,44 @@
 # STATE — Auspex
 
-_Last updated: 2026-07-18 (S9 start — divergence fix: promote #9 was already
-merged by an unrecorded morning session; S8 adversarial review still outstanding)_
+_Last updated: 2026-07-18 (S9 — S8 adversarial review DONE, 8 fix commits +
+tests; ready for promote #10, then S9 modes scope)_
 
 ## Where we are
-- **S8 COMPLETE.** An **unrecorded follow-up session (2026-07-18 ~08:41–09:31)**
-  then parked two ideas, added docs/probes/2026-07-18-kb-sources-research.md +
-  docs/KB_STRATEGY.md, and ran **promote #9** (PR #9, merged 09:31) —
-  **without the S8 adversarial review**. The review is STILL OUTSTANDING and
-  now reviews code already on `main`; fixes land on staging → promote **#10**.
-  After that: S9 scope (Response modes — see NEXT-SESSION.md).
-- **Promoted:** promote #9 on `main` == everything through 144b247 — the S8
-  feature work (ATT&CK feed, TD-005 floors, kev_listed) + KB strategy docs.
-  `main` == `staging` as of back-merge 1919814.
+- **S8 review COMPLETE (the outstanding Step 0).** promote #9 had shipped the
+  S8 feature work to `main` UNREVIEWED (an unrecorded 08:41–09:31 session merged
+  it + KB strategy docs). This session ran the 5-lens adversarial review over
+  the S8 diff (da42735..144b247) and fixed what was real — **8 fix/test commits
+  on staging**, all with regression tests, CI-green (426 tests, was 412).
+  → **promote #10** carries them, THEN S9 scope (Response modes, NEXT-SESSION).
+- **S8 review findings fixed** (verified against code + live before fixing):
+  1. **Phase isolation (major, correctness):** NVD/KEV phases ran unwrapped
+     before the only guarded phase (ATT&CK, last) — a bad NVD key starved ALL
+     technique content (seeds were removed in S8). CVE pipeline now isolated
+     from the independent ATT&CK phase.
+  2. **Bundle parse resilience (major):** one malformed object crashed the
+     whole parse; now skip-and-count like NVD.
+  3. **extras bypassed the content cap (major, security):** poisoned platforms
+     fanned out ~100k chunks; assembled content now capped. + name/version
+     bound & control-stripped (trailer-forgery), re.ASCII ids.
+  4. **Version-bump retirement (major, 2 lenses):** withdrawn techniques were
+     served forever; retire_absent(source, keep) runs before the cursor. +
+     modified compare (in-place re-release), + doc-count shrink floor.
+  5. **MITRE ToU notice (major, honesty):** verbatim ATT&CK text shipped
+     without the required copyright notice; now on every STIX-derived answer.
+  6. **Markdown/HTML in descriptions (honesty):** normalized out at ingest.
+  7. **Floor pinning (critical, test-hygiene):** NEURAL_FLOORS now pinned
+     verbatim + a per-doc_type coverage test (a new feed trips it).
+  8. Docs: ATT&CK egress in INGEST_ENABLED; TD-010 scope grew to attack.py
+     (unbounded body — deferred, shared bounded_json helper); fixture trimmed
+     103,694→330 lines.
+- **Live-verified this session:** MITRE ToU notice renders on "what is T1059"
+  end-to-end; retire_absent bool query valid against real OpenSearch (1398
+  ATT&CK chunks, keep-set math correct). NOTE: stored ATT&CK content still has
+  markdown (ingest-time fix) — self-heals on the next version bump / re-ingest.
+- **Promoted:** promote #9 on `main` == everything through 144b247 (S8 feature
+  work + KB strategy). promote #10 (pending) adds the 8 review fixes.
+- **No LLM paths touched** — every fix is ingest/KB/echo (zero-LLM); TD-005
+  battery NOT re-triggered (no new doc_type, no model change).
 - **Primary dev LLM (D-015):** Llama-4-Scout via Northflank; secondary/offline
   Ollama `qwen3:14b` (D-013). S8 touched no LLM paths (everything shipped is
   shortcut/ingest — zero LLM).
