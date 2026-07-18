@@ -91,13 +91,18 @@ may not grow mid-session (IDEAS.md exists for that).
   (CEF/LEEF/syslog/JSON) → typed closed-vocab envelope; additive 0–100 score
   with itemized, named contributions; **DEFERRED rail** (no data ≠ low risk,
   both SARA conditions). Code-owned parse+score (no LLM); feeds the S9
-  alert_triage mode with the AUTHORITATIVE verdict. _(On staging, live-verified
-  against Scout — rich CEF → CRITICAL, signal-poor CEF → DEFERRED, both rendered
-  by Scout with the code Risk level + re-validated. Awaiting S11 Step-0 review +
-  promote #12.)_
-- [ ] **S11 — Phishing/header agent.** Deterministic SPF/DKIM/DMARC/typosquat/
+  alert_triage mode with the AUTHORITATIVE verdict. _(Reviewed at S11 Step 0
+  — 8 findings fixed with regressions — and promoted #12 to main.)_
+- [x] **S11 — Phishing/header agent.** Deterministic SPF/DKIM/DMARC/typosquat/
   homograph checks injected as AUTHORITATIVE; LLM narrative on top; victim-domain
-  IOC filtering.
+  IOC filtering. _(`auspex.phishing`: regex header parse → typed EmailEnvelope →
+  named auth/spoof/lookalike findings → additive Verdict FLOOR; BENIGN gated on
+  positive auth evidence, absence/unparseable → DEFERRED; victim-domain + internal
+  IPs withheld from indicators; validator pin extended to an ALLOWED SET so the
+  model may raise above the floor, never launder below it. Format-beats-keywords
+  email→DEEP gate added to the classifier. Live-verified on Scout (MALICIOUS floor
+  + BENIGN gate). Closes the phishing portion of TD-013. On staging, awaiting
+  S12 Step-0 review + promote #13.)_
 - [ ] **S12 — Hypothesis engine v1 (ACH).** Competing hypotheses per
   investigation, per-evidence scoring against each hypothesis, next-lookup
   chosen by expected information gain.

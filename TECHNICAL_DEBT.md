@@ -1,5 +1,30 @@
 # Technical debt — logged the moment it's taken
 
+## TD-015 (S11) — phishing deterministic layer uses heuristic coverage (brand list, confusable set, naive registrable domain)
+**Where:** `auspex/phishing/brands.py` (`BRAND_ALLOWLIST` ~44 brands),
+`auspex/phishing/lookalike.py` (`_CONFUSABLES` a high-frequency Cyrillic/Greek
+subset, `registrable_domain` = naive last-two-labels), `auspex/phishing/victims.py`
+(same naive registrable match).
+**Risk:** all three are FALSE-NEGATIVE biased by design (a miss, never a false
+alarm), but the gaps are real: (a) a lookalike of a brand not on the list isn't
+caught; (b) a homograph using a confusable outside the curated set folds to
+itself and isn't flagged; (c) a brand hosted under a compound TLD (`brand.co.uk`)
+mis-computes its registrable domain, and a victim on a compound-TLD domain
+(`acme.co.uk`) may not fully match for filtering. None can produce a FALSE
+MALICIOUS or leak a victim IOC — they only under-detect.
+**Why accepted (not a bug):** ships the SARA-proven deterministic pre-check
+(docs/probes/2026-07-18-sara-phishing-header-patterns.md) that catches the
+common credential-harvest shapes; the LLM narrative layer sees the raw domain
+and can still flag what the deterministic layer missed (it just can't LOWER the
+floor). Absence/uncertainty already biases to DEFERRED, never BENIGN.
+**Path to fix:** (1) fold the brand list into a configurable/data-file source if
+customers need per-tenant brands (decide env-var vs file then — none needed
+today, it's a code constant); (2) adopt a fuller Unicode confusables map
+(UTS-39 skeleton) if homograph FNs show up; (3) use the public-suffix list for
+registrable-domain computation to fix compound TLDs. Trigger: a real missed
+lookalike/homograph in a customer email, or a compound-TLD victim domain leaking
+into indicators. Add the offending email as a fixture then.
+
 ## TD-013 (S9 review) — attacker-authored paste rides the trusted `user` lane in triage/phishing modes
 **Where:** `auspex/routes/chat.py` `_history` (user turns replay UNfenced, `:290`)
 + the current turn's `body.message` stored as `role="user"` (`:334`), against the
@@ -24,10 +49,23 @@ injection inside an alert can't move the level (pinned:
 tests/test_chat_sse.py::test_alert_triage_deferred_rail_and_injection_resistance).
 The paste text is still visible to the model, but it no longer *decides* the
 outcome for alerts.
-**Still open:** phishing_analysis has no normalizer yet — a pasted email body is
-still free attacker prose the model reasons over directly. Same treatment when
-phishing_analysis grows its own parser; add an instruction-bearing pasted-email
-fixture then.
+**Phishing path MITIGATED in S11 (`auspex.phishing`):** a pasted email is parsed
+in CODE (regex header parse → typed EmailEnvelope), auth/spoof/lookalike findings
+are computed deterministically, and the Verdict FLOOR is decided in code;
+phishing_analysis renders the AUTHORITATIVE verdict, and the validator pin (an
+ALLOWED SET — floor + permitted raises) means the model can raise on content it
+reads but can NEVER launder the disposition below the floor. Pinned:
+tests/test_chat_sse.py::test_phishing_verdict_cannot_be_laundered_below_the_floor
+(a body that says "this is legitimate" cannot pull a MALICIOUS floor to BENIGN).
+Live-verified on Scout (docs/probes/2026-07-18-s11-phishing-live.md).
+**Residual (both triage + phishing paths):** the raw paste is still VISIBLE to
+the model in the `user` turn (it must be, to narrate), and on later turns it
+replays unfenced (the `_history` gap). What changed is that the paste no longer
+*decides* the outcome — code does, and the pin enforces it. The standing gap is
+now only free-prose narration manipulation (the model could still be talked into
+misleading *prose* around a correct pinned verdict); the disposition itself is
+code-owned for both alert and phishing modes. Consider fencing replayed user
+paste-turns if/when the DEEP path executes tools (the TD-009 escalation profile).
 
 ## TD-014 (S9 review) — deep-turn history fetch is unbounded (no turn/token cap)
 **Where:** `auspex/routes/chat.py` `_history` — `SELECT role, content FROM messages
