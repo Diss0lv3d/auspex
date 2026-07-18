@@ -160,10 +160,62 @@ def test_deferred_is_a_valid_alert_triage_risk_value():
     )
     result = c.validate(answer)
     assert result.ok, result.reason()
-    assert "DEFERRED" in contract_for(Mode.ALERT_TRIAGE).fields[0].allowed_values
 
 
 def test_optional_section_absence_is_ok():
     c = contract_for(Mode.DEFINITION)  # "Related" is optional
     answer = "## Definition\nX is Y.\n\n## In practice\nSeen in Z.\n"
+    assert c.validate(answer).ok
+
+
+# ── validator robustness (S9 review: spec↔validator drift, honest checks) ─────
+
+
+def test_validate_accepts_inline_and_emphasized_enum_headers():
+    # the compiled directive renders `## Risk — description`, and models commonly
+    # write `## Risk: HIGH` or `## **Risk**` — all must validate (header tolerance
+    # the docstring promised but the code did not implement).
+    c = contract_for(Mode.ALERT_TRIAGE)
+    for risk_section in ("## Risk: HIGH", "## Risk — HIGH", "## **Risk**\nHIGH"):
+        answer = f"{risk_section}\n\n## Reasoning\nx\n\n## Recommendation\ny\n"
+        assert c.validate(answer).ok, risk_section
+
+
+def test_validate_rejects_a_compound_hedged_enum_value():
+    # "Must be exactly one of" — a hedge whose first token spells an allowed value
+    # is NOT one of them; the leading-token check must not pass it (false-accept).
+    c = contract_for(Mode.ALERT_TRIAGE)
+    for hedged in ("LOW/MEDIUM leaning low", "LOW-MEDIUM"):
+        answer = f"## Risk\n{hedged}\n\n## Reasoning\nx\n\n## Recommendation\ny\n"
+        result = c.validate(answer)
+        assert not result.ok, hedged
+        assert any(b.startswith("Risk=") for b in result.bad_enum)
+
+
+def test_validate_flags_a_required_section_that_is_present_but_empty():
+    # a headers-only skeleton (section emitted, no content) is not conformant.
+    c = contract_for(Mode.ALERT_TRIAGE)
+    answer = "## Risk\nHIGH\n\n## Reasoning\n\n## Recommendation\n"
+    result = c.validate(answer)
+    assert not result.ok
+    assert "Reasoning" in result.missing and "Recommendation" in result.missing
+
+
+def test_single_hash_code_comment_is_not_parsed_as_a_section():
+    # a `# details` comment inside answer prose must NOT satisfy the missing
+    # `## Details` section — only `##…` ATX headings are sections.
+    c = contract_for(Mode.BRIEF)
+    answer = "## Bottom line\nX.\n\n# details\nnot a real section\n"
+    result = c.validate(answer)
+    assert not result.ok
+    assert "Details" in result.missing
+
+
+def test_duplicate_header_keeps_the_first_section():
+    # a later `## Risk` cannot silently override the first (first-wins).
+    c = contract_for(Mode.ALERT_TRIAGE)
+    answer = (
+        "## Risk\nHIGH\n\n## Reasoning\nx\n\n## Recommendation\ny\n\n"
+        "## Risk\nthis late duplicate must not win\n"
+    )
     assert c.validate(answer).ok

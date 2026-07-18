@@ -3,12 +3,14 @@ prompts). A contract is the single source of truth for a mode's output shape; it
 COMPILES to (a) the system-prompt directive that instructs the model, and (b)
 the validator that checks the model actually produced it. We never hand-write
 the prompt and validator separately and hope they agree — the spec generates
-both, so they cannot drift.
+both, so they stay in lockstep on the spec's fields.
 
 Contracts describe named sections of the analyst answer (plain text, `## Name`
 headers — the chat UI renders verbatim). A field may be an enum (a closed set of
-allowed values, e.g. a risk level); the validator enforces membership in code,
-never by trusting the model (ADR 0006 spirit: code owns correctness).
+allowed values, e.g. a risk level); the validator checks membership in code
+(post-hoc, never by trusting the model — ADR 0006 spirit) and REPORTS
+non-conformance. It observes correctness; it does not block a streamed answer
+(the repair loop is TD-012).
 """
 
 from __future__ import annotations
@@ -31,8 +33,9 @@ class ContractField:
 
 @dataclass(frozen=True)
 class ModeContract:
-    """A mode's typed output contract. `purpose` and `fields` compile to the
-    system directive; `fields` + `rules` compile to the validator."""
+    """A mode's typed output contract. `purpose` + `fields` + `rules` compile to
+    the system directive; `fields` alone compile to the validator (`rules` are
+    prompt-only guidance — surfaced to the model, never machine-checked)."""
 
     name: str  # the mode value (matches Mode enum), e.g. "alert_triage"
     purpose: str  # one-line role, opens the system directive
@@ -69,7 +72,9 @@ class ModeContract:
         bad_enum: list[str] = []
         for f in self.fields:
             body = present.get(f.name.lower())
-            if body is None:
+            # Absent OR present-but-empty (header emitted, no content) both fail a
+            # required section — a headers-only skeleton is not a conformant answer.
+            if not body:
                 if f.required:
                     missing.append(f.name)
                 continue
@@ -102,26 +107,55 @@ class ContractResult:
         return "; ".join(parts) or "ok"
 
 
-_SECTION_RE = re.compile(r"^#{1,6}\s*(.+?)\s*$", re.MULTILINE)
+# A section header is a `## Name` ATX heading. We require ≥2 hashes: contracts
+# always compile to `##`, and a single `#` is how models write shell/YAML
+# comments inside code samples — matching those forged phantom sections.
+_SECTION_RE = re.compile(r"^#{2,6}[ \t]*(.+?)[ \t]*$", re.MULTILINE)
+# Field names never contain a colon or a dash, so the first such separator on a
+# header line delimits the name from an inline value ("Risk: HIGH", "Risk — HIGH").
+_HEADER_SPLIT_RE = re.compile(r"\s*[:—–]\s*|\s-\s")
+_EMPHASIS = "*_`~ "
+_TOKEN_RE = re.compile(r"[A-Za-z]+")
+
+
+def _split_header(raw: str) -> tuple[str, str]:
+    """Split a header line into (name, inline-value). Models sometimes place the
+    value on the header itself ('Risk: HIGH'); the value then leads the body."""
+    parts = _HEADER_SPLIT_RE.split(raw, maxsplit=1)
+    return (parts[0], parts[1]) if len(parts) == 2 else (raw, "")
 
 
 def _sections(answer: str) -> dict[str, str]:
-    """Split an answer into {header-lowercased: body}. A header is a markdown
-    ATX heading line; matching is case-insensitive and tolerant of a leading
-    enum token being on the header line or the body."""
+    """Split an answer into {header-lowercased: body}. A header is a `##…######`
+    ATX heading; matching is case-insensitive and tolerant of markdown emphasis
+    ('**Risk**') and of an inline enum value on the header line ('Risk: HIGH',
+    'Risk — HIGH') — the compiled directive renders `## Name — description`, so
+    the validator must accept the header shapes the spec teaches. First header
+    wins on duplicates (a later `## Risk` can't silently override the first)."""
     out: dict[str, str] = {}
     matches = list(_SECTION_RE.finditer(answer))
     for i, m in enumerate(matches):
-        header = m.group(1).strip().lower()
+        name_part, inline = _split_header(m.group(1).strip())
+        header = name_part.strip(_EMPHASIS).lower()
         start = m.end()
         end = matches[i + 1].start() if i + 1 < len(matches) else len(answer)
-        out[header] = answer[start:end].strip()
+        body = answer[start:end].strip()
+        if inline:
+            body = f"{inline}\n{body}".strip()
+        out.setdefault(header, body)
     return out
 
 
 def _leading_token(body: str) -> str:
     """First word-ish token of a section body — where an enum value lives
-    (e.g. 'DEFERRED' in 'DEFERRED — insufficient signal…')."""
-    stripped = body.lstrip("*-• \t")
-    m = re.match(r"[A-Za-z_]+", stripped)
-    return m.group(0) if m else ""
+    (e.g. 'DEFERRED' in 'DEFERRED — insufficient signal…'). A clean enum value
+    stands alone: if the token is immediately followed by '/' or '-' it is a
+    compound/hedge ('LOW/MEDIUM', 'LOW-MEDIUM') — return the whole chunk so it
+    fails the enum rather than passing on its first component (S9 review)."""
+    stripped = body.lstrip("*-•_` \t")
+    m = _TOKEN_RE.match(stripped)
+    if not m:
+        return ""
+    if stripped[m.end() : m.end() + 1] in "/-":
+        return stripped.split(None, 1)[0]
+    return m.group(0)
