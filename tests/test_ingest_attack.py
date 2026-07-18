@@ -149,6 +149,22 @@ def test_unicode_digit_ids_are_rejected():
     assert bundle_to_docs([_collection(), bad]) == []
 
 
+def test_markdown_links_and_html_tags_are_normalized_out():
+    # S9 review (honesty lens): ATT&CK markdown reached the plain-text echo as
+    # literal broken markup — [PowerShell](url) and <code>…</code>.
+    desc = (
+        "Adversaries may abuse [PowerShell](https://attack.mitre.org/techniques/T1059/001) "
+        "and <code>cmd.exe</code>.<br> A value < 5 is fine."
+    )
+    (doc,) = bundle_to_docs([_collection(), _technique(description=desc)])
+    assert "PowerShell" in doc.content and "](http" not in doc.content
+    assert "[PowerShell]" not in doc.content
+    assert "<code>" not in doc.content and "</code>" not in doc.content
+    assert "<br>" not in doc.content
+    assert "cmd.exe" in doc.content
+    assert "value < 5 is fine" in doc.content  # a math comparison is not a tag
+
+
 # ── version index ────────────────────────────────────────────────────────────
 
 

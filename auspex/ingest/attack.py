@@ -32,6 +32,12 @@ INDEX_TIMEOUT_SECONDS = 30.0
 BUNDLE_TIMEOUT_SECONDS = 180.0  # 53 MB (9 MB wire) measured at 5.7 s — leave slack
 
 _CITATION_RE = re.compile(r"\s*\(Citation: [^)]*\)")
+# ATT&CK descriptions are markdown: [text](url) links and <code>/<br> tags reach
+# the plain-text echo verbatim as broken markup (S9 review, honesty lens). Rewrite
+# links to their anchor text and strip tags. `<` followed by a space (a math
+# comparison) is not a tag and is left alone.
+_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]*\)")
+_HTML_TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
 # re.ASCII so Unicode decimals (Arabic-Indic digits etc.) can't satisfy \d and
 # smuggle exotic-id junk docs into the corpus (S9 review, security lens).
 _TECHNIQUE_ID_RE = re.compile(r"T\d{4}(\.\d{3})?", re.ASCII)
@@ -169,7 +175,9 @@ def _doc(
     # A null/absent/wrong-typed description or name must not lose a valid-id
     # object — coerce to safe defaults (S9 review, correctness lens).
     raw = obj.get("description")
-    description = _CITATION_RE.sub("", raw if isinstance(raw, str) else "").strip()
+    description = _CITATION_RE.sub("", raw if isinstance(raw, str) else "")
+    description = _MD_LINK_RE.sub(r"\1", description)
+    description = _HTML_TAG_RE.sub("", description).strip()
     if len(description) > MAX_DESCRIPTION_CHARS:
         description = description[:MAX_DESCRIPTION_CHARS] + " […]"
     content = f"{description}\n\n{extras}" if extras else description
