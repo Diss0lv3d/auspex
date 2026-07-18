@@ -64,12 +64,20 @@ class ModeContract:
             lines.extend(f"- {r}" for r in self.rules)
         return "\n".join(lines)
 
-    def validate(self, answer: str) -> ContractResult:
+    def validate(self, answer: str, pinned: dict[str, str] | None = None) -> ContractResult:
         """Validate a produced answer against the contract (specs → validators).
-        Structural + enum checks only — never a semantic judgement of quality."""
+        Structural + enum checks only — never a semantic judgement of quality.
+
+        `pinned` maps a field name to the value a code-owned verdict already
+        decided for THIS answer (e.g. alert_triage's Risk from the additive
+        scorer): the rendered leading token must EQUAL it, not merely sit in the
+        enum. Membership alone would let a steered model swap one valid level
+        for another undetected — the "use it exactly" prompt instruction is not
+        an enforcement mechanism (ADR 0006), this check is."""
         present = _sections(answer)
         missing: list[str] = []
         bad_enum: list[str] = []
+        pin_broken: list[str] = []
         for f in self.fields:
             body = present.get(f.name.lower())
             # Absent OR present-but-empty (header emitted, no content) both fail a
@@ -78,13 +86,19 @@ class ModeContract:
                 if f.required:
                     missing.append(f.name)
                 continue
+            token = _leading_token(body)
             if f.allowed_values:
-                token = _leading_token(body)
                 allowed = {v.lower() for v in f.allowed_values}
                 if token.lower() not in allowed:
                     bad_enum.append(f"{f.name}={token or '∅'}")
+            expected = (pinned or {}).get(f.name)
+            if expected is not None and token.lower() != expected.lower():
+                pin_broken.append(f"{f.name}={token or '∅'}≠{expected}")
         return ContractResult(
-            mode=self.name, missing=tuple(missing), bad_enum=tuple(bad_enum)
+            mode=self.name,
+            missing=tuple(missing),
+            bad_enum=tuple(bad_enum),
+            pinned_mismatch=tuple(pin_broken),
         )
 
 
@@ -93,10 +107,11 @@ class ContractResult:
     mode: str
     missing: tuple[str, ...] = ()  # required sections absent
     bad_enum: tuple[str, ...] = ()  # enum fields with an out-of-set value
+    pinned_mismatch: tuple[str, ...] = ()  # fields that diverged from a code verdict
 
     @property
     def ok(self) -> bool:
-        return not self.missing and not self.bad_enum
+        return not self.missing and not self.bad_enum and not self.pinned_mismatch
 
     def reason(self) -> str:
         parts = []
@@ -104,6 +119,8 @@ class ContractResult:
             parts.append(f"missing sections: {', '.join(self.missing)}")
         if self.bad_enum:
             parts.append(f"out-of-contract values: {', '.join(self.bad_enum)}")
+        if self.pinned_mismatch:
+            parts.append(f"code-verdict mismatch: {', '.join(self.pinned_mismatch)}")
         return "; ".join(parts) or "ok"
 
 
