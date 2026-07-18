@@ -31,8 +31,26 @@ INDEX_TIMEOUT_SECONDS = 30.0
 BUNDLE_TIMEOUT_SECONDS = 180.0  # 53 MB (9 MB wire) measured at 5.7 s — leave slack
 
 _CITATION_RE = re.compile(r"\s*\(Citation: [^)]*\)")
-_TECHNIQUE_ID_RE = re.compile(r"T\d{4}(\.\d{3})?")
-_TACTIC_ID_RE = re.compile(r"TA\d{4}")
+# re.ASCII so Unicode decimals (Arabic-Indic digits etc.) can't satisfy \d and
+# smuggle exotic-id junk docs into the corpus (S9 review, security lens).
+_TECHNIQUE_ID_RE = re.compile(r"T\d{4}(\.\d{3})?", re.ASCII)
+_TACTIC_ID_RE = re.compile(r"TA\d{4}", re.ASCII)
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+# Untrusted-feed bounds (S9 review, security lens). The assembled content is
+# the chunk-fan-out driver — capping description alone left `extras` (platforms/
+# tactics) unbounded, so a poisoned x_mitre_platforms could still fan out ~100k
+# chunks. name/version render into the user-visible title + Source trailer, so
+# they are length-bounded and control-char-stripped (a newline in x_mitre_version
+# would otherwise forge an extra "Source:" line).
+MAX_TITLE_NAME_CHARS = 256
+MAX_VERSION_CHARS = 32
+
+
+def _clean_line(value: object, max_len: int) -> str:
+    """One-line, length-bounded rendering of an untrusted string field."""
+    text = value if isinstance(value, str) else ""
+    return _CONTROL_RE.sub(" ", text).strip()[:max_len]
 
 
 class ATTACKError(Exception):
@@ -47,8 +65,11 @@ class ATTACKVersion:
 
 
 def _version_key(version: str) -> tuple[int, ...]:
+    # `.isdigit()` is True for non-ASCII digits (e.g. "²") that int() rejects —
+    # guard with .isascii() so a hostile index can't crash the version sort
+    # (S9 review, security lens).
     parts = version.split(".")
-    return tuple(int(p) for p in parts if p.isdigit()) or (0,)
+    return tuple(int(p) for p in parts if p.isascii() and p.isdigit()) or (0,)
 
 
 def _ext_id(obj: dict) -> str | None:
@@ -71,13 +92,16 @@ def bundle_to_docs(objects: list[dict]) -> list[KBDoc]:
     fields, non-dict entries, a non-string id) must never crash the parse
     and forfeit the other ~700 good objects with an hourly 53 MB re-fetch.
     The whole-bundle empty-parse guard stays with the caller."""
-    version = next(
-        (
-            o.get("x_mitre_version", "")
-            for o in objects
-            if isinstance(o, dict) and o.get("type") == "x-mitre-collection"
+    version = _clean_line(
+        next(
+            (
+                o.get("x_mitre_version", "")
+                for o in objects
+                if isinstance(o, dict) and o.get("type") == "x-mitre-collection"
+            ),
+            "",
         ),
-        "",
+        MAX_VERSION_CHARS,
     )
     docs: list[KBDoc] = []
     for obj in objects:
@@ -148,10 +172,14 @@ def _doc(
     if len(description) > MAX_DESCRIPTION_CHARS:
         description = description[:MAX_DESCRIPTION_CHARS] + " […]"
     content = f"{description}\n\n{extras}" if extras else description
-    name = obj.get("name")
+    # Cap the ASSEMBLED content, not just description — extras (platforms/
+    # tactics) must not bypass the fan-out bound (S9 review, security lens).
+    if len(content) > MAX_DESCRIPTION_CHARS:
+        content = content[:MAX_DESCRIPTION_CHARS] + " […]"
+    name = _clean_line(obj.get("name"), MAX_TITLE_NAME_CHARS)
     return KBDoc(
         doc_id=ext,
-        title=f"{ext}: {name if isinstance(name, str) else ''}",
+        title=f"{ext}: {name}",
         content=content,
         doc_type=doc_type,
         source="mitre-attack-stix",

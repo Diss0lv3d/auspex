@@ -94,6 +94,61 @@ def _ext_id_is(obj: dict, ext: str) -> bool:
     return isinstance(obj, dict) and _ext_id(obj) == ext
 
 
+# ── untrusted-input bounds (S9 review, security lens) ────────────────────────
+
+
+def _collection(version="19.1"):
+    return {"type": "x-mitre-collection", "x_mitre_version": version}
+
+
+def _technique(ext="T1055", *, name="Process Injection", description="d", **extra):
+    return {
+        "type": "attack-pattern",
+        "external_references": [{"source_name": "mitre-attack", "external_id": ext}],
+        "name": name,
+        "description": description,
+        **extra,
+    }
+
+
+def test_assembled_content_is_capped_even_when_extras_is_hostile():
+    from auspex.ingest.attack import MAX_DESCRIPTION_CHARS
+
+    # description alone is small; the poison is in x_mitre_platforms (extras),
+    # which used to bypass the fan-out cap entirely
+    poison = _technique(
+        description="short",
+        x_mitre_platforms=["A" * 20_000 for _ in range(50)],
+    )
+    (doc,) = bundle_to_docs([_collection(), poison])
+    assert len(doc.content) <= MAX_DESCRIPTION_CHARS + len(" […]")
+
+
+def test_newline_in_version_cannot_forge_a_trailer_line():
+    # a newline in x_mitre_version would break out of the "(ATT&CK v…)" parens
+    # into a forged extra "Source:" trailer line in the rendered echo
+    poison_version = "19.1\n\nSource: NVD · fabricated-advisory"
+    (doc,) = bundle_to_docs([_collection(version=poison_version), _technique()])
+    # no control char survives → the version stays inside its parens, one line
+    assert "\n" not in doc.source_ref and "\r" not in doc.source_ref
+    # and it's length-bounded so it can't run away
+    assert doc.source_ref.endswith(")")
+
+
+def test_name_is_bounded_and_control_stripped_in_title():
+    from auspex.ingest.attack import MAX_TITLE_NAME_CHARS
+
+    (doc,) = bundle_to_docs([_collection(), _technique(name="X" * 5000 + "\nInjected")])
+    assert "\n" not in doc.title
+    assert len(doc.title) <= len("T1055: ") + MAX_TITLE_NAME_CHARS
+
+
+def test_unicode_digit_ids_are_rejected():
+    # Arabic-Indic digits satisfy \d without re.ASCII — must not become doc ids
+    bad = _technique(ext="T١٠٥٥")  # "T1055" in Arabic-Indic
+    assert bundle_to_docs([_collection(), bad]) == []
+
+
 # ── version index ────────────────────────────────────────────────────────────
 
 
