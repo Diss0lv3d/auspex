@@ -1,16 +1,18 @@
 # STATE — Auspex
 
-_Last updated: 2026-07-18 (S8 complete — S7 review + promote #8; ATT&CK STIX feed live; TD-005 resolved)_
+_Last updated: 2026-07-18 (S9 start — divergence fix: promote #9 was already
+merged by an unrecorded morning session; S8 adversarial review still outstanding)_
 
 ## Where we are
-- **S8 COMPLETE** (Step 0 review→promote, ATT&CK ingestion, TD-005
-  calibration; Sigma/abuse.ch deliberately parked) → **next is S9**
-  (Response modes — see NEXT-SESSION.md). S8's own work is on `staging`,
-  NOT yet reviewed/promoted — S9 starts with the adversarial review of S8,
-  then `/promote` (#9).
-- **Promoted:** promote #8 on `main` == full S7 milestone + the 13 S8-review
-  fix commits (PR #8 squash-merged, back-merged, tree-identity verified).
-  `main` does NOT have the S8 feature work (ATT&CK feed, TD-005 floors).
+- **S8 COMPLETE.** An **unrecorded follow-up session (2026-07-18 ~08:41–09:31)**
+  then parked two ideas, added docs/probes/2026-07-18-kb-sources-research.md +
+  docs/KB_STRATEGY.md, and ran **promote #9** (PR #9, merged 09:31) —
+  **without the S8 adversarial review**. The review is STILL OUTSTANDING and
+  now reviews code already on `main`; fixes land on staging → promote **#10**.
+  After that: S9 scope (Response modes — see NEXT-SESSION.md).
+- **Promoted:** promote #9 on `main` == everything through 144b247 — the S8
+  feature work (ATT&CK feed, TD-005 floors, kev_listed) + KB strategy docs.
+  `main` == `staging` as of back-merge 1919814.
 - **Primary dev LLM (D-015):** Llama-4-Scout via Northflank; secondary/offline
   Ollama `qwen3:14b` (D-013). S8 touched no LLM paths (everything shipped is
   shortcut/ingest — zero LLM).
@@ -70,10 +72,11 @@ _Last updated: 2026-07-18 (S8 complete — S7 review + promote #8; ATT&CK STIX f
   CVE-2026-55723 (real ingress CVE, 0.793): the corpus decides relevance.
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Run the S8 adversarial review, then `/promote` (#9)** — S8's feature
-   work (attack.py, scheduler attack phase, per-doc_type floors, kev_listed,
-   seed change, echo label/copy changes) is demoable and CI-green on staging
-   but unreviewed. Same multi-lens drill; verify findings before fixing.
+1. **Run the S8 adversarial review (STILL outstanding), then `/promote`
+   (#10)** — promote #9 shipped the S8 feature work to `main` unreviewed
+   (attack.py, scheduler attack phase, per-doc_type floors, kev_listed,
+   seed change, echo label/copy changes). Same multi-lens drill; verify
+   findings before fixing; fixes go out via promote #10.
 2. **TD-005 re-battery trigger (standing):** corpus > 30k chunks, ANY new
    doc_type, or embedding-model change → re-run the labeled battery
    (script pattern in the probe doc). Sigma/abuse.ch ingestion (parked in
