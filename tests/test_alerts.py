@@ -250,3 +250,43 @@ def test_informational_only_deferral_names_it_honestly():
     assert "informational-only severity" in (r.deferred_reason or "")
     assert "informational-only severity" in r.recommendation
 
+
+
+def test_json_wrapping_a_raw_cef_string_stays_json():
+    # finding F: SIEM JSON exports carry the raw event as a string field — the
+    # wrapper's own severity/src must win over a mis-parse of the inner CEF.
+    wrapped = (
+        '{"severity": "high", "src_ip": "10.9.9.9", '
+        '"raw_event": "CEF:0|V|P|1|100|inner name|3|dst=10.0.0.5"}'
+    )
+    assert detect_format(wrapped) is AlertFormat.JSON
+    env = normalize(wrapped)
+    assert env.severity is Severity.HIGH
+    assert env.src == "10.9.9.9"
+
+
+def test_syslog_framed_cef_and_leef_parse_from_the_marker():
+    # finding G: CEF/LEEF ride syslog transport in the wild; the parse must start
+    # at the marker (LEEF 2.0's version + custom delimiter live off offsets — the
+    # framed form lost severity AND src before the fix).
+    env = normalize("<134>Jul 18 10:00:00 host " + CEF_MALWARE)
+    assert env.severity is Severity.CRITICAL
+    assert env.name == "Malware detected"
+    env = normalize("<134>Jul 18 10:00:00 host " + LEEF_LOLBIN)
+    assert env.severity is Severity.HIGH  # sev=8
+    assert env.src == "192.168.1.5"
+
+
+def test_fraction_scale_confidence_reads_as_percent():
+    # finding H: {"confidence": 0.9} used to read as 0% and drop +15 points.
+    env = normalize('{"severity": "high", "confidence": 0.9, "src_ip": "1.2.3.4"}')
+    assert env.confidence == 90
+    # integer-scale values keep their meaning
+    assert normalize('{"severity": "high", "confidence": 90}').confidence == 90
+
+
+def test_cef_escaped_pipe_in_name_header_is_unescaped():
+    env = normalize(r"CEF:0|V|P|1|100|Detected \| pipe|7|src=10.0.0.1")
+    assert env.name == "Detected | pipe"
+    assert env.severity is Severity.HIGH
+

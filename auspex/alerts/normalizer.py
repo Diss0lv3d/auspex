@@ -31,14 +31,21 @@ _JSON_KEY_RE = re.compile(r"\"\w+\"\s*:")
 
 def detect_format(text: str) -> AlertFormat:
     q = text.strip()
-    if q.startswith("CEF:") or _CEF_RE.search(q):
+    if q.startswith("CEF:"):
         return AlertFormat.CEF
-    if q.startswith("LEEF:") or _LEEF_RE.search(q):
+    if q.startswith("LEEF:"):
+        return AlertFormat.LEEF
+    # A JSON paste wins over a CEF/LEEF marker EMBEDDED in one of its string
+    # fields (SIEM exports routinely carry the raw event as a field) — otherwise
+    # the wrapper's own severity/src are lost to a mis-parse of the inner string.
+    if q.startswith("{") and _JSON_KEY_RE.search(q):
+        return AlertFormat.JSON
+    if _CEF_RE.search(q):
+        return AlertFormat.CEF
+    if _LEEF_RE.search(q):
         return AlertFormat.LEEF
     if _SYSLOG_PRI_RE.match(q):
         return AlertFormat.SYSLOG
-    if q.lstrip().startswith("{") and _JSON_KEY_RE.search(q):
-        return AlertFormat.JSON
     return AlertFormat.UNKNOWN
 
 
@@ -222,11 +229,21 @@ def _first(d: dict[str, str], *keys: str) -> str | None:
     return None
 
 
+def _unescape_header(field: str) -> str:
+    """CEF/LEEF header fields escape `\\|` and `\\\\` — undo at point of use."""
+    return field.replace("\\|", "|").replace("\\\\", "\\")
+
+
 def _parse_cef(text: str) -> dict:
     # CEF:Ver|Vendor|Product|Version|SigID|Name|Severity|Extension
     body = text.strip()
+    # CEF commonly arrives syslog-framed ("<134>Jul 18 … host CEF:0|…"). Parse
+    # from the marker so a prefix containing `|` can't shift the header indices.
+    marker = _CEF_RE.search(body)
+    if marker:
+        body = body[marker.start() :]
     header = _split_escaped(body, "|")
-    name = header[5].strip() if len(header) > 5 else None
+    name = _unescape_header(header[5].strip()) if len(header) > 5 else None
     sev_raw = header[6].strip() if len(header) > 6 else None
     ext = _parse_kv("|".join(header[7:])) if len(header) > 7 else {}
     sev = _normalize_severity(sev_raw) or _normalize_severity(_first(ext, "severity", "cat"))
@@ -244,6 +261,11 @@ def _parse_cef(text: str) -> dict:
 def _parse_leef(text: str) -> dict:
     # LEEF:Ver|Vendor|Product|Version|EventID|[Delimiter|]attrs
     body = text.strip()
+    # Same syslog-framing reality as CEF: parse from the LEEF: marker, or the
+    # version parse reads the frame's first colon and the attrs are lost.
+    marker = _LEEF_RE.search(body)
+    if marker:
+        body = body[marker.start() :]
     header = _split_escaped(body, "|")
     ver = header[0].split(":", 1)[1] if ":" in header[0] else "1.0"
     # LEEF 2.0 carries a custom delimiter in field 5; 1.0 uses tab.
@@ -337,11 +359,17 @@ def _parse_json(text: str) -> dict:
 def _confidence(raw: str | None) -> int | None:
     if raw is None:
         return None
+    token = str(raw).strip().rstrip("%")
     try:
-        n = int(float(str(raw).strip().rstrip("%")))
+        f = float(token)
     except (TypeError, ValueError):
         return None
-    return max(0, min(100, n))
+    # Fraction-scale sources ("confidence": 0.9) mean 90%, not 0% — a decimal
+    # point at ≤1.0 is the scale marker (a 0-100 source writes "1", not "1.0",
+    # for 1%; the ambiguity is accepted in favor of not zeroing real confidence).
+    if "." in token and 0 < f <= 1.0:
+        f *= 100
+    return max(0, min(100, int(f)))
 
 
 _PARSERS = {
@@ -368,7 +396,17 @@ def normalize(text: str) -> AlertEnvelope:
             notes.append(f"parse error ({type(err).__name__}) — biased to DEFERRED")
             header = {}
 
-    techniques, tactics = _extract_mitre(text)
+    # The uniform detectors call outside this module (the observable extractor);
+    # guard them too, or the "never raises" contract holds only for the header
+    # parse — a detector failure degrades to an un-enriched envelope, not a 500.
+    try:
+        signals = _detect_signals(text)
+        iocs = _iocs(text)
+        techniques, tactics = _extract_mitre(text)
+    except Exception as err:  # noqa: BLE001 — bias to DEFERRED on any parse error
+        parsed = False
+        notes.append(f"signal/IOC detection error ({type(err).__name__}) — biased to DEFERRED")
+        signals, iocs, techniques, tactics = (), (), (), ()
     return AlertEnvelope(
         fmt=fmt,
         name=header.get("name"),
@@ -378,8 +416,8 @@ def normalize(text: str) -> AlertEnvelope:
         dst=header.get("dst"),
         timestamp=header.get("timestamp"),
         cmdline=header.get("cmdline"),
-        signals=_detect_signals(text),
-        iocs=_iocs(text),
+        signals=signals,
+        iocs=iocs,
         mitre_techniques=techniques,
         mitre_tactics=tactics,
         parsed=parsed,
