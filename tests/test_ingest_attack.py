@@ -60,6 +60,40 @@ def test_tactic_doc_maps_name_and_reference():
     assert ta.content  # description present
 
 
+def test_one_malformed_object_never_forfeits_the_good_ones():
+    # S9 review (correctness lens): a single hostile/malformed object among
+    # ~700 must be skipped, not crash the whole parse (which would forfeit
+    # every good technique and re-fetch 53 MB hourly). Same skip-and-count
+    # posture as the NVD feed.
+    good = [o for o in BUNDLE["objects"] if o.get("type") == "x-mitre-collection"]
+    good += [o for o in BUNDLE["objects"] if _ext_id_is(o, "T1059")]
+    poison = [
+        {"type": "attack-pattern", "external_references": None,  # null container
+         "name": "n", "description": "d"},
+        {"type": "attack-pattern",  # non-string ext id
+         "external_references": [{"source_name": "mitre-attack", "external_id": 1234}]},
+        {"type": "attack-pattern",  # string ref entry (not a dict)
+         "external_references": ["not-a-dict"]},
+        "i am a bare string, not an object",
+        {"type": "attack-pattern",  # valid id, but null description + null phases
+         "external_references": [{"source_name": "mitre-attack", "external_id": "T1560"}],
+         "description": None, "kill_chain_phases": None, "x_mitre_platforms": None,
+         "name": "Archive Collected Data"},
+    ]
+    docs = {d.doc_id: d for d in bundle_to_docs(good + poison)}
+    # the good technique survived; the valid-id-but-null-fields object still
+    # ingested (coerced), the junk was skipped
+    assert "T1059" in docs
+    assert "T1560" in docs
+    assert docs["T1560"].title == "T1560: Archive Collected Data"
+
+
+def _ext_id_is(obj: dict, ext: str) -> bool:
+    from auspex.ingest.attack import _ext_id
+
+    return isinstance(obj, dict) and _ext_id(obj) == ext
+
+
 # ── version index ────────────────────────────────────────────────────────────
 
 
