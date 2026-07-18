@@ -24,6 +24,7 @@ from auspex.kb.types import KBDoc
 
 INDEX_URL = "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/index.json"
 COLLECTION_NAME = "Enterprise ATT&CK"
+ATTACK_SOURCE = "mitre-attack-stix"  # KBDoc.source for every STIX-derived doc
 # Bundle URLs come from the index (same repo) — pin the prefix so a poisoned
 # index can't redirect the 53 MB fetch anywhere else.
 BUNDLE_URL_PREFIX = "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/"
@@ -31,8 +32,32 @@ INDEX_TIMEOUT_SECONDS = 30.0
 BUNDLE_TIMEOUT_SECONDS = 180.0  # 53 MB (9 MB wire) measured at 5.7 s — leave slack
 
 _CITATION_RE = re.compile(r"\s*\(Citation: [^)]*\)")
-_TECHNIQUE_ID_RE = re.compile(r"T\d{4}(\.\d{3})?")
-_TACTIC_ID_RE = re.compile(r"TA\d{4}")
+# ATT&CK descriptions are markdown: [text](url) links and <code>/<br> tags reach
+# the plain-text echo verbatim as broken markup (S9 review, honesty lens). Rewrite
+# links to their anchor text and strip tags. `<` followed by a space (a math
+# comparison) is not a tag and is left alone.
+_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]*\)")
+_HTML_TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
+# re.ASCII so Unicode decimals (Arabic-Indic digits etc.) can't satisfy \d and
+# smuggle exotic-id junk docs into the corpus (S9 review, security lens).
+_TECHNIQUE_ID_RE = re.compile(r"T\d{4}(\.\d{3})?", re.ASCII)
+_TACTIC_ID_RE = re.compile(r"TA\d{4}", re.ASCII)
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+# Untrusted-feed bounds (S9 review, security lens). The assembled content is
+# the chunk-fan-out driver — capping description alone left `extras` (platforms/
+# tactics) unbounded, so a poisoned x_mitre_platforms could still fan out ~100k
+# chunks. name/version render into the user-visible title + Source trailer, so
+# they are length-bounded and control-char-stripped (a newline in x_mitre_version
+# would otherwise forge an extra "Source:" line).
+MAX_TITLE_NAME_CHARS = 256
+MAX_VERSION_CHARS = 32
+
+
+def _clean_line(value: object, max_len: int) -> str:
+    """One-line, length-bounded rendering of an untrusted string field."""
+    text = value if isinstance(value, str) else ""
+    return _CONTROL_RE.sub(" ", text).strip()[:max_len]
 
 
 class ATTACKError(Exception):
@@ -47,14 +72,18 @@ class ATTACKVersion:
 
 
 def _version_key(version: str) -> tuple[int, ...]:
+    # `.isdigit()` is True for non-ASCII digits (e.g. "²") that int() rejects —
+    # guard with .isascii() so a hostile index can't crash the version sort
+    # (S9 review, security lens).
     parts = version.split(".")
-    return tuple(int(p) for p in parts if p.isdigit()) or (0,)
+    return tuple(int(p) for p in parts if p.isascii() and p.isdigit()) or (0,)
 
 
 def _ext_id(obj: dict) -> str | None:
-    for ref in obj.get("external_references", ()):
-        if ref.get("source_name") == "mitre-attack":
-            return ref.get("external_id")
+    for ref in obj.get("external_references") or ():
+        if isinstance(ref, dict) and ref.get("source_name") == "mitre-attack":
+            ext = ref.get("external_id")
+            return ext if isinstance(ext, str) else None
     return None
 
 
@@ -63,58 +92,78 @@ def bundle_to_docs(objects: list[dict]) -> list[KBDoc]:
     Provenance is honest: these are excerpts of ATT&CK content derived from
     the STIX bundle, labeled with the collection version, never presented as
     Auspex-authored summaries. Ids are shape-validated (untrusted input —
-    same rail as the NVD feed, S8 review)."""
-    version = next(
-        (o.get("x_mitre_version", "") for o in objects if o.get("type") == "x-mitre-collection"),
-        "",
+    same rail as the NVD feed, S8 review).
+
+    Per-object parsing is defensive and skip-and-count, like the NVD feed
+    (S9 review, correctness lens): one malformed object (null container
+    fields, non-dict entries, a non-string id) must never crash the parse
+    and forfeit the other ~700 good objects with an hourly 53 MB re-fetch.
+    The whole-bundle empty-parse guard stays with the caller."""
+    version = _clean_line(
+        next(
+            (
+                o.get("x_mitre_version", "")
+                for o in objects
+                if isinstance(o, dict) and o.get("type") == "x-mitre-collection"
+            ),
+            "",
+        ),
+        MAX_VERSION_CHARS,
     )
     docs: list[KBDoc] = []
     for obj in objects:
+        if not isinstance(obj, dict):
+            continue
         if obj.get("revoked") or obj.get("x_mitre_deprecated"):
             continue
         kind = obj.get("type")
-        if kind == "attack-pattern":
-            ext = _ext_id(obj)
-            if not ext or not _TECHNIQUE_ID_RE.fullmatch(ext):
-                continue
-            slug = ext.replace(".", "/")
-            docs.append(
-                _doc(
-                    obj,
-                    ext,
-                    doc_type="technique",
-                    version=version,
-                    ref=f"https://attack.mitre.org/techniques/{slug}/ (ATT&CK v{version})",
-                    extras=_technique_extras(obj),
+        try:
+            if kind == "attack-pattern":
+                ext = _ext_id(obj)
+                if not ext or not _TECHNIQUE_ID_RE.fullmatch(ext):
+                    continue
+                slug = ext.replace(".", "/")
+                docs.append(
+                    _doc(
+                        obj,
+                        ext,
+                        doc_type="technique",
+                        version=version,
+                        ref=f"https://attack.mitre.org/techniques/{slug}/ (ATT&CK v{version})",
+                        extras=_technique_extras(obj),
+                    )
                 )
-            )
-        elif kind == "x-mitre-tactic":
-            ext = _ext_id(obj)
-            if not ext or not _TACTIC_ID_RE.fullmatch(ext):
-                continue
-            docs.append(
-                _doc(
-                    obj,
-                    ext,
-                    doc_type="tactic",
-                    version=version,
-                    ref=f"https://attack.mitre.org/tactics/{ext}/ (ATT&CK v{version})",
-                    extras="",
+            elif kind == "x-mitre-tactic":
+                ext = _ext_id(obj)
+                if not ext or not _TACTIC_ID_RE.fullmatch(ext):
+                    continue
+                docs.append(
+                    _doc(
+                        obj,
+                        ext,
+                        doc_type="tactic",
+                        version=version,
+                        ref=f"https://attack.mitre.org/tactics/{ext}/ (ATT&CK v{version})",
+                        extras="",
+                    )
                 )
-            )
+        except (TypeError, AttributeError, ValueError):
+            # A single hostile/malformed object is skipped, not fatal — the
+            # rest of the bundle still lands.
+            continue
     return docs
 
 
 def _technique_extras(obj: dict) -> str:
     parts: list[str] = []
     tactics = [
-        p.get("phase_name", "").replace("-", " ")
-        for p in obj.get("kill_chain_phases", ())
-        if p.get("kill_chain_name") == "mitre-attack"
+        str(p.get("phase_name", "")).replace("-", " ")
+        for p in (obj.get("kill_chain_phases") or ())
+        if isinstance(p, dict) and p.get("kill_chain_name") == "mitre-attack"
     ]
     if tactics:
         parts.append("Tactics: " + ", ".join(t for t in tactics if t) + ".")
-    platforms = [p for p in obj.get("x_mitre_platforms", ()) if isinstance(p, str)]
+    platforms = [p for p in (obj.get("x_mitre_platforms") or ()) if isinstance(p, str)]
     if platforms:
         parts.append("Platforms: " + ", ".join(platforms) + ".")
     return " ".join(parts)
@@ -123,16 +172,26 @@ def _technique_extras(obj: dict) -> str:
 def _doc(
     obj: dict, ext: str, *, doc_type: str, version: str, ref: str, extras: str
 ) -> KBDoc:
-    description = _CITATION_RE.sub("", obj.get("description", "")).strip()
+    # A null/absent/wrong-typed description or name must not lose a valid-id
+    # object — coerce to safe defaults (S9 review, correctness lens).
+    raw = obj.get("description")
+    description = _CITATION_RE.sub("", raw if isinstance(raw, str) else "")
+    description = _MD_LINK_RE.sub(r"\1", description)
+    description = _HTML_TAG_RE.sub("", description).strip()
     if len(description) > MAX_DESCRIPTION_CHARS:
         description = description[:MAX_DESCRIPTION_CHARS] + " […]"
     content = f"{description}\n\n{extras}" if extras else description
+    # Cap the ASSEMBLED content, not just description — extras (platforms/
+    # tactics) must not bypass the fan-out bound (S9 review, security lens).
+    if len(content) > MAX_DESCRIPTION_CHARS:
+        content = content[:MAX_DESCRIPTION_CHARS] + " […]"
+    name = _clean_line(obj.get("name"), MAX_TITLE_NAME_CHARS)
     return KBDoc(
         doc_id=ext,
-        title=f"{ext}: {obj.get('name', '')}",
+        title=f"{ext}: {name}",
         content=content,
         doc_type=doc_type,
-        source="mitre-attack-stix",
+        source=ATTACK_SOURCE,
         source_ref=ref,
         ids=(ext,),
     )

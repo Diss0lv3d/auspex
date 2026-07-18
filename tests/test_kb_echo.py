@@ -102,6 +102,28 @@ def test_definition_answer_none_when_kb_has_nothing():
     assert render_definition_answer([]) is None
 
 
+def test_attack_definition_carries_the_mitre_tou_notice():
+    # S9 review (honesty lens): MITRE ATT&CK's ToU requires reproducing the
+    # copyright notice wherever its verbatim content is shown. A STIX-derived
+    # technique answer must carry it; a non-ATT&CK source must not.
+    attack_hit = hit(
+        "T1055#0",
+        title="T1055: Process Injection",
+        text="Adversaries may inject code into processes…",
+        source="mitre-attack-stix",
+        source_ref="https://attack.mitre.org/techniques/T1055/ (ATT&CK v19.1)",
+        doc_type="technique",
+    )
+    answer = render_definition_answer([attack_hit])
+    assert "© 2026 The MITRE Corporation." in answer
+    assert "permission of The MITRE Corporation." in answer
+    # a seed-corpus definition carries no MITRE notice
+    seed_hit = hit(
+        "CONCEPT-C2#0", title="C2", text="…", ids=(), source="auspex-seed", doc_type="concept"
+    )
+    assert "MITRE Corporation" not in render_definition_answer([seed_hit])
+
+
 def test_definition_related_skips_same_doc_chunks():
     hits = [
         hit("CONCEPT-C2#0", title="C2", ids=(), doc_type="concept"),

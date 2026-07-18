@@ -36,7 +36,7 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
 from auspex.config import Settings
-from auspex.ingest.attack import ATTACKFeed, bundle_to_docs
+from auspex.ingest.attack import ATTACK_SOURCE, ATTACKFeed, bundle_to_docs
 from auspex.ingest.enrich import enrich_doc, enrichment_fields
 from auspex.ingest.epss import EPSSFeed
 from auspex.ingest.events import ChangeSink, DocChange, NullSink
@@ -164,6 +164,34 @@ class IngestScheduler:
             logger.info("kb bootstrap retry: %s", await self._kb.bootstrap())
             if not self._kb.bootstrapped:
                 return "kb not ready; cycle skipped (bootstrap retries next interval)"
+        # Two independent units. ATT&CK has NO data dependency on the CVE
+        # feeds, and S8 removed the hand-seeded techniques — so a CVE-feed
+        # outage (bad NVD key, CISA down) must not starve technique/tactic
+        # content the way it did when both lived in one unwrapped sequence
+        # (S9 review: correctness lens). Each holds its own watermarks and
+        # retries next interval; neither can mark the other failed.
+        try:
+            cve_status = await self._cve_pipeline()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("cve pipeline failed; watermarks hold, retrying next cycle")
+            cve_status = "kev/nvd/kev-docs: failed (see log)"
+        try:
+            attack_status = await self._attack_phase()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("attack phase failed; retrying next cycle")
+            attack_status = "failed (see log)"
+        return f"{cve_status}; attack: {attack_status}"
+
+    async def _cve_pipeline(self) -> str:
+        """KEV → NVD delta → KEV-docs, as one isolated unit (they share the
+        KEV catalog and NVD-ingested set). A cold-cache KEV failure re-raises
+        to the caller so the pipeline holds WITHOUT letting NVD re-ingest and
+        erase held KEV evidence; a warm-cache failure degrades to the cached
+        catalog."""
         try:
             kev_catalog, kev_new_ids, kev_status = await self._kev_phase()
         except asyncio.CancelledError:
@@ -172,7 +200,7 @@ class IngestScheduler:
             if self._kev_cache is None:
                 # No catalog at all: NVD re-ingests would ERASE held KEV
                 # evidence (chunk upserts overwrite whole docs). Hold the
-                # whole cycle; watermarks keep and retry next interval.
+                # pipeline; watermarks keep and retry next interval.
                 raise
             # Warm cache: a KEV outage must not silence NVD ingestion (S8
             # review) — enrichment uses the last good catalog.
@@ -184,19 +212,7 @@ class IngestScheduler:
             )
         nvd_status, nvd_ingested_ids = await self._nvd_phase(kev_catalog)
         kev_doc_status = await self._kev_docs_phase(kev_catalog, kev_new_ids, nvd_ingested_ids)
-        try:
-            attack_status = await self._attack_phase()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            # Cursor holds; retries next cycle. Isolated so a GitHub outage
-            # can't mark the whole (already-recorded) CVE work as failed.
-            logger.exception("attack phase failed; retrying next cycle")
-            attack_status = "failed (see log)"
-        return (
-            f"kev: {kev_status}; nvd: {nvd_status}; kev-docs: {kev_doc_status}; "
-            f"attack: {attack_status}"
-        )
+        return f"kev: {kev_status}; nvd: {nvd_status}; kev-docs: {kev_doc_status}"
 
     async def _attack_phase(self) -> str:
         """ATT&CK rides the hourly cycle but downloads the 53 MB bundle ONLY
@@ -208,23 +224,58 @@ class IngestScheduler:
             return "disabled"
         latest = await self._attack.latest_version()
         prior = await self._state.get(ATTACK_FEED)
-        if prior and prior.cursor.get("version") == latest.version:
+        if prior and (
+            prior.cursor.get("version"),
+            prior.cursor.get("modified"),
+        ) == (latest.version, latest.modified):
+            # Version AND modified must match — an in-place re-release of the
+            # same version (MITRE hotfix bumps `modified`) is a real change
+            # (S9 review, correctness lens: `modified` was stored but never
+            # compared, so hotfixes were served stale until the next version).
             return f"current (v{latest.version})"
+        prior_version = prior.cursor.get("version") if prior else None
+        prior_count = prior.cursor.get("doc_count") if prior else None
+        logger.info(
+            "attack: v%s (was v%s) — fetching bundle", latest.version, prior_version or "none"
+        )
         objects = await self._attack.fetch_objects(latest.url)
         docs = bundle_to_docs(objects)
         if not docs:
             # An empty parse of a claimed-new version means a broken or
             # poisoned bundle — never advance the cursor over it.
             raise RuntimeError(f"ATT&CK bundle v{latest.version} yielded no docs")
+        if prior_count and len(docs) < prior_count // 2:
+            # A drastic shrink vs the prior version is almost always an upstream
+            # shape change that silently dropped most objects (e.g. an
+            # external-id format the id rail stopped matching) — refuse to
+            # advance the cursor over a 50%+ collapse (S9 review, ops lens).
+            raise RuntimeError(
+                f"ATT&CK v{latest.version} parsed {len(docs)} docs, under half of "
+                f"the prior {prior_count} — refusing to advance (likely upstream shape change)"
+            )
         ingested = await self._kb.ingest_docs(docs)
         await self._sink.emit([DocChange(d.doc_id, ATTACK_FEED, "upserted") for d in docs])
+        # Retire techniques/tactics revoked or removed in the new version BEFORE
+        # recording the cursor — a doc absent from the new bundle would otherwise
+        # be served as current forever (S9 review, ops + honesty lenses). A
+        # failure here holds the cursor for a clean retry.
+        retired = await self._kb.retire_absent(ATTACK_SOURCE, [d.doc_id for d in docs])
+        if retired:
+            logger.info(
+                "attack: retired %d chunks absent from v%s", retired, latest.version
+            )
         await self._state.record(
             ATTACK_FEED,
-            cursor={"version": latest.version, "modified": latest.modified},
-            status=f"v{latest.version}: {ingested} chunks from {len(docs)} docs",
+            cursor={
+                "version": latest.version,
+                "modified": latest.modified,
+                "doc_count": len(docs),
+            },
+            status=f"v{latest.version}: {ingested} chunks from {len(docs)} docs, "
+            f"{retired} retired",
             docs_delta=ingested,
         )
-        return f"v{latest.version}: {ingested} chunks from {len(docs)} docs"
+        return f"v{latest.version}: {ingested} chunks from {len(docs)} docs, {retired} retired"
 
     async def _kev_phase(self) -> tuple[KEVCatalog | None, list[str], str]:
         """Fetch/refresh the catalog; decide which entries are NEW (above the

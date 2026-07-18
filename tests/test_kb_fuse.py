@@ -118,3 +118,40 @@ def test_neural_leg_floor_cuts_off_corpus_noise():
     assert [h.chunk_id for h in neural_leg_floor(hits)] == ["A#0"]
     assert neural_leg_floor([]) == []
     assert neural_leg_floor([hit("D#0", 0.61, doc_type="future-type")])  # default 0.6
+
+
+def test_neural_floors_are_pinned_to_the_calibrated_constants():
+    # S9 review (test-hygiene lens): the parametrized rows above pin only
+    # INTERVALS, so a silent regression that stays inside a gap passes —
+    # concept/tactic/cve 0.65/0.65/0.70 could drop toward the 0.6 default (the
+    # exact value the calibration exists to keep off). Pin the dict verbatim so
+    # any constant move fails loudly, naming this test.
+    from auspex.kb.fuse import NEURAL_FLOORS, NEURAL_MIN_SCORE
+
+    assert NEURAL_FLOORS == {
+        "concept": 0.65,
+        "technique": 0.65,
+        "tactic": 0.65,
+        "cve": 0.70,
+    }
+    assert NEURAL_MIN_SCORE == 0.6
+
+
+def test_every_produced_doc_type_has_a_calibrated_floor():
+    # S9 review (test-hygiene lens): a NEW doc_type with no calibrated floor
+    # silently rides the 0.6 default — the same default that fabricated twice.
+    # Any doc_type the KB actually produces (seeds, ATT&CK bundle, live NVD)
+    # must have an explicit floor; a new feed (Sigma etc.) trips this test.
+    import json
+    from pathlib import Path
+
+    from auspex.ingest.attack import bundle_to_docs
+    from auspex.kb.fuse import NEURAL_FLOORS
+    from auspex.kb.seed import load_seed_docs
+
+    bundle = json.loads((Path(__file__).parent / "fixtures" / "attack_bundle.json").read_text())
+    produced = {d.doc_type for d in load_seed_docs()}
+    produced |= {d.doc_type for d in bundle_to_docs(bundle["objects"])}
+    produced |= {"cve"}  # the live NVD delta feed's doc_type
+    missing = produced - set(NEURAL_FLOORS)
+    assert not missing, f"doc_types without a calibrated neural floor: {missing}"

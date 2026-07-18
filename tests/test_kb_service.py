@@ -623,6 +623,24 @@ async def test_delete_docs_removes_all_chunks_by_doc_id():
     assert len(router.dbq_bodies) == 1
 
 
+async def test_retire_absent_deletes_source_docs_outside_the_keep_set():
+    # S9 review: the ATT&CK version-bump retirement sweep — delete chunks whose
+    # source matches but whose doc_id is NOT in the new version's set.
+    router = BootstrapRouter()
+    router.dbq_deleted = 5
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(router), base_url="http://opensearch.test"
+    )
+    svc = KnowledgeService("http://opensearch.test", client=client)
+    assert await svc.retire_absent("mitre-attack-stix", ["T1059", "TA0006"]) == 5
+    bool_q = router.dbq_bodies[0]["query"]["bool"]
+    assert bool_q["filter"] == [{"term": {"source": "mitre-attack-stix"}}]
+    assert bool_q["must_not"] == [{"terms": {"doc_id": ["T1059", "TA0006"]}}]
+    # an empty keep-set must NEVER delete the whole source (no call at all)
+    assert await svc.retire_absent("mitre-attack-stix", []) == 0
+    assert len(router.dbq_bodies) == 1
+
+
 def test_json_line_refuses_nan_and_infinity():
     # S8 review: json.dumps default allow_nan emits bare NaN tokens that
     # OpenSearch rejects — failing the whole bulk batch and wedging the feed

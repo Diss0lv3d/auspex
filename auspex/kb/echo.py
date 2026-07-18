@@ -38,9 +38,27 @@ _SOURCE_LABELS = {
     "auspex-seed": "Auspex seed corpus",
 }
 
+# MITRE ATT&CK's Terms of Use require reproducing this copyright notice wherever
+# ATT&CK content is shown (S9 review, honesty lens: S8 shipped verbatim ATT&CK
+# text without it — the seed summaries deliberately paraphrased to avoid the
+# obligation, and S8 crossed into verbatim reproduction). The year tracks the
+# ATT&CK content release; revisit when full per-source attribution machinery
+# lands (KB_STRATEGY.md, before the Sigma wave).
+_ATTRIBUTION_NOTICES = {
+    "mitre-attack-stix": (
+        "© 2026 The MITRE Corporation. This work is reproduced and distributed "
+        "with the permission of The MITRE Corporation."
+    ),
+}
+
 
 def _source_label(hit: KBHit) -> str:
     return _SOURCE_LABELS.get(hit.source, hit.source or "knowledge base")
+
+
+def _attribution_notice(hit: KBHit) -> str | None:
+    """Licensing notice a source's terms of use require alongside its content."""
+    return _ATTRIBUTION_NOTICES.get(hit.source)
 
 
 def _chunk_order(hit: KBHit) -> int:
@@ -168,4 +186,7 @@ def render_definition_answer(hits: list[KBHit]) -> str | None:
     if top.source_ref:
         trailer += f" · {top.source_ref}"
     lines += ["", trailer]
+    notice = _attribution_notice(top)
+    if notice:
+        lines += ["", notice]
     return "\n".join(lines)

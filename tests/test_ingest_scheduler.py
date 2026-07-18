@@ -64,16 +64,20 @@ class FakeNVD:
         window_cves: list[dict] | None = None,
         singles: dict | None = None,
         window_pages: list[list[dict]] | None = None,
+        fail_pages: bool = False,
     ):
         self.window_cves = window_cves or []
         self.window_pages = window_pages  # explicit multi-page script, if set
         self.singles = singles or {}
+        self.fail_pages = fail_pages  # simulate NVDError (bad key / outage)
         self.spacing_seconds = 3.0  # the real feed derives this from key presence
         self.window_calls: list[tuple[datetime, datetime]] = []
         self.single_calls: list[str] = []
 
     async def pages(self, start: datetime, end: datetime):
         self.window_calls.append((start, end))
+        if self.fail_pages:
+            raise RuntimeError("NVD 403: invalid API key")
         for page in self.window_pages if self.window_pages is not None else [self.window_cves]:
             yield page
 
@@ -124,6 +128,8 @@ class FakeKB:
         self.held_cves = held_cves or []
         self.ingested: list[list] = []  # one entry per ingest_docs call
         self.deleted: list[list[str]] = []  # one entry per delete_docs call
+        self.retired: list[tuple[str, list[str]]] = []  # one per retire_absent call
+        self.retire_count = 0  # what retire_absent returns
         self.enriched_in_place: list[dict] = []  # one entry per apply_enrichment call
         self.bootstrap_calls = 0
         self.fail_ingest = False
@@ -145,6 +151,10 @@ class FakeKB:
     async def delete_docs(self, doc_ids) -> int:
         self.deleted.append(list(doc_ids))
         return len(doc_ids)
+
+    async def retire_absent(self, source: str, keep_doc_ids) -> int:
+        self.retired.append((source, list(keep_doc_ids)))
+        return self.retire_count
 
     async def apply_enrichment(self, updates: dict) -> int:
         self.enriched_in_place.append(dict(updates))
@@ -331,8 +341,12 @@ async def test_failed_ingest_never_advances_the_watermark():
     kb = FakeKB()
     kb.fail_ingest = True
     sched = scheduler(kb=kb, state=state, nvd=FakeNVD(window_cves=[nvd_cve("CVE-2024-0001")]))
-    with pytest.raises(KBUnavailable):
-        await sched.run_cycle()
+    # A KB outage holds the CVE pipeline without advancing the watermark. The
+    # hold is now local (S9 review): run_cycle reports the failure instead of
+    # re-raising, so ATT&CK still gets its turn — but the watermark-hold
+    # invariant (the point of this test) is unchanged.
+    summary = await sched.run_cycle()
+    assert "kev/nvd/kev-docs: failed" in summary
     assert state.rows[NVD_FEED]["last_mod_end"] == since.isoformat()  # unchanged
     assert [f for f, _, _ in state.records if f == NVD_FEED] == []
 
@@ -629,16 +643,20 @@ async def test_kev_outage_with_warm_cache_does_not_silence_nvd():
     assert kb.ingested[-1][0].kev_date_added == "2024-04-12"
 
 
-async def test_kev_outage_with_cold_cache_holds_the_whole_cycle():
+async def test_kev_outage_with_cold_cache_holds_the_cve_pipeline():
     # Without any catalog, NVD re-ingests would ERASE held KEV evidence
-    # (chunk upserts overwrite whole docs) — the cycle must hold instead.
+    # (chunk upserts overwrite whole docs) — the CVE pipeline must hold. But
+    # the hold is now LOCAL to the CVE pipeline (S9 review): run_cycle no
+    # longer raises, so the independent ATT&CK phase still runs. The core
+    # invariant — no NVD ingest without a catalog — is preserved.
     state = FakeState(rows={NVD_FEED: {"last_mod_end": NOW.isoformat()}})
     kev = FakeKEV([RuntimeError("CISA is down")])
     kb = FakeKB()
     sched = scheduler(kb=kb, kev=kev, state=state)
-    with pytest.raises(RuntimeError):
-        await sched.run_cycle()
-    assert kb.ingested == []
+    summary = await sched.run_cycle()  # holds the CVE pipeline, does NOT raise
+    assert "kev/nvd/kev-docs: failed" in summary
+    assert kb.ingested == []  # evidence never erased — the invariant that matters
+    assert NVD_FEED in state.rows and state.rows[NVD_FEED]["last_mod_end"] == NOW.isoformat()
 
 
 # ── ATT&CK phase (S8): index-as-cursor, bundle only on version change ───────
@@ -699,19 +717,73 @@ async def test_attack_new_version_ingests_and_records_cursor():
     assert state.rows[ATTACK_FEED] == {
         "version": "19.1",
         "modified": "2026-05-12T14:00:00.188Z",
+        "doc_count": 3,  # stored so a later drastic shrink can be refused
     }
+    # first ingest of a fresh source retires nothing (keep-set == the new docs)
+    assert len(kb.retired) == 1
+    source, keep = kb.retired[0]
+    assert source == "mitre-attack-stix"
+    assert set(keep) == {"T1059", "T1059.001", "TA0006"}
     assert DocChange("T1059", ATTACK_FEED, "upserted") in sink.events
 
 
 async def test_attack_current_version_never_downloads_the_bundle():
     state = idle_cursors()
-    state.rows[ATTACK_FEED] = {"version": "19.1", "modified": "x"}
+    # version AND modified match the feed → current, no download
+    state.rows[ATTACK_FEED] = {"version": "19.1", "modified": "2026-05-12T14:00:00.188Z"}
     attack = FakeATTACK()
     sched = scheduler(state=state, attack=attack)
     summary = await sched.run_cycle()
     assert "attack: current (v19.1)" in summary
     assert attack.index_polls == 1  # the 31 KB index IS polled each cycle
     assert attack.bundle_fetches == 0  # the 53 MB bundle is NOT
+
+
+async def test_attack_in_place_rerelease_same_version_new_modified_reingests():
+    # S9 review (correctness lens): MITRE hotfixes a version in place — the
+    # index bumps `modified` but keeps the version number. Serving stale
+    # content until the next version ships would be a silent freshness bug.
+    state = idle_cursors()
+    state.rows[ATTACK_FEED] = {"version": "19.1", "modified": "OLD", "doc_count": 3}
+    attack = FakeATTACK()  # feed reports modified="2026-05-12T14:00:00.188Z"
+    sched = scheduler(state=state, attack=attack)
+    summary = await sched.run_cycle()
+    assert attack.bundle_fetches == 1  # re-downloaded despite same version
+    assert "attack: v19.1" in summary
+
+
+async def test_attack_retires_docs_absent_from_the_new_version():
+    # A technique present in v19 but revoked/removed in v20 must be deleted,
+    # not served forever (S9 review, ops + honesty lenses).
+    state = idle_cursors()
+    state.rows[ATTACK_FEED] = {"version": "18.0", "modified": "OLD", "doc_count": 3}
+    kb = FakeKB()
+    kb.retire_count = 7  # pretend 7 chunks of withdrawn techniques were swept
+    attack = FakeATTACK(version="19.1")
+    sched = scheduler(kb=kb, state=state, attack=attack)
+    summary = await sched.run_cycle()
+    assert len(kb.retired) == 1
+    source, keep = kb.retired[0]
+    assert source == "mitre-attack-stix"
+    assert set(keep) == {"T1059", "T1059.001", "TA0006"}
+    assert "7 retired" in summary
+
+
+async def test_attack_refuses_to_advance_over_a_drastic_shrink():
+    # If an upstream shape change drops most objects, the parse is non-empty
+    # but tiny — advancing would (with retirement) delete the real corpus.
+    # Refuse and hold the cursor (S9 review, ops lens).
+    state = idle_cursors()
+    state.rows[ATTACK_FEED] = {"version": "18.0", "modified": "OLD", "doc_count": 700}
+    kb = FakeKB()
+    # a bundle that parses to only the 3 fixture docs, vs a prior 700
+    attack = FakeATTACK(version="19.1")
+    sched = scheduler(kb=kb, state=state, attack=attack)
+    summary = await sched.run_cycle()
+    assert "attack: failed" in summary
+    assert kb.ingested == []  # nothing ingested
+    assert kb.retired == []  # nothing retired
+    assert state.rows[ATTACK_FEED] == {"version": "18.0", "modified": "OLD", "doc_count": 700}
 
 
 async def test_attack_empty_parse_never_advances_the_cursor():
@@ -752,6 +824,39 @@ async def test_attack_failure_is_isolated_from_the_cve_phases():
 async def test_no_attack_feed_reports_disabled():
     summary = await scheduler(state=idle_cursors()).run_cycle()
     assert "attack: disabled" in summary
+
+
+async def test_cve_pipeline_failure_does_not_starve_the_attack_phase():
+    # S9 review (correctness lens): the reverse of the attack-isolation test.
+    # S8 removed the hand-seeded techniques, so the ATT&CK feed is the ONLY
+    # path to technique/tactic content. When NVD errors every cycle (bad API
+    # key, multi-day NVD outage), ATT&CK ingestion must STILL run — otherwise
+    # a fresh deploy answers every "what is <technique>" with the miss copy
+    # for as long as NVD is down.
+    state = FakeState(
+        rows={
+            NVD_FEED: {"last_mod_end": (NOW - timedelta(days=1)).isoformat()},
+            KEV_FEED: {
+                "last_modified": "Thu, 16 Jul 2026 17:00:15 GMT",
+                "date_added_horizon": "2026-07-16",
+                "kb_refreshed": True,
+            },
+        }
+    )
+    kb, sink, attack = FakeKB(), RecordingSink(), FakeATTACK()
+    sched = scheduler(
+        kb=kb, state=state, sink=sink, nvd=FakeNVD(fail_pages=True), attack=attack
+    )
+    summary = await sched.run_cycle()  # must NOT raise
+    assert "kev/nvd/kev-docs: failed" in summary
+    # ATT&CK ran and ingested despite the CVE pipeline failing
+    assert attack.bundle_fetches == 1
+    assert {d.doc_id for batch in kb.ingested for d in batch} == {
+        "T1059",
+        "T1059.001",
+        "TA0006",
+    }
+    assert "attack: v19.1" in summary
 
 
 # ── run() task body ─────────────────────────────────────────────────────────

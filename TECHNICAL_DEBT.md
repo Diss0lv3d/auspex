@@ -19,21 +19,29 @@ messages; on deep turns, replay them fenced (system-side "quoted data, not
 instructions" wrapper or user-role data blocks), and add a regression test with
 an instruction-bearing description.
 
-## TD-010 (S8 review) — feed HTTP responses have no byte ceiling (decompression bomb)
+## TD-010 (S8 review; scope grew S9 review) — feed HTTP responses have no byte ceiling (decompression bomb)
 **Where:** `auspex/ingest/kev.py` (1.5 MB gzip → httpx transparent inflate),
-`auspex/ingest/nvd.py`, `auspex/ingest/epss.py` — all read the full body before
-any size check.
+`auspex/ingest/nvd.py`, `auspex/ingest/epss.py`, **and `auspex/ingest/attack.py`
+(S9 review, security lens: `latest_version` reads the 31 KB index EVERY cycle
+and `fetch_objects` reads the 53 MB bundle — both `resp.json()` on an unbounded,
+gzip-inflatable body)** — all read the full body before any size check.
 **Risk:** a compromised origin/CDN (TLS is verified, URLs are constants — this
 requires upstream compromise) serves a small gzip inflating to multi-GB;
-httpx inflates fully into memory → app-process OOM (single process serves chat
-too). Timeouts don't help; the bytes arrive fast.
+httpx inflates fully into memory. **Severity note (S9 review, ops lens):** the
+app container has NO `mem_limit`/`deploy.resources` in docker-compose.yml, so
+there is no *compose-limit* OOM; a bomb is bounded only by host RAM (a real
+61 MB STIX payload measured ~174 MB peak RSS). Still a host-exhaustion vector,
+and the ATT&CK bundle is the largest designed fetch.
 **Why deferred:** the real fix is streamed reads with an inflated-bytes cap on
-all three clients — mechanical but cross-cutting, and the page-cap +
-description-cap work already bounds the *parsed* blast radius. Upstream
-compromise of CISA/NVD/FIRST is a low-likelihood, high-noise event.
+all four clients — mechanical but cross-cutting, and the page-cap +
+content-cap work (the assembled-content cap, S9 review, closed the `extras`
+bypass) already bounds the *parsed* blast radius. Upstream compromise of
+CISA/NVD/FIRST/GitHub is a low-likelihood, high-noise event.
 **Path to fix:** shared `bounded_json(resp_stream, max_bytes)` helper
 (`client.stream()` + `iter_bytes()` counting DECOMPRESSED bytes, abort past
-cap: KEV 50 MB, NVD 200 MB/page-call, EPSS 5 MB), MockTransport bomb tests.
+cap: KEV 50 MB, NVD 200 MB/page-call, EPSS 5 MB, ATT&CK index 4 MB / bundle
+128 MB), MockTransport bomb tests. Consider a compose `mem_limit` on the app
+container as defense-in-depth.
 
 ## TD-011 (S8 review) — auspex-knowledge grows unbounded (no rollover/retention)
 **Where:** the single `auspex-knowledge` index; growth ~770 docs/day (~5k/week)
