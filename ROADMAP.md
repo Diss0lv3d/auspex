@@ -81,16 +81,20 @@ may not grow mid-session (IDEAS.md exists for that).
 - [x] **S9 — Response modes.** 6 modes only (definition, ioc_enrichment,
   threat_intel, alert_triage, phishing_analysis, brief), code-owned priority
   resolver (format beats keywords), typed output contracts that compile to
-  prompts + validators. _(Shipped on staging, live-verified against Scout —
-  brief + alert_triage DEFERRED — awaiting S10 Step-0 review + promote #11.
-  Also this session: the outstanding S8 adversarial review → 8 fix commits →
-  promote #10; TD-009 fence closed.)_
+  prompts + validators. _(Reviewed (S10 Step 0: 4 fix commits — resolver
+  common-domain exemption, validator header/enum/empty robustness, drift log,
+  honest docs) → **promote #11**. Live-verified against Scout.)_
 
 ## Phase 2 — Analysis
 
-- [ ] **S10 — Alert normalizer + risk score.** Multi-SIEM format detection →
-  closed-vocab envelope; additive 0–100 score with itemized contributions;
-  **DEFERRED rail** (no data ≠ low risk).
+- [x] **S10 — Alert normalizer + risk score.** Multi-SIEM format detection
+  (CEF/LEEF/syslog/JSON) → typed closed-vocab envelope; additive 0–100 score
+  with itemized, named contributions; **DEFERRED rail** (no data ≠ low risk,
+  both SARA conditions). Code-owned parse+score (no LLM); feeds the S9
+  alert_triage mode with the AUTHORITATIVE verdict. _(On staging, live-verified
+  against Scout — rich CEF → CRITICAL, signal-poor CEF → DEFERRED, both rendered
+  by Scout with the code Risk level + re-validated. Awaiting S11 Step-0 review +
+  promote #12.)_
 - [ ] **S11 — Phishing/header agent.** Deterministic SPF/DKIM/DMARC/typosquat/
   homograph checks injected as AUTHORITATIVE; LLM narrative on top; victim-domain
   IOC filtering.
