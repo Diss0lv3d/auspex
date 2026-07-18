@@ -1,7 +1,13 @@
 """SSE chat (/api/chat) + dev model list (/api/models) — S3 step 4, D-016, S4 92/8.
 
 Single-key JSON event protocol over `text/event-stream`; every frame has exactly
-one key: `session` / `reasoning` / `content` / `done` / `error`.
+one key: `session` / `reasoning` / `content` / `done` / `error`. The `done` frame
+carries `path` ("shortcut" | "model") and, on the model path, `mode` (the
+resolved response mode) and `contract_valid`: a tri-state — `true` (answer
+conformed to the mode contract), `false` (validated, did NOT conform — structural
+drift, see chat log), or `null` (empty answer, nothing to validate). It is a
+STRUCTURAL check (sections + enum membership), never a judgement of answer
+quality — a conformant-but-wrong answer still reads `true`.
 
 The 92/8 split (S4 step 4): every turn is classified in code BEFORE the model
 is touched. Shortcut categories (greeting/identity/ioc_check/cve_lookup/
@@ -69,9 +75,14 @@ CHAT_SYSTEM_PROMPT = (
 # every later deep turn (SARA's instructions-in-system/data-in-user pattern,
 # docs/probes/2026-07-16-sara-fastpath-pattern.md). We fence replayed assistant
 # content inside an explicit DATA block and declare, in the system role, that
-# nothing inside such a block is an instruction. The fence markers are code-
-# owned (ADR 0006): the model is told the rule, but the STRUCTURE is what makes
-# injected directives inert, not the model's goodwill.
+# nothing inside such a block is an instruction. Two distinct guarantees, and
+# only one is code-owned: CONTAINMENT — replayed text cannot break out of the
+# block or forge a close marker — is structural (`_fence_assistant` neutralizes
+# embedded markers, ADR 0006). INERTNESS — the model not acting on directives
+# inside a fenced block — is asked of the model via HISTORY_FENCE_DIRECTIVE; it
+# is a strong prompt-level defense, not a structural guarantee. Do not treat the
+# fence as making injection impossible (the standing fix is to keep
+# attacker-influenceable text out of the instruction stream — TD-013).
 _FENCE_OPEN = "⟦DATA⟧"
 _FENCE_CLOSE = "⟦/DATA⟧"
 HISTORY_FENCE_DIRECTIVE = (
@@ -471,6 +482,12 @@ async def chat(
         # a re-ask). Code owns the check — the enum/section rules are not
         # trusted to the model (ADR 0006).
         result = contract.validate(answer) if answer else None
+        if result and not result.ok:
+            # Surface drift server-side so ops can measure it (a customer BYO
+            # model that stops emitting `## Risk` shows up here). Log the mode +
+            # the structural reason ONLY — never `answer`/content, which carries
+            # model output derived from feed/tenant data (org data-handling rule).
+            logger.info("contract drift: mode=%s (%s)", mode.value, result.reason())
         yield _sse(
             {
                 "done": {
