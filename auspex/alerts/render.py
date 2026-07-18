@@ -6,14 +6,31 @@ The alert paste is untrusted (TD-013). By parsing it to a typed envelope and
 scoring in code, then handing the model the VERDICT (not the raw paste) as the
 source of truth, the model can't be steered into a different Risk level by
 injected text in the alert — the contract's `## Risk` value comes from the
-scorer, and the done-frame validator re-checks it. This is TD-013's mitigation
-for the alert path.
+scorer, and the validator PINS the rendered value to it (`validate(pinned=…)`
+in chat.py): a swapped level fails the contract in code, not by prompt. This is
+TD-013's mitigation for the alert path.
+
+The envelope's free-text fields (name/src/dst/timestamp) are still attacker
+prose — they are flattened (no newlines/control chars) and capped before they
+enter this SYSTEM-role directive, so a crafted alert name can't open a fresh
+"directive" on its own line one privilege level above the user message.
 """
 
 from __future__ import annotations
 
+import re
+
 from auspex.alerts.envelope import AlertEnvelope
 from auspex.alerts.scorer import RiskScore
+
+_UNSAFE_RUN_RE = re.compile(r"[\s\x00-\x1f\x7f]+")
+
+
+def _clean(raw: str, cap: int = 120) -> str:
+    """Flatten untrusted envelope text for safe embedding in the directive:
+    collapse whitespace/control runs to one space, strip, hard-cap length."""
+    flat = _UNSAFE_RUN_RE.sub(" ", raw).strip()
+    return flat[: cap - 1] + "…" if len(flat) > cap else flat
 
 
 def deterministic_triage_block(env: AlertEnvelope, risk: RiskScore) -> str:
@@ -24,11 +41,11 @@ def deterministic_triage_block(env: AlertEnvelope, risk: RiskScore) -> str:
     if env.severity is not None:
         facts.append(f"severity={env.severity.value}")
     if env.name:
-        facts.append(f'name="{env.name}"')
+        facts.append(f'name="{_clean(env.name)}"')
     if env.src:
-        facts.append(f"source={env.src}")
+        facts.append(f"source={_clean(env.src, cap=64)}")
     if env.dst:
-        facts.append(f"dest={env.dst}")
+        facts.append(f"dest={_clean(env.dst, cap=64)}")
     if env.iocs:
         facts.append(f"IOCs={len(env.iocs)}")
     if env.mitre_techniques or env.mitre_tactics:
