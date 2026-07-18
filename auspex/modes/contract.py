@@ -64,16 +64,24 @@ class ModeContract:
             lines.extend(f"- {r}" for r in self.rules)
         return "\n".join(lines)
 
-    def validate(self, answer: str, pinned: dict[str, str] | None = None) -> ContractResult:
+    def validate(
+        self,
+        answer: str,
+        pinned: dict[str, str | tuple[str, ...]] | None = None,
+    ) -> ContractResult:
         """Validate a produced answer against the contract (specs → validators).
         Structural + enum checks only — never a semantic judgement of quality.
 
-        `pinned` maps a field name to the value a code-owned verdict already
-        decided for THIS answer (e.g. alert_triage's Risk from the additive
-        scorer): the rendered leading token must EQUAL it, not merely sit in the
-        enum. Membership alone would let a steered model swap one valid level
-        for another undetected — the "use it exactly" prompt instruction is not
-        an enforcement mechanism (ADR 0006), this check is."""
+        `pinned` maps a field name to what a code-owned verdict already decided
+        for THIS answer. The value is either:
+        - a single string (e.g. alert_triage's Risk): the rendered leading token
+          must EQUAL it — no other in-enum value passes; or
+        - a tuple of strings (e.g. phishing_analysis's Verdict FLOOR + the
+          raises the model is allowed): the rendered token must be a MEMBER.
+        Membership in the full contract enum alone would let a steered model
+        swap one valid value for another (or launder a MALICIOUS verdict down to
+        BENIGN) undetected — the "use it exactly" prompt instruction is not an
+        enforcement mechanism (ADR 0006), this check is."""
         present = _sections(answer)
         missing: list[str] = []
         bad_enum: list[str] = []
@@ -92,8 +100,13 @@ class ModeContract:
                 if token.lower() not in allowed:
                     bad_enum.append(f"{f.name}={token or '∅'}")
             expected = (pinned or {}).get(f.name)
-            if expected is not None and token.lower() != expected.lower():
-                pin_broken.append(f"{f.name}={token or '∅'}≠{expected}")
+            if expected is not None:
+                exact = isinstance(expected, str)
+                allowed_pin = (expected,) if exact else expected
+                if token.lower() not in {v.lower() for v in allowed_pin}:
+                    want = expected if exact else f"{{{','.join(allowed_pin)}}}"
+                    sep = "≠" if exact else "∉"
+                    pin_broken.append(f"{f.name}={token or '∅'}{sep}{want}")
         return ContractResult(
             mode=self.name,
             missing=tuple(missing),

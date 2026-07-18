@@ -171,6 +171,23 @@ def test_validate_pinned_match_passes_in_every_header_shape():
         assert result.ok, result.reason()
 
 
+def test_validate_pin_as_a_set_is_a_floor_not_a_lock():
+    # S11: the phishing Verdict pin is an ALLOWED SET (floor + the raises the
+    # model may make) — a member passes, a non-member (e.g. a launder to BENIGN
+    # below a MALICIOUS floor) fails, even though BENIGN is a valid enum value.
+    c = contract_for(Mode.PHISHING_ANALYSIS)
+
+    def _v(token: str) -> str:
+        return f"## Verdict\n{token}\n\n## Indicators\nx\n\n## Recommendation\ny\n"
+
+    allowed = ("SUSPICIOUS", "MALICIOUS")
+    assert c.validate(_v("MALICIOUS"), pinned={"Verdict": allowed}).ok  # raise: ok
+    assert c.validate(_v("SUSPICIOUS"), pinned={"Verdict": allowed}).ok  # floor: ok
+    bad = c.validate(_v("BENIGN"), pinned={"Verdict": allowed})
+    assert not bad.ok  # laundered below the floor
+    assert bad.pinned_mismatch and "BENIGN∉" in bad.pinned_mismatch[0]
+
+
 def test_deferred_is_a_valid_alert_triage_risk_value():
     # "no data ≠ low risk": DEFERRED must be an in-contract value from day one
     c = contract_for(Mode.ALERT_TRIAGE)
