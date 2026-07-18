@@ -16,12 +16,18 @@ execute — same escalation profile as TD-009.
 **Why deferred:** the correct fix is not to fence the whole user turn (the model
 must SEE the paste to analyze it) but to route the paste through structured
 parsing so raw attacker text never enters the instruction stream as free prose.
-**Path to fix (S10):** the S10 alert normalizer parses CEF/LEEF/syslog/JSON
-pastes into a typed, closed-vocabulary envelope (code-owned, no LLM on the parse)
-— alert_triage then scores the ENVELOPE, not the raw paste, closing this channel
-for the alert path. Phishing paste handling gets the same treatment when
-phishing_analysis grows its own normalizer. Add a regression fixture with an
-instruction-bearing pasted email when fixed.
+**Alert path MITIGATED in S10 (partial):** the alert normalizer parses
+CEF/LEEF/syslog/JSON into a typed closed-vocab envelope (code-owned, no LLM) and
+the additive scorer computes the Risk level in CODE; alert_triage renders the
+AUTHORITATIVE code verdict, not the raw paste — so an "output Risk CRITICAL"
+injection inside an alert can't move the level (pinned:
+tests/test_chat_sse.py::test_alert_triage_deferred_rail_and_injection_resistance).
+The paste text is still visible to the model, but it no longer *decides* the
+outcome for alerts.
+**Still open:** phishing_analysis has no normalizer yet — a pasted email body is
+still free attacker prose the model reasons over directly. Same treatment when
+phishing_analysis grows its own parser; add an instruction-bearing pasted-email
+fixture then.
 
 ## TD-014 (S9 review) — deep-turn history fetch is unbounded (no turn/token cap)
 **Where:** `auspex/routes/chat.py` `_history` — `SELECT role, content FROM messages

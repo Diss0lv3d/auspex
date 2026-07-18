@@ -38,6 +38,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from auspex.alerts import normalize, score_alert
+from auspex.alerts.render import deterministic_triage_block
 from auspex.auth import AuthContext, resolve_user
 from auspex.classify import Category, classify, shortcut_answer
 from auspex.classify.observables import ObservableType
@@ -55,7 +57,7 @@ from auspex.kb import (
 from auspex.llm.client import LLMClient, LLMError, Usage
 from auspex.llm.registry import DevEndpoint
 from auspex.llm.scorecard import load_latest_scorecard
-from auspex.modes import contract_for, resolve_mode
+from auspex.modes import Mode, contract_for, resolve_mode
 
 logger = logging.getLogger("auspex.chat")
 
@@ -417,6 +419,23 @@ async def chat(
     mode = resolve_mode(body.message, classification.observables)
     contract = contract_for(mode)
     messages.append({"role": "system", "content": contract.system_directive()})
+    # ALERT_TRIAGE (S10): parse + score the alert in CODE (no LLM on the parse),
+    # then hand the model the AUTHORITATIVE verdict — the Risk level is decided by
+    # the additive scorer + DEFERRED rail, not the model. This also mitigates
+    # TD-013: the model scores the code verdict, not the raw (untrusted) paste, so
+    # injected text in the alert can't steer the Risk level.
+    if mode is Mode.ALERT_TRIAGE:
+        envelope = normalize(body.message)
+        risk = score_alert(envelope)
+        messages.append({"role": "system", "content": deterministic_triage_block(envelope, risk)})
+        logger.info(
+            "alert triage: fmt=%s risk=%s score=%s deep=%s signals=%s",
+            envelope.fmt.value,
+            risk.risk_level,
+            risk.score,
+            risk.needs_deep_triage,
+            [c.signal for c in risk.contributions],
+        )
     # Build the client as late as possible: everything that can 404/fail above
     # has already run, so the only closer needed is event_stream's finally.
     endpoint = await resolver.resolve()
