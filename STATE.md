@@ -1,49 +1,51 @@
 # STATE — Auspex
 
-_Last updated: 2026-07-18 (S9 — S8 adversarial review DONE, 8 fix commits +
-tests; ready for promote #10, then S9 modes scope)_
+_Last updated: 2026-07-18 (S9 COMPLETE — S8 review + promote #10, then the S9
+response-modes feature + TD-009 fence, live-verified on Scout; S9 work on
+`staging` awaits an S10 Step-0 review + promote #11)_
 
 ## Where we are
-- **S8 review COMPLETE (the outstanding Step 0).** promote #9 had shipped the
-  S8 feature work to `main` UNREVIEWED (an unrecorded 08:41–09:31 session merged
-  it + KB strategy docs). This session ran the 5-lens adversarial review over
-  the S8 diff (da42735..144b247) and fixed what was real — **8 fix/test commits
-  on staging**, all with regression tests, CI-green (426 tests, was 412).
-  → **promote #10** carries them, THEN S9 scope (Response modes, NEXT-SESSION).
-- **S8 review findings fixed** (verified against code + live before fixing):
-  1. **Phase isolation (major, correctness):** NVD/KEV phases ran unwrapped
-     before the only guarded phase (ATT&CK, last) — a bad NVD key starved ALL
-     technique content (seeds were removed in S8). CVE pipeline now isolated
-     from the independent ATT&CK phase.
-  2. **Bundle parse resilience (major):** one malformed object crashed the
-     whole parse; now skip-and-count like NVD.
-  3. **extras bypassed the content cap (major, security):** poisoned platforms
-     fanned out ~100k chunks; assembled content now capped. + name/version
-     bound & control-stripped (trailer-forgery), re.ASCII ids.
-  4. **Version-bump retirement (major, 2 lenses):** withdrawn techniques were
-     served forever; retire_absent(source, keep) runs before the cursor. +
-     modified compare (in-place re-release), + doc-count shrink floor.
-  5. **MITRE ToU notice (major, honesty):** verbatim ATT&CK text shipped
-     without the required copyright notice; now on every STIX-derived answer.
-  6. **Markdown/HTML in descriptions (honesty):** normalized out at ingest.
-  7. **Floor pinning (critical, test-hygiene):** NEURAL_FLOORS now pinned
-     verbatim + a per-doc_type coverage test (a new feed trips it).
-  8. Docs: ATT&CK egress in INGEST_ENABLED; TD-010 scope grew to attack.py
-     (unbounded body — deferred, shared bounded_json helper); fixture trimmed
-     103,694→330 lines.
-- **Live-verified this session:** MITRE ToU notice renders on "what is T1059"
-  end-to-end; retire_absent bool query valid against real OpenSearch (1398
-  ATT&CK chunks, keep-set math correct). NOTE: stored ATT&CK content still has
-  markdown (ingest-time fix) — self-heals on the next version bump / re-ingest.
-- **Promoted:** promote #9 on `main` == everything through 144b247 (S8 feature
-  work + KB strategy). promote #10 (pending) adds the 8 review fixes.
-- **No LLM paths touched** — every fix is ingest/KB/echo (zero-LLM); TD-005
-  battery NOT re-triggered (no new doc_type, no model change).
+- **S9 COMPLETE.** Two halves:
+  - **Step 0 — the outstanding S8 adversarial review → promote #10 (DONE).**
+    promote #9 had shipped S8's feature work to `main` UNREVIEWED (an unrecorded
+    session merged it). This session ran the 5-lens review over da42735..144b247,
+    fixed 8 real findings with regression tests, and **promoted #10** (PR #10
+    squash-merged, back-merged, main==staging tree verified).
+  - **S9 feature — Response modes + TD-009 (DONE, on staging, NOT yet promoted).**
+    6-mode code-owned resolver, typed contracts, TD-009 fence; live-verified
+    against Scout. Awaits S10 Step-0 review → **promote #11** (deliberately
+    NOT promoting unreviewed — that was the #9 mistake).
+- **S8 review fixes (promote #10, on `main`):** (1) phase isolation — a bad NVD
+  key no longer starves all technique content; (2) bundle parse skip-and-count;
+  (3) assembled-content cap (closed the `extras` fan-out bypass) + name/version
+  bound + re.ASCII ids; (4) version-bump retirement + `modified` compare +
+  shrink floor; (5) MITRE ToU notice; (6) markdown/HTML stripped at ingest;
+  (7) NEURAL_FLOORS pinned verbatim + per-doc_type coverage; (8) ENV egress
+  docs + TD-010 scope + fixture trim 103,694→330. TD-010 (unbounded feed body)
+  stays deferred (shared bounded_json helper across all 4 feeds).
+- **S9 feature shipped (staging):**
+  - `auspex/modes/` — `resolve_mode` (format beats keywords, ADR 0006) +
+    `ModeContract` (compiles to system directive AND validator, ADR 0007) +
+    6-mode catalog. `alert_triage` carries the DEFERRED rail ("no data ≠ low
+    risk") from day one (SARA snapshot).
+  - Wired into `chat.py` DEEP path: mode directive appended, output validated
+    post-hoc, `done` frame reports `{mode, contract_valid}`.
+  - **TD-009 CLOSED:** `_history` fences prior assistant turns as `⟦DATA⟧`
+    blocks + a system fence directive; embedded markers neutralized; user turns
+    unfenced. Regression tests incl. an instruction-bearing payload + break-out.
+  - **Live-verified on Scout** (docs/probes/2026-07-18-s9-modes-live.md):
+    `brief` produced all contract sections + re-validated ok; a signal-poor CEF
+    alert returned Risk **DEFERRED** (not LOW). done frame carries mode+valid.
+- **Deferred cleanly:** the ioc_check→KB-CVE-context stretch (parked 4×,
+  IDEAS.md sketch); TD-012 (contract validation is post-hoc/observability-only —
+  no re-ask/repair loop yet); stored ATT&CK markdown self-heals on next
+  re-ingest (ingest-time fix; render-time MITRE notice already live).
 - **Primary dev LLM (D-015):** Llama-4-Scout via Northflank; secondary/offline
-  Ollama `qwen3:14b` (D-013). S8 touched no LLM paths (everything shipped is
-  shortcut/ingest — zero LLM).
-- **CI-green: 412 tests** (was 357 at S7 end). `./ci.sh` green end-to-end at
-  session close; `/api/health/ready` 200.
+  Ollama `qwen3:14b` (D-013). S9 modes are the FIRST LLM-path change since S3 —
+  live-verified against Scout, hermetic tests use fake clients (no live LLM in
+  pytest). TD-005 battery NOT re-triggered (no new doc_type, no model change).
+- **CI-green: 447 tests** (was 412 at S8 end). `./ci.sh` green; container
+  rebuilt with S9 code; `/api/health/ready` 200.
 
 ## S8 shipped (all committed on staging, 2026-07-18)
 - **Step 0 first — adversarial review of S7** (5 parallel lenses:
@@ -98,11 +100,13 @@ tests; ready for promote #10, then S9 modes scope)_
   CVE-2026-55723 (real ingress CVE, 0.793): the corpus decides relevance.
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Run the S8 adversarial review (STILL outstanding), then `/promote`
-   (#10)** — promote #9 shipped the S8 feature work to `main` unreviewed
-   (attack.py, scheduler attack phase, per-doc_type floors, kev_listed,
-   seed change, echo label/copy changes). Same multi-lens drill; verify
-   findings before fixing; fixes go out via promote #10.
+1. **Run the S9 adversarial review, then `/promote` (#11)** — the S9 feature
+   work (auspex/modes/ resolver+contracts+catalog, chat.py mode wiring +
+   TD-009 fence, the 35 new tests) is on `staging`, CI-green, live-verified,
+   but UNREVIEWED. This is the S10 Step 0. Same 5-lens drill (correctness,
+   honesty/copy, security, test-hygiene, ops); verify findings before fixing.
+   Review scope = what landed AFTER promote #10 (306b9c7): commits
+   cae88e9..HEAD on staging. DO NOT promote unreviewed (the #9 mistake).
 2. **TD-005 re-battery trigger (standing):** corpus > 30k chunks, ANY new
    doc_type, or embedding-model change → re-run the labeled battery
    (script pattern in the probe doc). Sigma/abuse.ch ingestion (parked in
@@ -112,8 +116,9 @@ tests; ready for promote #10, then S9 modes scope)_
 1. **TD-001 (OAuth identity keyed on email)** — hard gate before any
    GOOGLE_CLIENT_ID is configured.
 2. **Deep path is conversational-only (v1)** — AgentLoop still not wired into
-   /api/chat; modes land S9. TD-009 (feed-text prompt-injection fence) is
-   scoped INTO the S9 modes work.
+   /api/chat; S9 modes shape the DEEP prompt + validate output but do NOT yet
+   execute tools/proposals. TD-012 tracks contract validation being post-hoc
+   (no re-ask/repair loop). TD-009 (feed-text fence) is now CLOSED.
 3. **KB bootstrap needs outbound HTTPS once per fresh volume**; ingest needs
    NVD/CISA/FIRST/GitHub reachability — failures degrade honestly
    (watermarks hold, catch-up on recovery; ATT&CK/KEV phase failures are
@@ -136,9 +141,16 @@ tests; ready for promote #10, then S9 modes scope)_
 - Ollama 0.24.0 on :11434; models qwen3:14b / llama3.1:8b / mistral:latest.
 - `gh` flips to SIRP-Burhan between sessions AND mid-session (D-011) —
   re-check before EVERY `gh` call. It flipped again at S8 start.
-- S8 demo turns: `what is T1059` / `what is T1055.011` / `what is credential
-  access` (STIX-derived, zero LLM); `what is quantum entanglement` → honest
-  miss; `check CVE-2026-58644` → KEV/EPSS lines (unchanged from S7).
+- S8 demo turns (zero-LLM shortcuts, still valid): `what is T1059` /
+  `what is T1055.011` / `what is credential access` (STIX-derived);
+  `what is quantum entanglement` → honest miss; `check CVE-2026-58644`.
+- **S9 demo turns (DEEP path, live Scout):** `give me a brief on the Log4Shell
+  vulnerability` → BRIEF mode, `## Bottom line/Details/Watch items`, done frame
+  `{mode:brief, contract_valid:true}`;
+  `CEF:0|Vendor|Product|1.0|100|generic activity observed|0|` → ALERT_TRIAGE,
+  Risk **DEFERRED** (not LOW). NOTE: `what is T1059` still shows markdown links
+  in stored content until the next ATT&CK re-ingest (render-time MITRE notice
+  already appears; markdown-strip is ingest-time).
 
 ## Reference intelligence (from the SARA Open architecture study, 2026-07-14)
 Base: `/home/burhan/sara-open/` (paths re-verified 2026-07-15):
@@ -150,9 +162,12 @@ Base: `/home/burhan/sara-open/` (paths re-verified 2026-07-15):
 - Enrichment/fan-out: probe docs 2026-07-16
 - RRF retrieval + ID bypass: docs/probes/2026-07-17-sara-rrf-retriever-pattern.md
 - DEFERRED rail: /home/burhan/sara-open/sara/agents/alert_triage.py:1429
+  (re-snapshotted S9 → docs/probes/2026-07-18-sara-orchestrator-deferred.md)
 - Capability shape: /home/burhan/sara-open/sara/core/unified_registry.py:37
 
 ## Next session should
-Review S8 (multi-lens, verify before fixing) → `/promote` (#9) → then S9
-exactly as written in NEXT-SESSION.md (Response modes: 6 modes, code-owned
-priority resolver, typed output contracts; TD-009 fence rides along).
+Review the S9 feature work (multi-lens, verify before fixing) → `/promote`
+(#11) → then S10 exactly as written in NEXT-SESSION.md (Alert normalizer +
+risk score — multi-SIEM format detection feeding the alert_triage mode). The
+S9 modes give S10 its consumer: the normalizer's structured envelope is what
+alert_triage's DEFERRED "no data ≠ low risk" rail scores.
