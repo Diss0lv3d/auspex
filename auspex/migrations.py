@@ -188,6 +188,64 @@ SCHEMA_V0: list[str] = [
     CREATE INDEX IF NOT EXISTS idx_messages_ws_session
         ON messages (workspace_id, session_id, created_at)
     """,
+    # S12: the ACH substrate (D-019). An `investigations` row is the durable
+    # container for one competing-hypotheses analysis of one subject (an alert
+    # or email paste). `hypotheses` stores IDENTITY only (key + wording) —
+    # status/scores/weights are recomputed from evidence by auspex.ach.matrix
+    # on every read, so the math has a single source of truth and a fixed table
+    # can never drift from it. `ach_evidence` is APPEND-ONLY like verdicts:
+    # each row carries its curated cell vector as written, so a later change
+    # to the doctrine tables re-scores the future without rewriting the past.
+    """
+    CREATE TABLE IF NOT EXISTS investigations (
+        id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id  uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        session_id    uuid REFERENCES chat_sessions(id) ON DELETE SET NULL,
+        subject_kind  text NOT NULL CHECK (subject_kind IN ('alert', 'email')),
+        subject       jsonb NOT NULL DEFAULT '{}',
+        status        text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
+        created_at    timestamptz NOT NULL DEFAULT now(),
+        updated_at    timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_investigations_ws
+        ON investigations (workspace_id, created_at DESC)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS hypotheses (
+        id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id      uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        investigation_id  uuid NOT NULL REFERENCES investigations(id) ON DELETE CASCADE,
+        key               text NOT NULL CHECK (key IN
+            ('true_positive', 'false_positive', 'benign_activity', 'test_activity')),
+        label             text NOT NULL,
+        created_at        timestamptz NOT NULL DEFAULT now(),
+        UNIQUE (investigation_id, key)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hypotheses_ws_inv
+        ON hypotheses (workspace_id, investigation_id)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS ach_evidence (
+        id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id      uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        investigation_id  uuid NOT NULL REFERENCES investigations(id) ON DELETE CASCADE,
+        kind              text NOT NULL,
+        statement         text NOT NULL,
+        credibility       real NOT NULL CHECK (credibility >= 0 AND credibility <= 1),
+        cells             jsonb NOT NULL,
+        source            text NOT NULL,
+        obs_id            text,
+        created_at        timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ach_evidence_ws_inv
+        ON ach_evidence (workspace_id, investigation_id, created_at)
+    """,
 ]
 
 
