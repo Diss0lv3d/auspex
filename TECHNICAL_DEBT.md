@@ -1,5 +1,24 @@
 # Technical debt — logged the moment it's taken
 
+## TD-016 (S12) — ACH v1 surface bounds: top-20 ranked cap, no list/close endpoints, no lookup-attempt backoff
+**Where:** `auspex/ach/gain.py` (`_MAX_RANKED = 20`), `auspex/routes/investigations.py`
+(no `GET /api/investigations` collection, no way to set `status='closed'` —
+the column exists in the schema ahead of its surface, the proposals-table
+precedent), the `/lookups` route (retry of a never-completed lookup re-fans-out;
+bounded only by the S5 circuit breaker, no per-obs attempt ledger).
+**Risk:** low. The caps are NAMED in the response (`total_candidates`,
+`iocs_truncated`) so nothing is silently hidden, but `body.obs_id` can only
+run a candidate inside the surfaced top-20, an investigation can never be
+closed, and a determined client can re-trigger provider fan-outs during an
+outage window (each bounded by the breaker's 3-failure/60 s cycle).
+**Why accepted:** v1 scope was the reasoning core (D-019); pagination, a
+collection view, lifecycle, and an attempt ledger are surface work with no
+open design questions.
+**Path to fix:** pagination params on the ranked plan; `GET` collection +
+`PATCH status`; a per-(investigation, obs_id) attempt timestamp to back off
+re-fan-outs. Trigger: the first UI work over investigations, or S14 retro-hunt
+needing the collection view.
+
 ## TD-015 (S11) — phishing deterministic layer uses heuristic coverage (brand list, confusable set)
 **Where:** `auspex/phishing/brands.py` (`BRAND_ALLOWLIST` ~44 brands),
 `auspex/phishing/lookalike.py` (`_CONFUSABLES` a high-frequency Cyrillic/Greek

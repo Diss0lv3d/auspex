@@ -105,9 +105,18 @@ may not grow mid-session (IDEAS.md exists for that).
   Step 0 — 9 findings (A–I) verified by execution and fixed with regressions,
   incl. body-prose BENIGN manufacture, BEC sender victim-filtering, ccTLD brand
   false positives, ARC relay passes — and promoted #13 to main.)_
-- [ ] **S12 — Hypothesis engine v1 (ACH).** Competing hypotheses per
+- [x] **S12 — Hypothesis engine v1 (ACH).** Competing hypotheses per
   investigation, per-evidence scoring against each hypothesis, next-lookup
-  chosen by expected information gain.
+  chosen by expected information gain. _(`auspex/ach` + `/api/investigations`,
+  D-019: closed 4-hypothesis catalog per subject kind; evidence adapters over
+  the S5/S10/S11 typed shapes with curated cell-vector doctrine tables; Heuer
+  least-inconsistency matrix with hard-contradiction rejection + honesty
+  rails; expected-information-gain lookup ranking with curated P(outcome|H)
+  rows, executed live through the S5 fan-out. Zero LLM end-to-end — model
+  rendering deferred to S13 by design. Hardened by a same-session 4-lens
+  verification workflow: 16 findings, all verified by execution, all fixed.
+  Live-verified in-container; the live gain figure matched the hand-computed
+  fixture to 6 decimals. On staging, awaiting S13 Step-0 review + promote #14.)_
 - [ ] **S13 — Evidence graph + cited output.** Typed evidence objects; every
   generated claim carries a citation; output guard rejects uncited claims.
 
