@@ -69,3 +69,25 @@ Answering sources had **no claim** about `mail.paypa1.com`:
 - Absence semantics hold under live conditions: an unknown answer is neither
   discarded (it retires the candidate and nudges per the priced direction)
   nor inflated (credibility 0.3, "not benign" in the analyst copy).
+
+## Postscript (same day, after the S12 verification workflow)
+
+A 4-lens adversarial verification (16 findings, all verified by execution)
+changed the behavior recorded above; re-run live in-container after the fixes:
+
+- **ONE collapsed auth row** (was 3 — one gateway assertion is one
+  observation, verify finding 7): evidence kinds now
+  `spoof_indicator ×2, lookalike_domain, email_auth_fail ×1`.
+- **false_positive is now REJECTED via the API** (inc 3.70, 1 hard
+  contradiction). Turn 1 above showed FP surviving at w=0.069 — that was the
+  float4 credibility bug (verify 2/4): Postgres `real` returned 0.7 as
+  0.699999988, sliding under the ≥0.7 hard-contradiction bar. The load path
+  now restores the written 3-decimal value, and the API serves the same
+  matrix the fixtures pin.
+- **TP/TEST at a clean 50/50, prior entropy exactly 1.0 bit** — and the top
+  gain is **0.181584 bits**, identical to the independently hand-computed
+  TP-vs-TEST NET fixture from the scratch script (pure-math cross-check of
+  the live system to 6 decimals).
+- **Email-address candidates are gone** (verify finding 5: no provider
+  accepts EMAIL — recommending one was a zero-progress loop);
+  `total_candidates` now names the full priced set (verify finding 8).
