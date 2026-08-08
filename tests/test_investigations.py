@@ -351,7 +351,7 @@ def test_store_roundtrip_preserves_hard_contradictions(client, settings):
     rec = asyncio.run(_roundtrip())
     assert all(e.credibility == 0.7 for e in rec.evidence)
     after = score_matrix(rec.hypotheses, rec.evidence)
-    for b, a in zip(before.scores, after.scores):
+    for b, a in zip(before.scores, after.scores, strict=True):
         assert b.hypothesis.key == a.hypothesis.key
         assert b.hard_contradictions == a.hard_contradictions
         assert b.status == a.status
