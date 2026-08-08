@@ -1,5 +1,20 @@
 # Technical debt — logged the moment it's taken
 
+## TD-017 (S13) — NUL-byte hardening exists only at the investigations paste boundary
+**Where:** `auspex/routes/investigations.py` strips U+0000 before parsing
+(S13 Step-0 review finding 1, live-verified 500 — Postgres text/jsonb cannot
+represent NUL). Any OTHER route that persists request text is still exposed:
+`/api/chat` writes the message to `messages` (and an email/alert paste there
+takes the same parse-and-persist shape).
+**Risk:** a NUL-carrying paste to chat 500s mid-session instead of degrading
+honestly; noise in logs, confusing UX, and a trivially scriptable error shape.
+**Why deferred:** S13 Step-0 scope was the S12 diff; chat predates it. One
+concern per commit.
+**Path to fix:** strip NUL centrally where request text first crosses into
+persistence (a shared sanitizer used by ChatBody/CreateInvestigationBody
+handling, or a pydantic validator both bodies share), plus one live-shaped
+regression per route. Verify the chat 500 by execution first — same drill.
+
 ## TD-016 (S12) — ACH v1 surface bounds: top-20 ranked cap, no list/close endpoints, no lookup-attempt backoff
 **Where:** `auspex/ach/gain.py` (`_MAX_RANKED = 20`), `auspex/routes/investigations.py`
 (no `GET /api/investigations` collection, no way to set `status='closed'` —
