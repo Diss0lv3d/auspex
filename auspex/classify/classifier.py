@@ -62,6 +62,13 @@ COMMON_DOMAINS = frozenset(
 _SYSLOG_PRI_RE = re.compile(r"^\s*<\d{1,3}>")
 _CEF_LEEF_RE = re.compile(r"\b(?:CEF:\d+\||LEEF:\d+(?:\.\d+)?\|)")
 _JSON_KEY_RE = re.compile(r"\"\w+\"\s*:")
+# Two or more RFC-5322 header lines = a pasted email, not prose about email.
+# Same set the mode resolver keys PHISHING_ANALYSIS on (it imports this).
+_EMAIL_HEADER_RE = re.compile(
+    r"^(?:from|to|cc|subject|date|received|return-path|reply-to|message-id|"
+    r"delivered-to|dkim-signature|x-originating-ip|authentication-results)\s*:",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 _IDENTITY_RE = re.compile(
     r"""^\s*(?:
@@ -133,6 +140,15 @@ def _is_alert_paste(q: str) -> bool:
     return q.lstrip().startswith("{") and bool(_JSON_KEY_RE.search(q))
 
 
+def _is_email_paste(q: str) -> bool:
+    """Format beats keywords (S11): a pasted email (≥2 RFC-5322 header lines) is
+    structured input, like an alert paste — it always takes the deep path, never
+    the IOC_CHECK shortcut, even when it carries only a couple of addresses. The
+    email names its own sender/recipient; treating it as a bag of IOCs to enrich
+    would both miss the phishing analysis and surface the victim as an IOC."""
+    return len(_EMAIL_HEADER_RE.findall(q)) >= 2
+
+
 def _is_analytical(q: str) -> bool:
     return bool(_ANALYTICAL_INITIAL_RE.search(q) or _ANALYTICAL_ANYWHERE_RE.search(q))
 
@@ -170,7 +186,7 @@ def classify(query: str) -> Classification:
     def result(category: Category) -> Classification:
         return Classification(category=category, observables=observables)
 
-    if _is_alert_paste(q):
+    if _is_alert_paste(q) or _is_email_paste(q):
         return result(Category.DEEP)
     if len(q) <= IDENTITY_MAX_CHARS and _IDENTITY_RE.match(q):
         return result(Category.IDENTITY)

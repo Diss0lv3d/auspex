@@ -58,6 +58,7 @@ from auspex.llm.client import LLMClient, LLMError, Usage
 from auspex.llm.registry import DevEndpoint
 from auspex.llm.scorecard import load_latest_scorecard
 from auspex.modes import Mode, contract_for, resolve_mode
+from auspex.phishing import decide_verdict, deterministic_phishing_block, parse_email
 
 logger = logging.getLogger("auspex.chat")
 
@@ -426,7 +427,7 @@ async def chat(
     # injected text in the alert can't steer the Risk level. The rendered Risk is
     # PINNED to the code level at validation below — a steered swap to a
     # different (even in-enum) level fails the contract, in code, not by prompt.
-    pinned_values: dict[str, str] | None = None
+    pinned_values: dict[str, str | tuple[str, ...]] | None = None
     if mode is Mode.ALERT_TRIAGE:
         envelope = normalize(body.message)
         risk = score_alert(envelope)
@@ -439,6 +440,30 @@ async def chat(
             risk.score,
             risk.needs_deep_triage,
             [c.signal for c in risk.contributions],
+        )
+    # PHISHING_ANALYSIS (S11): the phishing analogue of the S10 alert path. Parse
+    # the email + evaluate SPF/DKIM/DMARC, spoofing, and lookalike indicators in
+    # CODE; hand the model the AUTHORITATIVE verdict FLOOR. BENIGN is in the
+    # allowed set only when the code found positive auth evidence — that part is
+    # structural. The rendered Verdict is pinned to the allowed set at validation
+    # below, which DETECTS a launder below the floor; it does not prevent one,
+    # because validation is post-hoc (TD-012) and the answer has already
+    # streamed. This MITIGATES the phishing portion of TD-013 — the body stops
+    # being the thing that decides the Verdict — it does not eliminate it.
+    elif mode is Mode.PHISHING_ANALYSIS:
+        email_env = parse_email(body.message)
+        verdict = decide_verdict(email_env)
+        pinned_values = {"Verdict": verdict.allowed}
+        messages.append(
+            {"role": "system", "content": deterministic_phishing_block(email_env, verdict)}
+        )
+        logger.info(
+            "phishing analysis: parsed=%s verdict=%s score=%s findings=%s auth=%s",
+            email_env.parsed,
+            verdict.verdict,
+            verdict.score,
+            [f.type.value for f in verdict.findings],
+            (email_env.spf, email_env.dkim, email_env.dmarc),
         )
     # Build the client as late as possible: everything that can 404/fail above
     # has already run, so the only closer needed is event_stream's finally.

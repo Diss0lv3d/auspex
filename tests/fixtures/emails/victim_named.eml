@@ -1,0 +1,16 @@
+Delivered-To: helpdesk@acme.com
+Received: from smtp.evilsender.test (smtp.evilsender.test [198.51.100.200])
+	by mx.acme.com (10.0.0.5) with ESMTP id jkl345
+	for <helpdesk@acme.com>; Fri, 18 Jul 2026 11:00:00 +0000 (UTC)
+Authentication-Results: mx.acme.com;
+	spf=fail smtp.mailfrom=evilsender.test;
+	dkim=fail;
+	dmarc=fail header.from=evilsender.test
+From: IT Helpdesk <no-reply@evilsender.test>
+To: helpdesk@acme.com
+Subject: Password reset for your acme.com mailbox
+Date: Fri, 18 Jul 2026 11:00:00 +0000
+
+Your acme.com account password expires today. Reset it now at
+http://evilsender.test/reset?u=helpdesk@acme.com. For reference your mail
+server is mx.acme.com (10.0.0.5) and your portal is https://portal.acme.com.

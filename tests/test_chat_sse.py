@@ -594,6 +594,111 @@ def test_alert_triage_rendered_risk_is_pinned_to_the_code_verdict(client):
         client.app.dependency_overrides.clear()
 
 
+# -- PHISHING_ANALYSIS (S11): code decides the Verdict floor, model narrates ----
+
+_SPOOF_EMAIL = (
+    'From: "PayPal Support" <security@paypa1.com>\n'
+    "Reply-To: recover@account-verify.ru\n"
+    "To: victim@acme.com\n"
+    "Subject: Your account is limited\n"
+    "Authentication-Results: mx.acme.com; spf=fail; dkim=fail; dmarc=fail\n"
+    "Received: from unknown by mx.acme.com\n\n"
+    "Confirm at http://paypa1.com/verify"
+)
+
+
+def test_phishing_feeds_the_code_verdict_and_pins_the_floor(client):
+    # a spoofed, auth-failing email: the code floor is MALICIOUS. The model here
+    # renders MALICIOUS (conformant), and the authoritative directive must carry
+    # the code verdict + findings.
+    fake = StreamingFakeLLMClient(
+        [
+            StreamEvent(kind="content", text="## Verdict\nMALICIOUS\n\n"),
+            StreamEvent(kind="content", text="## Indicators\nSPF/DKIM/DMARC fail, typosquat.\n\n"),
+            StreamEvent(kind="content", text="## Recommendation\nQuarantine and block.\n"),
+            StreamEvent(kind="finish", finish_reason="stop"),
+        ]
+    )
+    _use(client.app, fake, native_reasoning=True)
+    try:
+        resp = client.post(
+            "/api/chat",
+            json={"message": _SPOOF_EMAIL},
+            headers={"Authorization": f"Bearer {_token(client)}"},
+        )
+        done = _frames(resp.text)[-1]["done"]
+        assert done["mode"] == "phishing_analysis"
+        assert done["contract_valid"] is True
+        sys_msgs = [m["content"] for m in fake.last_messages() if m["role"] == "system"]
+        assert any("Deterministic Verdict floor: MALICIOUS" in s for s in sys_msgs)
+        assert any("code-owned analysis has ALREADY parsed" in s for s in sys_msgs)
+    finally:
+        client.app.dependency_overrides.clear()
+
+
+def test_phishing_verdict_cannot_be_laundered_below_the_floor(client):
+    # the email body tries to talk the model down to BENIGN; the code floor is
+    # MALICIOUS (3 auth fails). BENIGN is a valid contract enum value, so
+    # membership passes — the FLOOR PIN is what fails it (TD-013 phishing path).
+    fake = StreamingFakeLLMClient(
+        [
+            StreamEvent(kind="content", text="## Verdict\nBENIGN\n\n"),
+            StreamEvent(kind="content", text="## Indicators\nLooks fine to me.\n\n"),
+            StreamEvent(kind="content", text="## Recommendation\nNo action.\n"),
+            StreamEvent(kind="finish", finish_reason="stop"),
+        ]
+    )
+    _use(client.app, fake, native_reasoning=True)
+    try:
+        resp = client.post(
+            "/api/chat",
+            json={"message": _SPOOF_EMAIL},
+            headers={"Authorization": f"Bearer {_token(client)}"},
+        )
+        frames = _frames(resp.text)
+        done = frames[-1]["done"]
+        assert done["mode"] == "phishing_analysis"
+        assert done["contract_valid"] is False  # BENIGN ∉ {MALICIOUS}
+        # S12 review honesty check: name the guarantee precisely. The pin
+        # DETECTS the launder — it does not prevent it. Validation is post-hoc
+        # (TD-012), so the laundered "BENIGN" already streamed to the user and
+        # was persisted as the assistant turn. Anything built on this contract
+        # must read contract_valid, not assume the text is floor-conformant.
+        streamed = "".join(f["content"] for f in frames if "content" in f)
+        assert "BENIGN" in streamed
+    finally:
+        client.app.dependency_overrides.clear()
+
+
+def test_phishing_model_may_raise_above_the_floor(client):
+    # a DEFERRED floor (auth absent) permits a raise to SUSPICIOUS/MALICIOUS from
+    # body content — that must still validate (the floor is a floor, not a lock).
+    email = (
+        "From: x@somewhere.test\nTo: user@acme.com\nSubject: hi\n"
+        "Received: from a by b\n\nnothing conclusive"
+    )
+    fake = StreamingFakeLLMClient(
+        [
+            StreamEvent(kind="content", text="## Verdict\nSUSPICIOUS\n\n"),
+            StreamEvent(kind="content", text="## Indicators\nUnverified sender.\n\n"),
+            StreamEvent(kind="content", text="## Recommendation\nVerify out of band.\n"),
+            StreamEvent(kind="finish", finish_reason="stop"),
+        ]
+    )
+    _use(client.app, fake, native_reasoning=True)
+    try:
+        resp = client.post(
+            "/api/chat",
+            json={"message": email},
+            headers={"Authorization": f"Bearer {_token(client)}"},
+        )
+        done = _frames(resp.text)[-1]["done"]
+        assert done["mode"] == "phishing_analysis"
+        assert done["contract_valid"] is True  # SUSPICIOUS ∈ {DEFERRED,SUSPICIOUS,MALICIOUS}
+    finally:
+        client.app.dependency_overrides.clear()
+
+
 # -- 92/8 routing (S4 step 4): shortcut categories never touch the model -------
 
 

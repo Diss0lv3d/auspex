@@ -18,19 +18,9 @@ enter this SYSTEM-role directive, so a crafted alert name can't open a fresh
 
 from __future__ import annotations
 
-import re
-
 from auspex.alerts.envelope import AlertEnvelope
 from auspex.alerts.scorer import RiskScore
-
-_UNSAFE_RUN_RE = re.compile(r"[\s\x00-\x1f\x7f]+")
-
-
-def _clean(raw: str, cap: int = 120) -> str:
-    """Flatten untrusted envelope text for safe embedding in the directive:
-    collapse whitespace/control runs to one space, strip, hard-cap length."""
-    flat = _UNSAFE_RUN_RE.sub(" ", raw).strip()
-    return flat[: cap - 1] + "…" if len(flat) > cap else flat
+from auspex.untrusted import flatten as _clean
 
 
 def deterministic_triage_block(env: AlertEnvelope, risk: RiskScore) -> str:

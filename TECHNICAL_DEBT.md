@@ -1,5 +1,41 @@
 # Technical debt — logged the moment it's taken
 
+## TD-015 (S11) — phishing deterministic layer uses heuristic coverage (brand list, confusable set)
+**Where:** `auspex/phishing/brands.py` (`BRAND_ALLOWLIST` ~44 brands),
+`auspex/phishing/lookalike.py` (`_CONFUSABLES` a high-frequency Cyrillic/Greek
+subset; `_MULTI_LABEL_SUFFIXES` a curated compound-suffix set).
+**CORRECTED in the S12 review — the original entry was wrong on two counts, both
+verified by execution:** item (c) (naive last-two-labels `registrable_domain`)
+was NOT false-negative biased and is now FIXED, not accepted. It produced false
+POSITIVES: `amazon.co.uk` read as registrable domain `co.uk`, so a genuine,
+fully auth-passing Amazon UK mail scored 35 → SUSPICIOUS (brand-subdomain bait
++20, display-name brand +15), and every ccTLD brand in the list behaved the same.
+It also *suppressed* indicators rather than only under-detecting: with a victim
+on `acme.co.uk`, every `.co.uk` observable matched the victim's registrable
+domain, so attacker infrastructure was withheld from the analyst. The blanket
+claim "none can produce a FALSE MALICIOUS or leak a victim IOC — they only
+under-detect" did not hold and has been removed. Fix: `_MULTI_LABEL_SUFFIXES` +
+`is_brand_host` (commit dd67f6e).
+**Remaining risk (genuinely false-negative biased):** (a) a lookalike of a brand
+not on the list isn't caught; (b) a homograph using a confusable outside the
+curated set folds to itself and isn't flagged; (c') a compound suffix outside
+the curated `_MULTI_LABEL_SUFFIXES` set still degrades to the last-two-labels
+reading — a miss, and no longer a false alarm on the suffixes real mail uses.
+**Why accepted (not a bug):** ships the SARA-proven deterministic pre-check
+(docs/probes/2026-07-18-sara-phishing-header-patterns.md) that catches the
+common credential-harvest shapes; the LLM narrative layer sees the raw domain
+and can still flag what the deterministic layer missed (it just can't LOWER the
+floor). Absence/uncertainty already biases to DEFERRED, never BENIGN.
+**Path to fix:** (1) fold the brand list into a configurable/data-file source if
+customers need per-tenant brands (decide env-var vs file then — none needed
+today, it's a code constant); (2) adopt a fuller Unicode confusables map
+(UTS-39 skeleton) if homograph FNs show up; (3) DONE in S12 — compound suffixes
+are handled by the curated `_MULTI_LABEL_SUFFIXES` set; adopt the real
+Public Suffix List (a dependency + refresh story) only if a suffix outside the
+curated set shows up in practice. Trigger: a real missed lookalike/homograph in
+a customer email, or a compound-TLD domain outside the curated set. Add the
+offending email as a fixture then.
+
 ## TD-013 (S9 review) — attacker-authored paste rides the trusted `user` lane in triage/phishing modes
 **Where:** `auspex/routes/chat.py` `_history` (user turns replay UNfenced, `:290`)
 + the current turn's `body.message` stored as `role="user"` (`:334`), against the
@@ -24,10 +60,27 @@ injection inside an alert can't move the level (pinned:
 tests/test_chat_sse.py::test_alert_triage_deferred_rail_and_injection_resistance).
 The paste text is still visible to the model, but it no longer *decides* the
 outcome for alerts.
-**Still open:** phishing_analysis has no normalizer yet — a pasted email body is
-still free attacker prose the model reasons over directly. Same treatment when
-phishing_analysis grows its own parser; add an instruction-bearing pasted-email
-fixture then.
+**Phishing path MITIGATED in S11 (`auspex.phishing`):** a pasted email is parsed
+in CODE (regex header parse → typed EmailEnvelope), auth/spoof/lookalike findings
+are computed deterministically, and the Verdict FLOOR is decided in code;
+phishing_analysis renders the AUTHORITATIVE verdict, and the validator pin (an
+ALLOWED SET — floor + permitted raises) means the model can raise on content it
+reads while any launder below the floor is DETECTED. Corrected in the S12 review
+(honesty lens): the pin does not make laundering impossible — validation is
+post-hoc (TD-012), so a laundered answer streams to the user and is persisted,
+with `contract_valid:false` as the record. What is structural is that the
+DISPOSITION is computed from parsed headers only. Pinned:
+tests/test_chat_sse.py::test_phishing_verdict_cannot_be_laundered_below_the_floor
+(a body that says "this is legitimate" cannot pull a MALICIOUS floor to BENIGN).
+Live-verified on Scout (docs/probes/2026-07-18-s11-phishing-live.md).
+**Residual (both triage + phishing paths):** the raw paste is still VISIBLE to
+the model in the `user` turn (it must be, to narrate), and on later turns it
+replays unfenced (the `_history` gap). What changed is that the paste no longer
+*decides* the outcome — code does, and the pin enforces it. The standing gap is
+now only free-prose narration manipulation (the model could still be talked into
+misleading *prose* around a correct pinned verdict); the disposition itself is
+code-owned for both alert and phishing modes. Consider fencing replayed user
+paste-turns if/when the DEEP path executes tools (the TD-009 escalation profile).
 
 ## TD-014 (S9 review) — deep-turn history fetch is unbounded (no turn/token cap)
 **Where:** `auspex/routes/chat.py` `_history` — `SELECT role, content FROM messages

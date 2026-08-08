@@ -26,6 +26,7 @@ packages = [
     "auspex.routes",
     "auspex.agent",
     "auspex.alerts",
+    "auspex.phishing",
     "auspex.llm",
     "auspex.classify",
     "auspex.enrich",

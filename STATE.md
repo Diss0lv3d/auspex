@@ -1,19 +1,73 @@
 # STATE — Auspex
 
-_Last updated: 2026-07-18 (S10 COMPLETE — S9 review + promote #11, then the S10
-alert normalizer + additive scorer + DEFERRED rail, live-verified on Scout; S10
-work on `staging` awaits an S11 Step-0 review + promote #12)_
+_Last updated: 2026-07-18 (S11 COMPLETE — S10 review + promote #12, then the
+phishing/header agent: deterministic parse + code-decided Verdict floor +
+victim-IOC filter, live-verified on Scout; S11 work on `staging` awaits an
+S12 Step-0 review + promote #13)_
 
 ## Where we are
-- **S10 COMPLETE.** Two halves:
-  - **Step 0 — the outstanding S9 adversarial review → promote #11 (DONE).**
-    5-lens review over cae88e9..HEAD (the S9 modes + TD-009 fence). Findings
-    verified by execution before fixing; 4 fix commits (below), then
-    **promoted #11** (PR #11 squash-merged, back-merged, main==staging verified).
-  - **S10 feature — Alert normalizer + risk score (DONE, on staging, NOT yet
-    promoted).** Multi-SIEM parse → typed envelope → additive itemized 0–100
-    score → DEFERRED rail; live-verified against Scout. Awaits S11 Step-0
-    review → **promote #12** (deliberately NOT promoting unreviewed — #9 lesson).
+- **S11 COMPLETE.** Two halves:
+  - **Step 0 — the outstanding S10 adversarial review → promote #12 (DONE).**
+    5-lens review over 40af4b9..HEAD (the S10 alert normalizer+scorer+rail+wiring).
+    8 findings, all verified by execution before fixing; 5 fix commits (below),
+    then **promoted #12** (PR #12 squash-merged, back-merged, main==staging).
+  - **S11 feature — Phishing/header agent (DONE, on staging, NOT yet promoted).**
+    `auspex.phishing`: regex header parse → typed EmailEnvelope → named auth/
+    spoof/lookalike findings → additive Verdict FLOOR; victim-domain IOC filter;
+    validator pin extended to an ALLOWED SET (raise-yes, launder-no). Closes the
+    phishing portion of TD-013. Live-verified against Scout. Awaits S12 Step-0
+    review → **promote #13** (deliberately NOT promoting unreviewed — #9 lesson).
+
+## S10 review fixes (promote #12, on `main` 2026-07-18)
+- **(A)** `auspex/modes/contract.py`: the validator did enum-MEMBERSHIP only — a
+  steered model could swap one valid Risk level for another with
+  `contract_valid=true`. `validate(pinned=…)` now pins a field to the code
+  verdict (exact for a str, membership for a set); chat.py pins Risk to the
+  scorer level. This is the mechanism S11 reused for the phishing floor.
+- **(C)** `scorer.py`: an `parsed=False` envelope whose raw text carried
+  `-enc`/`powershell` still scored a confident LOW/MEDIUM — new rail (0):
+  unparsed always DEFERS (signals stay listed, never sum to a score).
+- **(D)** the pending-enrichment tail fired on IOC-less alerts (nothing to
+  enrich) — now gated on `has_iocs`.
+- **(E)** signal-poor DEFERRED reason said "no severity" for INFORMATIONAL —
+  now names "informational-only severity".
+- **(F/G/H)** `normalizer.py`: JSON-wrapped raw CEF mis-detected (JSON-first
+  detection); syslog-framed CEF/LEEF lost fields (parse from the marker offset);
+  fraction confidence `0.9` read as 0% (fraction-scale handling); + never-raise
+  guard extended over the uniform detectors.
+- **(B)** `render.py`: untrusted envelope free-text (name/src/dst) embedded in a
+  SYSTEM directive with newlines intact — now flattened via the shared
+  `auspex.untrusted.flatten` (also used by the S11 phishing directive).
+
+## S11 feature shipped (staging)
+- `auspex/phishing/` — `parse_email()` (regex header parse over the raw paste,
+  never `email.parser`; recovers From display+addr with a fallback for the
+  display-name-spoof case that defeats stdlib `parseaddr`, Reply-To, Return-Path,
+  recipients, SPF/DKIM/DMARC result tokens, named header anomalies; <2 headers →
+  `parsed=False`). `decide_verdict()` = additive named-signal score (SARA
+  weights) → Verdict FLOOR + the S10 rail philosophy: BENIGN needs POSITIVE auth
+  evidence (DMARC pass, or SPF+DKIM pass) and zero findings; absence/unparseable/
+  lone-weak-signal → DEFERRED, never a rounded-down BENIGN.
+- `lookalike.py` + `brands.py` — TLD-swap (HIGH), Damerau-Levenshtein near-miss
+  (MEDIUM), IDN homograph (punycode decode + confusable-fold, HIGH), brand-
+  subdomain bait (MEDIUM); each a NAMED finding + confidence. Brand list is a
+  CODE constant (~44 brands, ported from SARA) — no env var.
+- `victims.py` — recipient-domain artifacts + internal/reserved IPs withheld
+  from indicators (a phishing email names its victim; the victim is not an IOC).
+  The SENDER is never filtered, even when it spoofs the victim's own domain.
+- `render.py` — compiles the envelope+verdict into an AUTHORITATIVE directive
+  (S10 pattern); the validator pin (`pinned={"Verdict": allowed}`) enforces the
+  floor: the model may RAISE severity on body content, never launder below.
+- **Classifier fix (prerequisite):** the 92/8 gate fast-tracked only ALERT
+  pastes to DEEP; a short email paste was intercepted as IOC_CHECK and never
+  reached PHISHING_ANALYSIS (and the victim's addresses would have been
+  enriched). `_is_email_paste` (≥2 RFC-5322 headers) now routes to DEEP —
+  format beats keywords — defined once in the classifier, imported by the
+  resolver.
+- **Live-verified on Scout** (docs/probes/2026-07-18-s11-phishing-live.md):
+  spoof+auth-fail+typosquat → MALICIOUS (floor-locked, model rendered MALICIOUS,
+  re-validated ok, recipient domain NOT surfaced); all-auth-pass → BENIGN
+  (positive-evidence gate). Both `contract_valid:true`.
 - **S9 review fixes (promote #11, on `main`):** (1) resolver reused the naive
   `any(non-CVE)` → prose mentioning microsoft.com/github.com hijacked into
   IOC_ENRICHMENT; now delegates to the classifier's `_ioc_shaped`
@@ -24,65 +78,49 @@ work on `staging` awaits an S11 Step-0 review + promote #12)_
   server-side contract-drift log (mode+reason, never content); honest
   containment-vs-inertness fence comment; done-frame tri-state documented.
   (4) TD-013 (untrusted paste in triage modes) + TD-014 (unbounded history).
-- **S10 feature shipped (staging):**
-  - `auspex/alerts/` — `normalize()` detects CEF/LEEF/syslog/JSON → typed
-    closed-vocab `AlertEnvelope` (severity off 5 scales, src/dst, signals, IOCs,
-    MITRE ids, timestamps; errors + UNKNOWN → parsed=False). `score_alert()` =
-    additive 0–100 with itemized NAMED contributions (ports SARA assess_risk,
-    docs/probes/2026-07-18-sara-alert-triage-scorer.md); artifact count NOT
-    scored; bands CRITICAL≥85/HIGH≥70/MEDIUM≥40/LOW.
-  - **DEFERRED rail, both SARA conditions:** (a) signal-poor (incl.
-    INFORMATIONAL-only + unparseable) → DEFERRED/score nulled/needs_deep_triage;
-    (b) severity-known-but-IOCs-un-enriched → DEFERRED naming the IOC counts.
-    "No data ≠ low risk" is CODE (the scorer emits it), not a prompt.
-  - Wired into `chat.py` ALERT_TRIAGE path: `render.py` compiles the code
-    verdict into an AUTHORITATIVE directive — the model renders ## Risk with the
-    code's level, not its own. Also MITIGATES TD-013 for alerts (model scores
-    the code verdict, not the raw untrusted paste).
-  - **Live-verified on Scout** (docs/probes/2026-07-18-s10-alert-triage-live.md):
-    rich CEF → CRITICAL(90), signal-poor CEF → DEFERRED — both rendered by Scout
-    with the code Risk level, done frame `contract_valid:true`, re-validated ok.
+- **S10 shipped (promote #12, on `main`):** `auspex/alerts/` — `normalize()`
+  detects CEF/LEEF/syslog/JSON → typed closed-vocab `AlertEnvelope`;
+  `score_alert()` = additive 0–100 itemized NAMED contributions; DEFERRED rail
+  (both SARA conditions + unparsed-always-defers from the S11 review); wired into
+  chat.py ALERT_TRIAGE with the AUTHORITATIVE code verdict (Risk PINNED at
+  validation). Live-verified on Scout (docs/probes/2026-07-18-s10-alert-triage-live.md).
+  Hardened by the 8 S11 Step-0 fixes above.
+- **S9 shipped (promote #11, on `main`):** `auspex/modes/` — code-owned
+  `resolve_mode` (format beats keywords), `ModeContract` compiling to directive
+  AND validator, 6-mode catalog with the `alert_triage` DEFERRED rail. TD-009
+  CLOSED (`_history` fences prior assistant turns).
 - **Deferred cleanly:** the ioc_check→KB-CVE-context stretch (parked 5×,
-  IDEAS.md sketch) — this is the enrichment that would set `has_enrichment=True`
-  on the score path (until then, every non-LOW score carries the pending-
-  enrichment tail); TD-012 (contract validation post-hoc, no re-ask loop);
-  TD-013 phishing-path portion (phishing_analysis has no normalizer yet);
-  TD-014 (unbounded history fetch).
+  IDEAS.md sketch) — the enrichment that would set `has_enrichment=True` on the
+  alert score path; TD-012 (contract validation post-hoc, no re-ask loop);
+  TD-014 (unbounded history fetch); TD-015 (S11 phishing heuristic coverage —
+  brand list, confusable set, naive registrable domain; false-negative biased).
 - **Primary dev LLM (D-015):** Llama-4-Scout via Northflank; secondary/offline
-  Ollama `qwen3:14b` (D-013). S10 parse+score is ZERO-LLM (hermetic fixtures);
-  only the alert_triage WIRING touches the LLM — live-verified against Scout.
-  TD-005 battery NOT re-triggered (S10 adds no doc_type, no model change).
-- **CI-green: 478 tests** (was 447 at S9 end: +11 S9-review regressions,
-  +18 alerts, +2 alert_triage wiring). `./ci.sh` green; container rebuilt with
-  the `auspex.alerts` package; `/api/health/ready` 200.
-
-## S9 shipped (promote #11, on `main` 2026-07-18)
-- `auspex/modes/` — code-owned `resolve_mode` (format beats keywords, ADR 0006),
-  `ModeContract` compiling to system directive AND validator (ADR 0007), 6-mode
-  catalog with the `alert_triage` DEFERRED rail from day one. Wired into
-  chat.py's DEEP path; `done` frame reports `{mode, contract_valid}`.
-- **TD-009 CLOSED:** `_history` fences prior assistant turns as `⟦DATA⟧` blocks
-  + system fence directive; embedded markers neutralized; user turns unfenced.
-- Hardened by the S10 Step-0 review (4 fixes above): resolver common-domain
-  exemption, validator header/enum/empty robustness, contract-drift log, honest
-  docs. Live-verified on Scout (brief + alert_triage DEFERRED).
+  Ollama `qwen3:14b` (D-013). S11 parse/score/verdict is ZERO-LLM (hermetic
+  fixtures); only the phishing_analysis WIRING touches the LLM — live-verified.
+  TD-005 battery NOT re-triggered (S11 adds no doc_type, no model change).
+- **CI-green: 516 tests** (measured at S12 start; S11's session-end note said
+  515 — a write-time miscount, not a lost test) (was 478 at S10 end: +12 S10-review regressions,
+  +21 phishing, +3 phishing SSE wiring, +1 email-paste routing). `./ci.sh` green;
+  container rebuilt with the `auspex.phishing` package; `/api/health/ready` 200.
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Run the S10 adversarial review, then `/promote` (#12)** — the S10 feature
-   work (`auspex/alerts/` normalizer+scorer+DEFERRED-rail+render, chat.py
-   alert_triage wiring, the 20 new tests) is on `staging`, CI-green,
-   live-verified, but UNREVIEWED. This is the S11 Step 0. Same 5-lens drill
-   (correctness, honesty/copy, security, test-hygiene, ops); verify findings by
-   execution before fixing. Review scope = what landed AFTER promote #11
-   (5f00f25): commits 40af4b9..HEAD on staging. Security lens should hammer the
-   normalizer parsers (CEF/LEEF escaping, syslog PRI, JSON flatten) on malformed/
-   adversarial input, and confirm the alert-path TD-013 mitigation actually holds
-   (can a crafted paste move the code Risk level?). DO NOT promote unreviewed
-   (the #9 mistake).
+1. **Run the S11 adversarial review, then `/promote` (#13)** — the S11 feature
+   work (`auspex/phishing/` parser+lookalike+verdict+victims+render, the
+   classifier email→DEEP fix, chat.py phishing wiring + the validator set-pin,
+   the 37 new tests) is on `staging`, CI-green, live-verified, but UNREVIEWED.
+   This is the S12 Step 0. Same 5-lens drill (correctness, honesty/copy,
+   security, test-hygiene, ops); verify findings by execution before fixing.
+   Review scope = what landed AFTER promote #12 (136992f): commits on staging
+   since. Push hard on: (security) can a crafted email move the code Verdict
+   floor, or slip a victim IOC through the filter, or crash the parser? does the
+   floor pin actually hold end-to-end? (correctness) auth-token placement edge
+   cases, the parseaddr display-spoof fallback, punycode/confusable folding, the
+   naive registrable-domain compound-TLD gap (TD-015); (honesty) the DEFERRED /
+   BENIGN-gate copy. DO NOT promote unreviewed (the #9 mistake).
 2. **TD-005 re-battery trigger (standing):** corpus > 30k chunks, ANY new
    doc_type, or embedding-model change → re-run the labeled battery
    (script pattern in the probe doc). Sigma/abuse.ch ingestion (parked in
-   IDEAS) trips this trigger by definition. (S10 added no doc_type — not tripped.)
+   IDEAS) trips this trigger by definition. (S11 added no doc_type — not tripped.)
 
 ## Blockers / open risks
 1. **TD-001 (OAuth identity keyed on email)** — hard gate before any
@@ -91,8 +129,9 @@ work on `staging` awaits an S11 Step-0 review + promote #12)_
    /api/chat; S9 modes shape the DEEP prompt + validate output, and S10
    alert_triage now feeds a CODE-computed Risk verdict, but neither EXECUTES
    tools/proposals. TD-012 tracks contract validation being post-hoc (no
-   re-ask/repair loop). TD-009 CLOSED; TD-013 alert-path MITIGATED in S10
-   (phishing-path portion still open); TD-014 (unbounded history) open.
+   re-ask/repair loop). TD-009 CLOSED; TD-013 MITIGATED for BOTH triage
+   (S10) and phishing (S11) paths — the code verdict is pinned, only free-prose
+   narration remains manipulable; TD-014 (unbounded history) open.
 3. **KB bootstrap needs outbound HTTPS once per fresh volume**; ingest needs
    NVD/CISA/FIRST/GitHub reachability — failures degrade honestly
    (watermarks hold, catch-up on recovery; ATT&CK/KEV phase failures are
@@ -112,10 +151,14 @@ work on `staging` awaits an S11 Step-0 review + promote #12)_
 - auspex-knowledge: ~3,417 chunks (seed 8 + live NVD/KEV/EPSS + 1,398
   ATT&CK). Index _meta carries the seed fingerprint; mapping now includes
   kev_listed (+1 additive upgrade, live-verified).
-- Ollama 0.24.0 on :11434; models qwen3:14b / llama3.1:8b / mistral:latest.
+- Ollama **0.32.5** on :11434 (was 0.24.0 at S11 — host upgraded between
+  sessions, verified S12 start); models qwen3:14b / llama3.1:8b / mistral:latest.
 - `gh` flips to SIRP-Burhan between sessions AND mid-session (D-011) —
-  re-check before EVERY `gh` call. At S10 start it was on the PERSONAL account
-  (bh3082336888-cell) and stayed there through promote #11.
+  re-check before EVERY `gh` call. At S11 start the ACTIVE account was already
+  PERSONAL (bh3082336888-cell) and stayed there through promote #12. **At S12
+  start it had flipped BACK to SIRP-Burhan** — caught by the ritual, switched
+  with `gh auth switch --user bh3082336888-cell`. The flip is the norm, not the
+  exception: re-check before every `gh` call this session too.
 - S8 demo turns (zero-LLM shortcuts, still valid): `what is T1059` /
   `what is T1055.011` / `what is credential access` (STIX-derived);
   `what is quantum entanglement` → honest miss; `check CVE-2026-58644`.
@@ -130,6 +173,15 @@ work on `staging` awaits an S11 Step-0 review + promote #12)_
   level, `contract_valid:true`. NOTE: `what is T1059` still shows markdown
   links in stored content until the next ATT&CK re-ingest (render-time MITRE
   notice already appears; markdown-strip is ingest-time).
+- **S11 demo turns (PHISHING_ANALYSIS, code-decided Verdict, live Scout):**
+  a spoofed auth-failing email (`From: "PayPal Support" <security@paypa1.com>`,
+  `Reply-To: recover@account-verify.ru`, spf/dkim/dmarc=fail, link paypa1.com)
+  → **MALICIOUS** (floor-locked; findings: 3 auth fails + reply-to mismatch +
+  display-name spoof + paypa1~paypal typosquat); an all-auth-pass email from
+  a normal sender → **BENIGN** (positive-evidence gate). Both `contract_valid:
+  true`; the recipient's own domain (acme.com) was NOT surfaced as an IOC.
+  A laundering attempt (body claims legitimacy) can't pull MALICIOUS→BENIGN
+  (the floor pin fails it, pinned hermetically).
 
 ## Reference intelligence (from the SARA Open architecture study, 2026-07-14)
 Base: `/home/burhan/sara-open/` (paths re-verified 2026-07-15):
@@ -145,12 +197,15 @@ Base: `/home/burhan/sara-open/` (paths re-verified 2026-07-15):
 - Alert additive scorer: /home/burhan/sara-open/sara/agents/alert_triage.py:1276-1590
   (re-snapshotted S10 → docs/probes/2026-07-18-sara-alert-triage-scorer.md;
   live source still present but may be cleaned)
+- Phishing / header / typosquat: /home/burhan/sara-open/sara/agents/phishing.py,
+  header_analysis.py, sara/core/typosquat.py (re-snapshotted S11 →
+  docs/probes/2026-07-18-sara-phishing-header-patterns.md)
 - Capability shape: /home/burhan/sara-open/sara/core/unified_registry.py:37
 
 ## Next session should
-Review the S10 feature work (multi-lens, verify by execution before fixing) →
-`/promote` (#12) → then S11 exactly as written in NEXT-SESSION.md (Phishing/
-header agent — deterministic SPF/DKIM/DMARC/typosquat/homograph checks injected
-as AUTHORITATIVE, LLM narrative on top, victim-domain IOC filtering). S11 is the
-phishing analogue of S10: the same "code decides, model renders" pattern applied
-to phishing_analysis — and it closes the still-open phishing portion of TD-013.
+Review the S11 feature work (multi-lens, verify by execution before fixing) →
+`/promote` (#13) → then S12 exactly as written in NEXT-SESSION.md (Hypothesis
+engine v1 / ACH — competing hypotheses per investigation, per-evidence scoring
+against each, next-lookup by expected information gain). S12 is a different shape
+from S9–S11 (not a "code decides, model renders" mode — a reasoning structure);
+scope it carefully at session start against ROADMAP.md.

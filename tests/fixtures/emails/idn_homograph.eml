@@ -1,0 +1,13 @@
+Received: from mail.xn--pypal-4ve.com (mail.xn--pypal-4ve.com [203.0.113.99])
+	by mx.acme.com with ESMTP id ghi012
+	for <user@acme.com>; Fri, 18 Jul 2026 06:30:00 +0000 (UTC)
+Authentication-Results: mx.acme.com;
+	spf=pass smtp.mailfrom=xn--pypal-4ve.com;
+	dkim=none;
+	dmarc=none
+From: Account Security <help@xn--pypal-4ve.com>
+To: user@acme.com
+Subject: Confirm your login
+Date: Fri, 18 Jul 2026 06:30:00 +0000
+
+Please confirm your recent login attempt.

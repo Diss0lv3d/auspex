@@ -1,0 +1,18 @@
+Delivered-To: victim@acme.com
+Received: from unknown (mail.paypa1.com [198.51.100.7])
+	by mx.acme.com with ESMTP id xyz789
+	for <victim@acme.com>; Fri, 18 Jul 2026 03:14:00 +0000 (UTC)
+Authentication-Results: mx.acme.com;
+	spf=fail (mx.acme.com: domain of security@paypa1.com does not designate 198.51.100.7 as permitted sender) smtp.mailfrom=security@paypa1.com;
+	dkim=fail header.i=@paypa1.com;
+	dmarc=fail (p=NONE sp=NONE dis=NONE) header.from=paypa1.com
+From: "PayPal Support" <security@paypa1.com>
+Reply-To: recover@account-verify.ru
+Return-Path: <bounce@paypa1.com>
+To: victim@acme.com
+Subject: Your account has been limited - action required
+Date: Fri, 18 Jul 2026 03:14:00 +0000
+
+Your PayPal account has been limited. Confirm your identity at
+http://paypa1.com/verify to restore access. Failure to act within 24 hours
+will result in permanent suspension.
