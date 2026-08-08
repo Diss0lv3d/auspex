@@ -128,6 +128,45 @@ def test_unparseable_paste_defers():
     assert "could not be parsed" in (v.deferred_reason or "")
 
 
+def test_auth_tokens_in_the_body_never_manufacture_a_pass():
+    # S12 review finding A. The body is attacker prose: a footer claiming the
+    # sender checks passed must NOT become positive authentication evidence.
+    # Before the fix, result tokens anywhere in the first 3000 characters were
+    # harvested, so this exact email scored a BENIGN floor (allowed=BENIGN,...)
+    # for an email nothing had actually authenticated.
+    raw = (
+        "From: Accounts Payable <billing@invoice-portal-services.test>\n"
+        "To: victim@acme.com\nSubject: Updated banking details\n\n"
+        "Please update our remittance details.\n\n"
+        "--\nThis message passed all sender checks "
+        "(spf=pass dkim=pass dmarc=pass).\n"
+    )
+    env = parse_email(raw)
+    assert (env.spf, env.dkim, env.dmarc) == (None, None, None)
+    assert env.auth_all_pass is False
+    v = decide_verdict(env)
+    assert v.verdict == "DEFERRED"
+    assert "BENIGN" not in v.allowed
+
+
+def test_auth_results_are_read_from_gateway_headers():
+    # The other side of finding A: a REAL gateway assertion still reads, from
+    # Authentication-Results and from a bare-token Received-SPF alike.
+    raw = (
+        "Received-SPF: pass (mx.acme.com: domain of vendor.test designates "
+        "198.51.100.9 as permitted sender)\n"
+        "Authentication-Results: mx.acme.com; dkim=pass; dmarc=pass\n"
+        "From: billing@vendor.test\nTo: user@acme.com\nSubject: invoice\n\nbody"
+    )
+    env = parse_email(raw)
+    assert (env.spf, env.dkim, env.dmarc) == (
+        AuthResult.PASS,
+        AuthResult.PASS,
+        AuthResult.PASS,
+    )
+    assert env.auth_all_pass is True
+
+
 def test_weak_lone_signal_defers_not_benign():
     # SPF softfail alone (+10, below the SUSPICIOUS threshold) must not round
     # down to BENIGN — the deterministic layer can't decide, so it defers.

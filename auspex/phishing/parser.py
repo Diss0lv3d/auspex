@@ -7,8 +7,8 @@ raises.
 
 Recovers: From (display + address), Reply-To, Return-Path, recipients
 (To/Cc/Delivered-To/X-Original-To — the victim side), Subject, SPF/DKIM/DMARC
-results (Authentication-Results / Received-SPF, result-token regexes tolerant
-of placement), Received count, and NAMED header anomalies (multiple From,
+results (from the receiving gateway's auth-bearing HEADERS only — never the
+body, see `_auth`), Received count, and NAMED header anomalies (multiple From,
 control characters, invisible Unicode, deceptive encoded-words). IOCs reuse
 the observable extractor uniformly over the whole paste.
 Reference: docs/probes/2026-07-18-sara-phishing-header-patterns.md §1.
@@ -32,8 +32,17 @@ _RESULT_TOKENS = "|".join(r.value for r in AuthResult)
 _SPF_RE = re.compile(rf"\bspf=({_RESULT_TOKENS})\b", re.IGNORECASE)
 _DKIM_RE = re.compile(rf"\bdkim=({_RESULT_TOKENS})\b", re.IGNORECASE)
 _DMARC_RE = re.compile(rf"\bdmarc=({_RESULT_TOKENS})\b", re.IGNORECASE)
-_RECEIVED_SPF_RE = re.compile(
-    rf"^Received-SPF[ \t]*:[ \t]*({_RESULT_TOKENS})\b", re.IGNORECASE | re.MULTILINE
+# A Received-SPF value opens with its bare result token ("pass (domain of ...)").
+_RESULT_HEAD_RE = re.compile(rf"^({_RESULT_TOKENS})\b", re.IGNORECASE)
+
+# The ONLY headers an authentication result may be read from — all of them are
+# stamped by the RECEIVING gateway, not by the sender. See `_auth`.
+_AUTH_HEADERS = (
+    "authentication-results",
+    "arc-authentication-results",
+    "x-authentication-results",
+    "received-spf",
+    "received",
 )
 
 _ENCODED_WORD_RE = re.compile(r"=\?[^?]+\?[BbQq]\?[^?]*\?=")
@@ -81,19 +90,29 @@ def _domain_of(addr: str | None) -> str | None:
     return addr.rsplit("@", 1)[-1].lower().strip(".>") or None
 
 
-def _auth(text: str, headers: dict[str, str]) -> tuple[AuthResult | None, ...]:
-    """SPF/DKIM/DMARC result tokens. Prefer Authentication-Results headers;
-    fall back to result tokens anywhere in the head of the paste (forwarded
-    reports paste them loose), then Received-SPF for SPF."""
-    auth_src = headers.get("authentication-results") or headers.get("arc-authentication-results")
-    scope = auth_src if auth_src else text[:3000]
+def _auth(headers: dict[str, str]) -> tuple[AuthResult | None, ...]:
+    """SPF/DKIM/DMARC result tokens, read ONLY from the auth-bearing headers a
+    receiving gateway stamps (`_AUTH_HEADERS`).
+
+    An authentication result is an assertion by the receiver, and it lives in a
+    header the receiver prepended — so first-wins header order (`_parse`) picks
+    the gateway's verdict over any the sender forged lower down. The message
+    BODY is attacker prose: a footer reading "this message passed all sender
+    checks (spf=pass dkim=pass dmarc=pass)" must never become positive
+    authentication evidence. The previous free-text fallback (result tokens
+    anywhere in the first 3000 characters) let exactly that manufacture a BENIGN
+    floor out of an unauthenticated email — S12 review finding A, verified by
+    execution. Absence now stays absence, which the verdict layer maps to
+    DEFERRED, never BENIGN."""
+    scope = "\n".join(headers[h] for h in _AUTH_HEADERS if headers.get(h))
     spf = _SPF_RE.search(scope)
     dkim = _DKIM_RE.search(scope)
     dmarc = _DMARC_RE.search(scope)
     spf_result = AuthResult(spf.group(1).lower()) if spf else None
-    if spf_result is None:
-        rspf = _RECEIVED_SPF_RE.search(text)
-        spf_result = AuthResult(rspf.group(1).lower()) if rspf else None
+    if spf_result is None and (rspf := headers.get("received-spf")):
+        # Received-SPF carries a bare leading token, not `spf=<token>`.
+        m = _RESULT_HEAD_RE.match(rspf)
+        spf_result = AuthResult(m.group(1).lower()) if m else None
     return (
         spf_result,
         AuthResult(dkim.group(1).lower()) if dkim else None,
@@ -171,7 +190,7 @@ def _parse(text: str) -> EmailEnvelope:
     recipient_domains = tuple(dict.fromkeys(d for a in recipients if (d := _domain_of(a))))
 
     decoded_subject = _decode_2047(headers.get("subject", ""))
-    spf, dkim, dmarc = _auth(text, headers)
+    spf, dkim, dmarc = _auth(headers)
 
     iocs = tuple(
         o for o in extract(text).observables if o.type is not ObservableType.CVE
