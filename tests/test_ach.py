@@ -125,18 +125,63 @@ def test_email_evidence_reuses_the_s11_findings():
     env = parse_email(_load("failing_typosquat.eml"))
     verdict = decide_verdict(env)
     evidence = evidence_from_email(env, verdict)
-    kinds = {e.kind for e in evidence}
-    assert EvidenceKind.EMAIL_AUTH_FAIL in kinds
+    kinds = [e.kind for e in evidence]
+    # ONE collapsed auth row — SPF/DKIM/DMARC are one gateway assertion, not
+    # three independent contradictions (S12 verification finding 7)
+    assert kinds.count(EvidenceKind.EMAIL_AUTH_FAIL) == 1
     assert EvidenceKind.EMAIL_LOOKALIKE_DOMAIN in kinds
     # no positive-auth evidence on a failing email
     assert EvidenceKind.EMAIL_AUTH_PASS not in kinds
-    # statements are the S11 finding details, not re-derived text
+    # non-auth statements are the S11 finding details verbatim; the auth
+    # statement carries every collapsed detail
     detail_set = {f.detail for f in verdict.findings}
+    auth_row = next(e for e in evidence if e.kind is EvidenceKind.EMAIL_AUTH_FAIL)
+    assert auth_row.credibility == 0.9
     assert all(
         e.statement in detail_set
         for e in evidence
-        if e.kind is not EvidenceKind.EMAIL_AUTH_PASS
+        if e.kind is not EvidenceKind.EMAIL_AUTH_FAIL
     )
+    for f in verdict.findings:
+        if f.type.value.startswith(("spf_", "dkim_", "dmarc_")):
+            assert f.detail in auth_row.statement
+
+
+def test_forwarded_legit_email_does_not_reject_benign():
+    """S12 verification finding 7: the canonical forwarding signature
+    (spf=softfail; dkim=fail; dmarc=fail) previously produced 3 hard
+    contradictions from one header line and PERMANENTLY rejected the exact
+    hypothesis whose label covers ESP mediation/forwarding. Collapsed, it is
+    one contradiction — BENIGN stays alive for enrichment to adjudicate."""
+    raw = (
+        "From: newsletter@vendor-updates.test\nTo: user@acme.com\n"
+        "Subject: your weekly digest\n"
+        "Authentication-Results: mx.acme.com; spf=softfail; dkim=fail; dmarc=fail\n"
+        "Received: from forwarder by mx.acme.com\n\nthe digest"
+    )
+    env = parse_email(raw)
+    verdict = decide_verdict(env)
+    evidence = evidence_from_email(env, verdict)
+    assert [e.kind for e in evidence].count(EvidenceKind.EMAIL_AUTH_FAIL) == 1
+    a = score_matrix(seed_hypotheses(SubjectKind.EMAIL), evidence)
+    benign = next(
+        s for s in a.scores if s.hypothesis.key is HypothesisKey.BENIGN_ACTIVITY
+    )
+    assert benign.status == "surviving"
+
+
+def test_softfail_alone_stays_below_the_hard_contradiction_bar():
+    raw = (
+        "From: b@vendor.test\nTo: u@acme.com\nSubject: hi\n"
+        "Authentication-Results: mx; spf=softfail; dkim=none; dmarc=none\n"
+        "Received: a\n\nbody"
+    )
+    env = parse_email(raw)
+    evidence = evidence_from_email(env, decide_verdict(env))
+    auth = next(e for e in evidence if e.kind is EvidenceKind.EMAIL_AUTH_FAIL)
+    assert auth.credibility == 0.5  # a forwarding artifact until corroborated
+    a = score_matrix(seed_hypotheses(SubjectKind.EMAIL), evidence)
+    assert all(s.hard_contradictions == 0 for s in a.scores)
 
 
 def test_auth_passing_email_yields_positive_evidence_only():

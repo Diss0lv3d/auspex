@@ -191,12 +191,30 @@ _FINDING_CREDIBILITY: Mapping[str, float] = MappingProxyType(
 _AUTH_PASS_CREDIBILITY = 0.9  # gateway-stamped (S12 review A/H hardened)
 
 
+_AUTH_FINDING_TYPES = frozenset(
+    {FindingType.SPF_FAIL, FindingType.DKIM_FAIL, FindingType.DMARC_FAIL}
+)
+_SOFTFAIL_CREDIBILITY = 0.5  # a softfail alone is a forwarding artifact, not a spoof proof
+
+
 def evidence_from_email(env: EmailEnvelope, verdict: PhishingVerdict) -> tuple[Evidence, ...]:
     """Deterministic ACH evidence from a parsed email + its S11 findings. The
     findings are reused verbatim (detection stays in phishing/*); this adapter
-    only assigns the ACH direction vector per finding type."""
+    only assigns the ACH direction vector per finding type.
+
+    Authentication results collapse into ONE evidence row: SPF/DKIM/DMARC
+    verdicts are correlated facts from one gateway assertion (DMARC failure is
+    largely entailed by SPF+DKIM failure), and the matrix treats rows as
+    independent — three separate −2 rows at 0.9 turned a single header line
+    into three "hard contradictions" that permanently rejected exactly the
+    hypothesis meant to cover forwarding/ESP artifacts (S12 verification,
+    finding 7). One row keeps the same direction with honest magnitude: a
+    hard-fail set carries 0.9; a lone softfail carries 0.5 (below the
+    hard-contradiction bar — it is a forwarding artifact until corroborated)."""
     if not env.parsed:
         return ()
+    auth = [f for f in verdict.findings if f.type in _FINDING_KINDS and
+            _FINDING_KINDS[f.type] is EvidenceKind.EMAIL_AUTH_FAIL]
     out: list[Evidence] = [
         _make(
             _FINDING_KINDS[f.type],
@@ -206,7 +224,24 @@ def evidence_from_email(env: EmailEnvelope, verdict: PhishingVerdict) -> tuple[E
         )
         for f in verdict.findings
         if f.type in _FINDING_KINDS
+        and _FINDING_KINDS[f.type] is not EvidenceKind.EMAIL_AUTH_FAIL
     ]
+    if auth:
+        hard = [f for f in auth if f.type in _AUTH_FINDING_TYPES]
+        credibility = (
+            max(_FINDING_CREDIBILITY.get(f.confidence, 0.5) for f in hard)
+            if hard
+            else _SOFTFAIL_CREDIBILITY
+        )
+        out.insert(
+            0,
+            _make(
+                EvidenceKind.EMAIL_AUTH_FAIL,
+                "; ".join(f.detail for f in auth)[:_MAX_STATEMENT],
+                credibility,
+                "phishing:auth",
+            ),
+        )
     # Positive auth evidence exists only when the S11 BENIGN gate would accept
     # it — same predicate, so ACH can never see "auth passed" where the
     # phishing verdict would not.
