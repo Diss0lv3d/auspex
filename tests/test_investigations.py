@@ -297,8 +297,14 @@ def test_store_roundtrip_preserves_hard_contradictions(client, settings):
     load path now rounds to the 3dp _make writes."""
     import asyncio
 
-    from auspex.ach import Evidence, EvidenceKind, HypothesisKey, SubjectKind
-    from auspex.ach import score_matrix, seed_hypotheses
+    from auspex.ach import (
+        Evidence,
+        EvidenceKind,
+        HypothesisKey,
+        SubjectKind,
+        score_matrix,
+        seed_hypotheses,
+    )
     from auspex.ach.store import create_investigation, load_investigation
 
     hyps = seed_hypotheses(SubjectKind.EMAIL)
@@ -358,8 +364,7 @@ def test_store_tolerates_retired_evidence_kind_and_guards_ownership(client, sett
     import asyncio
     from uuid import uuid4
 
-    from auspex.ach import Evidence, EvidenceKind, HypothesisKey, SubjectKind
-    from auspex.ach import seed_hypotheses
+    from auspex.ach import Evidence, EvidenceKind, HypothesisKey, SubjectKind, seed_hypotheses
     from auspex.ach.store import add_evidence, create_investigation, load_investigation
 
     async def _run():

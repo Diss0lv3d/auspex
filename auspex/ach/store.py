@@ -22,8 +22,6 @@ from uuid import UUID
 
 import asyncpg
 
-logger = logging.getLogger(__name__)
-
 from auspex.ach.types import (
     Cell,
     Evidence,
@@ -32,6 +30,8 @@ from auspex.ach.types import (
     HypothesisKey,
     SubjectKind,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
