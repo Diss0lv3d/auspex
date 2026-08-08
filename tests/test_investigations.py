@@ -390,6 +390,9 @@ def test_store_roundtrip_preserves_hard_contradictions(client, settings):
 
     rec = asyncio.run(_roundtrip())
     assert all(e.credibility == 0.7 for e in rec.evidence)
+    # S13: loaded evidence carries its row uuid — the stable citation identity
+    assert all(e.evidence_id for e in rec.evidence)
+    assert len({e.evidence_id for e in rec.evidence}) == len(rec.evidence)
     after = score_matrix(rec.hypotheses, rec.evidence)
     for b, a in zip(before.scores, after.scores, strict=True):
         assert b.hypothesis.key == a.hypothesis.key
@@ -741,3 +744,110 @@ def test_two_workspace_tenancy_end_to_end(client, settings):
         assert client.get(f"/api/investigations/{inv_b}", headers=_hdr(client)).status_code == 404
     finally:
         asyncio.run(_rm_b(ws_b))
+
+
+# -- S13: cited summary rendering ----------------------------------------------
+
+
+class _FakeSummaryLLM:
+    """A canned non-streaming endpoint for the summary seam."""
+
+    def __init__(self, answer: str):
+        self.answer = answer
+        self.closed = False
+
+    async def chat(self, messages, *, max_tokens=None, temperature=None):
+        from auspex.llm.client import ChatResult
+
+        return ChatResult(content=self.answer, tool_calls=[], finish_reason="stop", usage=None)
+
+    async def aclose(self):
+        self.closed = True
+
+
+def _summary(client, inv_id: str, fake):
+    from auspex.routes.investigations import get_summary_client_factory
+
+    client.app.dependency_overrides[get_summary_client_factory] = lambda: (lambda: fake)
+    try:
+        return client.post(f"/api/investigations/{inv_id}/summary", headers=_hdr(client))
+    finally:
+        client.app.dependency_overrides.clear()
+
+
+def test_summary_valid_contract_and_citations(client):
+    created = _create(client, EMAIL_PASTE)
+    top_key = created["hypotheses"][0]["key"].upper().replace("_", "-")
+    cites = [e["cite"] for e in created["evidence"] if e["cite"]]
+    assert cites, "stored evidence must carry citation labels"
+    answer = (
+        f"## Leading hypothesis\n{top_key} — the evidence points one way [{cites[0]}]\n"
+        "## Competing hypotheses\n"
+        + "\n".join(f"- {h['key']} is {h['status']} [{cites[0]}]" for h in created["hypotheses"])
+        + f"\n## Key evidence\n- the lookalike domain discriminates [{cites[-1]}]\n"
+        "## Next lookup\nenrich the top-ranked observable next\n"
+    )
+    fake = _FakeSummaryLLM(answer)
+    resp = _summary(client, created["investigation_id"], fake)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["mode"] == "investigation_summary"
+    assert body["contract_valid"] is True
+    assert body["pinned"] == {"Leading hypothesis": top_key}
+    assert body["citations"]["ok"] is True
+    assert body["citations"]["unknown"] == []
+    assert body["citations"]["uncited_lines"] == []
+    assert set(body["citation_map"]) == {e["cite"] for e in created["evidence"] if e["cite"]}
+    assert fake.closed  # the seam client is always closed
+
+
+def test_summary_guard_flags_fabricated_and_uncited_claims(client):
+    created = _create(client, EMAIL_PASTE)
+    top_key = created["hypotheses"][0]["key"].upper().replace("_", "-")
+    answer = (
+        f"## Leading hypothesis\n{top_key} — because [E-ffffffff]\n"
+        "## Competing hypotheses\n- all four are doing fine, trust me\n"
+        "## Key evidence\n- something something\n"
+        "## Next lookup\nnothing\n"
+    )
+    resp = _summary(client, created["investigation_id"], _FakeSummaryLLM(answer))
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["contract_valid"] is True  # structurally conformant…
+    assert body["citations"]["ok"] is False  # …but the guard names both sins
+    assert body["citations"]["unknown"] == ["E-ffffffff"]
+    assert len(body["citations"]["uncited_lines"]) == 2
+
+
+def test_summary_pin_catches_a_laundered_leader(client):
+    created = _create(client, EMAIL_PASTE)
+    cites = [e["cite"] for e in created["evidence"] if e["cite"]]
+    answer = (
+        f"## Leading hypothesis\nBENIGN-ACTIVITY — looks fine [{cites[0]}]\n"
+        f"## Competing hypotheses\n- all surviving [{cites[0]}]\n"
+        f"## Key evidence\n- auth failures [{cites[0]}]\n"
+        "## Next lookup\nnone\n"
+    )
+    resp = _summary(client, created["investigation_id"], _FakeSummaryLLM(answer))
+    body = resp.json()
+    # the flagship email leads TRUE-POSITIVE or TEST-ACTIVITY, never BENIGN
+    assert body["contract_valid"] is False
+    assert "code-verdict mismatch" in body["contract_reason"]
+
+
+def test_summary_unknown_investigation_is_404_and_builds_no_client(client):
+    calls = []
+
+    def _factory():
+        calls.append(1)
+        raise AssertionError("factory must not run for a 404")
+
+    from auspex.routes.investigations import get_summary_client_factory
+
+    client.app.dependency_overrides[get_summary_client_factory] = lambda: _factory
+    try:
+        resp = client.post(f"/api/investigations/{uuid4()}/summary", headers=_hdr(client))
+    finally:
+        client.app.dependency_overrides.clear()
+    assert resp.status_code == 404
+    assert calls == []

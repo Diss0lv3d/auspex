@@ -38,6 +38,12 @@ from auspex.ach import (
     score_matrix,
     seed_hypotheses,
 )
+from auspex.ach.render import (
+    SUMMARY_CONTRACT,
+    check_citations,
+    citation_labels,
+    investigation_directive,
+)
 from auspex.ach.store import (
     InvestigationRecord,
     add_evidence,
@@ -49,6 +55,7 @@ from auspex.auth import AuthContext, resolve_user
 from auspex.classify.classifier import _is_alert_paste, _is_email_paste
 from auspex.classify.observables import Observable, ObservableType, observable_id
 from auspex.enrich import EnrichmentService, persist_enrichment
+from auspex.llm.client import LLMClient, LLMError
 from auspex.phishing import decide_verdict, parse_email
 from auspex.phishing.victims import filter_victim_iocs
 
@@ -160,6 +167,10 @@ def _assess(record: InvestigationRecord) -> tuple[AchAssessment, LookupPlan]:
 
 def _render(record: InvestigationRecord) -> dict:
     assessment, plan = _assess(record)
+    # Citation identity (S13): stable per-row labels derived from the
+    # ach_evidence uuid — what the cited summary and the citation guard
+    # resolve against.
+    cite_by_id = {v: k for k, v in citation_labels(record.evidence).items()}
     return {
         "investigation_id": str(record.investigation_id),
         "subject_kind": record.subject_kind.value,
@@ -187,6 +198,8 @@ def _render(record: InvestigationRecord) -> dict:
         ],
         "evidence": [
             {
+                "evidence_id": r.evidence.evidence_id,
+                "cite": cite_by_id.get(r.evidence.evidence_id or ""),
                 "kind": r.evidence.kind.value,
                 "statement": r.evidence.statement,
                 "credibility": r.evidence.credibility,
@@ -382,3 +395,116 @@ async def run_lookup(
         "provider_failures": len(outcome.provider_failures),
     }
     return rendered
+
+
+# -- S13: cited model rendering ------------------------------------------------
+
+SUMMARY_SYSTEM_PROMPT = (
+    "You are Auspex, a calm, precise security operations co-analyst. Answer "
+    "concisely and analyst-to-analyst. If you are unsure, say so."
+)
+SUMMARY_MAX_TOKENS = 1500
+
+
+async def get_summary_client_factory(request: Request):
+    """The endpoint the summary renders against (the overridable test seam,
+    chat's lazy-resolver shape): building the LLMClient (an httpx client)
+    is deferred until the handler has passed its 404/tenancy checks, so a
+    refused request never constructs a client it would have to close. The
+    configured default only — the dev model switcher is a chat affordance,
+    not an investigations one."""
+    settings = request.app.state.settings
+
+    def _build() -> LLMClient:
+        if not settings.llm_base_url:
+            raise HTTPException(status_code=503, detail="LLM endpoint not configured")
+        return LLMClient.from_settings(settings)
+
+    return _build
+
+
+@router.post("/{investigation_id}/summary")
+async def render_summary(
+    request: Request,
+    investigation_id: UUID,
+    auth: Auth,
+    llm_factory: Annotated[object, Depends(get_summary_client_factory)],
+) -> dict:
+    """Render a model-written, citation-carrying summary of the investigation
+    (S13 — the first LLM call anywhere on the investigations surface).
+
+    Division of labor is the S10/S11 pattern: CODE decides the matrix, the
+    lookup plan, the leading hypothesis (pinned), and the citation ids; the
+    MODEL narrates around them. Validation is post-hoc (TD-012): the contract
+    check and the citation guard DETECT drift and report it in this response
+    (`contract_valid`, `citations.ok`) — they do not prevent it. Nothing here
+    is persisted; like every other read, the summary is recomputed on demand
+    from stored inputs."""
+    record = await load_investigation(
+        request.app.state.pool,
+        workspace_id=auth.workspace_id,
+        investigation_id=investigation_id,
+    )
+    if record is None:
+        raise HTTPException(status_code=404, detail="Unknown investigation")
+
+    assessment, plan = _assess(record)
+    bundle = investigation_directive(record, assessment, plan)
+    messages = [
+        {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
+        {"role": "system", "content": SUMMARY_CONTRACT.system_directive()},
+        {"role": "system", "content": bundle.text},
+        {"role": "user", "content": "Render the investigation summary now."},
+    ]
+    llm: LLMClient = llm_factory()
+    try:
+        result = await llm.chat(messages, max_tokens=SUMMARY_MAX_TOKENS, temperature=0)
+    except LLMError as err:
+        raise HTTPException(status_code=502, detail=f"LLM endpoint error: {err}") from err
+    finally:
+        await llm.aclose()
+
+    answer = result.content or ""
+    contract_result = (
+        SUMMARY_CONTRACT.validate(answer, pinned=bundle.pinned) if answer else None
+    )
+    citations = check_citations(answer, bundle.citations) if answer else None
+    if (contract_result and not contract_result.ok) or (citations and not citations.ok):
+        # Structural reasons only — never the answer text (it derives from
+        # tenant/attacker data; org data-handling rule, chat.py precedent).
+        logger.info(
+            "summary drift: contract=%s citations=%s",
+            contract_result.reason() if contract_result else "empty",
+            citations.reason() if citations else "empty",
+        )
+    return {
+        "investigation_id": str(record.investigation_id),
+        "mode": SUMMARY_CONTRACT.name,
+        "summary": answer,
+        "contract_valid": contract_result.ok if contract_result else None,
+        "contract_reason": contract_result.reason() if contract_result else None,
+        "pinned": bundle.pinned,
+        "citations": (
+            {
+                "ok": citations.ok,
+                "reason": citations.reason(),
+                "cited_valid": citations.cited_valid,
+                "unknown": list(citations.unknown),
+                "uncited_lines": list(citations.uncited_lines),
+                "sections_checked": list(citations.sections_checked),
+            }
+            if citations
+            else None
+        ),
+        "citation_map": dict(bundle.citations),
+        "finish_reason": result.finish_reason,
+        "usage": (
+            {
+                "prompt_tokens": result.usage.prompt_tokens,
+                "completion_tokens": result.usage.completion_tokens,
+                "total_tokens": result.usage.total_tokens,
+            }
+            if result.usage
+            else None
+        ),
+    }
