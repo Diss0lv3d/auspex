@@ -21,7 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from auspex.phishing.envelope import AuthResult, EmailEnvelope, Finding, FindingType
-from auspex.phishing.lookalike import check_domain, registrable_domain
+from auspex.phishing.lookalike import check_domain, is_brand_host, registrable_domain
 
 _MALICIOUS_AT = 70
 _SUSPICIOUS_AT = 20
@@ -119,9 +119,10 @@ def _display_name_findings(env: EmailEnvelope) -> list[Finding]:
     # brand's ("PayPal Support <x@evil.ru>"). MEDIUM: ESP-mediated legitimate
     # mail can look like this; the finding names the tension, enrichment or the
     # analyst resolves it.
-    reg = registrable_domain(env.from_domain) if env.from_domain else ""
-    for brand, allowed in BRAND_ALLOWLIST.items():
-        if re.search(rf"\b{re.escape(brand)}\b", display) and reg not in allowed:
+    for brand in BRAND_ALLOWLIST:
+        if re.search(rf"\b{re.escape(brand)}\b", display) and not is_brand_host(
+            env.from_domain or "", brand
+        ):
             out.append(
                 Finding(
                     FindingType.DISPLAY_NAME_SPOOF,

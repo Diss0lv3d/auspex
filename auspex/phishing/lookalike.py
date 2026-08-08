@@ -43,17 +43,76 @@ _CONFUSABLES = str.maketrans(
 _LATIN = set("abcdefghijklmnopqrstuvwxyz")
 
 
+# Multi-label public suffixes — the compound ccTLD second levels that real
+# brands and real victims sit under. A curated code constant, like BRAND_ALLOWLIST
+# (TD-015 path-to-fix item 3, partially closed): not the full Public Suffix List,
+# but the commercially common set. Reading `amazon.co.uk` as registrable domain
+# "co.uk" was not the harmless false-negative bias TD-015 claimed — it made every
+# .co.uk address collapse onto one "domain" (S12 review D/E).
+_MULTI_LABEL_SUFFIXES = frozenset(
+    {
+        "co.uk", "org.uk", "ac.uk", "gov.uk", "me.uk", "net.uk", "sch.uk", "ltd.uk", "plc.uk",
+        "com.au", "net.au", "org.au", "edu.au", "gov.au", "id.au",
+        "co.nz", "net.nz", "org.nz", "ac.nz", "govt.nz",
+        "co.jp", "or.jp", "ne.jp", "ac.jp", "go.jp",
+        "co.kr", "or.kr", "ne.kr",
+        "co.in", "net.in", "org.in", "gov.in", "ac.in",
+        "co.za", "org.za", "net.za", "gov.za",
+        "co.il", "org.il", "net.il", "ac.il",
+        "co.th", "in.th", "co.id", "or.id", "web.id",
+        "com.br", "com.mx", "com.ar", "com.co", "com.pe", "com.ve",
+        "com.tr", "com.cn", "com.hk", "com.tw", "com.sg", "com.my", "com.ph", "com.vn",
+        "com.pk", "com.bd", "com.np", "com.lk",
+        "com.eg", "com.sa", "com.qa", "com.kw", "com.bh", "com.om", "com.jo", "com.lb",
+        "com.ng", "com.gh", "com.ua", "com.pl", "com.ro", "com.gr", "com.cy", "com.mt",
+        "com.es", "com.pt", "com.it", "com.de", "com.fr", "com.ru",
+    }
+)
+
+
+def _suffix_labels(parts: list[str]) -> int:
+    """How many trailing labels form the public suffix — 2 for a compound
+    ccTLD suffix (co.uk), else 1."""
+    if len(parts) >= 3 and ".".join(parts[-2:]) in _MULTI_LABEL_SUFFIXES:
+        return 2
+    return 1
+
+
 def registrable_domain(fqdn: str) -> str:
-    """Naive registrable domain (last two labels). Wrong for compound TLDs
-    (co.uk) — accepted: every allow-listed brand uses a single-label TLD, so
-    the failure mode is a false negative, never a false positive (SARA note)."""
+    """The registered domain: the public suffix plus the one label to its left.
+    Compound-suffix aware (`amazon.co.uk` → `amazon.co.uk`, not `co.uk`).
+
+    Coverage is still the curated `_MULTI_LABEL_SUFFIXES` set, so an exotic
+    suffix outside it degrades the way the naive version always did — but for
+    the suffixes real mail uses, this is now correct rather than
+    optimistically-wrong."""
     parts = fqdn.lower().strip(".").split(".")
-    return fqdn.lower() if len(parts) < 2 else ".".join(parts[-2:])
+    want = _suffix_labels(parts) + 1
+    return ".".join(parts[-want:]) if len(parts) >= want else ".".join(parts)
 
 
 def _sld(fqdn: str) -> str:
+    """The registered label — the one a brand name would occupy."""
     parts = fqdn.lower().strip(".").split(".")
-    return "" if len(parts) < 2 else parts[-2]
+    want = _suffix_labels(parts) + 1
+    return parts[-want] if len(parts) >= want else ""
+
+
+def is_brand_host(fqdn: str, brand: str) -> bool:
+    """Whether `fqdn` is the brand's OWN host: its registrable domain is on the
+    brand's canonical list, or it is `<brand>.<compound ccTLD suffix>` — the
+    brand's country presence (`amazon.co.uk`, `hsbc.co.uk`), which the canonical
+    list does not enumerate and should not have to.
+
+    A single-label TLD off the canonical list (`amazon.net`, `paypal.xyz`) is
+    NOT a brand host — that stays a TLD swap, because it is the shape attackers
+    actually register. The ccTLD allowance is deliberately false-negative biased
+    in the documented direction (TD-015)."""
+    reg = registrable_domain(fqdn)
+    if reg in BRAND_ALLOWLIST.get(brand, frozenset()):
+        return True
+    parts = reg.split(".")
+    return len(parts) >= 3 and parts[0] == brand and ".".join(parts[1:]) in _MULTI_LABEL_SUFFIXES
 
 
 def damerau_levenshtein(a: str, b: str, cap: int = 3) -> int:
@@ -157,7 +216,7 @@ def check_domain(fqdn: str | None) -> tuple[Finding, ...]:
         return tuple(findings)
 
     # Legitimate brand host → nothing else to flag (subdomains included).
-    if sld in BRAND_ALLOWLIST and registrable in BRAND_ALLOWLIST[sld]:
+    if sld in BRAND_ALLOWLIST and is_brand_host(ascii_fqdn, sld):
         return tuple(findings)
 
     # ── class 1: TLD swap ────────────────────────────────────────────────────
@@ -194,10 +253,10 @@ def check_domain(fqdn: str | None) -> tuple[Finding, ...]:
             )
 
     # ── class 4: brand as a non-registrable label ────────────────────────────
-    bait = next(
-        (lab for lab in ascii_fqdn.split(".")[:-2] if lab in BRAND_ALLOWLIST),
-        None,
-    )
+    # Everything left of the registrable domain — computed from its label count,
+    # so `amazon.co.uk` has NO prefix labels and cannot bait against itself.
+    prefix = ascii_fqdn.split(".")[: -(registrable.count(".") + 1)]
+    bait = next((lab for lab in prefix if lab in BRAND_ALLOWLIST), None)
     if bait is not None:
         findings.append(
             Finding(

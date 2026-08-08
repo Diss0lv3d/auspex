@@ -206,6 +206,67 @@ def test_idn_homograph_punycode_and_raw_confusable():
     assert check_domain("аpple.com")[0].type is FindingType.HOMOGRAPH
 
 
+def test_brand_country_domains_are_not_lookalikes():
+    # S12 review finding D. The naive last-two-labels registrable domain read
+    # amazon.co.uk as "co.uk", so the brand label looked like subdomain bait:
+    # a genuine, fully auth-passing Amazon UK mail scored 35 → SUSPICIOUS.
+    for good in ("amazon.co.uk", "paypal.co.uk", "hsbc.co.uk", "barclays.co.uk",
+                 "google.co.uk", "amazon.com.au", "login.paypal.co.uk"):
+        assert check_domain(good) == (), good
+    raw = (
+        "From: Amazon <auto-confirm@amazon.co.uk>\nTo: customer@acme.com\n"
+        "Subject: Your order has dispatched\n"
+        "Authentication-Results: mx.acme.com; spf=pass dkim=pass dmarc=pass\n\nshipped."
+    )
+    v = decide_verdict(parse_email(raw))
+    assert v.verdict == "BENIGN"
+    assert v.findings == ()
+
+
+def test_ccTLD_allowance_does_not_disarm_tld_swaps():
+    # The other direction: a single-label TLD off the canonical list is still a
+    # swap. The ccTLD allowance must not become a blanket brand pass.
+    assert check_domain("paypal.net")[0].type is FindingType.TYPOSQUAT_TLD_SWAP
+    assert check_domain("paypal.xyz")[0].type is FindingType.TYPOSQUAT_TLD_SWAP
+    assert check_domain("login.paypal.com.secure-verify.io")[0].type is (
+        FindingType.BRAND_SUBDOMAIN_BAIT
+    )
+
+
+def test_reply_to_mismatch_survives_compound_tlds():
+    # S12 review finding E, same root cause: both domains collapsed to "co.uk",
+    # so the mismatch never fired and the mail landed BENIGN on passing auth.
+    raw = (
+        "From: Payroll <hr@company-a.co.uk>\nTo: staff@acme.com\n"
+        "Reply-To: attacker@evil-drop.co.uk\nSubject: Payslip\n"
+        "Authentication-Results: mx.acme.com; spf=pass dkim=pass dmarc=pass\n\nsee attached."
+    )
+    v = decide_verdict(parse_email(raw))
+    assert FindingType.REPLY_TO_MISMATCH.value in _fset(v)
+    assert v.verdict == "SUSPICIOUS"
+
+
+def test_compound_tld_victim_does_not_swallow_attacker_infra():
+    # Same root cause in victims.py: with the victim on acme.co.uk, every
+    # .co.uk observable matched the victim's "registrable domain" (co.uk) and
+    # attacker infrastructure was withheld from the analyst.
+    env = EmailEnvelope(
+        parsed=True,
+        recipient_domains=("acme.co.uk",),
+        iocs=(
+            Observable(
+                type=ObservableType.DOMAIN, value="evil-drop.co.uk", obs_id="d1", defanged=False
+            ),
+            Observable(
+                type=ObservableType.DOMAIN, value="portal.acme.co.uk", obs_id="d2", defanged=False
+            ),
+        ),
+    )
+    kept, withheld = filter_victim_iocs(env)
+    assert [o.value for o in kept] == ["evil-drop.co.uk"]
+    assert withheld == 1
+
+
 def test_damerau_levenshtein_transposition():
     assert damerau_levenshtein("paypla", "paypal") == 1  # transposition, not 2
     assert damerau_levenshtein("abc", "abc") == 0
