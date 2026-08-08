@@ -106,10 +106,12 @@ class EvidenceKind(StrEnum):
     the ACH direction table lives here-adjacent, weighting stays out of both
     (the S10 signal/scorer split, applied a third time)."""
 
-    # from the S5 enrichment fan-out (per provider signal)
+    # from the S5 enrichment fan-out (per provider signal; NO_SIGNAL = a
+    # COMPLETED lookup that no answering source had a claim about)
     ENRICHMENT_MALICIOUS = "enrichment_malicious"
     ENRICHMENT_SUSPICIOUS = "enrichment_suspicious"
     ENRICHMENT_BENIGN = "enrichment_benign"
+    ENRICHMENT_NO_SIGNAL = "enrichment_no_signal"
     # from the S10 alert envelope
     ALERT_ENCODED_COMMAND = "alert_encoded_command"
     ALERT_LOLBIN = "alert_lolbin"

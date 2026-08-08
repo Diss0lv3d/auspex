@@ -147,12 +147,24 @@ def test_auth_passing_email_yields_positive_evidence_only():
     assert evidence[0].credibility == 0.9
 
 
-def test_enrichment_skip_and_unknown_yield_nothing():
+def test_enrichment_skip_and_unanswered_yield_nothing():
     obs = _obs(ObservableType.DOMAIN, "evil.test")
     skipped = ObservableEnrichment(
         observable=obs, signals=(), skip_reason="private/reserved", sources_answered=0
     )
     assert evidence_from_enrichment(skipped) == ()
+    # nothing completed a lookup: NOT coverage — stays a candidate, no row
+    unanswered = ObservableEnrichment(
+        observable=obs, signals=(), skip_reason=None, sources_answered=0
+    )
+    assert evidence_from_enrichment(unanswered) == ()
+
+
+def test_enrichment_completed_but_unknown_yields_weak_no_signal_coverage():
+    # A COMPLETED lookup with no claim retires the candidate and applies the
+    # small update the gain math priced into the "unknown" outcome — it must
+    # never read as benign.
+    obs = _obs(ObservableType.DOMAIN, "fresh-sim-infra.test")
     unknown_only = ObservableEnrichment(
         observable=obs,
         signals=(
@@ -167,7 +179,15 @@ def test_enrichment_skip_and_unknown_yield_nothing():
         skip_reason=None,
         sources_answered=1,
     )
-    assert evidence_from_enrichment(unknown_only) == ()
+    (e,) = evidence_from_enrichment(unknown_only)
+    assert e.kind is EvidenceKind.ENRICHMENT_NO_SIGNAL
+    assert e.credibility == 0.3  # weak by construction
+    assert e.obs_id == obs.obs_id
+    assert "not benign" in e.statement
+    # direction mirrors the likelihood rows: unknown weakly favors FP/TEST
+    assert e.cells[HypothesisKey.TRUE_POSITIVE] < 0
+    assert e.cells[HypothesisKey.FALSE_POSITIVE] > 0
+    assert e.cells[HypothesisKey.TEST_ACTIVITY] > 0
 
 
 def test_enrichment_signal_becomes_directional_evidence_with_obs_id():

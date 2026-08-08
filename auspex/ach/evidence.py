@@ -49,6 +49,14 @@ _CELLS: Mapping[EvidenceKind, Mapping[HypothesisKey, Cell]] = MappingProxyType(
         EvidenceKind.ENRICHMENT_MALICIOUS: _vec(+2, -2, -2, -1),
         EvidenceKind.ENRICHMENT_SUSPICIOUS: _vec(+1, -1, -1, 0),
         EvidenceKind.ENRICHMENT_BENIGN: _vec(-1, +1, +1, 0),
+        # A COMPLETED lookup with no claim from any answering source. Unknown
+        # is not benign — but absence from feeds is weak evidence of absence
+        # for infrastructure that would be listed if it were live attack infra.
+        # Direction mirrors the "unknown" column of the gain.py likelihood
+        # rows (FP/TEST miss feeds more often than TP), at LOW credibility, so
+        # the recorded update never contradicts the expected-gain math that
+        # recommended the lookup.
+        EvidenceKind.ENRICHMENT_NO_SIGNAL: _vec(-1, +1, 0, +1),
         # S10 alert signals. Encoded commands are the classic move of attackers
         # AND red teams — deliberately consistent with both; admins rarely -enc.
         EvidenceKind.ALERT_ENCODED_COMMAND: _vec(+2, -1, -2, +2),
@@ -229,10 +237,19 @@ _LABEL_KINDS: Mapping[VerdictLabel, EvidenceKind] = MappingProxyType(
 _MAX_STATEMENT = 300  # persisted analyst copy, defensively bounded
 
 
+_NO_SIGNAL_CREDIBILITY = 0.3  # weak by construction — absence of a listing
+
+
 def evidence_from_enrichment(item: ObservableEnrichment) -> tuple[Evidence, ...]:
-    """Deterministic ACH evidence from one observable's enrichment. One
-    Evidence per provider SIGNAL (unknown labels drop); a skipped or
-    unanswered observable yields nothing — unavailable is not negative."""
+    """Deterministic ACH evidence from one observable's enrichment.
+
+    One Evidence per provider SIGNAL (explicit unknown labels drop — context,
+    never a claim). A skipped observable yields nothing (it was never looked
+    up), and so does one where NO provider completed a lookup — unavailable is
+    not negative. But a COMPLETED lookup where the answering sources had no
+    claim yields one weak ENRICHMENT_NO_SIGNAL item: it retires the candidate
+    (coverage) and applies the small update the gain math already priced into
+    the "unknown" outcome."""
     if item.skip_reason is not None:
         return ()
     out: list[Evidence] = []
@@ -247,6 +264,18 @@ def evidence_from_enrichment(item: ObservableEnrichment) -> tuple[Evidence, ...]
                 statement,
                 sig.confidence,
                 f"enrichment:{sig.provider}",
+                obs_id=item.observable.obs_id,
+            )
+        )
+    if not out and item.sources_answered > 0:
+        out.append(
+            _make(
+                EvidenceKind.ENRICHMENT_NO_SIGNAL,
+                f"Enrichment completed for {item.observable.value}: no claim "
+                f"from any of the {item.sources_answered} answering source(s) "
+                "(unknown to them — not benign)",
+                _NO_SIGNAL_CREDIBILITY,
+                "enrichment:no-signal",
                 obs_id=item.observable.obs_id,
             )
         )
