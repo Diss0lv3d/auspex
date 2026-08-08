@@ -83,6 +83,7 @@ def _subject_snapshot(kind: SubjectKind, message: str) -> tuple[dict, tuple, tup
             "name": env.name,
             "severity": env.severity.value if env.severity else None,
             "iocs": _obs_json(env.iocs),
+            "iocs_truncated": max(len(env.iocs) - _MAX_SNAPSHOT_IOCS, 0),
             "recipient_domains": [],
         }
         return subject, env.iocs, evidence_from_alert(env)
@@ -95,15 +96,24 @@ def _subject_snapshot(kind: SubjectKind, message: str) -> tuple[dict, tuple, tup
         "from_domain": env.from_domain,
         "subject_line": env.subject,
         "iocs": _obs_json(kept),  # victim-filtered at parse time, once
+        "iocs_truncated": max(len(kept) - _MAX_SNAPSHOT_IOCS, 0),
         "recipient_domains": list(env.recipient_domains),
     }
     return subject, kept, evidence_from_email(env, verdict)
 
 
+# Snapshot bound (S12 verification finding 8): a 32 KB paste dense with
+# routable IPs yields thousands of observables; unbounded, the subject jsonb
+# and the candidate fan-out amplify every GET. Truncation is NAMED in the
+# snapshot ("iocs_truncated"), never silent. 200 is far beyond any real
+# alert/email — only the pathological paste loses tail observables.
+_MAX_SNAPSHOT_IOCS = 200
+
+
 def _obs_json(observables: tuple[Observable, ...]) -> list[dict]:
     return [
         {"type": o.type.value, "value": o.value, "obs_id": o.obs_id, "defanged": o.defanged}
-        for o in observables
+        for o in observables[:_MAX_SNAPSHOT_IOCS]
     ]
 
 
@@ -175,6 +185,7 @@ def _render(record: InvestigationRecord) -> dict:
         "next_lookups": {
             "prior_entropy_bits": plan.prior_entropy_bits,
             "reason": plan.reason,
+            "total_candidates": plan.total_candidates,
             "ranked": [
                 {
                     "kind": r.candidate.kind.value,

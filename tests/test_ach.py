@@ -480,17 +480,62 @@ def test_gain_fixture_uniform_net_and_hash():
     )
 
 
-def test_candidates_exclude_covered_skipped_cve_and_victims():
+def test_candidates_exclude_covered_skipped_cve_email_and_victims():
     covered = _obs(ObservableType.DOMAIN, "already-done.test")
     private = _obs(ObservableType.IPV4, "10.0.0.5")  # enrichment skip filter
     cve = _obs(ObservableType.CVE, "CVE-2026-1234")
+    # S12 verification finding 5: no provider covers EMAIL — recommending it
+    # produced a zero-progress lookup loop (claimed gain, executor skip,
+    # nothing retired, same recommendation forever)
+    email = _obs(ObservableType.EMAIL, "helpdesk-refund@gmail.com")
     fresh = _obs(ObservableType.URL, "http://evil.test/x")
     cands = candidate_lookups(
-        (covered, private, cve, fresh),
+        (covered, private, cve, email, fresh),
         covered_obs_ids=enrichment_coverage((covered.obs_id,)),
     )
     assert [c.observable.value for c in cands] == ["http://evil.test/x"]
     assert cands[0].kind is LookupKind.ENRICH_OBSERVABLE
+
+
+def test_candidate_hygiene_matches_the_executor():
+    """The invariant behind finding 5, pinned structurally: every candidate
+    the engine can recommend must be an observable type SOME provider
+    accepts — the plan must never promise a lookup the executor coverage-
+    skips."""
+    from auspex.ach.gain import _UNENRICHABLE
+    from auspex.config import get_settings
+    from auspex.enrich.providers import build_providers
+
+    covered_types = set()
+    for p in build_providers(get_settings()):
+        covered_types |= set(p.accepts)
+    for t in ObservableType:
+        if t in _UNENRICHABLE:
+            continue
+        cand = candidate_lookups((_obs(t, {
+            ObservableType.IPV4: "198.18.0.9",
+            ObservableType.IPV6: "2001:db8::9",
+            ObservableType.DOMAIN: "candidate-check.test",
+            ObservableType.URL: "http://candidate-check.test/x",
+            ObservableType.SHA256: "b" * 64,
+            ObservableType.SHA1: "b" * 40,
+            ObservableType.MD5: "b" * 32,
+        }[t]),))
+        if cand:  # the engine would recommend this type…
+            assert t in covered_types, f"{t} is recommendable but no provider accepts it"
+
+
+def test_ranked_plan_is_capped_with_named_total():
+    """Finding 8: 2,984 candidates serialized a 1.9 MB response. The plan
+    surfaces at most _MAX_RANKED, and total_candidates names the rest."""
+    from auspex.ach.gain import _MAX_RANKED
+
+    hyps = seed_hypotheses(SubjectKind.ALERT)
+    a = score_matrix(hyps, ())
+    many = tuple(_obs(ObservableType.DOMAIN, f"host-{i}.evil.test") for i in range(50))
+    plan = rank_lookups(a, candidate_lookups(many))
+    assert len(plan.ranked) == _MAX_RANKED
+    assert plan.total_candidates == 50
 
 
 def test_email_candidates_ride_the_victim_filter():

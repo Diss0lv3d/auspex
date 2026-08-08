@@ -58,8 +58,20 @@ _OUTCOMES = ("malicious", "suspicious", "benign", "unknown")
 
 _HASH_TYPES = frozenset({ObservableType.SHA256, ObservableType.SHA1, ObservableType.MD5})
 # CVE is knowledge, not attacker infrastructure — and the KB-context lookup for
-# it is the 5×-parked idea (NEXT-SESSION.md: do NOT pick up). Excluded.
-_UNENRICHABLE = frozenset({ObservableType.CVE})
+# it is the 5×-parked idea (NEXT-SESSION.md: do NOT pick up). EMAIL is excluded
+# because NO connected provider accepts ObservableType.EMAIL today: the S12
+# verification proved the engine otherwise recommends an email lookup with
+# claimed positive gain that the executor coverage-skips — a zero-progress
+# recommendation loop. The candidate set must never promise a lookup the
+# executor cannot perform; when a provider adds email coverage, remove it here
+# (the likelihood row already exists — email addresses price as "net").
+_UNENRICHABLE = frozenset({ObservableType.CVE, ObservableType.EMAIL})
+
+# Response/plan bound: the FULL candidate set is priced and sorted; only the
+# top slice is surfaced (a 32 KB paste dense with routable IPs yielded 2,984
+# candidates → a 1.9 MB response recomputed on every GET — S12 verification,
+# finding 8). `total_candidates` names what the slice hides.
+_MAX_RANKED = 20
 
 # P(outcome | hypothesis) per observable group. Rows sum to 1.0 (pinned by
 # test). Hashes read sharper than network observables: a real malware hash is
@@ -123,11 +135,14 @@ class RankedLookup:
 @dataclass(frozen=True)
 class LookupPlan:
     """The engine's recommendation. `ranked` is empty when there is nothing
-    worth looking up — `reason` says why (honesty rail, never a filler pick)."""
+    worth looking up — `reason` says why (honesty rail, never a filler pick).
+    `ranked` is capped at `_MAX_RANKED`; `total_candidates` names the full
+    priced set so truncation is visible, never silent."""
 
     prior_entropy_bits: float
     ranked: tuple[RankedLookup, ...]
     reason: str | None
+    total_candidates: int = 0
 
 
 def _entropy(weights: Mapping[HypothesisKey, float]) -> float:
@@ -181,6 +196,7 @@ def rank_lookups(assessment: AchAssessment, candidates: tuple[CandidateLookup, .
             prior_entropy_bits=prior_h,
             ranked=(),
             reason="only one hypothesis survives — there is nothing left to discriminate",
+            total_candidates=len(candidates),
         )
     if not candidates:
         return LookupPlan(
@@ -190,6 +206,7 @@ def rank_lookups(assessment: AchAssessment, candidates: tuple[CandidateLookup, .
                 "no lookup candidates remain — every enrichable observable is "
                 "covered, skipped, or victim-filtered"
             ),
+            total_candidates=0,
         )
 
     ranked = sorted(
@@ -200,7 +217,12 @@ def rank_lookups(assessment: AchAssessment, candidates: tuple[CandidateLookup, .
             r.candidate.observable.value,
         ),
     )
-    return LookupPlan(prior_entropy_bits=prior_h, ranked=tuple(ranked), reason=None)
+    return LookupPlan(
+        prior_entropy_bits=prior_h,
+        ranked=tuple(ranked[:_MAX_RANKED]),
+        reason=None,
+        total_candidates=len(candidates),
+    )
 
 
 def _rank_one(
