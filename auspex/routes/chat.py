@@ -443,12 +443,13 @@ async def chat(
         )
     # PHISHING_ANALYSIS (S11): the phishing analogue of the S10 alert path. Parse
     # the email + evaluate SPF/DKIM/DMARC, spoofing, and lookalike indicators in
-    # CODE; hand the model the AUTHORITATIVE verdict FLOOR. The rendered Verdict
-    # is pinned to the allowed set (floor + the raises the model may make from
-    # body content) — it can never be laundered below the floor, and BENIGN is
-    # only in the set when the code found positive auth evidence. This closes the
-    # phishing portion of TD-013 (the body stops being unguarded attacker prose
-    # the model weighs — the code findings drive the Verdict).
+    # CODE; hand the model the AUTHORITATIVE verdict FLOOR. BENIGN is in the
+    # allowed set only when the code found positive auth evidence — that part is
+    # structural. The rendered Verdict is pinned to the allowed set at validation
+    # below, which DETECTS a launder below the floor; it does not prevent one,
+    # because validation is post-hoc (TD-012) and the answer has already
+    # streamed. This MITIGATES the phishing portion of TD-013 — the body stops
+    # being the thing that decides the Verdict — it does not eliminate it.
     elif mode is Mode.PHISHING_ANALYSIS:
         email_env = parse_email(body.message)
         verdict = decide_verdict(email_env)

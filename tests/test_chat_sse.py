@@ -655,9 +655,17 @@ def test_phishing_verdict_cannot_be_laundered_below_the_floor(client):
             json={"message": _SPOOF_EMAIL},
             headers={"Authorization": f"Bearer {_token(client)}"},
         )
-        done = _frames(resp.text)[-1]["done"]
+        frames = _frames(resp.text)
+        done = frames[-1]["done"]
         assert done["mode"] == "phishing_analysis"
         assert done["contract_valid"] is False  # BENIGN ∉ {MALICIOUS}
+        # S12 review honesty check: name the guarantee precisely. The pin
+        # DETECTS the launder — it does not prevent it. Validation is post-hoc
+        # (TD-012), so the laundered "BENIGN" already streamed to the user and
+        # was persisted as the assistant turn. Anything built on this contract
+        # must read contract_valid, not assume the text is floor-conformant.
+        streamed = "".join(f["content"] for f in frames if "content" in f)
+        assert "BENIGN" in streamed
     finally:
         client.app.dependency_overrides.clear()
 

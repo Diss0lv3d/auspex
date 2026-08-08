@@ -2,14 +2,23 @@
 directive for the phishing_analysis mode — S11 (the S10 alert pattern applied
 to email: code decides, the model narrates).
 
-The pasted email is untrusted (TD-013 — this module + the validator pin CLOSE
-its phishing portion): the body stays attacker prose in the user turn, but the
-Verdict the model renders is floor-pinned to the code decision in the contract
-validator (chat.py passes `pinned={"Verdict": allowed}`), so body text can
-never talk the model below the deterministic floor — and BENIGN is only
-renderable when the code found positive authentication evidence. Every
-envelope field embedded here is attacker-authored and goes through
-`auspex.untrusted.flatten` first."""
+The pasted email is untrusted (TD-013 — this module + the validator pin MITIGATE
+its phishing portion). Two guarantees, and only one is structural — the S9
+containment-vs-inertness distinction applied here:
+
+- The DISPOSITION is code-owned. `decide_verdict` computes the floor from parsed
+  headers alone; body prose never enters that computation, and BENIGN requires
+  positive authentication evidence. This is structural (ADR 0006).
+- The RENDERED verdict is CHECKED, not prevented. chat.py passes
+  `pinned={"Verdict": allowed}`, so a launder below the floor always fails the
+  contract — but validation is post-hoc (TD-012): the offending answer has
+  already streamed to the user and been persisted, with `contract_valid:false`
+  on the done frame as the record. Do not read the pin as making a laundered
+  verdict impossible; read it as making one always detectable. Pinned by
+  tests/test_chat_sse.py::test_phishing_verdict_cannot_be_laundered_below_the_floor.
+
+Every envelope field embedded here is attacker-authored and goes through
+`auspex.untrusted.flatten` first — including the indicator values (S12 review C)."""
 
 from __future__ import annotations
 

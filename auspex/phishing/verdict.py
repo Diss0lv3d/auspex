@@ -9,8 +9,10 @@ values the model may render. Body content is the model's to read (lures,
 urgency, credential asks — real signal the deterministic layer can't see), so
 the model may RAISE severity above the code floor; it may never lower it, and
 an un-analyzable or unauthenticated message may never be rendered BENIGN. The
-floor is enforced by the contract validator's pin (chat.py), not by prompt
-language — the S10 lesson (review finding A), applied on day one here.
+floor is CHECKED by the contract validator's pin (chat.py), not asked for in
+prompt language — the S10 lesson (review finding A), applied on day one here.
+The check is post-hoc, so it makes a launder detectable rather than impossible
+(TD-012; see render.py's docstring for the precise split).
 
 BENIGN is a gate on POSITIVE evidence (DMARC pass, or SPF+DKIM pass, and zero
 findings) — never a low-score default. SARA's `CLEAN` at score<20 is exactly

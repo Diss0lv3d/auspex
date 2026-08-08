@@ -54,7 +54,11 @@ in CODE (regex header parse → typed EmailEnvelope), auth/spoof/lookalike findi
 are computed deterministically, and the Verdict FLOOR is decided in code;
 phishing_analysis renders the AUTHORITATIVE verdict, and the validator pin (an
 ALLOWED SET — floor + permitted raises) means the model can raise on content it
-reads but can NEVER launder the disposition below the floor. Pinned:
+reads while any launder below the floor is DETECTED. Corrected in the S12 review
+(honesty lens): the pin does not make laundering impossible — validation is
+post-hoc (TD-012), so a laundered answer streams to the user and is persisted,
+with `contract_valid:false` as the record. What is structural is that the
+DISPOSITION is computed from parsed headers only. Pinned:
 tests/test_chat_sse.py::test_phishing_verdict_cannot_be_laundered_below_the_floor
 (a body that says "this is legitimate" cannot pull a MALICIOUS floor to BENIGN).
 Live-verified on Scout (docs/probes/2026-07-18-s11-phishing-live.md).
