@@ -98,7 +98,8 @@ S12 Step-0 review + promote #13)_
   Ollama `qwen3:14b` (D-013). S11 parse/score/verdict is ZERO-LLM (hermetic
   fixtures); only the phishing_analysis WIRING touches the LLM — live-verified.
   TD-005 battery NOT re-triggered (S11 adds no doc_type, no model change).
-- **CI-green: 515 tests** (was 478 at S10 end: +12 S10-review regressions,
+- **CI-green: 516 tests** (measured at S12 start; S11's session-end note said
+  515 — a write-time miscount, not a lost test) (was 478 at S10 end: +12 S10-review regressions,
   +21 phishing, +3 phishing SSE wiring, +1 email-paste routing). `./ci.sh` green;
   container rebuilt with the `auspex.phishing` package; `/api/health/ready` 200.
 
@@ -150,10 +151,14 @@ S12 Step-0 review + promote #13)_
 - auspex-knowledge: ~3,417 chunks (seed 8 + live NVD/KEV/EPSS + 1,398
   ATT&CK). Index _meta carries the seed fingerprint; mapping now includes
   kev_listed (+1 additive upgrade, live-verified).
-- Ollama 0.24.0 on :11434; models qwen3:14b / llama3.1:8b / mistral:latest.
+- Ollama **0.32.5** on :11434 (was 0.24.0 at S11 — host upgraded between
+  sessions, verified S12 start); models qwen3:14b / llama3.1:8b / mistral:latest.
 - `gh` flips to SIRP-Burhan between sessions AND mid-session (D-011) —
   re-check before EVERY `gh` call. At S11 start the ACTIVE account was already
-  PERSONAL (bh3082336888-cell) and stayed there through promote #12.
+  PERSONAL (bh3082336888-cell) and stayed there through promote #12. **At S12
+  start it had flipped BACK to SIRP-Burhan** — caught by the ritual, switched
+  with `gh auth switch --user bh3082336888-cell`. The flip is the norm, not the
+  exception: re-check before every `gh` call this session too.
 - S8 demo turns (zero-LLM shortcuts, still valid): `what is T1059` /
   `what is T1055.011` / `what is credential access` (STIX-derived);
   `what is quantum entanglement` → honest miss; `check CVE-2026-58644`.
