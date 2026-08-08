@@ -101,8 +101,10 @@ may not grow mid-session (IDEAS.md exists for that).
   IPs withheld from indicators; validator pin extended to an ALLOWED SET so the
   model may raise above the floor, never launder below it. Format-beats-keywords
   email→DEEP gate added to the classifier. Live-verified on Scout (MALICIOUS floor
-  + BENIGN gate). Closes the phishing portion of TD-013. On staging, awaiting
-  S12 Step-0 review + promote #13.)_
+  + BENIGN gate). MITIGATES the phishing portion of TD-013. Reviewed at S12
+  Step 0 — 9 findings (A–I) verified by execution and fixed with regressions,
+  incl. body-prose BENIGN manufacture, BEC sender victim-filtering, ccTLD brand
+  false positives, ARC relay passes — and promoted #13 to main.)_
 - [ ] **S12 — Hypothesis engine v1 (ACH).** Competing hypotheses per
   investigation, per-evidence scoring against each hypothesis, next-lookup
   chosen by expected information gain.

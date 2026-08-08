@@ -1,22 +1,70 @@
 # STATE — Auspex
 
-_Last updated: 2026-07-18 (S11 COMPLETE — S10 review + promote #12, then the
-phishing/header agent: deterministic parse + code-decided Verdict floor +
-victim-IOC filter, live-verified on Scout; S11 work on `staging` awaits an
-S12 Step-0 review + promote #13)_
+_Last updated: 2026-08-08 (S12 IN PROGRESS — Step 0 DONE: S11 adversarial
+review, 9 findings all verified by execution, fixed, live-verified, **promoted
+#13** (main==staging). Now in S12 proper: ACH hypothesis engine — recon done,
+design next)_
 
 ## Where we are
-- **S11 COMPLETE.** Two halves:
+- **S12 Step 0 COMPLETE (2026-08-08).** Adversarial 5-lens review of the S11
+  phishing work (136992f..dd46410). **9 findings (A–I), every one verified by
+  execution before fixing**; 7 fix commits + TD-015 correction + live probe.
+  Then **promoted #13** (PR #13 squash-merged by the human after a permission
+  block on `gh pr merge`; back-merged `5d3d2dc`, main==staging, ready 200).
+  - **(A, security)** `_auth` scanned `text[:3000]` — attacker body prose
+    (`spf=pass dkim=pass dmarc=pass` in a footer) MANUFACTURED a BENIGN floor.
+    Auth now reads ONLY gateway-stamped headers (Authentication-Results, X-,
+    Received-SPF, Received).
+  - **(B, security)** the victim filter withheld the SENDER on a BEC self-spoof
+    (From: ceo@acme.com → finance@acme.com) — the docstring promised the
+    opposite. Sender-side artifacts (From/Reply-To/Return-Path, addr+domain)
+    now exempt in code.
+  - **(C, security)** indicator values skipped `flatten` — a 50 KB address made
+    a 51,758-char directive (measured), crowding out instructions. Now
+    flatten(cap=120) per value; regression pins block <4000 chars.
+  - **(D, correctness)** naive registrable domain: `amazon.co.uk` → `co.uk`, so
+    EVERY ccTLD brand mail false-positived to SUSPICIOUS (score 35, measured).
+    Fixed: curated `_MULTI_LABEL_SUFFIXES` + `is_brand_host` (TD-015 item 3).
+  - **(E, correctness)** same root cause hid cross-domain Reply-To mismatches
+    under compound TLDs (→ BENIGN) and let a compound-TLD victim swallow
+    attacker infra in victims.py.
+  - **(F, test-hygiene)** the sender-not-filtered test asserted only that a
+    DIFFERENT host survived — vacuous while the named invariant was broken.
+    Now asserts the sender is kept AND the victim withheld.
+  - **(G, honesty)** 4 places claimed the pin means "can NEVER launder below
+    the floor" — validation is post-hoc (TD-012); the laundered answer streams
+    and persists, `contract_valid:false` is a RECORD not a block. Copy now
+    follows the S9 containment-vs-inertness standard; launder test asserts the
+    streamed text carries the laundered value.
+  - **(H, security)** ARC-Authentication-Results (relay-stamped, attacker-
+    routable) could reach BENIGN alone. Now asymmetric: relay failures believed
+    (raise-only), relay passes discarded; gateway wins when both present.
+  - **(I, honesty/live-only)** with B fixed, the directive still said "never
+    naming the recipient's own domain" — which in a self-spoof DESCRIBES THE
+    SENDER; Scout dropped ceo@acme.com from ## Indicators live. Directive now
+    calls out the self-spoof explicitly; re-verified live (Scout renders it,
+    still withholds the victim mailbox).
+  - Probe: docs/probes/2026-08-08-s12-phishing-review-live.md (before/after per
+    finding, all 3 turns contract_valid:true + independent re-validation).
+  - TD-015 CORRECTED: its "only under-detect, never a false alarm" claim was
+    falsified by D/E — registrable-domain item moved to FIXED; brand-list and
+    confusable-set gaps remain (those really are FN-biased).
+- **S12 feature (IN PROGRESS): Hypothesis engine v1 / ACH** — competing
+  hypotheses per investigation, per-evidence scoring in CODE (the ACH matrix),
+  next-lookup by expected information gain. NOT the S9–S11 "code decides, model
+  renders" mold — a reasoning structure; design-first (recon workflow run over
+  SARA analogues + evidence seams + storage + chat wiring before any code).
+- **S11 shipped (promote #13, on `main` 2026-08-08).** Two halves:
   - **Step 0 — the outstanding S10 adversarial review → promote #12 (DONE).**
     5-lens review over 40af4b9..HEAD (the S10 alert normalizer+scorer+rail+wiring).
     8 findings, all verified by execution before fixing; 5 fix commits (below),
     then **promoted #12** (PR #12 squash-merged, back-merged, main==staging).
-  - **S11 feature — Phishing/header agent (DONE, on staging, NOT yet promoted).**
+  - **S11 feature — Phishing/header agent.**
     `auspex.phishing`: regex header parse → typed EmailEnvelope → named auth/
     spoof/lookalike findings → additive Verdict FLOOR; victim-domain IOC filter;
     validator pin extended to an ALLOWED SET (raise-yes, launder-no). Closes the
-    phishing portion of TD-013. Live-verified against Scout. Awaits S12 Step-0
-    review → **promote #13** (deliberately NOT promoting unreviewed — #9 lesson).
+    phishing portion of TD-013 (MITIGATED — see the G-corrected copy). Live-
+    verified against Scout, then hardened by the 9 S12 Step-0 fixes above.
 
 ## S10 review fixes (promote #12, on `main` 2026-07-18)
 - **(A)** `auspex/modes/contract.py`: the validator did enum-MEMBERSHIP only — a
@@ -104,19 +152,9 @@ S12 Step-0 review + promote #13)_
   container rebuilt with the `auspex.phishing` package; `/api/health/ready` 200.
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Run the S11 adversarial review, then `/promote` (#13)** — the S11 feature
-   work (`auspex/phishing/` parser+lookalike+verdict+victims+render, the
-   classifier email→DEEP fix, chat.py phishing wiring + the validator set-pin,
-   the 37 new tests) is on `staging`, CI-green, live-verified, but UNREVIEWED.
-   This is the S12 Step 0. Same 5-lens drill (correctness, honesty/copy,
-   security, test-hygiene, ops); verify findings by execution before fixing.
-   Review scope = what landed AFTER promote #12 (136992f): commits on staging
-   since. Push hard on: (security) can a crafted email move the code Verdict
-   floor, or slip a victim IOC through the filter, or crash the parser? does the
-   floor pin actually hold end-to-end? (correctness) auth-token placement edge
-   cases, the parseaddr display-spoof fallback, punycode/confusable folding, the
-   naive registrable-domain compound-TLD gap (TD-015); (honesty) the DEFERRED /
-   BENIGN-gate copy. DO NOT promote unreviewed (the #9 mistake).
+1. **S12 feature work** — ACH hypothesis engine (see "Where we are"). The S12
+   feature commits will land on `staging` and need their own Step-0 review in
+   S13 before promote #14 (the standing drill).
 2. **TD-005 re-battery trigger (standing):** corpus > 30k chunks, ANY new
    doc_type, or embedding-model change → re-run the labeled battery
    (script pattern in the probe doc). Sigma/abuse.ch ingestion (parked in
