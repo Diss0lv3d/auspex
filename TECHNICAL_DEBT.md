@@ -1,5 +1,19 @@
 # Technical debt — logged the moment it's taken
 
+## TD-018 (S13) — inference-spending routes have no per-workspace bound
+**Where:** `POST /api/investigations/{id}/summary` (new in S13) and
+`/api/chat` DEEP turns both call the customer's LLM endpoint with no
+per-workspace rate/spend ceiling — any authenticated client can loop them.
+**Risk:** a runaway or hostile client burns the customer's inference quota
+(D-005 means it's THEIR endpoint bill) and can degrade the endpoint for
+real analysts. Low today (dev, single tenant); real at beta.
+**Why deferred:** S13 scope was citations; rate limiting is an S19
+(Hardening) roadmap line — this entry pins the specific routes so S19
+doesn't miss the non-chat one.
+**Path to fix:** per-workspace token/request budget checked before the LLM
+call (Postgres counter, honest 429 with the budget named), shared by chat
+and summary; S19 already owns "rate limits".
+
 ## TD-017 (S13) — NUL-byte hardening exists only at the investigations paste boundary
 **Where:** `auspex/routes/investigations.py` strips U+0000 before parsing
 (S13 Step-0 review finding 1, live-verified 500 — Postgres text/jsonb cannot

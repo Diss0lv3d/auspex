@@ -117,8 +117,23 @@ may not grow mid-session (IDEAS.md exists for that).
   verification workflow: 16 findings, all verified by execution, all fixed.
   Live-verified in-container; the live gain figure matched the hand-computed
   fixture to 6 decimals. On staging, awaiting S13 Step-0 review + promote #14.)_
-- [ ] **S13 — Evidence graph + cited output.** Typed evidence objects; every
+- [x] **S13 — Evidence graph + cited output.** Typed evidence objects; every
   generated claim carries a citation; output guard rejects uncited claims.
+  _(Step 0 first: fresh-eyes review of the S12 diff — 7 findings, every one
+  verified by execution, all fixed with regressions; promote #14 PR opened
+  (merge pending, human-gated). Then: ach_evidence row uuids became the
+  stable citation identity (E-<hex8> labels, collision-extending);
+  `POST /api/investigations/{id}/summary` renders the first LLM output on
+  the surface through an investigation_summary contract — code compiles the
+  authoritative directive (matrix, per-hypothesis bearing evidence,
+  flattened statements, top lookup), the leading hypothesis is PINNED, and
+  the post-hoc citation guard names fabricated ids and uncited claim lines
+  (TD-012: detected, not prevented). Live-verified against Scout twice: run
+  1 caught a guard bug (grouped [E-a, E-b] citations refused) and a
+  directive gap (rejected rows had nothing to cite) — both fixed with
+  regressions; run 2 clean: 19 valid citations, 0 fabricated, 0 uncited.
+  KB-doc citability deliberately NOT picked up — the parked ioc_check→KB
+  idea stays parked. 597 tests green.)_
 
 ## Phase 3 — Living Verdicts (flagship)
 

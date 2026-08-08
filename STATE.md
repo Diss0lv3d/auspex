@@ -1,130 +1,136 @@
 # STATE — Auspex
 
-_Last updated: 2026-08-08 (S12 COMPLETE — Step 0: S11 review, 9 findings fixed,
-promoted #13; then the ACH hypothesis engine v1: deterministic matrix +
-info-gain lookup picker + /api/investigations, hardened by a 16-finding
-verification workflow, live-verified in-container. S12 work on `staging`
-awaits the S13 Step-0 fresh-eyes review + promote #14)_
+_Last updated: 2026-08-09 (S13 COMPLETE — Step 0: fresh-eyes review of the S12
+diff, 7 findings all verified by execution and fixed; promote #14 PR opened
+(HUMAN MERGE PENDING); then the S13 scope: citable evidence objects + the
+first LLM-rendered path since S11 — a cited investigation summary through a
+contract with a pinned leading hypothesis and a code-owned citation guard,
+live-verified against Scout twice)_
 
 ## Where we are
-- **S12 COMPLETE.** Three parts:
-  - **Step 0 — S11 adversarial review → promote #13 (DONE, on `main`).**
-    9 findings (A–I), every one verified by execution before fixing: body-prose
-    BENIGN manufacture (A), BEC sender victim-filtered (B), unflattened 50 KB
-    indicator line (C), ccTLD brand false positives + hidden mismatches (D/E),
-    a vacuous sender test (F), "can NEVER launder" overclaim corrected to
-    detected-not-prevented (G), ARC relay passes reaching BENIGN (H), and the
-    live-only self-spoof directive contradiction (I). PR #13 squash-merged
-    (human merged after a permission block on `gh pr merge`), back-merged
-    `5d3d2dc`, main==staging at the time.
-  - **S12 feature — ACH hypothesis engine v1 (DONE, on staging, NOT promoted).**
-    `auspex/ach/` (D-019): closed 4-hypothesis catalog per subject kind
-    (alert/email) → evidence adapters reusing the S5/S10/S11 typed shapes with
-    curated cell-vector doctrine tables → Heuer matrix (LEAST-inconsistency
-    ranking, support = tiebreak only; rejection needs threshold + a hard
-    contradiction; honesty rails: no evidence / non-diagnostic evidence →
-    ranking NOT claimed) → next-lookup by expected information gain
-    (curated P(outcome|H) rows, entropy/Bayes over plausibility weights
-    2^(−inc/2), itemized outcome terms). Postgres: investigations + hypotheses
-    + ach_evidence (inputs only — scores/statuses recompute on every read).
-    Surface: zero-LLM REST `/api/investigations` (create from an alert/email
-    paste; GET recompute; POST /lookups EXECUTES the recommendation through
-    the real S5 fan-out and folds the result back in). NO model call anywhere
-    on the path — model rendering is S13+, through a contract, per D-019.
-  - **S12 verification (DONE) — a 4-lens adversarial workflow over the new
-    code: 16 findings (13 unique), ALL verified by execution, all fixed** with
-    regressions in 5 commits: Heuer property was unpinned (a most-support
-    mutation passed the suite); Postgres `real` returned 0.7 as 0.699999988
-    and silently disarmed the ≥0.7 hard-contradiction rail across every
-    round-trip (the API served FP=surviving where the pinned math rejects it);
-    hypothesis load order flipped TP/TEST ties via the API; one auth header
-    triple-counted into permanently rejecting BENIGN on ordinary forwarded
-    mail (now ONE collapsed row; softfail alone = 0.5 credibility); the
-    engine recommended EMAIL lookups no provider accepts (zero-progress loop —
-    now structurally pinned: recommendable types must be provider-covered);
-    a 32 KB paste amplified to a 1.9 MB response (ranked plan capped at 20 +
-    named total_candidates; snapshot capped at 200 + named iocs_truncated);
-    plus retired-kind load bricking, add_evidence tenancy guard, unscoped
-    test teardown deleting cross-workspace verdict history, dishonest route
-    docstring, missing lookup_status, statement cap moved into _make.
-- **Live-verified in-container (zero LLM, keyless enrichment):**
-  docs/probes/2026-08-08-s12-ach-live-loop.md + postscript. Post-fix state:
-  the typosquat email → TP/TEST 50/50 (1.0 bit), FP + BENIGN rejected with
-  named reasons, ONE auth row, top lookup mail.paypa1.com at **0.181584 bits
-  — equal to the independently hand-computed fixture to 6 decimals**; the
-  executed lookup answered no-signal → weak ENRICHMENT_NO_SIGNAL row, nudge
-  toward TEST, candidate retired.
-- **SARA recon (probe: docs/probes/2026-08-08-sara-ach-analogues.md):** SARA
-  has NO ACH engine — its prompt-only version is structurally discarded by its
-  own output template (the cautionary tale D-019 is built against). Verified
-  negatives recorded with the greps.
-- **CI-green: 572 tests** (was 516 at S12 start: +2 S11-review additions
-  already counted there, +26 ach core, +18 investigations/store routes/
-  regressions, +10 verification regressions). `./ci.sh` green; container
-  rebuilt with `auspex.ach`; `/api/health/ready` 200.
-- **Primary dev LLM (D-015):** Llama-4-Scout via Northflank; secondary/offline
-  Ollama `qwen3:14b` (D-013). S12 sent ZERO prompts to either — the ACH core
-  and surface are deterministic end-to-end. The S12 Step-0 review fixes were
-  live-verified against Scout (docs/probes/2026-08-08-s12-phishing-review-live.md).
+- **S13 COMPLETE.** Three parts:
+  - **Step 0 — fresh-eyes review of `5d3d2dc..staging` (DONE).** Four lenses
+    the S12 same-session workflow did NOT run. 7 findings, every one verified
+    by execution BEFORE fixing (probe:
+    docs/probes/2026-08-09-s13-step0-review.md): a NUL byte in a paste 500'd
+    the live container (Postgres can't store U+0000 — now stripped at the
+    boundary); duplicate hypothesis keys double-rendered weights (sum 1.30 —
+    score_matrix now refuses); hand-edited cells jsonb crashed every GET
+    (string cell → TypeError) or manufactured a fake hard contradiction
+    (−7 accepted — load now enforces the declared CELL_MIN..CELL_MAX, skip +
+    warn); two CONCURRENT lookups folded the same provider claim twice
+    (FP inconsistency 5.0 instead of 2.5 — add_evidence now takes FOR UPDATE
+    + dedups per (kind, source, obs_id)); recipient_domains was unbounded in
+    the snapshot (300 entries — capped 50 + named truncation); API `weight`
+    renamed `plausibility_weight` (it is NOT a probability); zero-hypothesis
+    edge messages now say what is true. Two-workspace tenancy verified
+    end-to-end through the routes (404 both directions — pinned). Curated
+    numbers judged defensible, documented in the probe. Fix commits:
+    108f8d5, 9b53f72, cd13ea5, 52fc2ee.
+  - **Promote #14 — PR OPEN, MERGE PENDING (human-gated).** `gh pr merge`
+    was blocked by the permission classifier (same as #13 at S12). PR:
+    https://github.com/bh3082336888-cell/auspex/pull/14 — green, MERGEABLE.
+    **Burhan must merge it**; the squash back-merge reconciliation is then
+    S14 Step 0 (`git merge -X ours origin/main`, verify tree unchanged,
+    push). NOTE: the PR was opened BEFORE the S13 feature commits — those
+    five commits (3dd9b7c..7 range) rode onto the same PR since it tracks
+    `staging`; the PR now carries ALL of S12+S13. That is fine (everything
+    on it is reviewed, tested, live-verified) — just know #14 promotes both.
+  - **S13 feature — evidence graph + cited output (DONE, on staging).**
+    (1) `ach_evidence` row uuids surface as the STABLE citation identity:
+    store fills `Evidence.evidence_id` on load; labels are `E-<uuid hex8>`
+    (collision-extending, deterministic); GET exposes `evidence_id` + `cite`
+    per row. (2) `POST /api/investigations/{id}/summary` — the first LLM
+    call on the investigations surface, third application of the S10/S11
+    directive+pin doctrine: code compiles the AUTHORITATIVE directive
+    (matrix state, per-hypothesis "bearing evidence" ids computed from the
+    nonzero cells, statements flattened via auspex.untrusted at the
+    boundary, the engine's top lookup); the model narrates; the leading
+    hypothesis is PINNED (hyphen tokens: TRUE-POSITIVE… — underscores would
+    truncate in the validator's tokenizer); contract machinery reused via a
+    public `split_sections` seam (chat's six modes untouched). (3) The
+    citation guard (`check_citations`) is post-hoc (TD-012: detected, never
+    prevented): fabricated ids and uncited claim lines in the citable
+    sections are named in the response (`citations.ok/unknown/
+    uncited_lines`). No summary persistence — reads recompute, as everywhere.
+    Zero new env vars. KB-doc citability deliberately NOT picked up.
+- **Live-verified against Scout (D-015), twice** (probe:
+  docs/probes/2026-08-09-s13-cited-summary-live.md): run 1 caught a REAL
+  guard bug (Scout's legitimate grouped `[E-a, E-b]` citations were flagged
+  uncited — guard now token-based, typography-agnostic) and a directive gap
+  (rejected hypotheses had nothing to cite → literal `[ ]` — directive now
+  names bearing evidence per row); run 2 clean: contract_valid=true, pin
+  honored, **19 valid citations, 0 fabricated, 0 uncited**. Both probe
+  investigations deleted from the dev workspace.
+- **CI-green: 597 tests** (572 at S13 start → +7 Step-0 regressions/tenancy,
+  +14 render/guard fixtures, +4 summary route tests). `./ci.sh` green;
+  container rebuilt; `/api/health/ready` 200.
+- **Primary dev LLM (D-015):** Llama-4-Scout via Northflank — used live for
+  the summary path (1.2k prompt / 0.6k completion tokens per summary).
+  Secondary/offline Ollama `qwen3:14b` (D-013) untouched this session.
   TD-005 battery NOT re-triggered (no new doc_type, no model change).
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **S13 Step 0: fresh-eyes review of the S12 feature work → `/promote` (#14).**
-   Scope: the 17 commits `5d3d2dc..staging` (~3,094 insertions) — `auspex/ach/`
-   (types/evidence/matrix/gain/store), `auspex/routes/investigations.py`, the
-   3 new tables in migrations.py, tests. NOTE: this code already survived a
-   same-session 4-lens verification workflow (16 findings fixed) — the Step-0
-   drill should be FRESH-EYES + different angles, not a re-run: (design) are
-   the curated cell vectors and likelihood rows defensible to an analyst — is
-   TEST_ACTIVITY's likelihood row justified? (security) tenancy on the new
-   routes end-to-end via two real workspaces; jsonb subject round-trip
-   adversarial values; (correctness) matrix math edge cases the workflow
-   lenses missed (duplicate hypothesis keys? empty catalog? cells jsonb
-   hand-edited in DB?); (honesty) the API field names vs what they claim.
-   Verify by execution before fixing. DO NOT promote unreviewed.
-2. **TD-005 re-battery trigger (standing):** corpus > 30k chunks, ANY new
-   doc_type, or embedding-model change → re-run the labeled battery. (S12
+1. **S14 Step 0a: PR #14 — Burhan merges, then back-merge.** After the human
+   squash-merges https://github.com/bh3082336888-cell/auspex/pull/14:
+   on `staging`, `git merge -X ours origin/main -m "merge: back-merge main
+   after promote #14"`, verify `git diff <pre-merge-sha> HEAD --stat` empty,
+   push. (The classifier blocks `gh pr merge` for Claude — assume it will
+   again.)
+2. **S14 Step 0b: fresh-eyes review of the S13 feature commits**
+   (`3dd9b7c`, `62d332f`, `376dc13` — ~900 insertions: ach/render.py, the
+   summary route, evidence_id plumbing, contract split_sections seam).
+   Angles the S13 build did not adversarially test: prompt-injection through
+   evidence statements INTO the rendered summary (the directive flattens,
+   but is 160 chars of hostile statement enough to steer citations or the
+   narrative?); the guard's line-based heuristic (multi-line prose claims);
+   summary cost exposure (no per-workspace rate limit on an
+   inference-spending route — chat shares this, maybe a TD); pinned-token
+   edge cases (what does Scout do when NONE is pinned?). NOTE this code was
+   live-verified but got NO independent adversarial pass — the S12→S13
+   pattern says review before the next promote (#15).
+3. **TD-005 re-battery trigger (standing):** corpus > 30k chunks, ANY new
+   doc_type, or embedding-model change → re-run the labeled battery. (S13
    added no doc_type — not tripped.)
 
 ## Blockers / open risks
-1. **TD-001 (OAuth identity keyed on email)** — hard gate before any
+1. **PR #14 unmerged** — main is stale until Burhan merges (see In-flight 1).
+2. **TD-001 (OAuth identity keyed on email)** — hard gate before any
    GOOGLE_CLIENT_ID is configured.
-2. **Deep path is conversational-only (v1)** — AgentLoop still not wired into
-   /api/chat; the ACH engine's lookup execution calls EnrichmentService
-   directly (code-driven, no agent loop, no proposals — read-only lookups
-   only). TD-012 (post-hoc contract validation), TD-014 (unbounded history),
-   TD-015 (brand-list/confusable coverage, registrable-domain item FIXED in
-   the S12 review), TD-016 (ACH v1 surface bounds) open.
-3. **KB bootstrap needs outbound HTTPS once per fresh volume**; ingest needs
+3. **Deep path is conversational-only (v1)** — AgentLoop still not wired
+   into /api/chat. TD-012 (post-hoc contract validation — now also covers
+   the citation guard), TD-014 (unbounded history), TD-015 (brand/confusable
+   coverage), TD-016 (ACH v1 surface bounds), TD-017 (NUL fixed only at the
+   investigations boundary; chat likely shares the 500 shape) open.
+4. **KB bootstrap needs outbound HTTPS once per fresh volume**; ingest needs
    NVD/CISA/FIRST/GitHub reachability — failures degrade honestly.
-4. **Corpus ~3.4k chunks, grows ~770 docs/day** while the container runs.
-   TD-011 tracks the rollover trigger (>150k chunks / RSS >70% / p95 >500 ms).
+5. **Corpus ~3.4k chunks, grows ~770 docs/day** while the container runs.
+   TD-011 tracks the rollover trigger.
 
 ## Host notes (reality snapshot)
-- Postgres 55432; app 8000; OpenSearch 9200. Host runs pin via `auspex.devhost`
-  (ENRICHMENT_ENABLED=false, KB_ENABLED=false, INGEST_ENABLED=false).
-- Ollama **0.32.5** on :11434 (host upgraded from 0.24.0 between S11 and S12);
-  models qwen3:14b / llama3.1:8b / mistral:latest.
-- `gh` flips to SIRP-Burhan between sessions AND mid-session (D-011) —
-  re-check before EVERY `gh` call. **At S12 start it HAD flipped back to
-  SIRP-Burhan** — caught by the ritual, switched. Assume it flips again.
-- `ingest_state` rows: `nvd-delta`, `kev`, `attack-enterprise` (v19.1).
-- auspex-knowledge: ~3,417+ chunks (seed + live NVD/KEV/EPSS + ATT&CK).
-- **S12 demo (zero-LLM, works in any shell):**
+- Postgres 55432; app 8000; OpenSearch 9200. Host runs pin via
+  `auspex.devhost` (ENRICHMENT/KB/INGEST disabled on host).
+- Ollama 0.32.5 on :11434; models qwen3:14b / llama3.1:8b / mistral:latest.
+- `gh` did NOT flip at S13 start (first session it stayed personal), but
+  D-011 stands: re-check before EVERY `gh` call. `gh pr merge` is blocked by
+  the Claude permission classifier — the human merges PRs.
+- **S13 demo (needs Scout reachable; ~30 s):**
   1. `TOKEN=$(curl -s -X POST localhost:8000/api/auth/dev-login -H 'Content-Type: application/json' -d '{"email":"burhan@auspexdev.com"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')`
-  2. POST `/api/investigations` with the spoofed typosquat email (probe doc has
-     it) → 4 hypotheses, TP/TEST 50/50, FP+BENIGN rejected with named reasons,
-     ranked lookups with itemized gain bits.
-  3. POST `/api/investigations/{id}/lookups` → executes the top lookup through
-     live keyless enrichment, folds the answer in, re-assesses; `lookup_status`
-     says completed/not_completed honestly.
-- **S11 demo turns (PHISHING_ANALYSIS, live Scout)** still valid — see the
-  2026-08-08 review probe: MALICIOUS floor + BENIGN gate + self-spoof named.
-- **S10/S9/S8 demo turns** unchanged (see git history of this file).
+  2. POST the flagship typosquat email to `/api/investigations` (probe doc
+     has it) → note `evidence[].cite` labels (E-xxxxxxxx).
+  3. `curl -s -X POST localhost:8000/api/investigations/<id>/summary -H "Authorization: Bearer $TOKEN"` →
+     model-rendered summary where EVERY hypothesis line and evidence line
+     carries [E-…] citations; `contract_valid`, `pinned`, and
+     `citations.{ok,unknown,uncited_lines}` report the code's verdict on it.
+- **S12 demo (zero-LLM)** unchanged: POST /api/investigations →
+  4 hypotheses, FP+BENIGN rejected with named reasons, TP/TEST 50/50 at
+  1.0 bit, ranked lookups with itemized gain; POST /{id}/lookups executes
+  the top one through keyless enrichment.
+- **S11/S10/S9/S8 demo turns** unchanged (see git history of this file).
 
 ## Reference intelligence (from the SARA Open architecture study)
 Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
-- ACH analogues (S12): 2026-08-08-sara-ach-analogues.md — **SARA has no ACH**;
+- ACH analogues (S12): 2026-08-08-sara-ach-analogues.md — SARA has no ACH;
   falsification guards + doctrine tables are the reusable patterns.
 - Phishing/header/typosquat (S11): 2026-07-18-sara-phishing-header-patterns.md
 - Alert additive scorer (S10): 2026-07-18-sara-alert-triage-scorer.md
@@ -133,9 +139,10 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 - RRF retrieval + ID bypass: 2026-07-17-sara-rrf-retriever-pattern.md
 
 ## Next session should
-Run the S13 Step-0 fresh-eyes review of `5d3d2dc..staging` → `/promote` (#14) →
-then S13 exactly as written in NEXT-SESSION.md (Evidence graph + cited output:
-typed evidence objects — `ach_evidence` was designed as the substrate — every
-generated claim carries a citation, output guard rejects uncited claims). S13
-REJOINS the LLM path (cited rendering through a contract), so the S10/S11
-directive+pin pattern applies and live verification against Scout is required.
+S14 Step 0a: back-merge after Burhan merges PR #14. Step 0b: fresh-eyes
+review of the S13 feature commits (see In-flight 2 — injection-through-
+statements, guard heuristics, cost exposure). Then S14 per ROADMAP: **Retro-
+hunt** — on-ingest sweep of historical observables (indexed join, never
+scan), re-open notifications, verdict flip events. The S6/S7 ingest layer
+already emits DocChange events into a NullSink hook built for exactly this
+(ROADMAP S7 note). NEXT-SESSION.md has the full prompt.
