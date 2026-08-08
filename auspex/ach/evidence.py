@@ -90,6 +90,9 @@ def cells_for(kind: EvidenceKind) -> Mapping[HypothesisKey, Cell]:
     return _CELLS[kind]
 
 
+_MAX_STATEMENT = 300  # persisted analyst copy, defensively bounded
+
+
 def _make(
     kind: EvidenceKind,
     statement: str,
@@ -97,9 +100,14 @@ def _make(
     source: str,
     obs_id: str | None = None,
 ) -> Evidence:
+    # The cap applies to EVERY adapter, not only enrichment: statements carry
+    # attacker-authored text (finding details quote the paste) and are
+    # persisted verbatim — S13 will route them through an LLM contract, and
+    # an unbounded statement is the S10-review crowd-out shape waiting there
+    # (S12 verification, finding 16).
     return Evidence(
         kind=kind,
-        statement=statement,
+        statement=statement[:_MAX_STATEMENT],
         credibility=round(min(max(credibility, 0.0), 1.0), 3),
         cells=cells_for(kind),
         source=source,
@@ -237,7 +245,7 @@ def evidence_from_email(env: EmailEnvelope, verdict: PhishingVerdict) -> tuple[E
             0,
             _make(
                 EvidenceKind.EMAIL_AUTH_FAIL,
-                "; ".join(f.detail for f in auth)[:_MAX_STATEMENT],
+                "; ".join(f.detail for f in auth),  # capped in _make
                 credibility,
                 "phishing:auth",
             ),
@@ -269,9 +277,6 @@ _LABEL_KINDS: Mapping[VerdictLabel, EvidenceKind] = MappingProxyType(
     }
 )
 
-_MAX_STATEMENT = 300  # persisted analyst copy, defensively bounded
-
-
 _NO_SIGNAL_CREDIBILITY = 0.3  # weak by construction — absence of a listing
 
 
@@ -292,7 +297,7 @@ def evidence_from_enrichment(item: ObservableEnrichment) -> tuple[Evidence, ...]
         kind = _LABEL_KINDS.get(sig.label)
         if kind is None:
             continue
-        statement = f"{sig.provider}: {sig.summary}"[:_MAX_STATEMENT]
+        statement = f"{sig.provider}: {sig.summary}"  # capped in _make
         out.append(
             _make(
                 kind,

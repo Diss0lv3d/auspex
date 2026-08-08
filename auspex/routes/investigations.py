@@ -284,9 +284,15 @@ async def run_lookup(
 ) -> dict:
     """Execute the engine's recommended lookup (or a named candidate) through
     the S5 enrichment fan-out, fold the outcome in as evidence, re-assess.
-    A completed lookup that answers UNKNOWN still counts as coverage — asking
-    again would gain nothing — but produces no evidence row (absence is not
-    evidence)."""
+
+    A completed lookup with no claim from any answering source folds in ONE
+    weak ENRICHMENT_NO_SIGNAL row — that row is what retires the candidate,
+    and it applies the small update the gain math priced into the "unknown"
+    outcome. A lookup NO provider completed (outage, timeouts, breaker-open)
+    yields nothing and the candidate honestly remains; `lookup_status` in the
+    response says which happened. Repeated attempts against a failing
+    provider set are bounded by the S5 circuit breaker (3 consecutive
+    failures → 60 s open), not by this route."""
     pool = request.app.state.pool
     record = await load_investigation(
         pool, workspace_id=auth.workspace_id, investigation_id=investigation_id
@@ -339,4 +345,15 @@ async def run_lookup(
         pool, workspace_id=auth.workspace_id, investigation_id=investigation_id
     )
     assert updated is not None
-    return _render(updated)
+    rendered = _render(updated)
+    # An honest status instead of a byte-identical 200 when nothing completed
+    # (S12 verification finding 15): "completed" ⇒ evidence landed (a claim or
+    # a no-signal coverage row); "not_completed" ⇒ no provider finished the
+    # lookup — the candidate remains, and retrying is bounded by the S5
+    # circuit breaker, not rewarded with fake progress.
+    rendered["lookup_status"] = {
+        "obs_id": chosen.observable.obs_id,
+        "status": "completed" if new_evidence else "not_completed",
+        "provider_failures": len(outcome.provider_failures),
+    }
+    return rendered

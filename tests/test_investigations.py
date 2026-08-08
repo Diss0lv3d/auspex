@@ -422,3 +422,61 @@ def test_store_tolerates_retired_evidence_kind_and_guards_ownership(client, sett
     rec, foreign_error = asyncio.run(_run())
     assert [e.statement for e in rec.evidence] == ["kept row"]  # retired row skipped
     assert isinstance(foreign_error, LookupError)
+
+
+class _DeadEnrichment:
+    """No provider completes anything — outage shape."""
+
+    active = True
+
+    async def enrich(self, observables):
+        items = tuple(
+            ObservableEnrichment(
+                observable=o, signals=(), skip_reason=None, sources_answered=0
+            )
+            for o in observables
+        )
+        return EnrichmentOutcome(
+            items=items, provider_failures={"StubTI": "unreachable or returned an error"}
+        )
+
+
+def test_uncompleted_lookup_reports_not_completed_and_keeps_the_candidate(client):
+    # S12 verification finding 15: a lookup no provider completed must not
+    # return a byte-identical 200 that reads as progress.
+    created = _create(client, ALERT_PASTE)
+    top = created["next_lookups"]["ranked"][0]
+    real = client.app.state.enrichment
+    client.app.state.enrichment = _DeadEnrichment()
+    try:
+        resp = client.post(
+            f"/api/investigations/{created['investigation_id']}/lookups",
+            json={},
+            headers=_hdr(client),
+        )
+    finally:
+        client.app.state.enrichment = real
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["lookup_status"]["status"] == "not_completed"
+    assert body["lookup_status"]["obs_id"] == top["obs_id"]
+    assert body["lookup_status"]["provider_failures"] == 1
+    # the candidate honestly remains for a later retry
+    assert top["obs_id"] in [r["obs_id"] for r in body["next_lookups"]["ranked"]]
+
+
+def test_completed_lookup_reports_completed(client):
+    created = _create(client, ALERT_PASTE)
+    top = created["next_lookups"]["ranked"][0]
+    _stub_values.append((top["type"], top["value"]))
+    real = client.app.state.enrichment
+    client.app.state.enrichment = _StubEnrichment()
+    try:
+        resp = client.post(
+            f"/api/investigations/{created['investigation_id']}/lookups",
+            json={},
+            headers=_hdr(client),
+        )
+    finally:
+        client.app.state.enrichment = real
+    assert resp.json()["lookup_status"]["status"] == "completed"
