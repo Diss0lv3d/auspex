@@ -85,6 +85,7 @@ def _subject_snapshot(kind: SubjectKind, message: str) -> tuple[dict, tuple, tup
             "iocs": _obs_json(env.iocs),
             "iocs_truncated": max(len(env.iocs) - _MAX_SNAPSHOT_IOCS, 0),
             "recipient_domains": [],
+            "recipient_domains_truncated": 0,
         }
         return subject, env.iocs, evidence_from_alert(env)
     env = parse_email(message)
@@ -97,7 +98,15 @@ def _subject_snapshot(kind: SubjectKind, message: str) -> tuple[dict, tuple, tup
         "subject_line": env.subject,
         "iocs": _obs_json(kept),  # victim-filtered at parse time, once
         "iocs_truncated": max(len(kept) - _MAX_SNAPSHOT_IOCS, 0),
-        "recipient_domains": list(env.recipient_domains),
+        # Same bound-and-name discipline as iocs: a paste listing hundreds of
+        # recipients otherwise stores and echoes them all on every GET — the
+        # one list the finding-8 caps missed (S13 review, finding 5). The
+        # victim filter already ran on the FULL env at parse time; this cap
+        # only bounds the display snapshot.
+        "recipient_domains": list(env.recipient_domains[:_MAX_SNAPSHOT_RECIPIENTS]),
+        "recipient_domains_truncated": max(
+            len(env.recipient_domains) - _MAX_SNAPSHOT_RECIPIENTS, 0
+        ),
     }
     return subject, kept, evidence_from_email(env, verdict)
 
@@ -108,6 +117,7 @@ def _subject_snapshot(kind: SubjectKind, message: str) -> tuple[dict, tuple, tup
 # snapshot ("iocs_truncated"), never silent. 200 is far beyond any real
 # alert/email — only the pathological paste loses tail observables.
 _MAX_SNAPSHOT_IOCS = 200
+_MAX_SNAPSHOT_RECIPIENTS = 50  # same discipline for the recipient list (S13 review 5)
 
 
 def _obs_json(observables: tuple[Observable, ...]) -> list[dict]:
@@ -225,7 +235,12 @@ async def create(request: Request, body: CreateInvestigationBody, auth: Auth) ->
     """Open an investigation over a pasted alert or email. Format decides the
     subject kind (the 92/8 rule: format beats keywords); anything else is a
     422 — ACH v1 analyzes structured subjects, not open questions."""
-    q = body.message.strip()
+    # Postgres text/jsonb cannot represent U+0000 at all, so a paste carrying
+    # one 500'd at persist time (asyncpg UntranslatableCharacterError — S13
+    # review, finding 1, live-verified). NUL carries no meaning in any alert
+    # or email text; strip it BEFORE parsing so the parsers, the snapshot,
+    # and the persisted statements all see the same text.
+    q = body.message.replace("\x00", "").strip()
     if _is_alert_paste(q):
         kind = SubjectKind.ALERT
     elif _is_email_paste(q):

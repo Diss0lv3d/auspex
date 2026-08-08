@@ -140,6 +140,46 @@ def test_create_rejects_unstructured_prose(client):
     assert "structured subject" in resp.json()["detail"]
 
 
+def test_create_survives_nul_bytes_in_the_paste(client):
+    """S13 review finding 1 (live-verified): Postgres text/jsonb cannot store
+    U+0000, so a NUL-carrying paste 500'd at persist with
+    UntranslatableCharacterError. The route strips NUL before parsing."""
+    nul = chr(0)
+    paste = EMAIL_PASTE.replace(
+        "Subject: verify your account", f"Subject: verify {nul} your account"
+    ) + f" {nul}trailer"
+    body = _create(client, paste)
+    assert body["subject_kind"] == "email"
+    assert nul not in body["subject"]["subject_line"]
+    assert all(nul not in e["statement"] for e in body["evidence"])
+    # a paste that is ONLY NULs has no format left — honest 422, not a 500
+    resp = client.post(
+        "/api/investigations", json={"message": nul * 8}, headers=_hdr(client)
+    )
+    assert resp.status_code == 422
+
+
+def test_recipient_domains_are_capped_with_named_truncation(client):
+    """S13 review finding 5: every other snapshot list is bounded and names
+    its truncation; recipient_domains stored a paste-controlled unbounded
+    list (300 entries round-tripped on every GET)."""
+    tos = ", ".join(f"user{i}@dept{i}.example{i}.com" for i in range(80))
+    paste = (
+        'From: "PayPal Support" <security@paypa1.com>\n'
+        f"To: {tos}\n"
+        "Subject: verify your account\n"
+        "Authentication-Results: mx.acme.com; spf=fail; dkim=fail; dmarc=fail\n\n"
+        "Click http://paypa1.com/verify now."
+    )
+    body = _create(client, paste)
+    assert len(body["subject"]["recipient_domains"]) == 50
+    assert body["subject"]["recipient_domains_truncated"] == 30
+    # the normal case stays untruncated and says so
+    normal = _create(client, EMAIL_PASTE)
+    assert normal["subject"]["recipient_domains"] == ["acme.com"]
+    assert normal["subject"]["recipient_domains_truncated"] == 0
+
+
 def test_get_recomputes_identically(client):
     created = _create(client, ALERT_PASTE)
     got = client.get(
