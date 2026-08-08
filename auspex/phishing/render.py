@@ -76,7 +76,11 @@ def deterministic_phishing_block(env: EmailEnvelope, verdict: PhishingVerdict) -
     kept, withheld = filter_victim_iocs(env)
     if kept:
         shown = kept[:_MAX_IOCS_SHOWN]
-        ioc_txt = ", ".join(f"{o.value} ({o.type.value})" for o in shown)
+        # Observable values are attacker-authored too — `_MAX_IOCS_SHOWN` bounds
+        # how MANY are listed, never how LONG each one is. Unflattened, a single
+        # 50 KB address pushed the surrounding instructions out of the directive
+        # (S12 review C, measured); flatten() caps and de-newlines each value.
+        ioc_txt = ", ".join(f"{_clean(o.value, cap=120)} ({o.type.value})" for o in shown)
         more = f" (+{len(kept) - len(shown)} more)" if len(kept) > len(shown) else ""
         lines.append(f"Attacker-side indicators (victim-filtered): {ioc_txt}{more}")
     if withheld:

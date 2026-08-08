@@ -291,6 +291,19 @@ def test_directive_flattens_injected_newlines_in_subject():
     assert "\n\nNEW DIRECTIVE" not in block
 
 
+def test_directive_bounds_indicator_values():
+    # S12 review finding C: _MAX_IOCS_SHOWN bounds the COUNT of indicators, not
+    # the LENGTH of each. An unflattened 50 KB observable crowded the
+    # instructions out of the system directive.
+    raw = "From: " + ("a" * 50000) + "@evil.test\nTo: b@acme.com\n\nbody"
+    env = parse_email(raw)
+    block = deterministic_phishing_block(env, decide_verdict(env))
+    assert len(block) < 4000
+    assert max(len(line) for line in block.splitlines()) < 600
+    # the closing render instruction still survives in the directive
+    assert "Render the answer with the contract sections" in block
+
+
 def test_directive_names_the_victim_filter():
     env = parse_email(_load("victim_named.eml"))
     block = deterministic_phishing_block(env, decide_verdict(env))
