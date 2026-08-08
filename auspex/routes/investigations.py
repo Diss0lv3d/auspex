@@ -343,18 +343,23 @@ async def run_lookup(
     # small update the gain math priced into the "unknown" outcome). A lookup
     # NO provider completed yields nothing — it stays a candidate, honestly.
     new_evidence = [e for item in outcome.items for e in evidence_from_enrichment(item)]
+    written = 0
     if new_evidence:
-        await add_evidence(
+        # written < len(new_evidence) means a concurrent fold already recorded
+        # the same answer — the store dedups per (kind, source, obs_id)
+        # under the investigation row lock (S13 review, finding 4).
+        written = await add_evidence(
             pool,
             workspace_id=auth.workspace_id,
             investigation_id=investigation_id,
             evidence=new_evidence,
         )
     logger.info(
-        "investigation lookup: obs=%s providers_failed=%d evidence=%d",
+        "investigation lookup: obs=%s providers_failed=%d evidence=%d written=%d",
         chosen.observable.obs_id,
         len(outcome.provider_failures),
         len(new_evidence),
+        written,
     )
     updated = await load_investigation(
         pool, workspace_id=auth.workspace_id, investigation_id=investigation_id

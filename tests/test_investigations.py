@@ -596,3 +596,90 @@ def test_load_skips_cells_outside_the_closed_vocabulary(client, settings):
     fp = next(s for s in a.scores if s.hypothesis.key is HypothesisKey.FALSE_POSITIVE)
     assert fp.status == "surviving"
     assert fp.hard_contradictions == 0
+
+
+def test_concurrent_lookup_folds_do_not_duplicate_evidence(client, settings):
+    """S13 review finding 4 (executed via asyncio.gather): two in-flight
+    lookups both passed the candidate check before either wrote, and the
+    append-only trail recorded the same provider claim twice — scored as two
+    independent facts (FP inconsistency 5.0 instead of 2.5). add_evidence now
+    serializes folds on the investigation row (FOR UPDATE) and dedups
+    observable-linked rows per (kind, source, obs_id)."""
+    import asyncio
+
+    from auspex.ach import (
+        EvidenceKind,
+        SubjectKind,
+        evidence_from_enrichment,
+        seed_hypotheses,
+    )
+    from auspex.ach.store import add_evidence, create_investigation, load_investigation
+    from auspex.routes.investigations import _assess, _subject_snapshot
+
+    paste = (
+        "CEF:0|Vendor|EDR|1.0|500|Beaconing detected|9|src=203.0.113.99 "
+        "dst=s13-race-regression.example.biz cs1=powershell -enc SQBFAFgA "
+        "externalId=T1071"
+    )
+
+    class _SlowStub:
+        async def enrich(self, observables):
+            await asyncio.sleep(0.1)  # hold both folds in flight together
+            return tuple(
+                ObservableEnrichment(
+                    observable=o,
+                    signals=(
+                        ProviderSignal(
+                            provider="StubTI",
+                            label=VerdictLabel.MALICIOUS,
+                            confidence=0.9,
+                            summary="listed as active C2",
+                            evidence={},
+                        ),
+                    ),
+                    skip_reason=None,
+                    sources_answered=1,
+                )
+                for o in observables
+            )
+
+    async def _run():
+        conn = await asyncpg.connect(settings.database_url)
+        try:
+            ws = await _scratch_workspace(conn)
+        finally:
+            await conn.close()
+        pool = await asyncpg.create_pool(settings.database_url, min_size=2, max_size=4)
+        stub = _SlowStub()
+        try:
+            subject, _, evidence = _subject_snapshot(SubjectKind.ALERT, paste)
+            inv = await create_investigation(
+                pool, workspace_id=ws, subject_kind=SubjectKind.ALERT,
+                subject=subject, hypotheses=seed_hypotheses(SubjectKind.ALERT),
+                evidence=evidence,
+            )
+
+            async def fold() -> int:
+                # the exact run_lookup sequence: load → assess → top
+                # candidate → enrich (await) → add_evidence
+                rec = await load_investigation(pool, workspace_id=ws, investigation_id=inv)
+                _, plan = _assess(rec)
+                chosen = plan.ranked[0].candidate
+                items = await stub.enrich((chosen.observable,))
+                new_ev = [e for item in items for e in evidence_from_enrichment(item)]
+                return await add_evidence(
+                    pool, workspace_id=ws, investigation_id=inv, evidence=new_ev
+                )
+
+            written = await asyncio.gather(fold(), fold())
+            rec = await load_investigation(pool, workspace_id=ws, investigation_id=inv)
+            async with pool.acquire() as c:
+                await c.execute("DELETE FROM workspaces WHERE id = $1", ws)
+            return written, rec
+        finally:
+            await pool.close()
+
+    written, rec = asyncio.run(_run())
+    assert sorted(written) == [0, 1]  # one fold landed, the twin deduped
+    dup = [e for e in rec.evidence if e.kind is EvidenceKind.ENRICHMENT_MALICIOUS]
+    assert len(dup) == 1

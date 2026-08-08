@@ -127,7 +127,7 @@ async def add_evidence(
     evidence: Sequence[Evidence],
 ) -> int:
     """Append evidence rows (ownership already verified by the caller's load).
-    Returns rows written; also bumps the investigation's updated_at."""
+    Returns rows actually written; also bumps the investigation's updated_at."""
     if not evidence:
         return 0
     async with pool.acquire() as conn, conn.transaction():
@@ -136,14 +136,43 @@ async def add_evidence(
         # insert an orphan row physically attached to another workspace's
         # investigation (S12 verification, latent — the route always loads
         # first, but the store must hold the invariant on its own).
+        # FOR UPDATE serializes concurrent folds on one investigation: two
+        # in-flight lookups for the same observable both passed the candidate
+        # check before either wrote, and the append-only trail recorded the
+        # same provider claim twice — scored as two independent facts, FP's
+        # inconsistency doubled (S13 review, finding 4, executed via
+        # asyncio.gather). The second fold now waits, then dedups below.
         owned = await conn.fetchval(
-            "SELECT 1 FROM investigations WHERE id = $1 AND workspace_id = $2",
+            "SELECT 1 FROM investigations WHERE id = $1 AND workspace_id = $2 FOR UPDATE",
             investigation_id,
             workspace_id,
         )
         if owned is None:
             raise LookupError("investigation not found in this workspace")
-        await _insert_evidence(conn, workspace_id, investigation_id, evidence)
+        # One lookup answer per (kind, source, observable) per investigation:
+        # observable-linked rows are enrichment answers, and a candidate is
+        # only ever looked up once (coverage retires it) — an identical
+        # incoming row is always a concurrent duplicate, never new signal.
+        # Rows without obs_id (parser/adapter evidence) are never deduped.
+        seen = {
+            (r["kind"], r["source"], r["obs_id"])
+            for r in await conn.fetch(
+                """
+                SELECT kind, source, obs_id FROM ach_evidence
+                WHERE investigation_id = $1 AND workspace_id = $2
+                  AND obs_id IS NOT NULL
+                """,
+                investigation_id,
+                workspace_id,
+            )
+        }
+        to_write = tuple(
+            e for e in evidence
+            if e.obs_id is None or (e.kind.value, e.source, e.obs_id) not in seen
+        )
+        if not to_write:
+            return 0
+        await _insert_evidence(conn, workspace_id, investigation_id, to_write)
         await conn.execute(
             """
             UPDATE investigations SET updated_at = now()
@@ -152,7 +181,7 @@ async def add_evidence(
             investigation_id,
             workspace_id,
         )
-    return len(evidence)
+    return len(to_write)
 
 
 async def _insert_evidence(
