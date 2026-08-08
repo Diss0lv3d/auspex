@@ -175,7 +175,12 @@ def _render(record: InvestigationRecord) -> dict:
                 "status": s.status,
                 "inconsistency": s.inconsistency,
                 "support": s.support,
-                "weight": s.weight,
+                # Named for what it is (matrix.py doctrine): a plausibility
+                # weight derived from inconsistency, NOT a probability —
+                # nothing on this surface estimates base rates. A bare
+                # "weight" invited exactly that misreading (S13 review,
+                # finding 6).
+                "plausibility_weight": s.weight,
                 "rejected_reason": s.rejected_reason,
             }
             for s in assessment.scores

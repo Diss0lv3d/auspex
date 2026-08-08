@@ -102,7 +102,7 @@ def test_create_from_alert_paste_seeds_and_scores(client):
     surviving = [h["key"] for h in body["hypotheses"] if h["status"] == "surviving"]
     assert "true_positive" in surviving and "test_activity" in surviving
     # weights over surviving hypotheses sum to 1
-    total = sum(h["weight"] for h in body["hypotheses"])
+    total = sum(h["plausibility_weight"] for h in body["hypotheses"])
     assert total == pytest.approx(1.0, abs=1e-4)
     # the private TEST-NET src was skipped; domain + hash are ranked candidates
     ranked = body["next_lookups"]["ranked"]
@@ -261,7 +261,7 @@ def test_run_lookup_executes_top_candidate_and_reassesses(client):
     assert top["obs_id"] not in [r["obs_id"] for r in body["next_lookups"]["ranked"]]
     # belief moved toward TRUE_POSITIVE and away from FALSE_POSITIVE
     def w(payload, key):
-        return next(h["weight"] for h in payload["hypotheses"] if h["key"] == key)
+        return next(h["plausibility_weight"] for h in payload["hypotheses"] if h["key"] == key)
 
     assert w(body, "true_positive") > w(created, "true_positive")
     assert w(body, "false_positive") < w(created, "false_positive")
@@ -683,3 +683,61 @@ def test_concurrent_lookup_folds_do_not_duplicate_evidence(client, settings):
     assert sorted(written) == [0, 1]  # one fold landed, the twin deduped
     dup = [e for e in rec.evidence if e.kind is EvidenceKind.ENRICHMENT_MALICIOUS]
     assert len(dup) == 1
+
+
+def test_two_workspace_tenancy_end_to_end(client, settings):
+    """S13 review lens (security): tenant isolation through the FULL HTTP
+    stack with two real workspaces — not just the store guards. A second
+    workspace's valid JWT must see 404 (not 403 — existence is not leaked)
+    in both directions, for GET and for lookup execution."""
+    import asyncio
+
+    from auspex.auth import issue_jwt
+
+    created = _create(client, ALERT_PASTE)  # workspace A: the dev default
+    inv_a = created["investigation_id"]
+
+    async def _mk_b():
+        conn = await asyncpg.connect(settings.database_url)
+        try:
+            ws = await conn.fetchval(
+                "INSERT INTO workspaces (name) VALUES ('test-tenancy-b') "
+                "ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id"
+            )
+            user = await conn.fetchval(
+                """
+                INSERT INTO users (workspace_id, email, display_name)
+                VALUES ($1, 'intruder@tenancy-b.test', 'B')
+                ON CONFLICT (workspace_id, email) DO UPDATE SET display_name = 'B'
+                RETURNING id
+                """,
+                ws,
+            )
+            return ws, user
+        finally:
+            await conn.close()
+
+    async def _rm_b(ws):
+        conn = await asyncpg.connect(settings.database_url)
+        try:
+            await conn.execute("DELETE FROM workspaces WHERE id = $1", ws)
+        finally:
+            await conn.close()
+
+    ws_b, user_b = asyncio.run(_mk_b())
+    try:
+        hdr_b = {"Authorization": f"Bearer {issue_jwt(settings, user_b, ws_b)}"}
+        # B cannot read A's investigation…
+        assert client.get(f"/api/investigations/{inv_a}", headers=hdr_b).status_code == 404
+        # …nor execute lookups against it (404 before any enrichment concern)
+        resp = client.post(f"/api/investigations/{inv_a}/lookups", json={}, headers=hdr_b)
+        assert resp.status_code == 404
+        # and the reverse direction: A cannot read B's investigation
+        made_b = client.post(
+            "/api/investigations", json={"message": ALERT_PASTE}, headers=hdr_b
+        )
+        assert made_b.status_code == 201
+        inv_b = made_b.json()["investigation_id"]
+        assert client.get(f"/api/investigations/{inv_b}", headers=_hdr(client)).status_code == 404
+    finally:
+        asyncio.run(_rm_b(ws_b))
