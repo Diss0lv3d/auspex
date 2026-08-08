@@ -50,7 +50,7 @@ Answering sources had **no claim** about `mail.paypa1.com`:
   simulation infra more often than live attack infra), so the recorded update
   and the promised expectation agree.
 - The answered candidate RETIRED; next recommendations moved to
-  `recover@account-verify.ru` / `security@paypal1.com`-side observables.
+  `recover@account-verify.ru` / `security@paypa1.com`.
 - Note: realized entropy went UP (1.293685 → 1.300922 bits). Correct, not a
   bug: IG is the EXPECTED entropy reduction; an individual outcome may
   increase uncertainty. The API exposes the per-outcome terms so an analyst
