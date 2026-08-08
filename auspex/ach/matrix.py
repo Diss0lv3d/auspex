@@ -113,6 +113,14 @@ def score_matrix(
     """Score every hypothesis against every evidence cell and decide statuses.
     Pure function: same inputs, same assessment — the persistence layer stores
     hypotheses and evidence, never derived scores (single source of truth)."""
+    # Hypothesis keys are the identity of the competing set: with a duplicate
+    # key the weight normalization is computed over UNIQUE keys but rendered
+    # per row, so displayed weights sum above 1.0 (S13 review, finding 2 —
+    # two TP rows each showed the full TP weight). The DB UNIQUE constraint
+    # holds this at persistence; this guards every other caller.
+    keys = [h.key for h in hypotheses]
+    if len(set(keys)) != len(keys):
+        raise ValueError("duplicate hypothesis keys — the competing set must be distinct")
     raw = _raw_scores(hypotheses, evidence)
 
     rejected = {
@@ -172,7 +180,7 @@ def score_matrix(
         )
     )
 
-    ranking_claimed, reason = _ranking_claim(evidence, readings)
+    ranking_claimed, reason = _ranking_claim(evidence, readings, len(hypotheses))
     return AchAssessment(
         scores=tuple(scores),
         readings=readings,
@@ -195,8 +203,15 @@ def _reading(e: Evidence, surviving: set[HypothesisKey]) -> EvidenceReading:
 
 
 def _ranking_claim(
-    evidence: tuple[Evidence, ...], readings: tuple[EvidenceReading, ...]
+    evidence: tuple[Evidence, ...],
+    readings: tuple[EvidenceReading, ...],
+    hypothesis_count: int,
 ) -> tuple[bool, str | None]:
+    if hypothesis_count == 0:
+        # Reachable only by hand-deleting hypothesis rows, but the honest
+        # rails must not describe an empty set as "fitting every hypothesis
+        # equally" (S13 review, finding 7).
+        return False, "the investigation has no hypotheses — there is nothing to rank"
     if not evidence:
         return False, "no evidence yet — every hypothesis is equally live"
     if not any(r.diagnostic for r in readings):

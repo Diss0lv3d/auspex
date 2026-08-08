@@ -195,7 +195,14 @@ def rank_lookups(assessment: AchAssessment, candidates: tuple[CandidateLookup, .
         return LookupPlan(
             prior_entropy_bits=prior_h,
             ranked=(),
-            reason="only one hypothesis survives — there is nothing left to discriminate",
+            # 0 and 1 survivors end the search for the same reason, but the
+            # message must not claim "one survives" over an empty set
+            # (S13 review, finding 7).
+            reason=(
+                "only one hypothesis survives — there is nothing left to discriminate"
+                if len(weights) == 1
+                else "the investigation has no hypotheses — there is nothing to discriminate"
+            ),
             total_candidates=len(candidates),
         )
     if not candidates:

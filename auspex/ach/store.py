@@ -23,6 +23,8 @@ from uuid import UUID
 import asyncpg
 
 from auspex.ach.types import (
+    CELL_MAX,
+    CELL_MIN,
     Cell,
     Evidence,
     EvidenceKind,
@@ -55,9 +57,26 @@ def _cells_from_json(raw: str | dict) -> dict[HypothesisKey, Cell]:
     out: dict[HypothesisKey, Cell] = {}
     for key, cell in data.items():
         try:
-            out[HypothesisKey(key)] = cell
+            hyp = HypothesisKey(key)
         except ValueError:
             continue  # a key retired from the vocabulary: ignore, never crash a load
+        # The cell vocabulary is closed (types.py: int in CELL_MIN..CELL_MAX,
+        # or None) and the scorer trusts it: a hand-edited jsonb string cell
+        # ("2") made every GET 500 with a TypeError, and an out-of-range int
+        # (-7) scored 3.5x the pinned maximum and manufactured a fake hard
+        # contradiction (S13 review, finding 3 — both executed). Anything
+        # outside the vocabulary is not our data: skip the cell and say so.
+        # bool is excluded explicitly — json true/false would count as 1/0.
+        if cell is not None and (
+            not isinstance(cell, int) or isinstance(cell, bool)
+            or not CELL_MIN <= cell <= CELL_MAX
+        ):
+            logger.warning(
+                "ach_evidence cell outside the closed vocabulary skipped on "
+                "load: %s=%r", key, cell,
+            )
+            continue
+        out[hyp] = cell
     return out
 
 

@@ -520,3 +520,79 @@ def test_completed_lookup_reports_completed(client):
     finally:
         client.app.state.enrichment = real
     assert resp.json()["lookup_status"]["status"] == "completed"
+
+
+def test_load_skips_cells_outside_the_closed_vocabulary(client, settings):
+    """S13 review finding 3 (both arms executed): a hand-edited jsonb string
+    cell ("2") made every GET 500 with a TypeError; an out-of-range int (-7)
+    scored 3.5x the pinned maximum and manufactured a fake hard
+    contradiction that rejected FALSE_POSITIVE. Cells outside the closed
+    vocabulary (types.py CELL_MIN..CELL_MAX int or None) are skipped on load
+    with a warning, like retired kinds and retired hypothesis keys."""
+    import asyncio
+    import json as _json
+
+    from auspex.ach import (
+        Evidence,
+        EvidenceKind,
+        HypothesisKey,
+        SubjectKind,
+        score_matrix,
+        seed_hypotheses,
+    )
+    from auspex.ach.store import create_investigation, load_investigation
+
+    async def _run():
+        conn = await asyncpg.connect(settings.database_url)
+        try:
+            ws = await _scratch_workspace(conn)
+        finally:
+            await conn.close()
+        pool = await asyncpg.create_pool(settings.database_url, min_size=1, max_size=2)
+        try:
+            inv_id = await create_investigation(
+                pool,
+                workspace_id=ws,
+                subject_kind=SubjectKind.ALERT,
+                subject={},
+                hypotheses=seed_hypotheses(SubjectKind.ALERT),
+                evidence=(
+                    Evidence(
+                        kind=EvidenceKind.ALERT_ENCODED_COMMAND,
+                        statement="row to corrupt",
+                        credibility=0.8,
+                        cells={k: 1 for k in HypothesisKey},
+                        source="test",
+                    ),
+                ),
+            )
+            async with pool.acquire() as c:
+                await c.execute(
+                    "UPDATE ach_evidence SET cells = $2::jsonb WHERE investigation_id = $1",
+                    inv_id,
+                    _json.dumps(
+                        {
+                            "true_positive": "2",     # string — crashed scoring
+                            "false_positive": -7,     # out of range — fake hard contradiction
+                            "benign_activity": True,  # bool — would count as 1
+                            "test_activity": 2,       # valid — must survive
+                            "retired_key": 1,         # retired — already tolerated
+                        }
+                    ),
+                )
+            rec = await load_investigation(pool, workspace_id=ws, investigation_id=inv_id)
+            async with pool.acquire() as c:
+                await c.execute("DELETE FROM workspaces WHERE id = $1", ws)
+            return rec
+        finally:
+            await pool.close()
+
+    rec = asyncio.run(_run())
+    cells = rec.evidence[0].cells
+    assert cells == {HypothesisKey.TEST_ACTIVITY: 2}
+    # and the assessment computes cleanly: no TypeError, no manufactured
+    # rejection — FALSE_POSITIVE's corrupt -7 is gone
+    a = score_matrix(rec.hypotheses, rec.evidence)
+    fp = next(s for s in a.scores if s.hypothesis.key is HypothesisKey.FALSE_POSITIVE)
+    assert fp.status == "surviving"
+    assert fp.hard_contradictions == 0

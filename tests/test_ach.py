@@ -634,3 +634,37 @@ def test_typosquat_email_scenario_discriminates_then_converges():
         victim_filtered=kept,
     )
     assert top.obs_id not in {c.observable.obs_id for c in cands2}
+
+
+# -- S13 review regressions (findings 2, 7) ------------------------------------
+
+
+def test_duplicate_hypothesis_keys_are_refused():
+    """S13 review finding 2: with two rows sharing a key, weight
+    normalization ran over UNIQUE keys but rendered per row — displayed
+    weights summed to 1.30. The competing set's identity is its keys; the DB
+    UNIQUE constraint holds this at persistence, score_matrix holds it for
+    every other caller."""
+    from auspex.ach import Hypothesis
+
+    hyps = seed_hypotheses(SubjectKind.ALERT)
+    dup = (*hyps, Hypothesis(HypothesisKey.TRUE_POSITIVE, "duplicate TP wording"))
+    with pytest.raises(ValueError, match="duplicate hypothesis keys"):
+        score_matrix(dup, ())
+
+
+def test_zero_hypotheses_get_honest_reasons_not_borrowed_ones():
+    """S13 review finding 7: an empty hypothesis set (reachable only by
+    hand-deleting rows) was described as 'fits every surviving hypothesis
+    equally' by the matrix and 'only one hypothesis survives' by the
+    planner — both statements about sets that don't exist."""
+    ev = (_ev(EvidenceKind.ALERT_LOLBIN, credibility=0.8,
+              true_positive=1, false_positive=-1, benign_activity=0, test_activity=1),)
+    a = score_matrix((), ev)
+    assert a.ranking_claimed is False
+    assert a.reason == "the investigation has no hypotheses — there is nothing to rank"
+    plan = rank_lookups(a, ())
+    assert plan.ranked == ()
+    assert plan.reason == (
+        "the investigation has no hypotheses — there is nothing to discriminate"
+    )
