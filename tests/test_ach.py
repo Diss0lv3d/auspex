@@ -342,7 +342,7 @@ def test_weights_halve_per_half_life_of_inconsistency():
     )
 
 
-def test_none_cells_are_excluded_from_scoring():
+def test_none_cells_are_excluded_from_scoring_but_lone_cells_diagnose():
     hyps = seed_hypotheses(SubjectKind.ALERT)
     e = _ev(
         EvidenceKind.ALERT_LOLBIN,
@@ -354,8 +354,60 @@ def test_none_cells_are_excluded_from_scoring():
     a = score_matrix(hyps, (e,))
     fp = next(s for s in a.scores if s.hypothesis.key is HypothesisKey.FALSE_POSITIVE)
     assert fp.inconsistency == 0.0 and fp.support == 0.0
-    # with a single non-None cell the spread is undefined → non-diagnostic
-    assert a.readings[0].diagnostic is False
+    # a lone non-None nonzero cell DOES discriminate (it moves one hypothesis
+    # relative to the rest) — S12 verification: the earlier <2-cells gate
+    # claimed "fits every surviving hypothesis equally" while weights skewed.
+    assert a.readings[0].diagnostic is True
+    assert a.ranking_claimed is True
+    # and an all-None row is honestly non-diagnostic
+    blank = _ev(EvidenceKind.ALERT_LOLBIN)
+    b = score_matrix(hyps, (blank,))
+    assert b.readings[0].diagnostic is False
+    assert b.ranking_claimed is False
+
+
+def test_heuer_least_inconsistency_beats_most_support():
+    """The flagship property, pinned so a most-support-first mutation FAILS:
+    FP carries the most support overall but also real inconsistency; TP is
+    clean with less support. Heuer ranks TP first."""
+    hyps = seed_hypotheses(SubjectKind.ALERT)
+    support_heavy = _ev(
+        EvidenceKind.ALERT_HIGH_SEVERITY,
+        false_positive=2,
+        true_positive=0,
+        benign_activity=0,
+        test_activity=0,
+    )
+    mixed = _ev(
+        EvidenceKind.ALERT_SUSPICIOUS_PROCESS,
+        false_positive=-1,
+        true_positive=1,
+        benign_activity=0,
+        test_activity=0,
+    )
+    a = score_matrix(hyps, (support_heavy, mixed))
+    fp = next(s for s in a.scores if s.hypothesis.key is HypothesisKey.FALSE_POSITIVE)
+    tp = next(s for s in a.scores if s.hypothesis.key is HypothesisKey.TRUE_POSITIVE)
+    assert fp.support > tp.support  # FP would win a most-support ranking
+    assert a.scores[0].hypothesis.key is HypothesisKey.TRUE_POSITIVE
+
+
+def test_ranking_is_invariant_to_hypothesis_input_order():
+    """S12 verification: the store loads hypotheses alphabetically, and the
+    old input-tuple tiebreak then ranked TEST above TP on exact ties. The
+    final tiebreak is the enum declaration order, whatever order arrives."""
+    seeded = seed_hypotheses(SubjectKind.ALERT)
+    shuffled = tuple(sorted(seeded, key=lambda h: h.key.value))  # alphabetical
+    e = _ev(
+        EvidenceKind.ALERT_ENCODED_COMMAND,
+        true_positive=2,
+        false_positive=-1,
+        benign_activity=-2,
+        test_activity=2,
+    )
+    for arrangement in (seeded, shuffled, tuple(reversed(seeded))):
+        a = score_matrix(arrangement, (e,))
+        assert a.scores[0].hypothesis.key is HypothesisKey.TRUE_POSITIVE, arrangement
 
 
 # -- information gain ----------------------------------------------------------

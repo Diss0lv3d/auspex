@@ -157,13 +157,18 @@ def score_matrix(
         for h, inc, sup, hard in raw
     ]
     # Surviving first by ascending inconsistency (Heuer), support as tiebreak,
-    # catalog order as the final stable key; rejected last.
+    # ENUM declaration order as the final stable key. The enum — not the input
+    # tuple — because the input order is not stable across persistence (the
+    # store loads hypotheses alphabetically; the S12 verification caught the
+    # API ranking TEST above TP on exact ties while the in-memory fixtures
+    # ranked TP first). The closed enum IS the catalog order, everywhere.
+    enum_order = list(HypothesisKey)
     scores.sort(
         key=lambda s: (
             s.status != "surviving",
             s.inconsistency,
             -s.support,
-            [h.key for h in hypotheses].index(s.hypothesis.key),
+            enum_order.index(s.hypothesis.key),
         )
     )
 
@@ -178,8 +183,14 @@ def score_matrix(
 
 
 def _reading(e: Evidence, surviving: set[HypothesisKey]) -> EvidenceReading:
-    cells = [c for k, c in e.cells.items() if k in surviving and c is not None]
-    spread = (max(cells) - min(cells)) if len(cells) >= 2 else 0
+    # Diagnosticity must match SCORING semantics: a None cell contributes
+    # nothing, exactly like 0 — so the spread is over effective (None→0)
+    # cells across ALL survivors. A lone −2 cell on one hypothesis IS
+    # diagnostic (it halves that hypothesis's weight relative to the rest);
+    # the earlier len>=2 gate called that state "fits every surviving
+    # hypothesis equally" while the weights were skewed 2× (S12 verification).
+    cells = [(e.cells.get(k) if e.cells.get(k) is not None else 0) for k in surviving]
+    spread = (max(cells) - min(cells)) if cells else 0
     return EvidenceReading(evidence=e, spread=spread, diagnostic=spread > 0)
 
 
