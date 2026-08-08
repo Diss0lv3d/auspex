@@ -238,7 +238,7 @@ async def load_investigation(
         )
         ev_rows = await conn.fetch(
             """
-            SELECT kind, statement, credibility, cells, source, obs_id
+            SELECT id, kind, statement, credibility, cells, source, obs_id
             FROM ach_evidence
             WHERE investigation_id = $1 AND workspace_id = $2
             ORDER BY created_at, id
@@ -284,4 +284,5 @@ def _evidence_from_row(r) -> Evidence | None:
         cells=_cells_from_json(r["cells"]),
         source=r["source"],
         obs_id=r["obs_id"],
+        evidence_id=str(r["id"]),  # the stable citation identity (S13)
     )

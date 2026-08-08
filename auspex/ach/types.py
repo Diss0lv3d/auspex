@@ -145,7 +145,12 @@ class Evidence:
     holds the per-hypothesis bearing; `source` is provenance
     ("alert:signal", "phishing:finding", "enrichment:OTX"); `obs_id` links
     enrichment evidence back to the observable it covers (candidate
-    exclusion in gain.py)."""
+    exclusion in gain.py).
+
+    `evidence_id` is the ach_evidence row uuid — None on freshly-adapted
+    evidence, filled by the store on load. It is the STABLE identity a
+    citation stands on (S13): row uuids never change and never renumber when
+    a retired-kind sibling is skipped, unlike a load index."""
 
     kind: EvidenceKind
     statement: str
@@ -154,3 +159,4 @@ class Evidence:
     source: str
     obs_id: str | None = None
     notes: tuple[str, ...] = field(default_factory=tuple)
+    evidence_id: str | None = None
