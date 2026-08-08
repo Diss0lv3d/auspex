@@ -15,11 +15,14 @@ rewriting what past evidence meant when it was recorded.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
 import asyncpg
+
+logger = logging.getLogger(__name__)
 
 from auspex.ach.types import (
     Cell,
@@ -109,6 +112,18 @@ async def add_evidence(
     if not evidence:
         return 0
     async with pool.acquire() as conn, conn.transaction():
+        # Ownership guard INSIDE the transaction: without it, a caller-supplied
+        # (workspace_id, investigation_id) pair from different tenants would
+        # insert an orphan row physically attached to another workspace's
+        # investigation (S12 verification, latent — the route always loads
+        # first, but the store must hold the invariant on its own).
+        owned = await conn.fetchval(
+            "SELECT 1 FROM investigations WHERE id = $1 AND workspace_id = $2",
+            investigation_id,
+            workspace_id,
+        )
+        if owned is None:
+            raise LookupError("investigation not found in this workspace")
         await _insert_evidence(conn, workspace_id, investigation_id, evidence)
         await conn.execute(
             """
@@ -192,15 +207,33 @@ async def load_investigation(
         hypotheses=tuple(
             Hypothesis(key=HypothesisKey(r["key"]), label=r["label"]) for r in hyp_rows
         ),
-        evidence=tuple(
-            Evidence(
-                kind=EvidenceKind(r["kind"]),
-                statement=r["statement"],
-                credibility=r["credibility"],
-                cells=_cells_from_json(r["cells"]),
-                source=r["source"],
-                obs_id=r["obs_id"],
-            )
-            for r in ev_rows
-        ),
+        evidence=tuple(e for r in ev_rows if (e := _evidence_from_row(r)) is not None),
+    )
+
+
+def _evidence_from_row(r) -> Evidence | None:
+    """One ach_evidence row → Evidence, tolerating vocabulary evolution.
+
+    - `credibility` is a Postgres `real` (float32): 0.7 comes back as
+      0.699999988…, which silently failed the `>= HARD_CREDIBILITY (0.7)`
+      hard-contradiction check — the API served a DIFFERENT matrix than the
+      fixture-pinned math (S12 verification, live-demonstrated: the flagship
+      email's false_positive survived persisted but rejected in-memory).
+      _make writes 3-decimal values, so rounding to 3dp on load reconstructs
+      the written value exactly.
+    - a kind retired from the vocabulary drops the row with a warning instead
+      of ValueError-bricking every load of the investigation — the same
+      tolerance _cells_from_json already gave retired hypothesis keys."""
+    try:
+        kind = EvidenceKind(r["kind"])
+    except ValueError:
+        logger.warning("ach_evidence row with retired kind %r skipped on load", r["kind"])
+        return None
+    return Evidence(
+        kind=kind,
+        statement=r["statement"],
+        credibility=round(r["credibility"], 3),
+        cells=_cells_from_json(r["cells"]),
+        source=r["source"],
+        obs_id=r["obs_id"],
     )

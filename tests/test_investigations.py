@@ -52,9 +52,21 @@ def _cleanup(settings):
                 await conn.execute(
                     "DELETE FROM investigations WHERE id = ANY($1::uuid[])", _created
                 )
+            # Scoped to the dev workspace (S12 verification finding 13: the
+            # unscoped version cascaded OTHER workspaces' verdict history —
+            # the D-017 trail — for any shared value). Stub lookups must use
+            # test-unique values: within the shared 'default' workspace this
+            # still deletes by value, so a stub on a real demo observable
+            # would remove its genuine trail.
             for type_, value in _stub_values:
                 await conn.execute(
-                    "DELETE FROM observables WHERE type = $1 AND value = $2", type_, value
+                    """
+                    DELETE FROM observables
+                    WHERE type = $1 AND value = $2
+                      AND workspace_id = (SELECT id FROM workspaces WHERE name = 'default')
+                    """,
+                    type_,
+                    value,
                 )
         finally:
             await conn.close()
@@ -186,6 +198,9 @@ class _StubEnrichment:
 def test_run_lookup_executes_top_candidate_and_reassesses(client):
     created = _create(client, ALERT_PASTE)
     top = created["next_lookups"]["ranked"][0]
+    # register cleanup BEFORE the request: a failing assert must not leave the
+    # stub verdict row behind (S12 verification finding 13)
+    _stub_values.append((top["type"], top["value"]))
     real = client.app.state.enrichment
     client.app.state.enrichment = _StubEnrichment()
     try:
@@ -198,7 +213,6 @@ def test_run_lookup_executes_top_candidate_and_reassesses(client):
         client.app.state.enrichment = real
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    _stub_values.append((top["type"], top["value"]))
     # the malicious answer landed as evidence tied to the chosen observable
     enr = [e for e in body["evidence"] if e["kind"] == "enrichment_malicious"]
     assert len(enr) == 1
@@ -258,3 +272,148 @@ def test_session_attachment_requires_ownership(client):
         headers=_hdr(client),
     )
     assert resp.status_code == 404
+
+
+# -- store-level regressions (S12 verification findings 2/4, 11/12, 14) --------
+
+
+@pytest.fixture()
+def store_pool(client):
+    """The app's live pool (event loop owned by the TestClient lifespan)."""
+    return client.app.state.pool
+
+
+async def _scratch_workspace(conn) -> str:
+    return await conn.fetchval(
+        "INSERT INTO workspaces (name) VALUES ('test-ach-store') "
+        "ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id"
+    )
+
+
+def test_store_roundtrip_preserves_hard_contradictions(client, settings):
+    """S12 verification: credibility is a Postgres real (float32) — 0.7 came
+    back 0.699999988 and silently failed the >= 0.7 hard-contradiction check,
+    so the API served a different matrix than the fixture-pinned math. The
+    load path now rounds to the 3dp _make writes."""
+    import asyncio
+
+    from auspex.ach import Evidence, EvidenceKind, HypothesisKey, SubjectKind
+    from auspex.ach import score_matrix, seed_hypotheses
+    from auspex.ach.store import create_investigation, load_investigation
+
+    hyps = seed_hypotheses(SubjectKind.EMAIL)
+    ev = tuple(
+        Evidence(
+            kind=EvidenceKind.EMAIL_SPOOF_INDICATOR,
+            statement=f"spoof indicator {i}",
+            credibility=0.7,  # the exact value float4 mangles
+            cells={
+                HypothesisKey.TRUE_POSITIVE: 2,
+                HypothesisKey.FALSE_POSITIVE: -1,
+                HypothesisKey.BENIGN_ACTIVITY: -2,
+                HypothesisKey.TEST_ACTIVITY: 1,
+            },
+            source="test",
+        )
+        for i in range(3)
+    )
+    before = score_matrix(hyps, ev)
+
+    async def _roundtrip():
+        conn = await asyncpg.connect(settings.database_url)
+        try:
+            ws = await _scratch_workspace(conn)
+        finally:
+            await conn.close()
+        pool = await asyncpg.create_pool(settings.database_url, min_size=1, max_size=2)
+        try:
+            inv_id = await create_investigation(
+                pool,
+                workspace_id=ws,
+                subject_kind=SubjectKind.EMAIL,
+                subject={},
+                hypotheses=hyps,
+                evidence=ev,
+            )
+            rec = await load_investigation(pool, workspace_id=ws, investigation_id=inv_id)
+            async with pool.acquire() as c:
+                await c.execute("DELETE FROM workspaces WHERE id = $1", ws)
+            return rec
+        finally:
+            await pool.close()
+
+    rec = asyncio.run(_roundtrip())
+    assert all(e.credibility == 0.7 for e in rec.evidence)
+    after = score_matrix(rec.hypotheses, rec.evidence)
+    for b, a in zip(before.scores, after.scores):
+        assert b.hypothesis.key == a.hypothesis.key
+        assert b.hard_contradictions == a.hard_contradictions
+        assert b.status == a.status
+        assert b.weight == pytest.approx(a.weight, abs=1e-6)
+
+
+def test_store_tolerates_retired_evidence_kind_and_guards_ownership(client, settings):
+    """(11/12) a kind retired from the vocabulary must not brick every load;
+    (14) add_evidence must refuse a foreign-workspace investigation id."""
+    import asyncio
+    from uuid import uuid4
+
+    from auspex.ach import Evidence, EvidenceKind, HypothesisKey, SubjectKind
+    from auspex.ach import seed_hypotheses
+    from auspex.ach.store import add_evidence, create_investigation, load_investigation
+
+    async def _run():
+        conn = await asyncpg.connect(settings.database_url)
+        try:
+            ws = await _scratch_workspace(conn)
+        finally:
+            await conn.close()
+        pool = await asyncpg.create_pool(settings.database_url, min_size=1, max_size=2)
+        try:
+            inv_id = await create_investigation(
+                pool,
+                workspace_id=ws,
+                subject_kind=SubjectKind.ALERT,
+                subject={},
+                hypotheses=seed_hypotheses(SubjectKind.ALERT),
+                evidence=(
+                    Evidence(
+                        kind=EvidenceKind.ALERT_LOLBIN,
+                        statement="kept row",
+                        credibility=0.8,
+                        cells={k: 0 for k in HypothesisKey},
+                        source="test",
+                    ),
+                ),
+            )
+            async with pool.acquire() as c:
+                await c.execute(
+                    """
+                    INSERT INTO ach_evidence
+                        (workspace_id, investigation_id, kind, statement,
+                         credibility, cells, source)
+                    VALUES ($1, $2, 'retired_kind_from_v0', 'old row', 0.5, '{}', 'test')
+                    """,
+                    ws,
+                    inv_id,
+                )
+            rec = await load_investigation(pool, workspace_id=ws, investigation_id=inv_id)
+            foreign_error = None
+            try:
+                await add_evidence(
+                    pool,
+                    workspace_id=uuid4(),  # not the owning workspace
+                    investigation_id=inv_id,
+                    evidence=rec.evidence[:1],
+                )
+            except LookupError as err:
+                foreign_error = err
+            async with pool.acquire() as c:
+                await c.execute("DELETE FROM workspaces WHERE id = $1", ws)
+            return rec, foreign_error
+        finally:
+            await pool.close()
+
+    rec, foreign_error = asyncio.run(_run())
+    assert [e.statement for e in rec.evidence] == ["kept row"]  # retired row skipped
+    assert isinstance(foreign_error, LookupError)
