@@ -195,3 +195,45 @@ unknown to the bundled DJL engine). Consequences:
   latency was deliberately not measured because footprint alone
   disqualifies it while the primary works. Revisit only if a customer
   cluster bans the ML plugin (that day: probe first).
+
+**D-019 (2026-08-08) — ACH v1 shape: the matrix is code, the vocabularies are
+closed, the tables are tested constants.** Probe:
+docs/probes/2026-08-08-sara-ach-analogues.md (SARA has NO ACH engine — its
+prompt-only version is structurally discarded by its own output template; the
+patterns we adopt are its closed-vocab falsification guards and doctrine
+tables). Ratified for S12 and binding on S13+ (evidence graph builds on this):
+- **The ACH core is deterministic code, zero-LLM** (ADR 0006): hypothesis
+  seeding, per-evidence cell vectors, matrix scoring, elimination, and
+  next-lookup selection are pure functions over typed frozen dataclasses,
+  pinned by fixture tests. The model may later PROPOSE hypotheses or evidence
+  through a contract; it never decides a cell, a weight, a status, or the next
+  lookup.
+- **Closed vocabularies:** hypothesis keys (`true_positive`, `false_positive`,
+  `benign_activity`, `test_activity`) and evidence kinds are StrEnums; cell
+  tables (evidence kind → per-hypothesis −2..+2 or None) and outcome-likelihood
+  tables (P(outcome|hypothesis) per lookup kind) are CODE constants extended
+  via PR with a fixture test per row — the SARA doctrine-table pattern, never
+  env vars, never model output.
+- **Heuer-faithful scoring:** hypotheses are ranked by LEAST weighted
+  inconsistency (consistency counts are display/tiebreak only — confirmation
+  is cheap, disconfirmation is diagnostic); a cell of None means evidence
+  UNAVAILABLE and is excluded from scoring (the absence-is-not-evidence
+  doctrine already in enrich/types.py:8-11). Plausibility weights for the
+  info-gain math derive as 2^(−inconsistency/half_life) — the D-017 decay
+  idiom — and are documented as plausibility weights, NOT probabilities.
+- **Honest rails (the S10/S11 philosophy):** zero evidence → all hypotheses
+  surviving, no ranking claimed; zero DIAGNOSTIC evidence (identical cells
+  across survivors) → no ranking claimed, named reason; a hypothesis is
+  REJECTED only on sufficient weighted inconsistency including at least one
+  high-credibility contradiction, with the reason stored.
+- **Investigations live in Postgres** (not in-session): `investigations` +
+  `hypotheses` + `ach_evidence` tables, workspace-scoped (D-008), following
+  the SCHEMA_V0 idempotent path. In-session-only state would ride the
+  unbounded fenced history (TD-014) and die with the chat; S13's evidence
+  graph needs durable typed evidence rows anyway.
+- **Surface v1 is a zero-LLM REST resource** (`/api/investigations`), not a
+  seventh mode: ACH is a reasoning structure the analyst drives, not a render
+  format for one turn (the NEXT-SESSION.md warning made this a decision, not
+  a default). A model-rendered hypothesis summary through a contract is
+  expected later; when added it follows the S10/S11 directive+pin pattern and
+  must be live-verified.
