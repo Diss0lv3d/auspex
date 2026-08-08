@@ -242,8 +242,15 @@ def test_sender_spoofing_the_victim_domain_is_not_filtered():
     v = decide_verdict(env)
     assert v.verdict == "MALICIOUS"  # 3 auth fails
     kept, _ = filter_victim_iocs(env)
+    kept_vals = {o.value for o in kept}
     # the lookalike host acme.com.evil.test is attacker infra, kept
-    assert any("evil.test" in o.value for o in kept)
+    assert any("evil.test" in v for v in kept_vals)
+    # S12 review finding F: this test asserted only the line above, so it passed
+    # while the invariant its NAME claims was false — the spoofing sender was
+    # withheld as a victim artifact. Assert the actual invariant.
+    assert "it-help@acme.com" in kept_vals, "the spoofing sender is the suspect, not a victim"
+    # the real victim is still withheld
+    assert "employee@acme.com" not in kept_vals
 
 
 def test_internal_ip_detection():

@@ -48,16 +48,45 @@ def _is_internal_ip(value: str) -> bool:
     )
 
 
+def _sender_artifacts(env: EmailEnvelope) -> set[str]:
+    """The sender-side values that are NEVER victim-filtered — the suspect's own
+    address and reply/bounce paths. A self-spoof (From: ceo@acme.com to
+    finance@acme.com) makes the sender look exactly like a victim artifact; it
+    is still the single most important indicator in the message."""
+    return {
+        v.lower()
+        for v in (
+            env.from_addr,
+            env.from_domain,
+            env.reply_to_addr,
+            env.reply_to_domain,
+            env.return_path_addr,
+            env.return_path_domain,
+        )
+        if v
+    }
+
+
 def filter_victim_iocs(
     env: EmailEnvelope,
 ) -> tuple[tuple[Observable, ...], int]:
     """Split the envelope's IOCs into (kept, withheld_count). Withheld =
     recipient-domain artifacts + internal IPs; kept = everything that could
-    actually be attacker infrastructure."""
+    actually be attacker infrastructure — including every sender-side artifact,
+    whatever domain it claims.
+
+    The sender exemption is enforced HERE, not assumed: before the S12 review
+    the recipient-domain match ran over all observables, so a BEC self-spoof had
+    its From address silently withheld and the directive then told the model not
+    to list it (finding B, verified by execution)."""
     victim_regs = {registrable_domain(d) for d in env.recipient_domains}
+    sender = _sender_artifacts(env)
     kept: list[Observable] = []
     withheld = 0
     for o in env.iocs:
+        if o.value.lower() in sender:
+            kept.append(o)
+            continue
         if o.type in (ObservableType.IPV4, ObservableType.IPV6) and _is_internal_ip(o.value):
             withheld += 1
             continue
