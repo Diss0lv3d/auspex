@@ -219,3 +219,69 @@ def test_guard_with_no_known_labels_only_fabrication_fails():
     report = check_citations(fabricated, {})
     assert not report.ok
     assert report.unknown == ("E-12345678",)
+
+
+# -- live-caught regressions (first Scout run, S13) -----------------------------
+
+
+def test_guard_accepts_grouped_citations_in_one_bracket():
+    """Live Scout groups ids as [E-a, E-b, E-c]; the bracket-per-id regex
+    called those lines uncited. The guard checks token resolvability and
+    presence, never typography."""
+    answer = (
+        "## Leading hypothesis\nTRUE-POSITIVE — spoofing plus auth failures "
+        "[E-1a2b3c4d, E-99887766]\n"
+        "## Competing hypotheses\n- TRUE-POSITIVE surviving [E-1a2b3c4d, E-99887766]\n"
+        "## Key evidence\n- reply-to mismatch E-1a2b3c4d\n"
+        "## Next lookup\nenrich the sender domain\n"
+    )
+    report = check_citations(answer, KNOWN)
+    assert report.ok, report.reason()
+    assert report.cited_valid == 5  # grouped AND bare tokens all count
+
+
+def test_directive_names_bearing_evidence_per_hypothesis():
+    """Live Scout rendered '[ ]' on rejected rows: nothing told it which
+    evidence drives a hypothesis's standing. Code knows (the nonzero cells)
+    and now says so per row."""
+    ev = (
+        _ev(
+            EvidenceKind.EMAIL_LOOKALIKE_DOMAIN,
+            "lookalike",
+            "11111111-0000-4000-8000-000000000001",
+            true_positive=2, false_positive=-2, benign_activity=-2, test_activity=2,
+        ),
+        _ev(
+            EvidenceKind.EMAIL_AUTH_FAIL,
+            "auth failures",
+            "22222222-0000-4000-8000-000000000002",
+            true_positive=2, false_positive=-1, benign_activity=-2, test_activity=0,
+        ),
+    )
+    record = _record(ev)
+    assessment, plan = _tp_leading_state(ev)
+    bundle = investigation_directive(record, assessment, plan)
+    rows = {ln.split(" [")[0].removeprefix("- "): ln
+            for ln in bundle.text.splitlines() if ln.startswith("- ")}
+    # both rows bear on FALSE-POSITIVE (cells -2, -1); TEST bears only the lookalike
+    assert "E-11111111, E-22222222" in rows["FALSE-POSITIVE"]
+    assert rows["TEST-ACTIVITY"].endswith("bearing evidence: E-11111111")
+    assert "never render an empty citation bracket" in bundle.text
+
+
+def test_directive_says_when_no_evidence_bears_on_a_hypothesis():
+    ev = (
+        _ev(
+            EvidenceKind.EMAIL_HEADER_ANOMALY,
+            "odd header",
+            "33333333-0000-4000-8000-000000000003",
+            true_positive=1, false_positive=0, benign_activity=-1, test_activity=0,
+        ),
+    )
+    record = _record(ev)
+    assessment, plan = _tp_leading_state(ev)
+    bundle = investigation_directive(record, assessment, plan)
+    fp_row = next(
+        ln for ln in bundle.text.splitlines() if ln.startswith("- FALSE-POSITIVE")
+    )
+    assert fp_row.endswith("no recorded evidence bears on this hypothesis")

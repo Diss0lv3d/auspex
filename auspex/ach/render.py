@@ -163,8 +163,25 @@ def investigation_directive(
     if assessment.notes:
         lines.extend(f"Note: {n}" for n in assessment.notes)
 
+    # Code-computed provenance for each hypothesis's standing: the labels of
+    # every evidence row whose cell moves THAT hypothesis (nonzero, non-None).
+    # Without this the model has nothing to cite on a rejected row and
+    # improvises ("[ ]" — S13 live verification, first Scout run).
+    bearing_by_key: dict = {}
+    for e in record.evidence:
+        label = by_id.get(e.evidence_id or "")
+        if label is None:
+            continue
+        for k, cell in e.cells.items():
+            if cell:
+                bearing_by_key.setdefault(k, []).append(label)
+
     lines.append("")
-    lines.append("Hypotheses (status, weighted inconsistency, support, plausibility weight):")
+    lines.append(
+        "Hypotheses (status, weighted inconsistency, support, plausibility "
+        "weight; 'bearing evidence' = the citation ids whose cells move THIS "
+        "hypothesis — cite exactly those on its line):"
+    )
     for s in assessment.scores:
         row = (
             f"- {_pin_token(s.hypothesis.key.value)} [{s.status}] "
@@ -173,6 +190,12 @@ def investigation_directive(
         )
         if s.rejected_reason:
             row += f" (rejected: {s.rejected_reason})"
+        bearing = bearing_by_key.get(s.hypothesis.key, [])
+        row += (
+            f" — bearing evidence: {', '.join(bearing)}"
+            if bearing
+            else " — no recorded evidence bears on this hypothesis"
+        )
         lines.append(row)
 
     lines.append("")
@@ -213,9 +236,11 @@ def investigation_directive(
     lines.append(
         f'Render the contract sections now. Put exactly "{pin}" as the '
         "leading token of ## Leading hypothesis. In ## Competing hypotheses "
-        "and ## Key evidence, every line must end with the [E-…] citation "
-        "id(s) the claim rests on. Use ## Next lookup for the engine's "
-        "recommendation above."
+        "every hypothesis line must cite its bearing evidence ids from the "
+        "list above; in ## Key evidence every line must cite the id of the "
+        "evidence it describes. Cite a hypothesis with no bearing evidence "
+        "by saying so in words — never render an empty citation bracket. "
+        "Use ## Next lookup for the engine's recommendation above."
     )
     return DirectiveBundle(
         text="\n".join(lines),
@@ -224,9 +249,13 @@ def investigation_directive(
     )
 
 
-# What a citation looks like in rendered text. Labels are lowercase-hex-based
-# but models get them verbatim; match case-insensitively and normalize.
-_CITE_RE = re.compile(r"\[(E-[0-9a-fA-F]{8,32})\]")
+# What a citation looks like in rendered text: the label token itself, with
+# or without brackets. Live Scout groups several ids inside ONE bracket pair
+# ("[E-a, E-b, E-c]") — a bracket-per-id pattern refused that legitimate
+# format and flagged fully-cited lines as uncited (S13 live verification,
+# caught on the first Scout run). The guard checks resolvability and
+# presence, never typography.
+_CITE_RE = re.compile(r"\bE-[0-9a-fA-F]{8,32}\b")
 # The sections whose claims must each carry a citation. "Leading hypothesis"
 # and "Next lookup" narrate code-provided facts (the pin and the plan) and are
 # not required to cite evidence rows.
@@ -277,10 +306,10 @@ def check_citations(
     cited_valid = 0
     unknown: list[str] = []
     for m in _CITE_RE.finditer(answer):
-        if m.group(1).lower() in known_lower:
+        if m.group(0).lower() in known_lower:
             cited_valid += 1
         else:
-            unknown.append(m.group(1))
+            unknown.append(m.group(0))
 
     uncited: list[str] = []
     if known_labels:
