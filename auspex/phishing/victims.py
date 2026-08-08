@@ -67,6 +67,17 @@ def _sender_artifacts(env: EmailEnvelope) -> set[str]:
     }
 
 
+def sender_forges_recipient_domain(env: EmailEnvelope) -> bool:
+    """Whether the sender claims the recipient's own domain — the self-spoof
+    shape behind most BEC. The directive has to call this out: the sender is an
+    indicator here, and every other rule in the block is telling the model that
+    the recipient's domain is not one."""
+    if not env.from_domain or not env.recipient_domains:
+        return False
+    victim_regs = {registrable_domain(d) for d in env.recipient_domains}
+    return registrable_domain(env.from_domain) in victim_regs
+
+
 def filter_victim_iocs(
     env: EmailEnvelope,
 ) -> tuple[tuple[Observable, ...], int]:

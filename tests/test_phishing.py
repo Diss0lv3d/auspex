@@ -407,6 +407,28 @@ def test_directive_bounds_indicator_values():
     assert "Render the answer with the contract sections" in block
 
 
+def test_directive_calls_out_a_self_spoofing_sender():
+    # S12 review finding I, caught live: the block listed ceo@acme.com as an
+    # attacker-side indicator while also saying not to name the recipient's own
+    # domain — and Scout duly dropped the forged sender from ## Indicators.
+    raw = (
+        "From: CEO <ceo@acme.com>\nTo: finance@acme.com\nSubject: Urgent wire\n"
+        "Authentication-Results: mx.acme.com; spf=fail dkim=fail dmarc=fail\n\n"
+        "Details at http://evil-payments.ru/pay\n"
+    )
+    env = parse_email(raw)
+    block = deterministic_phishing_block(env, decide_verdict(env))
+    assert "ceo@acme.com (email)" in block
+    assert "forges the recipient's OWN domain" in block
+    assert "never the sender" in block
+
+
+def test_directive_stays_quiet_when_the_sender_is_external():
+    env = parse_email(_load("victim_named.eml"))
+    block = deterministic_phishing_block(env, decide_verdict(env))
+    assert "forges the recipient's OWN domain" not in block
+
+
 def test_directive_names_the_victim_filter():
     env = parse_email(_load("victim_named.eml"))
     block = deterministic_phishing_block(env, decide_verdict(env))

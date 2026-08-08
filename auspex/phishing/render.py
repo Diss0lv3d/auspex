@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from auspex.phishing.envelope import EmailEnvelope
 from auspex.phishing.verdict import PhishingVerdict
-from auspex.phishing.victims import filter_victim_iocs
+from auspex.phishing.victims import filter_victim_iocs, sender_forges_recipient_domain
 from auspex.untrusted import flatten as _clean
 
 _MAX_IOCS_SHOWN = 10
@@ -99,6 +99,18 @@ def deterministic_phishing_block(env: EmailEnvelope, verdict: PhishingVerdict) -
             "not an IOC; do not list the recipient's domain, addresses, or "
             "internal IPs as indicators."
         )
+    if sender_forges_recipient_domain(env):
+        # Without this the block contradicts itself on the self-spoof shape: the
+        # sender is listed as an attacker-side indicator while the withholding
+        # rule tells the model to keep the recipient's domain out of the list.
+        # Live-checked in S12 — Scout dropped the forged sender from ## Indicators.
+        lines.append(
+            f"NOTE: the sender ({_clean(env.from_addr or '', cap=80)}) forges the "
+            "recipient's OWN domain — the self-spoof shape behind most business "
+            "email compromise. It is an attacker-side indicator and must be named "
+            "as one; the withholding rule above covers the recipient's own "
+            "mailboxes and infrastructure, never the sender."
+        )
 
     lines.append(f"Recommended next step: {verdict.recommendation}")
     lines.append("")
@@ -118,8 +130,8 @@ def deterministic_phishing_block(env: EmailEnvelope, verdict: PhishingVerdict) -
     lines.append(
         f"Render the answer with the contract sections: {rule}; present the "
         "deterministic findings (and any content-level observations, clearly "
-        "labeled as such) in ## Indicators, never naming the recipient's own "
-        "domain as an indicator; use the recommended next step in "
-        "## Recommendation."
+        "labeled as such) in ## Indicators, listing every attacker-side "
+        "indicator named above and never the recipient's own mailboxes, domain, "
+        "or internal IPs; use the recommended next step in ## Recommendation."
     )
     return "\n".join(lines)
