@@ -35,15 +35,17 @@ _DMARC_RE = re.compile(rf"\bdmarc=({_RESULT_TOKENS})\b", re.IGNORECASE)
 # A Received-SPF value opens with its bare result token ("pass (domain of ...)").
 _RESULT_HEAD_RE = re.compile(rf"^({_RESULT_TOKENS})\b", re.IGNORECASE)
 
-# The ONLY headers an authentication result may be read from — all of them are
-# stamped by the RECEIVING gateway, not by the sender. See `_auth`.
-_AUTH_HEADERS = (
+# Headers stamped by the RECEIVING gateway — the recipient org's own assertion,
+# and the only source that may satisfy the BENIGN gate. See `_auth`.
+_GATEWAY_AUTH_HEADERS = (
     "authentication-results",
-    "arc-authentication-results",
     "x-authentication-results",
     "received-spf",
     "received",
 )
+# Stamped by a FORWARDING intermediary, which may be attacker-chosen. Read for
+# failures only (those raise severity); never accepted as a pass.
+_RELAY_AUTH_HEADERS = ("arc-authentication-results",)
 
 _ENCODED_WORD_RE = re.compile(r"=\?[^?]+\?[BbQq]\?[^?]*\?=")
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -90,6 +92,10 @@ def _domain_of(addr: str | None) -> str | None:
     return addr.rsplit("@", 1)[-1].lower().strip(".>") or None
 
 
+def _scope(headers: dict[str, str], names: tuple[str, ...]) -> str:
+    return "\n".join(headers[h] for h in names if headers.get(h))
+
+
 def _auth(headers: dict[str, str]) -> tuple[AuthResult | None, ...]:
     """SPF/DKIM/DMARC result tokens, read ONLY from the auth-bearing headers a
     receiving gateway stamps (`_AUTH_HEADERS`).
@@ -103,21 +109,32 @@ def _auth(headers: dict[str, str]) -> tuple[AuthResult | None, ...]:
     anywhere in the first 3000 characters) let exactly that manufacture a BENIGN
     floor out of an unauthenticated email — S12 review finding A, verified by
     execution. Absence now stays absence, which the verdict layer maps to
-    DEFERRED, never BENIGN."""
-    scope = "\n".join(headers[h] for h in _AUTH_HEADERS if headers.get(h))
-    spf = _SPF_RE.search(scope)
-    dkim = _DKIM_RE.search(scope)
-    dmarc = _DMARC_RE.search(scope)
-    spf_result = AuthResult(spf.group(1).lower()) if spf else None
+    DEFERRED, never BENIGN.
+
+    ARC is read ASYMMETRICALLY for the same reason. `ARC-Authentication-Results`
+    is stamped by a forwarding intermediary — on a path the attacker may have
+    chosen — so its FAILURES are believed (they only raise severity) while its
+    passes are not positive evidence the recipient's own gateway authenticated
+    anything. Before this, an ARC header alone could carry an email all the way
+    to BENIGN."""
+    gateway = _scope(headers, _GATEWAY_AUTH_HEADERS)
+    relay = _scope(headers, _RELAY_AUTH_HEADERS)
+
+    def result(rx: re.Pattern[str]) -> AuthResult | None:
+        m = rx.search(gateway)
+        if m:
+            return AuthResult(m.group(1).lower())
+        m = rx.search(relay)
+        if m and (relayed := AuthResult(m.group(1).lower())) is not AuthResult.PASS:
+            return relayed
+        return None
+
+    spf_result = result(_SPF_RE)
     if spf_result is None and (rspf := headers.get("received-spf")):
         # Received-SPF carries a bare leading token, not `spf=<token>`.
         m = _RESULT_HEAD_RE.match(rspf)
         spf_result = AuthResult(m.group(1).lower()) if m else None
-    return (
-        spf_result,
-        AuthResult(dkim.group(1).lower()) if dkim else None,
-        AuthResult(dmarc.group(1).lower()) if dmarc else None,
-    )
+    return (spf_result, result(_DKIM_RE), result(_DMARC_RE))
 
 
 def _anomalies(

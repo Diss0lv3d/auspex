@@ -167,6 +167,48 @@ def test_auth_results_are_read_from_gateway_headers():
     assert env.auth_all_pass is True
 
 
+def test_arc_relay_results_cannot_reach_benign():
+    # S12 review finding H. ARC-Authentication-Results is stamped by a
+    # FORWARDING intermediary, possibly one the attacker chose — its passes are
+    # not the recipient gateway's assertion. Before the fix an ARC header alone
+    # carried an email to BENIGN.
+    raw = (
+        "ARC-Authentication-Results: i=1; relay.test; spf=pass dkim=pass dmarc=pass\n"
+        "From: a@vendor.test\nTo: b@acme.com\nSubject: invoice\n\nbody"
+    )
+    env = parse_email(raw)
+    assert (env.spf, env.dkim, env.dmarc) == (None, None, None)
+    v = decide_verdict(env)
+    assert v.verdict == "DEFERRED"
+    assert "BENIGN" not in v.allowed
+
+
+def test_arc_relay_failures_are_still_believed():
+    # The asymmetry: an ARC failure only raises severity, so it is trusted.
+    raw = (
+        "ARC-Authentication-Results: i=1; relay.test; spf=fail dkim=fail dmarc=fail\n"
+        "From: a@vendor.test\nTo: b@acme.com\nSubject: invoice\n\nbody"
+    )
+    env = parse_email(raw)
+    assert (env.spf, env.dkim, env.dmarc) == (
+        AuthResult.FAIL,
+        AuthResult.FAIL,
+        AuthResult.FAIL,
+    )
+    assert decide_verdict(env).verdict == "MALICIOUS"
+
+
+def test_gateway_results_win_over_relay_results():
+    raw = (
+        "Authentication-Results: mx.acme.com; spf=fail dkim=fail dmarc=fail\n"
+        "ARC-Authentication-Results: i=1; relay.test; spf=pass dkim=pass dmarc=pass\n"
+        "From: a@vendor.test\nTo: b@acme.com\n\nbody"
+    )
+    env = parse_email(raw)
+    assert env.spf is AuthResult.FAIL
+    assert decide_verdict(env).verdict == "MALICIOUS"
+
+
 def test_weak_lone_signal_defers_not_benign():
     # SPF softfail alone (+10, below the SUSPICIOUS threshold) must not round
     # down to BENIGN — the deterministic layer can't decide, so it defers.
