@@ -17,6 +17,7 @@ import asyncpg
 
 from auspex.enrich.types import EnrichmentOutcome
 from auspex.enrich.verdict import synthesize
+from auspex.retrohunt.flips import latest_verdict, record_flip_if_changed
 
 
 async def persist_enrichment(pool: asyncpg.Pool, workspace_id, outcome: EnrichmentOutcome) -> int:
@@ -45,6 +46,11 @@ async def persist_enrichment(pool: asyncpg.Pool, workspace_id, outcome: Enrichme
             verdict = synthesize(o, item.signals)
             if verdict is None:
                 continue
+            # S14: the label this observable carried before this run. Read BEFORE
+            # the insert below — afterwards "latest" IS the new row.
+            previous = await latest_verdict(
+                conn, workspace_id=workspace_id, observable_id=observable_row_id
+            )
             details = {
                 "signals": [
                     {
@@ -57,12 +63,13 @@ async def persist_enrichment(pool: asyncpg.Pool, workspace_id, outcome: Enrichme
                     for s in item.signals
                 ]
             }
-            await conn.execute(
+            new_verdict_id = await conn.fetchval(
                 """
                 INSERT INTO verdicts
                     (workspace_id, observable_id, label, confidence_at_write,
                      half_life_days, floor, source, details)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                RETURNING id
                 """,
                 workspace_id,
                 observable_row_id,
@@ -72,6 +79,18 @@ async def persist_enrichment(pool: asyncpg.Pool, workspace_id, outcome: Enrichme
                 verdict.floor,
                 verdict.source,
                 json.dumps(details),
+            )
+            # S14: a changed label becomes its own provenanced row, inside THIS
+            # transaction — a flip that outlived a rolled-back verdict would
+            # misdescribe the trail. The verdict write is untouched: flips are
+            # a record of change, never a substitute for it.
+            await record_flip_if_changed(
+                conn,
+                workspace_id=workspace_id,
+                observable_id=observable_row_id,
+                previous=previous,
+                new_verdict_id=new_verdict_id,
+                new_label=verdict.label.value,
             )
             written += 1
     return written

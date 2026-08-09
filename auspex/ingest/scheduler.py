@@ -45,6 +45,7 @@ from auspex.ingest.nvd import NVDFeed, has_valid_id, is_rejected, windows
 from auspex.ingest.state import IngestStateStore
 from auspex.kb.seed import nvd_to_doc
 from auspex.kb.types import KBDoc
+from auspex.retrohunt import RetroHuntSink
 
 logger = logging.getLogger("auspex.ingest")
 
@@ -118,6 +119,9 @@ class IngestScheduler:
 
     @classmethod
     def from_settings(cls, settings: Settings, kb, pool) -> "IngestScheduler":
+        # S14: the NullSink seam finally has its consumer. Ingest code is
+        # untouched — it emits exactly the DocChanges it emitted at S7; the sink
+        # decides which kinds are worth a sweep (TRIGGER_KINDS).
         return cls(
             kb=kb,
             state=IngestStateStore(pool),
@@ -125,6 +129,7 @@ class IngestScheduler:
             kev=KEVFeed(),
             epss=EPSSFeed(),
             attack=ATTACKFeed(),
+            sink=RetroHuntSink(pool),
             enabled=settings.ingest_enabled and kb.active,
         )
 

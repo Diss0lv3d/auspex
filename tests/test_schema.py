@@ -19,6 +19,8 @@ EXPECTED_TABLES = {
     "investigations",
     "hypotheses",
     "ach_evidence",
+    "retrohunt_matches",
+    "verdict_flips",
 }
 
 # D-008: workspace_id on EVERY table. `workspaces` is the sole exception —

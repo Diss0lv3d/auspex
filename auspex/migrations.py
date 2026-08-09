@@ -246,6 +246,69 @@ SCHEMA_V0: list[str] = [
     CREATE INDEX IF NOT EXISTS idx_ach_evidence_ws_inv
         ON ach_evidence (workspace_id, investigation_id, created_at)
     """,
+    # S14: retro-hunt (Phase 3 flagship). New intel sweeps the workspace's
+    # HISTORICAL observables for matches. The sweep is an INDEXED JOIN, never a
+    # scan per DocChange, and ingest is platform-global (feeds are not
+    # workspace-private), so it must find matches ACROSS workspaces in one
+    # query: `WHERE type = 'cve' AND value = ANY($1)`. The existing
+    # UNIQUE (workspace_id, type, value) index cannot serve that — its leading
+    # column is workspace_id, which the sweep does not know yet. Hence a
+    # (type, value) index; tenancy is preserved by carrying each match's
+    # workspace_id into the event row it writes.
+    "CREATE INDEX IF NOT EXISTS idx_observables_type_value ON observables (type, value)",
+    # One row per (observable, triggering doc): the analyst-visible "this
+    # settled observable just showed up in new intel" event. The honesty rail
+    # of D-017 is structural here — a match records the verdict label as it
+    # stood AT MATCH TIME and NEVER writes a verdict. It is a reason to
+    # re-examine, not a re-classification.
+    # UNIQUE makes re-emission idempotent: the KEV first-run refresh re-emits
+    # every held KEV id on a fresh volume, and a catalog re-read can repeat ids.
+    """
+    CREATE TABLE IF NOT EXISTS retrohunt_matches (
+        id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id   uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        observable_id  uuid NOT NULL REFERENCES observables(id) ON DELETE CASCADE,
+        doc_id         text NOT NULL,
+        feed           text NOT NULL,
+        change_kind    text NOT NULL,
+        verdict_id     uuid REFERENCES verdicts(id) ON DELETE SET NULL,
+        verdict_label  text,
+        status         text NOT NULL DEFAULT 'open'
+            CHECK (status IN ('open', 'reviewed')),
+        created_at     timestamptz NOT NULL DEFAULT now(),
+        UNIQUE (workspace_id, observable_id, doc_id, change_kind)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_retrohunt_matches_ws_status
+        ON retrohunt_matches (workspace_id, status, created_at DESC)
+    """,
+    # The D-017 append-only verdict trail gains its first AUTOMATED writer: when
+    # re-enrichment changes an observable's label, the change itself becomes a
+    # typed, provenanced row (old → new, which verdict rows, what triggered it,
+    # and the retro-hunt match if one was open). Verdict rows already record
+    # what was believed; this records that belief CHANGED, which is the thing an
+    # analyst needs to see and the thing a falsification watcher will read.
+    """
+    CREATE TABLE IF NOT EXISTS verdict_flips (
+        id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id     uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        observable_id    uuid NOT NULL REFERENCES observables(id) ON DELETE CASCADE,
+        from_label       text NOT NULL CHECK (from_label IN
+            ('malicious', 'suspicious', 'benign', 'unknown')),
+        to_label         text NOT NULL CHECK (to_label IN
+            ('malicious', 'suspicious', 'benign', 'unknown')),
+        from_verdict_id  uuid REFERENCES verdicts(id) ON DELETE SET NULL,
+        to_verdict_id    uuid NOT NULL REFERENCES verdicts(id) ON DELETE CASCADE,
+        trigger          text NOT NULL,
+        match_id         uuid REFERENCES retrohunt_matches(id) ON DELETE SET NULL,
+        created_at       timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_verdict_flips_ws_obs
+        ON verdict_flips (workspace_id, observable_id, created_at DESC)
+    """,
 ]
 
 
