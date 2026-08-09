@@ -104,6 +104,12 @@ hypothesis and a code-owned citation guard, live-verified against Scout twice)_
 - `gh` did NOT flip at S13 start (first session it stayed personal), but
   D-011 stands: re-check before EVERY `gh` call. `gh pr merge` is blocked by
   the Claude permission classifier — the human merges PRs.
+- **Local `main` ref goes stale every promote** (the human squash-merges on
+  GitHub; nothing ever checks out `main` here). Found at S14 start pointing at
+  #13's 55e9875 while `origin/main` was #14's 87eb279 — fast-forwarded via
+  `git update-ref refs/heads/main origin/main`. `/promote` and any
+  `main..staging` diff must `git fetch origin` and compare against
+  `origin/main`, not local `main`.
 - **S13 demo (needs Scout reachable; ~30 s):**
   1. `TOKEN=$(curl -s -X POST localhost:8000/api/auth/dev-login -H 'Content-Type: application/json' -d '{"email":"burhan@auspexdev.com"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')`
   2. POST the flagship typosquat email to `/api/investigations` (probe doc
