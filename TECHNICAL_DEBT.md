@@ -1,5 +1,36 @@
 # Technical debt — logged the moment it's taken
 
+## TD-019 (S14) — retro-hunt v1 bounds: CVE-only sweep, no pagination, scheduler timing unobserved
+**Where:** `auspex/retrohunt/types.py` (`SWEEPABLE_TYPE = "cve"`),
+`auspex/routes/retrohunt.py` (`limit` only — no cursor/offset on
+`/matches` or `/flips`), and the emit-on-a-real-cycle path in
+`auspex/ingest/scheduler.py`.
+**Risk:** low, and named in the payload rather than hidden.
+- **CVE-only.** A CVE-keyed feed can only match CVE observables, so this is
+  currently complete rather than partial — but the moment a feed lands that
+  carries hashes, domains or IPs (abuse.ch quartet, ROADMAP S8 line), the sweep
+  silently covers none of them. `/matches` reports `sweeps_on` so a client can
+  see the trigger kinds, but nothing reports the swept observable TYPES.
+- **No pagination.** Newest-first with `limit` ≤ 200. A workspace with a long
+  trail cannot page to older events; they are reachable only by narrowing
+  `status`. Same shape as the S12 top-20 cap (TD-016).
+- **Scheduler timing unobserved.** The sink is pinned as WIRED by
+  `test_the_scheduler_is_wired_to_the_retrohunt_sink`, and the sweep is
+  live-verified end-to-end (docs/probes/2026-08-09-s14-retrohunt-live.md), but
+  the probe called `emit` directly rather than waiting for an ingest cycle to
+  call it. Observing that needs CISA to publish a KEV entry for a CVE this
+  workspace has already enriched — not schedulable within a session.
+**Why accepted:** S14's scope was the reasoning/event core (the sweep, the
+honesty rail, the flip trail). Type coverage is one line plus a per-type test
+once a non-CVE feed exists; pagination is surface work with no design question
+in it.
+**Path to fix:** (a) widen `SWEEPABLE_TYPE` to a set when the first non-CVE feed
+lands, and report swept types alongside `sweeps_on`; (b) keyset pagination on
+`(created_at, id)` for both collections, shared with the S12 collection view
+when that arrives; (c) assert the cycle path by driving `run_cycle` against a
+fake KEV feed whose catalogue contains an enriched CVE — hermetic, and it closes
+the gap without waiting on CISA.
+
 ## TD-018 (S13) — inference-spending routes have no per-workspace bound
 **Where:** `POST /api/investigations/{id}/summary` (new in S13) and
 `/api/chat` DEEP turns both call the customer's LLM endpoint with no
