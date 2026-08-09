@@ -272,3 +272,56 @@ trail):
 - **Ingest owns the trigger; there is no "run a hunt" endpoint.** A retro-hunt
   is something new intel does to you. The S7 `NullSink` seam is where it
   attaches, and ingest code was not modified to attach it.
+
+**D-021 (2026-08-09) — Falsification watchers v1: typed conditions registered at
+write time, evaluated by code, and a satisfied watcher upgrades an event rather
+than changing a label.** Probes: docs/probes/2026-08-09-s15-watchers-explain.md
+(plans measured across table sizes AND across the open/closed mix),
+docs/probes/2026-08-09-s15-watchers-live.md. Ratified for S15, binding on S16
+(the verdict timeline UI reads these rows):
+- **A verdict registers what would falsify it AT WRITE TIME,** in the same
+  transaction that writes the verdict. Asked later, the answer is
+  rationalisation — you already know what happened. A verdict whose transaction
+  committed without its conditions would be a claim with no way to be wrong,
+  which is the thing this feature exists to prevent.
+- **The vocabulary is a closed enum, never prose.** `kev_listing`,
+  `record_withdrawn`, `provider_escalation`. A free-text falsifier ("watch for
+  registrar changes") is a wish; a typed kind plus params is something code can
+  evaluate against a feed. This is D-007 "specs over prompts" turned on our own
+  reasoning rather than the model's. Extended via PR with a test, the
+  doctrine-table pattern (D-019).
+- **Every kind must have a checker, and the partition is asserted.**
+  `CHECKED_ON_INGEST` and `CHECKED_ON_ENRICHMENT` split the enum with a test
+  that the split is total and disjoint. A registered watcher nobody evaluates is
+  WORSE than no watcher, because it reads as coverage.
+- **Conditions are DERIVED IN CODE from the observable, label and signals** —
+  never proposed by a model. Model-proposed falsifiers stay parked
+  (D-019-later); if they ever land they come through a contract and are marked
+  as proposed, because a falsifier the platform invented and cannot check is
+  the most confident-sounding lie available to it.
+- **Empty is a legitimate answer and is never padded.** A `malicious` CVE
+  registers no `kev_listing` watcher: KEV agrees with that verdict. Manufacturing
+  one would claim a self-check the platform does not perform.
+- **A satisfied watcher NEVER writes a verdict** — D-020's rail, and it binds
+  harder here: a fired watcher is the platform's own prediction coming true,
+  which is precisely when skipping the analyst would feel safest. It UPGRADES
+  the S14 re-open event for the same doc (`falsifies` on the existing payload)
+  instead of minting a second notification, and it is acknowledged through that
+  one event. Two inboxes for one fact means two half-read inboxes.
+- **Claims belong to a verdict; a newer verdict supersedes them, never deletes
+  them.** "We were watching for this and stopped" is how a dropped question is
+  found. Supersession is scoped to OPEN watchers, so a claim that was
+  contradicted survives the verdict that replaced it.
+- **The ingest check is an indexed join per bounded chunk, and the watcher index
+  is PARTIAL on `status='open'`** — satisfied and superseded rows accumulate for
+  the life of a workspace and are never joined against. Measured: tripling the
+  table to 75k rows with 50k closed left the check at 0.190 ms vs 0.174 ms at
+  25k.
+- **Watchers get their own sink, not an extension of the retro-hunt one.**
+  Retro-hunt asks "does this touch anything we saw?"; a watcher asks "does this
+  contradict a claim a verdict made?" Folding them together would make
+  falsification coverage a silent function of `TRIGGER_KINDS`. A `FanoutSink`
+  owns the isolation, so ingest still holds exactly one sink (S7's seam) and
+  neither consumer can take the other down.
+- **There is no endpoint to create or acknowledge a watcher.** Hand-registered
+  falsifiers would make coverage a function of who was paying attention.

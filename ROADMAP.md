@@ -157,8 +157,20 @@ may not grow mid-session (IDEAS.md exists for that).
   the installed distribution and EVERY `__init__.py` installed at 0 bytes since
   the Dockerfile was written, both masked by uvicorn's cwd shadowing
   site-packages. 643 tests; zero new env vars.)_
-- [ ] **S15 — Falsification watchers.** Verdicts register "what would flip me";
+- [x] **S15 — Falsification watchers.** Verdicts register "what would flip me";
   watchers monitor feeds/enrichment for exactly that.
+  _(D-021. Every verdict registers typed falsification conditions AT WRITE TIME
+  in the same transaction — a closed enum of three kinds, derived in code from
+  the observable/label/signals, never prose and never model-proposed. Each kind
+  is owned by a checker and the partition is asserted, so a watcher nobody
+  evaluates cannot be added. Ingest checks them through an indexed join per
+  bounded chunk on a PARTIAL index (closed watchers accumulate forever and are
+  never joined against — measured flat at 75k rows, 50k closed); enrichment
+  checks escalation by SEVERITY, not inequality. A satisfied watcher never
+  writes a verdict: it upgrades the S14 re-open event with the claim that
+  stopped being true. Live-verified in-container end to end. Also fixed a
+  circular import that resolved only by lucky import order. 676 tests; zero new
+  env vars.)_
 - [ ] **S16 — Verdict timeline UI.** Decay/staleness surfaces, flip history,
   "your past got re-scored" view.
 
