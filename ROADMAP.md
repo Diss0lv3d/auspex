@@ -101,13 +101,39 @@ may not grow mid-session (IDEAS.md exists for that).
   IPs withheld from indicators; validator pin extended to an ALLOWED SET so the
   model may raise above the floor, never launder below it. Format-beats-keywords
   email→DEEP gate added to the classifier. Live-verified on Scout (MALICIOUS floor
-  + BENIGN gate). Closes the phishing portion of TD-013. On staging, awaiting
-  S12 Step-0 review + promote #13.)_
-- [ ] **S12 — Hypothesis engine v1 (ACH).** Competing hypotheses per
+  + BENIGN gate). MITIGATES the phishing portion of TD-013. Reviewed at S12
+  Step 0 — 9 findings (A–I) verified by execution and fixed with regressions,
+  incl. body-prose BENIGN manufacture, BEC sender victim-filtering, ccTLD brand
+  false positives, ARC relay passes — and promoted #13 to main.)_
+- [x] **S12 — Hypothesis engine v1 (ACH).** Competing hypotheses per
   investigation, per-evidence scoring against each hypothesis, next-lookup
-  chosen by expected information gain.
-- [ ] **S13 — Evidence graph + cited output.** Typed evidence objects; every
+  chosen by expected information gain. _(`auspex/ach` + `/api/investigations`,
+  D-019: closed 4-hypothesis catalog per subject kind; evidence adapters over
+  the S5/S10/S11 typed shapes with curated cell-vector doctrine tables; Heuer
+  least-inconsistency matrix with hard-contradiction rejection + honesty
+  rails; expected-information-gain lookup ranking with curated P(outcome|H)
+  rows, executed live through the S5 fan-out. Zero LLM end-to-end — model
+  rendering deferred to S13 by design. Hardened by a same-session 4-lens
+  verification workflow: 16 findings, all verified by execution, all fixed.
+  Live-verified in-container; the live gain figure matched the hand-computed
+  fixture to 6 decimals. On staging, awaiting S13 Step-0 review + promote #14.)_
+- [x] **S13 — Evidence graph + cited output.** Typed evidence objects; every
   generated claim carries a citation; output guard rejects uncited claims.
+  _(Step 0 first: fresh-eyes review of the S12 diff — 7 findings, every one
+  verified by execution, all fixed with regressions; promote #14 PR opened
+  (merge pending, human-gated). Then: ach_evidence row uuids became the
+  stable citation identity (E-<hex8> labels, collision-extending);
+  `POST /api/investigations/{id}/summary` renders the first LLM output on
+  the surface through an investigation_summary contract — code compiles the
+  authoritative directive (matrix, per-hypothesis bearing evidence,
+  flattened statements, top lookup), the leading hypothesis is PINNED, and
+  the post-hoc citation guard names fabricated ids and uncited claim lines
+  (TD-012: detected, not prevented). Live-verified against Scout twice: run
+  1 caught a guard bug (grouped [E-a, E-b] citations refused) and a
+  directive gap (rejected rows had nothing to cite) — both fixed with
+  regressions; run 2 clean: 19 valid citations, 0 fabricated, 0 uncited.
+  KB-doc citability deliberately NOT picked up — the parked ioc_check→KB
+  idea stays parked. 597 tests green.)_
 
 ## Phase 3 — Living Verdicts (flagship)
 

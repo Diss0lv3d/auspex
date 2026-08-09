@@ -176,6 +176,14 @@ def _sections(answer: str) -> dict[str, str]:
     return out
 
 
+def split_sections(answer: str) -> dict[str, str]:
+    """Public seam for other code-owned validators (the S13 citation guard):
+    the SAME section parser the contract validator uses — one source of truth
+    for what counts as a section, so a guard can never disagree with the
+    contract about where a section starts."""
+    return _sections(answer)
+
+
 def _leading_token(body: str) -> str:
     """First word-ish token of a section body — where an enum value lives
     (e.g. 'DEFERRED' in 'DEFERRED — insufficient signal…'). A clean enum value

@@ -1,5 +1,53 @@
 # Technical debt — logged the moment it's taken
 
+## TD-018 (S13) — inference-spending routes have no per-workspace bound
+**Where:** `POST /api/investigations/{id}/summary` (new in S13) and
+`/api/chat` DEEP turns both call the customer's LLM endpoint with no
+per-workspace rate/spend ceiling — any authenticated client can loop them.
+**Risk:** a runaway or hostile client burns the customer's inference quota
+(D-005 means it's THEIR endpoint bill) and can degrade the endpoint for
+real analysts. Low today (dev, single tenant); real at beta.
+**Why deferred:** S13 scope was citations; rate limiting is an S19
+(Hardening) roadmap line — this entry pins the specific routes so S19
+doesn't miss the non-chat one.
+**Path to fix:** per-workspace token/request budget checked before the LLM
+call (Postgres counter, honest 429 with the budget named), shared by chat
+and summary; S19 already owns "rate limits".
+
+## TD-017 (S13) — NUL-byte hardening exists only at the investigations paste boundary
+**Where:** `auspex/routes/investigations.py` strips U+0000 before parsing
+(S13 Step-0 review finding 1, live-verified 500 — Postgres text/jsonb cannot
+represent NUL). Any OTHER route that persists request text is still exposed:
+`/api/chat` writes the message to `messages` (and an email/alert paste there
+takes the same parse-and-persist shape).
+**Risk:** a NUL-carrying paste to chat 500s mid-session instead of degrading
+honestly; noise in logs, confusing UX, and a trivially scriptable error shape.
+**Why deferred:** S13 Step-0 scope was the S12 diff; chat predates it. One
+concern per commit.
+**Path to fix:** strip NUL centrally where request text first crosses into
+persistence (a shared sanitizer used by ChatBody/CreateInvestigationBody
+handling, or a pydantic validator both bodies share), plus one live-shaped
+regression per route. Verify the chat 500 by execution first — same drill.
+
+## TD-016 (S12) — ACH v1 surface bounds: top-20 ranked cap, no list/close endpoints, no lookup-attempt backoff
+**Where:** `auspex/ach/gain.py` (`_MAX_RANKED = 20`), `auspex/routes/investigations.py`
+(no `GET /api/investigations` collection, no way to set `status='closed'` —
+the column exists in the schema ahead of its surface, the proposals-table
+precedent), the `/lookups` route (retry of a never-completed lookup re-fans-out;
+bounded only by the S5 circuit breaker, no per-obs attempt ledger).
+**Risk:** low. The caps are NAMED in the response (`total_candidates`,
+`iocs_truncated`) so nothing is silently hidden, but `body.obs_id` can only
+run a candidate inside the surfaced top-20, an investigation can never be
+closed, and a determined client can re-trigger provider fan-outs during an
+outage window (each bounded by the breaker's 3-failure/60 s cycle).
+**Why accepted:** v1 scope was the reasoning core (D-019); pagination, a
+collection view, lifecycle, and an attempt ledger are surface work with no
+open design questions.
+**Path to fix:** pagination params on the ranked plan; `GET` collection +
+`PATCH status`; a per-(investigation, obs_id) attempt timestamp to back off
+re-fan-outs. Trigger: the first UI work over investigations, or S14 retro-hunt
+needing the collection view.
+
 ## TD-015 (S11) — phishing deterministic layer uses heuristic coverage (brand list, confusable set)
 **Where:** `auspex/phishing/brands.py` (`BRAND_ALLOWLIST` ~44 brands),
 `auspex/phishing/lookalike.py` (`_CONFUSABLES` a high-frequency Cyrillic/Greek

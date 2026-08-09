@@ -24,6 +24,7 @@ dev = [
 packages = [
     "auspex",
     "auspex.routes",
+    "auspex.ach",
     "auspex.agent",
     "auspex.alerts",
     "auspex.phishing",
