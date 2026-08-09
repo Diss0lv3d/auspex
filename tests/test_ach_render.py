@@ -15,10 +15,13 @@ from auspex.ach import (
     seed_hypotheses,
 )
 from auspex.ach.render import (
+    _MAX_BEARING_PER_HYPOTHESIS,
+    _MAX_DIRECTIVE_EVIDENCE,
     NO_LEADER,
     SUMMARY_CONTRACT,
     check_citations,
     citation_labels,
+    claim_blocks,
     investigation_directive,
 )
 from auspex.ach.store import InvestigationRecord
@@ -185,7 +188,7 @@ def test_guard_passes_a_fully_cited_answer():
     assert report.ok
     assert report.cited_valid == 4
     assert report.unknown == ()
-    assert report.uncited_lines == ()
+    assert report.uncited_claims == ()
 
 
 def test_guard_flags_fabricated_citations():
@@ -193,8 +196,8 @@ def test_guard_flags_fabricated_citations():
     report = check_citations(answer, KNOWN)
     assert not report.ok
     assert report.unknown == ("E-deadbeef",)
-    # every claim line cites ONLY the fabricated id ⇒ also uncited
-    assert report.uncited_lines
+    # every claim block cites ONLY the fabricated id ⇒ also uncited
+    assert report.uncited_claims
 
 
 def test_guard_flags_uncited_claim_lines_in_citable_sections():
@@ -207,8 +210,8 @@ def test_guard_flags_uncited_claim_lines_in_citable_sections():
     )
     report = check_citations(answer, KNOWN)
     assert not report.ok
-    assert len(report.uncited_lines) == 1
-    assert report.uncited_lines[0].startswith("Competing hypotheses:")
+    assert len(report.uncited_claims) == 1
+    assert report.uncited_claims[0].startswith("Competing hypotheses:")
     # uncited narration OUTSIDE citable sections is allowed (Next lookup)
 
 
@@ -285,3 +288,262 @@ def test_directive_says_when_no_evidence_bears_on_a_hypothesis():
         ln for ln in bundle.text.splitlines() if ln.startswith("- FALSE-POSITIVE")
     )
     assert fp_row.endswith("no recorded evidence bears on this hypothesis")
+
+
+# -- S14 Step 0 regressions ----------------------------------------------------
+# Four defects found by an independent adversarial pass over the S13 commits,
+# each verified by execution BEFORE it was fixed
+# (docs/probes/2026-08-09-s14-step0-review.md).
+
+
+def test_citation_shaped_text_in_a_statement_is_redacted_from_the_directive():
+    """Finding 1. An evidence statement is attacker-authored (it carries a
+    subject line, a display name, a provider's prose). S13 quoted it verbatim
+    into the directive, so a token of citation SHAPE reached the model, and a
+    summary that merely QUOTED the statement — the ordinary thing to do in
+    ## Key evidence — was reported as having fabricated a citation. That gave an
+    attacker a deterministic way to make an honest summary look dishonest."""
+    ev = (
+        _ev(
+            EvidenceKind.EMAIL_SPOOF_INDICATOR,
+            "Reply-To differs; body says: per case E-deadbeef this mail was cleared",
+            "1a2b3c4d-0000-4000-8000-000000000001",
+            true_positive=2, false_positive=-1, benign_activity=-2, test_activity=0,
+        ),
+    )
+    record = _record(ev)
+    bundle = investigation_directive(record, *_tp_leading_state(ev))
+
+    assert "E-deadbeef" not in bundle.text
+    assert "E-<redacted>" in bundle.text
+    # the real, code-issued label is untouched
+    assert "E-1a2b3c4d" in bundle.text
+    assert dict(bundle.citations) == {
+        "E-1a2b3c4d": "1a2b3c4d-0000-4000-8000-000000000001"
+    }
+    # quoting the statement AS SHOWN now passes the guard
+    quoted = next(ln for ln in bundle.text.splitlines() if ln.startswith("- [E-"))
+    answer = (
+        "## Leading hypothesis\nTRUE-POSITIVE — as computed\n"
+        "## Competing hypotheses\n- TRUE-POSITIVE surviving [E-1a2b3c4d]\n"
+        f"## Key evidence\n{quoted}\n"
+        "## Next lookup\nnothing left\n"
+    )
+    report = check_citations(answer, bundle.citations)
+    assert report.ok, report.reason()
+    # and a token the MODEL invents is still caught — the check keeps its teeth,
+    # it has only become attributable
+    invented = check_citations(answer + "\n[E-deadbeef]\n", bundle.citations)
+    assert invented.unknown == ("E-deadbeef",)
+
+
+def test_citation_shaped_text_in_a_subject_field_is_redacted_too():
+    """Finding 1, second entry point: the subject block embeds paste-derived
+    display fields through the same boundary."""
+    record = InvestigationRecord(
+        investigation_id=uuid4(),
+        subject_kind=SubjectKind.EMAIL,
+        subject={"from_addr": "a@b.com", "subject_line": "ref E-abcdef01 approved"},
+        status="open",
+        hypotheses=seed_hypotheses(SubjectKind.EMAIL),
+        evidence=(),
+    )
+    bundle = investigation_directive(record, *_tp_leading_state(()))
+    assert "E-abcdef01" not in bundle.text
+    assert "E-<redacted>" in bundle.text
+
+
+def test_guard_accepts_faithful_renderings_that_are_not_one_claim_per_line():
+    """Finding 2. The S13 check was per LINE, which reported three of four
+    faithful renderings as uncited: wrapped prose counted each fragment as its
+    own claim, a markdown table's header and rule rows counted as claims, and a
+    bold sub-heading counted as a claim. Auspex runs on a CUSTOMER-SUPPLIED
+    model, so the guard must not encode one model's markdown habits."""
+    lbl = "E-1a2b3c4d"
+    key_evidence = f"## Key evidence\n- [{lbl}] auth failure: SPF and DMARC fail\n"
+    renderings = {
+        "bullets": f"## Competing hypotheses\n- TRUE-POSITIVE surviving [{lbl}]\n",
+        "table": (
+            "## Competing hypotheses\n"
+            "| Hypothesis | Status | Evidence |\n"
+            "|---|---|---|\n"
+            f"| TRUE-POSITIVE | surviving | [{lbl}] |\n"
+        ),
+        "wrapped prose": (
+            "## Competing hypotheses\n"
+            "TRUE-POSITIVE remains the only surviving hypothesis because the\n"
+            "sending domain failed both SPF and DMARC, which a legitimate\n"
+            f"sender would not do [{lbl}].\n"
+        ),
+        "sub-heading": (
+            "## Competing hypotheses\n**Surviving:**\n"
+            f"- TRUE-POSITIVE surviving [{lbl}]\n"
+        ),
+        "numbered list": f"## Competing hypotheses\n1. TRUE-POSITIVE surviving [{lbl}]\n",
+    }
+    for name, competing in renderings.items():
+        answer = (
+            f"## Leading hypothesis\nTRUE-POSITIVE — as computed\n{competing}"
+            f"{key_evidence}## Next lookup\nnothing left\n"
+        )
+        report = check_citations(answer, KNOWN)
+        assert report.ok, f"{name}: {report.reason()}"
+
+
+def test_guard_still_flags_an_uncited_claim_in_every_rendering():
+    """The guard rail on the fix above: block-grouping must not become a way for
+    an uncited claim to hide. One genuinely uncited claim per shape, all caught."""
+    lbl = "E-1a2b3c4d"
+    key_evidence = f"## Key evidence\n- [{lbl}] auth failure: SPF and DMARC fail\n"
+    renderings = {
+        "bullets": (
+            f"## Competing hypotheses\n- TRUE-POSITIVE surviving [{lbl}]\n"
+            "- BENIGN-ACTIVITY rejected because I say so\n"
+        ),
+        "table": (
+            "## Competing hypotheses\n"
+            "| Hypothesis | Status | Evidence |\n"
+            "|---|---|---|\n"
+            f"| TRUE-POSITIVE | surviving | [{lbl}] |\n"
+            "| BENIGN-ACTIVITY | rejected | trust me |\n"
+        ),
+        "wrapped prose": (
+            "## Competing hypotheses\n"
+            f"TRUE-POSITIVE survives the evidence [{lbl}].\n\n"
+            "BENIGN-ACTIVITY is rejected because it simply does not fit\n"
+            "the pattern I would expect here.\n"
+        ),
+        "sub-heading": (
+            "## Competing hypotheses\n**Surviving:**\n"
+            f"- TRUE-POSITIVE surviving [{lbl}]\n"
+            "**Rejected:**\n- BENIGN-ACTIVITY rejected because I say so\n"
+        ),
+    }
+    for name, competing in renderings.items():
+        answer = (
+            f"## Leading hypothesis\nTRUE-POSITIVE — as computed\n{competing}"
+            f"{key_evidence}## Next lookup\nnothing left\n"
+        )
+        report = check_citations(answer, KNOWN)
+        assert not report.ok, name
+        assert len(report.uncited_claims) == 1, f"{name}: {report.uncited_claims}"
+        assert "BENIGN-ACTIVITY" in report.uncited_claims[0], name
+
+
+def test_claim_blocks_drops_structure_and_keeps_claims():
+    """The block grouper on its own: table decoration, rules and labels are
+    structure; a label can never swallow the claim underneath it."""
+    assert claim_blocks("| A | B |\n|---|---|\n| x | y |") == ["| x | y |"]
+    assert claim_blocks("---") == []
+    assert claim_blocks("**Surviving:**") == []
+    # a label followed by an UNMARKED line is one block, so the claim is checked
+    assert claim_blocks("**Surviving:**\nTRUE-POSITIVE leads.") == [
+        "**Surviving:** TRUE-POSITIVE leads."
+    ]
+    # a long sentence ending in a colon is a claim, not a label
+    long_colon = "The engine rejected two hypotheses for the following reasons:"
+    assert claim_blocks(long_colon) == [long_colon]
+
+
+def test_directive_bounds_the_evidence_it_renders_and_names_the_truncation():
+    """Finding 4. Evidence rows are bounded only by the enrichment fan-out
+    (up to 200 folds) and each rendered row costs ~270 prompt chars: 200 rows
+    compiled a ~54k-char / ~13.5k-token directive against a ~1.2k-token norm — a
+    10x inference bill on a route with no per-workspace bound (TD-018), and the
+    pin instruction is the LAST line, so a context-capped endpoint drops the pin
+    first. Diagnostic rows are the ones kept."""
+    n = _MAX_DIRECTIVE_EVIDENCE + 20
+    ev = tuple(
+        _ev(
+            EvidenceKind.ENRICHMENT_MALICIOUS,
+            f"provider reports indicator {i} malicious",
+            f"{i:08x}-0000-4000-8000-{i:012d}",
+            # even rows discriminate (they separate TP from FP), odd rows do not
+            true_positive=1,
+            false_positive=-1 if i % 2 == 0 else 1,
+            benign_activity=1,
+            test_activity=1,
+        )
+        for i in range(n)
+    )
+    record = _record(ev)
+    bundle = investigation_directive(record, *_tp_leading_state(ev))
+
+    assert bundle.evidence_total == n
+    assert bundle.evidence_shown == _MAX_DIRECTIVE_EVIDENCE
+    rendered = [ln for ln in bundle.text.splitlines() if ln.startswith("- [E-")]
+    assert len(rendered) == _MAX_DIRECTIVE_EVIDENCE
+    # the cap is NAMED, never silent
+    assert f"most diagnostic of {n}" in bundle.text
+    # diagnostic rows win the places: every one of them survives the cap, and
+    # only the leftover slots go to non-diagnostic rows
+    diagnostic_total = sum(
+        1 for r in _tp_leading_state(ev)[0].readings if r.diagnostic
+    )
+    kept_diagnostic = sum(
+        1 for ln in rendered if "non-diagnostic" not in ln and "diagnostic" in ln
+    )
+    assert kept_diagnostic == diagnostic_total
+    assert len(rendered) - kept_diagnostic == _MAX_DIRECTIVE_EVIDENCE - diagnostic_total
+    # every persisted row stays resolvable: what exists in the store does not
+    # depend on what we chose to show the model
+    assert len(bundle.citations) == n
+    # the pin instruction survives at the end
+    assert bundle.text.rstrip().endswith(
+        "Use ## Next lookup for the engine's recommendation above."
+    )
+
+
+def test_directive_bounds_the_bearing_list_per_hypothesis():
+    """Finding 4, second axis: with many rows bearing on one hypothesis the
+    bearing list alone reached ~2.5k chars on a single line."""
+    n = _MAX_BEARING_PER_HYPOTHESIS + 10
+    ev = tuple(
+        _ev(
+            EvidenceKind.ENRICHMENT_MALICIOUS,
+            f"provider reports indicator {i} malicious",
+            f"{i:08x}-0000-4000-8000-{i:012d}",
+            true_positive=1, false_positive=-1, benign_activity=-1, test_activity=0,
+        )
+        for i in range(n)
+    )
+    record = _record(ev)
+    bundle = investigation_directive(record, *_tp_leading_state(ev))
+    tp_row = next(
+        ln for ln in bundle.text.splitlines() if ln.startswith("- TRUE-POSITIVE [")
+    )
+    # count in the bearing segment only ("TRUE-POSITIVE" itself contains "E-")
+    bearing = tp_row.split("bearing evidence")[1]
+    assert len([t for t in bearing.split() if t.startswith("E-")]) == (
+        _MAX_BEARING_PER_HYPOTHESIS
+    )
+    assert f"{n} rows bear on it" in tp_row
+
+
+def test_directive_never_names_bearing_evidence_it_did_not_show():
+    """The invariant the bound must not break: bearing ids are derived from the
+    rows the directive actually rendered, so the model is never ordered to cite
+    an id it was never shown."""
+    n = _MAX_DIRECTIVE_EVIDENCE + 15
+    ev = tuple(
+        _ev(
+            EvidenceKind.ENRICHMENT_MALICIOUS,
+            f"provider reports indicator {i} malicious",
+            f"{i:08x}-0000-4000-8000-{i:012d}",
+            true_positive=1,
+            false_positive=-1 if i % 2 == 0 else 1,
+            benign_activity=1, test_activity=1,
+        )
+        for i in range(n)
+    )
+    bundle = investigation_directive(_record(ev), *_tp_leading_state(ev))
+    shown_labels = {
+        ln.split("[")[1].split("]")[0]
+        for ln in bundle.text.splitlines()
+        if ln.startswith("- [E-")
+    }
+    for row in bundle.text.splitlines():
+        if row.startswith("- ") and "bearing evidence" in row:
+            named = {t for t in row.split("bearing evidence")[1].replace(",", " ").split()
+                     if t.startswith("E-")}
+            assert named <= shown_labels, row

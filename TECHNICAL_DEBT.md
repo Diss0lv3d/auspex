@@ -13,6 +13,17 @@ doesn't miss the non-chat one.
 **Path to fix:** per-workspace token/request budget checked before the LLM
 call (Postgres counter, honest 429 with the budget named), shared by chat
 and summary; S19 already owns "rate limits".
+**Narrowed in S14 Step 0 (still open):** the per-CALL amplification is gone,
+which was the part specific to the summary route. The directive grew with the
+evidence count — 200 rows (reachable: `_MAX_SNAPSHOT_IOCS=200` observables can
+each fold one enrichment answer) compiled a 54k-char / ~13.5k-token directive
+against the ~1.2k-token norm, i.e. one request costing 10x, with the pin
+instruction sitting on the LAST line where a context-capped endpoint drops it
+first. `_MAX_DIRECTIVE_EVIDENCE=40` + `_MAX_BEARING_PER_HYPOTHESIS=12` now hold
+it flat at ~3k tokens (measured: 50 rows and 200 rows both compile ~12.1k
+chars), and the truncation is named to the model and to the analyst
+(`evidence_shown`/`evidence_total`). What remains is the original entry: no
+bound on the NUMBER of calls, on either route.
 
 ## TD-017 (S13) — NUL-byte hardening exists only at the investigations paste boundary
 **Where:** `auspex/routes/investigations.py` strips U+0000 before parsing

@@ -490,13 +490,17 @@ async def render_summary(
                 "reason": citations.reason(),
                 "cited_valid": citations.cited_valid,
                 "unknown": list(citations.unknown),
-                "uncited_lines": list(citations.uncited_lines),
+                "uncited_claims": list(citations.uncited_claims),
                 "sections_checked": list(citations.sections_checked),
             }
             if citations
             else None
         ),
         "citation_map": dict(bundle.citations),
+        # No silent caps: when the trail is longer than the directive's bound,
+        # the analyst is told the summary narrates a diagnostic subset.
+        "evidence_shown": bundle.evidence_shown,
+        "evidence_total": bundle.evidence_total,
         "finish_reason": result.finish_reason,
         "usage": (
             {
