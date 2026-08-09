@@ -1,5 +1,52 @@
 # Technical debt — logged the moment it's taken
 
+## TD-020 (S15) — falsification watcher v1 bounds: a thin vocabulary, one passive checker, no expiry
+**Where:** `auspex/watchers/types.py` (`WatcherKind` — three kinds),
+`auspex/watchers/derive.py` (the derivation rules), `auspex/routes/watchers.py`
+(`limit` only, no cursor).
+**Risk:** low, and the shape of it is stated in the payload (`kinds`,
+`checked_by`) rather than hidden — but "this verdict has 3 open falsifiers"
+reads as more self-scrutiny than it is, and that is the risk worth naming.
+- **The vocabulary is CVE-shaped.** `kev_listing` and `record_withdrawn` are
+  the only ingest-checked kinds, and both key off a CVE doc id, so a domain, IP
+  or hash verdict registers exactly one condition (`provider_escalation`). The
+  S15 prompt's own example — "this domain's registrar changes" — is not
+  implementable today: no connected feed reports registrar or ASN changes.
+  Deliberately NOT faked with a watcher that nothing evaluates; a kind with no
+  checker fails `test_every_kind_is_owned_by_exactly_one_checker` by
+  construction.
+- **`provider_escalation` is PASSIVE.** It is satisfied inside
+  `persist_enrichment`, so it fires only when something re-enriches the
+  observable — which today means an analyst happening to ask again. Nothing
+  schedules re-enrichment, so this watcher can sit open indefinitely while the
+  world changes. The ingest-checked kinds are genuinely active; this one is
+  "checked when someone looks", and the two are not distinguished on the
+  surface beyond `checked_by`.
+- **Open watchers never expire.** A verdict decays (D-017 half-life) but its
+  claims do not: a 400-day-old `provider_escalation` watcher still reads as
+  "open" with the same weight as one written yesterday. What "open" means for a
+  claim whose verdict has fully decayed is an unanswered design question, not
+  an oversight — S16's verdict timeline is where staleness gets a vocabulary.
+- **No pagination.** Newest-first with `limit` ≤ 200, same shape as TD-016 and
+  TD-019.
+- **The cycle path is unobserved end-to-end,** inheriting TD-019's open half:
+  `WatcherSink` is pinned as wired and live-verified by emitting the real
+  `DocChange` directly, but no test drives `run_cycle` all the way through to a
+  satisfied watcher.
+**Why accepted:** S15's scope was the registration/derivation/check core and the
+honesty rail. Widening the vocabulary is gated on feeds that do not exist yet,
+and inventing conditions for them now would be exactly the unfalsifiable
+self-scrutiny this feature exists to replace.
+**Path to fix:** (a) add kinds as feeds land (abuse.ch quartet, passive DNS,
+registrar/RDAP), each with a checker and a test, per D-021's extension rule;
+(b) give `provider_escalation` a real trigger by scheduling re-enrichment of
+observables with open escalation claims — bounded, off the ingest critical path
+(the TD-008 precedent); (c) decide what an expired claim means alongside S16's
+decay/staleness surfaces; (d) keyset pagination on `(created_at, id)`, shared
+with the retro-hunt collections; (e) drive `run_cycle` against a fake KEV feed
+whose catalogue contains an enriched CVE — hermetic, and it closes this bullet
+for both sinks at once.
+
 ## TD-019 (S14) — retro-hunt v1 bounds: CVE-only sweep, no pagination, scheduler timing unobserved
 **Where:** `auspex/retrohunt/types.py` (`SWEEPABLE_TYPE = "cve"`),
 `auspex/routes/retrohunt.py` (`limit` only — no cursor/offset on

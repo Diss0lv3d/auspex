@@ -1,104 +1,115 @@
 # NEXT-SESSION — paste everything below the line into a fresh Claude Code window opened in /home/burhan/auspex-new
 
-_(Standing follow-up: S14 is COMPLETE on `staging` but **NOT promoted** — `main`
-is still at #14 (87eb279). Step 0 fixed 4 executed findings in the S13 cited-
-summary path (attacker text could poison the citation guard; the uncited check
-failed 3 of 4 faithful renderings; the pin broke on bold; the directive was
-unbounded in evidence count). Then Retro-hunt shipped: new intel sweeps
-historical observables through a bounded indexed join, re-open events never touch
-a verdict, verdict label changes became provenanced rows. Live-verified against a
-genuinely KEV-listed CVE — which also exposed that **every container image since
-the Dockerfile was written shipped a broken install** (all `__init__.py` at 0
-bytes, `auspex.modes` never declared), invisible because uvicorn's cwd shadows
-site-packages. CI-green 643 tests, `ci.sh` now gates the installed dist.)_
+_(Standing follow-up: **PR #15 is OPEN and unmerged** —
+https://github.com/bh3082336888-cell/auspex/pull/15, MERGEABLE/CLEAN. It carries
+S14 (retro-hunt + the packaging fix) plus the S15 Step-0 fixes. Merge it by hand
+first; `gh pr merge` is blocked by the permission classifier. The S15 feature
+commits landed on staging AFTER the PR was raised, so promote #16 carries them.
+S15 shipped: Step 0 found the verdict trail's head was decided by transaction
+start rather than write order — a transaction that began earlier and committed
+last wrote the newest belief with the oldest stamp, so `latest_verdict` and the
+retro-hunt event both reported a superseded label — and that `deleted` (an
+NVD-withdrawn CVE) was announced with the copy written for a KEV addition. Then
+falsification watchers: verdicts register typed conditions that would prove them
+wrong, at write time; ingest and enrichment check them; a satisfied watcher
+upgrades the S14 re-open event and never touches a label. CI-green 676 tests.)_
 
 ---
 
-SESSION S15 of Auspex. Working dir must be /home/burhan/auspex-new — run
-`/session-start S15` first (full ritual). Primary dev LLM is **Llama-4-Scout via
+SESSION S16 of Auspex. Working dir must be /home/burhan/auspex-new — run
+`/session-start S16` first (full ritual). Primary dev LLM is **Llama-4-Scout via
 Northflank (D-015)**; local Ollama `qwen3:14b` is the secondary/offline endpoint
 (D-013) and is what the session-start local-Ollama gate validates. Any mismatch →
 STOP and tell me. (D-011: `gh` flips to the work account between AND mid-session —
-re-check before every `gh` call. It did NOT flip at S13 or S14 start; assume it
+re-check before every `gh` call. It did NOT flip at S13/S14/S15 start; assume it
 flips anyway. Also: local `main` goes stale every promote — `git fetch` and diff
-against `origin/main`, never local `main`.)
+against `origin/main`, and read `git diff origin/main..staging --stat` rather
+than the commit list, which the squash workflow makes meaningless.)
 
 Step 0 (carried follow-ups, do BEFORE new scope):
 
 - **Check the TD-005 re-battery trigger first — it is close.** The corpus was
-  ~25.9k docs in `auspex-knowledge` at S14 end and grows ~770/day while the
-  container runs. Over 30k → re-run the labeled retrieval battery before
+  **25,938** docs in `auspex-knowledge` at S15 start and grows ~770/day while
+  the container runs. Over 30k → re-run the labeled retrieval battery before
   trusting any RAG-backed answer this session. (`curl -s
   "localhost:9200/_cat/indices/auspex-knowledge?v"`.)
-- **Fresh-eyes review of the S14 commits** — scope: `404b092` (retro-hunt:
-  sweep, events, flips, routes, 2 tables), `792929f` (packaging), and the
-  Step-0 fixes `d06ad1b`/`a795fe6`. This code is live-verified and has 31 tests
-  but no independent adversarial pass. Angles S14 did NOT test:
-  - **(tenancy) the sweep deliberately does not filter by workspace.** It runs
-    across tenants on `(type, value)` by design. Verify by execution that every
-    write and read path is scoped — including `open_match_for`, which runs
-    inside *whichever* tenant's enrichment transaction is calling it. Can a
-    flip in workspace A ever link a match belonging to workspace B?
-  - **(concurrency) flip-writer contention.** `latest_verdict` reads before the
-    insert. Two concurrent enrichments of the SAME observable: two flips? a
-    wrong `from_label`? a flip whose `from_verdict_id` is the other run's row?
-    The S13 review found exactly this class in `add_evidence` and fixed it with
-    `FOR UPDATE` — check whether this needs the same, and verify with
-    `asyncio.gather` against the live DB, not by reading.
-  - **(cost) the KEV first-run sweep inside an ingest cycle.** ~1,600 ids = 32
-    sequential queries plus 32 `record_matches` transactions, all inside
-    `run_cycle`. Measure it; decide whether it belongs off the cycle's critical
-    path (the TD-008 precedent) or is fine as-is.
-  - **(honesty) `change_kind: "deleted"` as a re-open reason.** An NVD-rejected
-    CVE is currently recorded with the same payload wording as a KEV addition
-    ("New intel touches an observable…"). "This CVE was withdrawn" is a
-    different claim and may deserve different copy, or may not belong in
-    TRIGGER_KINDS at all. Decide deliberately.
+- **Fresh-eyes review of the S15 commits** — scope: `233c132` (watchers: types,
+  derive, store, sink, route, 1 table, the circular-import fix), `e940efd`
+  (probes/D-021), and the Step-0 fixes `4c00af9`/`1e8e5dc`/`fa7b70b` if #15 has
+  not shipped them. This code is live-verified with 29 tests but has had no
+  independent adversarial pass. Angles S15 did NOT test:
+  - **(order dependency — strongest lead) `satisfy_documents` links the re-open
+    event by natural key including `change_kind`,** so it only finds the match
+    if `RetroHuntSink` already wrote it — and `FanoutSink` happens to emit
+    retro-hunt first. Reorder the two sinks and `falsifies` silently stops
+    appearing, with no error anywhere. This is the exact class of defect S15
+    fixed TWICE (the trail ordering, the circular import): correct by order, not
+    by construction. Decide deliberately — make the link order-free, or make the
+    order an enforced invariant rather than a coincidence.
+  - **(double swallow) `FanoutSink` catches per sink and both sinks already
+    catch internally.** A watcher check failing every cycle logs and is
+    otherwise invisible; nothing counts consecutive failures. Is a silently dead
+    falsification checker distinguishable from one with nothing to do? (The
+    circuit-breaker precedent in `auspex/enrich/breaker.py` is the shape to
+    consider.)
+  - **(concurrency) escalation satisfaction under concurrent enrichment.** S15
+    pinned concurrent REGISTRATION but not concurrent `check_escalation` — two
+    enrichments racing on one observable, one escalating and one not. Verify
+    with `asyncio.gather` against the live DB, not by reading.
+  - **(claim text) `claim` is built from `observable.value` plus provider names
+    and stored unbounded.** The S4 classifier validates CVE shape so this is
+    probably fine — verify by execution rather than assume, and check what an
+    edge/non-CVE observable actually produces.
   Verify findings BY EXECUTION before fixing; fix with regressions.
-- **Then `/promote` #15** (S12+S13+S14 have all been reviewed once by then).
-  Expect `gh pr merge` to be blocked by the permission classifier — I merge by
-  hand, then Claude back-merges.
+- **Then `/promote` #16** (S15 will have been reviewed once by then). Expect
+  `gh pr merge` to be blocked by the permission classifier — I merge by hand,
+  then Claude back-merges.
 
-Goal (scope-locked, from ROADMAP.md S15 — Falsification watchers, Phase 3
-flagship):
+Goal (scope-locked, from ROADMAP.md S16 — Verdict timeline UI, Phase 3):
 
-1. **Verdicts register "what would flip me".** When a verdict is written, record
-   the concrete, checkable conditions that would falsify it — typed, not prose
-   (e.g. "this hash appears in a KEV-listed CVE's exploitation chain", "this
-   domain's registrar changes", "a higher-severity provider signal arrives").
-   Start by reading `auspex/enrich/verdict.py` (synthesize + D-017 fields) and
-   `auspex/retrohunt/flips.py` — S14's flip rows are the first evidence of a
-   verdict actually being falsified, and the watcher vocabulary should be able
-   to describe what already happened there.
-2. **Watchers monitor feeds/enrichment for exactly that.** The retro-hunt sink
-   (`auspex/retrohunt/sink.py`) is the existing on-ingest hook — extend or
-   parallel it so a DocChange can satisfy a registered watcher, not just match
-   an observable. Same constraint as S14: **indexed join, never a scan per
-   change**, EXPLAIN-probed and saved to docs/probes/ before it is called done.
-3. **A satisfied watcher is a reason to re-examine, never an auto-flip**
-   (D-020's rail, and D-017's "new evidence, not the calendar, changes labels").
-   It should reuse or extend the S14 re-open event surface rather than inventing
-   a second notification shape.
+1. **A verdict's life, readable end to end.** The substrate now exists and has
+   never been rendered: the append-only `verdicts` trail (D-017 decay fields),
+   `verdict_flips` (S14 — what changed and why), `retrohunt_matches` (S14 — what
+   intel re-opened it), and `watchers` (S15 — what the verdict committed to
+   being wrong about, and which of those claims were contradicted). Start by
+   reading `auspex/retrohunt/store.py`, `auspex/watchers/store.py`, and
+   `auspex/enrich/verdict.py::effective_confidence` — the decay curve is
+   executable and pinned by a test but **nothing has ever rendered it**.
+2. **Decay and staleness get a vocabulary.** `effective_confidence` has existed
+   since S5 and no surface uses it. Decide what "stale" means in code (not
+   prose), and answer TD-020's open question rather than inheriting it: an open
+   falsification claim attached to a verdict that has fully decayed still reads
+   as "open" with the same weight as one written yesterday.
+3. **"Your past got re-scored."** The view an analyst opens after a week away:
+   what changed, what contradicted a claim we made, what is now stale. Reuse the
+   existing event surfaces — do not invent a third notification shape (D-020,
+   D-021 both say this and it has held twice).
 
 Constraints:
-- Tests ship with each step (CLAUDE.md rule 8); CI hermetic — watcher logic
-  pinned by fixtures, zero LLM on this path (model-PROPOSED falsifiers, if ever,
-  go through a contract and are NOT required for S15 done).
+- Tests ship with each step (CLAUDE.md rule 8); CI hermetic. Zero LLM on this
+  path — it is rendering and arithmetic over rows we already have.
+- The dark-first brand palette is locked (CLAUDE.md Brand, D-002) — Night
+  `#0A0D12`, Aurora `#4FF2C0`, Signal `#FFB454`, Ember `#FF5D5D`, Slate
+  `#8B93A7` for stale/DEFERRED. Space Grotesk / Inter / JetBrains Mono.
+  Never leak the underlying model or provider name into user-visible strings.
 - Every new env var → `.env.example` + `docs/ENV_VARS.md` at birth.
 - New package directory? → `pyproject.toml [tool.setuptools] packages` AND the
-  Dockerfile skeleton. `tests/test_packaging.py` will fail loudly if you forget,
-  which is new as of S14 — do not work around it.
+  Dockerfile skeleton. `tests/test_packaging.py` fails loudly if you forget —
+  do not work around it.
+- Plan assertions must VACUUM first, and only assert plans at table sizes where
+  a scan would actually cost something (both existing suites seed 25k) — small
+  tables legitimately seq-scan.
 - Deferred and waiting (do NOT pick up unless explicitly re-scoped): KB-doc
-  citability / ioc_check→KB-CVE-context (parked 8× now); TD-012 (post-hoc
-  validation, no re-ask); TD-014 (unbounded history); TD-015 (brand/confusable
-  coverage); TD-016 (ACH surface bounds); TD-017 (chat-side NUL hardening);
-  TD-018 (per-workspace inference-call bound — S19 owns it); TD-019 (retro-hunt
-  v1 bounds: CVE-only sweep, no pagination, cycle timing unobserved);
-  model-PROPOSED hypotheses/evidence (D-019-later).
+  citability / ioc_check→KB-CVE-context (parked 9× now); TD-012 (post-hoc
+  validation); TD-014 (unbounded history); TD-015 (brand/confusable coverage);
+  TD-016 (ACH surface bounds); TD-017 (chat-side NUL hardening); TD-018
+  (per-workspace inference-call bound — S19 owns it); TD-019 (retro-hunt v1
+  bounds); TD-020 (watcher v1 bounds: CVE-shaped vocabulary, `provider_escalation`
+  is passive, open watchers never expire); model-PROPOSED hypotheses/evidence
+  and model-PROPOSED falsifiers (D-019-later, D-021).
 - Thrash brake: two failed approaches on one problem → STATE.md Blockers, move
   on. Tired human = short session; rituals anyway.
-- End with `/session-end`; S15 done = verdicts carry typed falsification
-  conditions, an on-ingest watcher check satisfies them through an
-  EXPLAIN-probed indexed join, a satisfied watcher surfaces as an honest
-  re-examine event (never an auto-flip), all pinned by hermetic fixtures and
-  live-verified in-container.
+- End with `/session-end`; S16 done = a verdict's full history renders in one
+  place with decay made visible, staleness defined in code, satisfied claims and
+  re-open events shown as the events they already are, all pinned by hermetic
+  tests and live-verified in-container.
