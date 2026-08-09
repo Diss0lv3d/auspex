@@ -26,6 +26,43 @@ from uuid import UUID
 # events.py named "kev-added" as the intended trigger back in S7.
 TRIGGER_KINDS: frozenset[str] = frozenset({"kev-added", "deleted"})
 
+# What each kind actually claims, in the analyst's words. Both emitters of
+# `deleted` mean one thing — NVD REJECTED a CVE we hold (scheduler.py, the delta
+# stream and the KEV single-fetch path) — and that is the opposite motion from a
+# KEV addition: nothing new was learned about the observable, the evidence a
+# verdict may have rested on was RETRACTED. S14 gave both kinds the same
+# sentence ("New intel touches an observable this workspace already saw"), which
+# told the analyst the wrong story about half of them. Keyed by kind and kept
+# next to TRIGGER_KINDS so a kind added without copy fails a test rather than
+# silently inheriting a sentence that does not describe it.
+MATCH_NOTES: dict[str, str] = {
+    "kev-added": (
+        "New intel touches an observable this workspace already saw: the CVE "
+        "has entered CISA's Known Exploited Vulnerabilities catalogue, a "
+        "statement that it is being exploited in the wild. This is a reason to "
+        "re-examine, not a re-classification: no verdict has been changed."
+    ),
+    "deleted": (
+        "A CVE this workspace already saw has been WITHDRAWN by NVD, and its "
+        "record has been removed from the knowledge base. This is not new "
+        "evidence about the observable — it is the removal of evidence a "
+        "verdict may have rested on. A reason to re-examine, not a "
+        "re-classification: no verdict has been changed."
+    ),
+}
+
+
+def note_for(change_kind: str) -> str:
+    """The analyst-facing sentence for a match. Unknown kinds cannot reach the
+    surface today (TRIGGER_KINDS is closed and filtered in the sink), so the
+    fallback states only what is true of every kind rather than guessing."""
+    return MATCH_NOTES.get(
+        change_kind,
+        "New intel touches an observable this workspace already saw. This is a "
+        "reason to re-examine, not a re-classification: no verdict has been "
+        "changed.",
+    )
+
 # CVE observables are the only class a CVE-keyed feed can match. ATT&CK
 # technique ids (the attack feed) are not observables anyone pastes as an IOC,
 # so they sweep nothing today — named here rather than left implicit.

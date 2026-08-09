@@ -26,7 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from auspex.auth import AuthContext, resolve_user
 from auspex.retrohunt import list_flips, list_matches, mark_reviewed
-from auspex.retrohunt.types import TRIGGER_KINDS
+from auspex.retrohunt.types import TRIGGER_KINDS, note_for
 
 logger = logging.getLogger("auspex.retrohunt")
 
@@ -53,13 +53,11 @@ def _match_payload(m) -> dict:
         "settled": m.verdict_label is not None,
         "status": m.status,
         "created_at": m.created_at.isoformat(),
-        # Stated in the payload so no UI has to remember it (D-017).
+        # Stated in the payload so no UI has to remember it (D-017). The note is
+        # per-kind: a withdrawn CVE and a KEV listing are opposite events, and
+        # S14 described both with the sentence for the second (S15 Step 0).
         "action": "re-examine",
-        "note": (
-            "New intel touches an observable this workspace already saw. "
-            "This is a reason to re-examine, not a re-classification: no "
-            "verdict has been changed."
-        ),
+        "note": note_for(m.change_kind),
     }
 
 

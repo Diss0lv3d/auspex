@@ -25,6 +25,7 @@ from auspex.enrich.types import (
 )
 from auspex.ingest.events import DocChange
 from auspex.retrohunt import (
+    TRIGGER_KINDS,
     RetroHuntSink,
     list_flips,
     list_matches,
@@ -34,6 +35,7 @@ from auspex.retrohunt import (
 )
 from auspex.retrohunt.flips import latest_verdict
 from auspex.retrohunt.store import _SWEEP_SQL, SWEEP_CHUNK, normalize_doc_ids
+from auspex.retrohunt.types import MATCH_NOTES
 
 CVE_A = "CVE-2026-58644"
 CVE_B = "CVE-2026-11111"
@@ -578,6 +580,42 @@ async def test_matches_route_reports_the_event_and_the_honesty_rail(
     assert body["status_filter"] == "open"
     # the filter is named, so "no events" can't be confused with "we swept nothing"
     assert set(body["sweeps_on"]) == {"kev-added", "deleted"}
+
+
+def test_every_swept_kind_has_its_own_copy():
+    """S15 Step 0, honesty angle. A kind added to TRIGGER_KINDS without copy
+    would inherit a sentence written for a different event — which is exactly
+    how `deleted` came to be announced as "new intel touches an observable"."""
+    assert set(MATCH_NOTES) == set(TRIGGER_KINDS)
+    assert len(set(MATCH_NOTES.values())) == len(MATCH_NOTES), "two kinds, one story"
+    for note in MATCH_NOTES.values():
+        assert "no verdict has been changed" in note.lower()  # the D-017 rail, every kind
+
+
+async def test_a_withdrawn_cve_is_not_announced_as_new_intel(pool, client, route_ws):
+    """Both emitters of `deleted` mean NVD rejected a CVE we hold. That is the
+    removal of evidence, not the arrival of it — the opposite motion from a KEV
+    listing, and S14 described it with the KEV sentence."""
+    await persist_enrichment(pool, route_ws, EnrichmentOutcome(items=(cve_item(ROUTE_CVE),)))
+    await RetroHuntSink(pool).emit([DocChange(ROUTE_CVE, "nvd-delta", "deleted")])
+
+    mine = [
+        m
+        for m in client.get("/api/retrohunt/matches", headers=_hdr(client)).json()["matches"]
+        if m["trigger_doc"] == ROUTE_CVE
+    ]
+    assert len(mine) == 1
+    note = mine[0]["note"].lower()
+    assert mine[0]["change_kind"] == "deleted"
+    assert "withdrawn by nvd" in note
+    assert "removal of evidence" in note
+    assert "new intel touches" not in note
+    # The rail is unchanged: a withdrawal is still only a reason to look again.
+    assert mine[0]["action"] == "re-examine"
+    assert "no verdict has been changed" in note
+    assert await pool.fetchval(
+        "SELECT count(*) FROM verdict_flips WHERE workspace_id = $1", route_ws
+    ) == 0
 
 
 async def test_ack_moves_a_match_out_of_the_open_list(pool, client, route_ws):
