@@ -237,3 +237,38 @@ tables). Ratified for S12 and binding on S13+ (evidence graph builds on this):
   a default). A model-rendered hypothesis summary through a contract is
   expected later; when added it follows the S10/S11 directive+pin pattern and
   must be live-verified.
+
+**D-020 (2026-08-09) — Retro-hunt v1: a match is a reason to re-examine, the
+sweep is a bounded indexed join, a flip is its own typed row.** Probe:
+docs/probes/2026-08-09-s14-retrohunt-explain.md (query plans measured, not
+assumed). Ratified for S14, binding on S15 (falsification watchers read this
+trail):
+- **A retro-hunt match NEVER changes a verdict.** `record_matches` contains no
+  verdict write at all — the rail is structural, not a rule someone has to
+  remember. If a sweep could flip a label, CISA's publishing schedule would be
+  changing verdicts instead of evidence, which inverts D-017's "new evidence,
+  not the calendar, changes labels". A match records the label as it stood AT
+  MATCH TIME and stops; the API says `action: "re-examine"` in the payload.
+- **Analyst acknowledgement is explicit,** including after a flip. A flip is the
+  strongest sign the match was worth raising, so auto-closing it would hide the
+  event exactly when it mattered most (the approvals-table precedent).
+- **Trigger kinds are a closed set** (`kev-added`, `deleted`), not every
+  DocChange. The NVD delta feed upserts ~770 docs/day and a re-scored CVSS
+  vector is not news about an observable; a surface that cries wolf trains the
+  analyst to ignore the one signal meant to be trusted. Extended via PR with a
+  test, the doctrine-table pattern (D-019).
+- **The sweep is ONE indexed join per batch, bounded by SWEEP_CHUNK, and the
+  bound is chosen from a measured plan crossover** — not from taste. Feeds are
+  platform-global, so the join runs across workspaces on `(type, value)` and
+  each hit carries its own `workspace_id` into the row it writes; tenancy lives
+  in the write and in every read (D-008), never in the sweep.
+- **A verdict LABEL CHANGE is a first-class row** (`verdict_flips`), written
+  inside the enrichment transaction by the only code that writes verdicts.
+  `verdicts` records what was believed; it takes a diff of adjacent rows to see
+  that belief changed, and neither an analyst nor a watcher should have to do
+  that. `trigger` names why the re-look happened and `match_id` links the intel
+  that prompted it. A first-ever verdict is NOT a flip — no previous belief
+  existed to change, and that distinction is what makes the surface readable.
+- **Ingest owns the trigger; there is no "run a hunt" endpoint.** A retro-hunt
+  is something new intel does to you. The S7 `NullSink` seam is where it
+  attaches, and ingest code was not modified to attach it.
