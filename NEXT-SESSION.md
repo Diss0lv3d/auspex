@@ -1,13 +1,13 @@
 # NEXT-SESSION — paste everything below the line into a fresh Claude Code window opened in /home/burhan/auspex-new
 
-_(Standing follow-up: S13 is COMPLETE on `staging` — Step-0 review fixed 7
+_(Standing follow-up: S13 is COMPLETE and PROMOTED — Step-0 review fixed 7
 executed findings; citable evidence + the cited summary path shipped and were
 live-verified against Scout (run 1 caught 2 real defects, run 2 clean: 19
-valid citations, 0 fabricated, 0 uncited); CI-green 597 tests. **PR #14 is
-OPEN and awaiting Burhan's merge** — the classifier blocks `gh pr merge` for
-Claude, so the human clicks merge; the back-merge is this session's first
-step. The S13 demo: POST the typosquat email to `/api/investigations`, then
-POST `/{id}/summary` → a Scout-rendered summary where every claim line cites
+valid citations, 0 fabricated, 0 uncited); CI-green 597 tests. Promote #14
+was merged by Burhan (squash 87eb279 — the classifier blocks `gh pr merge`
+for Claude) and back-merged same session (9b61656); main == staging. The S13
+demo: POST the typosquat email to `/api/investigations`, then POST
+`/{id}/summary` → a Scout-rendered summary where every claim line cites
 [E-…] ids that resolve to real ach_evidence rows, with the leading hypothesis
 pinned by code and `contract_valid` + `citations.ok` reporting the code's
 post-hoc verdict.)_
@@ -22,17 +22,9 @@ Any mismatch → STOP and tell me. (D-011: `gh` flips to the work account
 between AND mid-session — re-check before every `gh` call. It did NOT flip
 at S13 start, the first clean session; assume it flips anyway.)
 
-Step 0 (carried follow-ups, do BEFORE new scope):
-- **0a. Back-merge promote #14.** Burhan should have merged
-  https://github.com/bh3082336888-cell/auspex/pull/14 (squash). If it is
-  still open → remind him and continue on staging (do NOT merge it yourself;
-  the permission classifier blocks `gh pr merge`, same as #13). Once merged:
-  on `staging`, `git fetch origin && git merge -X ours origin/main -m
-  "merge: back-merge main after promote #14"`, verify
-  `git diff <pre-merge-sha> HEAD --stat` is EMPTY, push. NOTE #14 carries
-  ALL of S12+S13 (the PR tracked `staging` and the S13 commits rode onto it
-  — everything on it is reviewed, tested, live-verified).
-- **0b. Fresh-eyes review of the S13 feature commits** — scope: `3dd9b7c`
+Step 0 (carried follow-up, do BEFORE new scope — promote #14 is already
+merged AND back-merged, nothing to reconcile):
+- **Fresh-eyes review of the S13 feature commits** — scope: `3dd9b7c`
   (evidence_id substrate), `62d332f` (render.py + summary route + guard),
   `376dc13` (live-caught fixes): ~900 insertions. This code was
   live-verified but got NO independent adversarial pass. Angles the build

@@ -1,11 +1,11 @@
 # STATE — Auspex
 
 _Last updated: 2026-08-09 (S13 COMPLETE — Step 0: fresh-eyes review of the S12
-diff, 7 findings all verified by execution and fixed; promote #14 PR opened
-(HUMAN MERGE PENDING); then the S13 scope: citable evidence objects + the
-first LLM-rendered path since S11 — a cited investigation summary through a
-contract with a pinned leading hypothesis and a code-owned citation guard,
-live-verified against Scout twice)_
+diff, 7 findings all verified by execution and fixed; **promote #14 MERGED by
+the human (squash 87eb279) and back-merged (9b61656), main == staging**; the
+S13 scope: citable evidence objects + the first LLM-rendered path since S11 —
+a cited investigation summary through a contract with a pinned leading
+hypothesis and a code-owned citation guard, live-verified against Scout twice)_
 
 ## Where we are
 - **S13 COMPLETE.** Three parts:
@@ -27,15 +27,12 @@ live-verified against Scout twice)_
     end-to-end through the routes (404 both directions — pinned). Curated
     numbers judged defensible, documented in the probe. Fix commits:
     108f8d5, 9b53f72, cd13ea5, 52fc2ee.
-  - **Promote #14 — PR OPEN, MERGE PENDING (human-gated).** `gh pr merge`
-    was blocked by the permission classifier (same as #13 at S12). PR:
-    https://github.com/bh3082336888-cell/auspex/pull/14 — green, MERGEABLE.
-    **Burhan must merge it**; the squash back-merge reconciliation is then
-    S14 Step 0 (`git merge -X ours origin/main`, verify tree unchanged,
-    push). NOTE: the PR was opened BEFORE the S13 feature commits — those
-    five commits (3dd9b7c..7 range) rode onto the same PR since it tracks
-    `staging`; the PR now carries ALL of S12+S13. That is fine (everything
-    on it is reviewed, tested, live-verified) — just know #14 promotes both.
+  - **Promote #14 — DONE (merged same session).** `gh pr merge` was blocked
+    by the permission classifier (same as #13 at S12); Burhan squash-merged
+    by hand (87eb279), Claude back-merged with `-X ours` (9b61656, tree
+    verified unchanged, main == staging content). NOTE: the PR tracked
+    `staging`, so it carried ALL of S12+S13 — everything on it was
+    reviewed, tested, and live-verified before merge.
   - **S13 feature — evidence graph + cited output (DONE, on staging).**
     (1) `ach_evidence` row uuids surface as the STABLE citation identity:
     store fills `Evidence.evidence_id` on load; labels are `E-<uuid hex8>`
@@ -71,13 +68,7 @@ live-verified against Scout twice)_
   TD-005 battery NOT re-triggered (no new doc_type, no model change).
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **S14 Step 0a: PR #14 — Burhan merges, then back-merge.** After the human
-   squash-merges https://github.com/bh3082336888-cell/auspex/pull/14:
-   on `staging`, `git merge -X ours origin/main -m "merge: back-merge main
-   after promote #14"`, verify `git diff <pre-merge-sha> HEAD --stat` empty,
-   push. (The classifier blocks `gh pr merge` for Claude — assume it will
-   again.)
-2. **S14 Step 0b: fresh-eyes review of the S13 feature commits**
+1. **S14 Step 0: fresh-eyes review of the S13 feature commits**
    (`3dd9b7c`, `62d332f`, `376dc13` — ~900 insertions: ach/render.py, the
    summary route, evidence_id plumbing, contract split_sections seam).
    Angles the S13 build did not adversarially test: prompt-injection through
@@ -89,22 +80,21 @@ live-verified against Scout twice)_
    edge cases (what does Scout do when NONE is pinned?). NOTE this code was
    live-verified but got NO independent adversarial pass — the S12→S13
    pattern says review before the next promote (#15).
-3. **TD-005 re-battery trigger (standing):** corpus > 30k chunks, ANY new
+2. **TD-005 re-battery trigger (standing):** corpus > 30k chunks, ANY new
    doc_type, or embedding-model change → re-run the labeled battery. (S13
    added no doc_type — not tripped.)
 
 ## Blockers / open risks
-1. **PR #14 unmerged** — main is stale until Burhan merges (see In-flight 1).
-2. **TD-001 (OAuth identity keyed on email)** — hard gate before any
+1. **TD-001 (OAuth identity keyed on email)** — hard gate before any
    GOOGLE_CLIENT_ID is configured.
-3. **Deep path is conversational-only (v1)** — AgentLoop still not wired
+2. **Deep path is conversational-only (v1)** — AgentLoop still not wired
    into /api/chat. TD-012 (post-hoc contract validation — now also covers
    the citation guard), TD-014 (unbounded history), TD-015 (brand/confusable
    coverage), TD-016 (ACH v1 surface bounds), TD-017 (NUL fixed only at the
    investigations boundary; chat likely shares the 500 shape) open.
-4. **KB bootstrap needs outbound HTTPS once per fresh volume**; ingest needs
+3. **KB bootstrap needs outbound HTTPS once per fresh volume**; ingest needs
    NVD/CISA/FIRST/GitHub reachability — failures degrade honestly.
-5. **Corpus ~3.4k chunks, grows ~770 docs/day** while the container runs.
+4. **Corpus ~3.4k chunks, grows ~770 docs/day** while the container runs.
    TD-011 tracks the rollover trigger.
 
 ## Host notes (reality snapshot)
@@ -139,9 +129,9 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 - RRF retrieval + ID bypass: 2026-07-17-sara-rrf-retriever-pattern.md
 
 ## Next session should
-S14 Step 0a: back-merge after Burhan merges PR #14. Step 0b: fresh-eyes
-review of the S13 feature commits (see In-flight 2 — injection-through-
-statements, guard heuristics, cost exposure). Then S14 per ROADMAP: **Retro-
+S14 Step 0: fresh-eyes review of the S13 feature commits (see In-flight 1 —
+injection-through-statements, guard heuristics, cost exposure). Then S14
+per ROADMAP: **Retro-
 hunt** — on-ingest sweep of historical observables (indexed join, never
 scan), re-open notifications, verdict flip events. The S6/S7 ingest layer
 already emits DocChange events into a NullSink hook built for exactly this
