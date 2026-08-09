@@ -34,6 +34,8 @@ packages = [
     "auspex.enrich.providers",
     "auspex.ingest",
     "auspex.kb",
+    "auspex.modes",
+    "auspex.retrohunt",
 ]
 
 [tool.setuptools.package-data]

@@ -27,4 +27,36 @@ docker compose up -d --build --wait app
 curl -sf http://localhost:8000/api/health >/dev/null
 echo "app container serves /api/health"
 
+# Liveness alone does NOT prove the image is sound: uvicorn runs with WORKDIR on
+# sys.path, so the COPY'd source shadows site-packages and the app serves happily
+# on top of a broken install. That hid two real defects until S14 — an undeclared
+# package (auspex.retrohunt, auspex.modes) and every __init__.py installed at
+# 0 bytes from a stale build/lib. Import the INSTALLED distribution from a
+# directory that cannot shadow it.
+echo "== installed distribution matches the source tree (not just liveness) =="
+docker compose exec -T --workdir /tmp app python -c "
+from importlib import import_module
+from pathlib import Path
+import auspex
+
+installed = Path(auspex.__file__).parent
+assert 'site-packages' in str(installed), f'shadowed, not testing the install: {installed}'
+# The whole app, imported from a directory that cannot shadow site-packages.
+import_module('auspex.app')
+
+source = Path('/srv/auspex/auspex')
+missing, differing = [], []
+for src in sorted(source.rglob('*.py')):
+    if '__pycache__' in src.parts:
+        continue
+    dst = installed / src.relative_to(source)
+    if not dst.exists():
+        missing.append(str(src.relative_to(source)))
+    elif dst.read_bytes() != src.read_bytes():
+        differing.append(f'{src.relative_to(source)} (src {src.stat().st_size}B vs installed {dst.stat().st_size}B)')
+assert not missing, f'source modules absent from the install: {missing}'
+assert not differing, f'installed copies differ from source: {differing}'
+print(f'installed dist == source tree ({len(list(source.rglob(\"*.py\")))} modules), app imports clean')
+"
+
 echo "CI green."
