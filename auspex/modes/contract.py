@@ -195,5 +195,15 @@ def _leading_token(body: str) -> str:
     if not m:
         return ""
     if stripped[m.end() : m.end() + 1] in "/-":
-        return stripped.split(None, 1)[0]
+        # A compound/hedge chunk is returned whole so it FAILS the enum rather
+        # than passing on its first component (S9 review). It is trimmed of
+        # trailing markdown and sentence punctuation first: a model that bolds
+        # the value ("**TRUE-POSITIVE**") means the same value, and only the
+        # hyphen branch is exposed — a plain enum reaches `m.group(0)`, which is
+        # letters by construction. Before this, the S13 pin tokens (the first
+        # hyphenated allowed_values in the codebase) failed the contract AND the
+        # pin on any emphasised rendering (S14 Step 0, finding 3, executed).
+        # Trimming cannot rescue a real hedge: "/" is not in the trim set, so
+        # "LOW/MEDIUM" still fails.
+        return stripped.split(None, 1)[0].strip(_EMPHASIS + ".,;")
     return m.group(0)

@@ -8,6 +8,7 @@ from auspex.modes import (
     contract_for,
     resolve_mode,
 )
+from auspex.modes.contract import ContractField, ModeContract
 
 
 def _obs(message: str):
@@ -226,6 +227,41 @@ def test_validate_rejects_a_compound_hedged_enum_value():
     for hedged in ("LOW/MEDIUM leaning low", "LOW-MEDIUM"):
         answer = f"## Risk\n{hedged}\n\n## Reasoning\nx\n\n## Recommendation\ny\n"
         result = c.validate(answer)
+        assert not result.ok, hedged
+        assert any(b.startswith("Risk=") for b in result.bad_enum)
+
+
+def test_validate_accepts_an_emphasised_hyphenated_enum_value():
+    """S14 Step 0, finding 3. A HYPHENATED allowed_value (the S13 pin tokens are
+    the first in the codebase) took the compound branch of the leading-token
+    parser, which returned the whole whitespace-delimited chunk — trailing
+    markdown included — so "**TRUE-POSITIVE**" failed the enum AND the pin.
+    Bolding a value is a rendering habit, not a different value, and Auspex runs
+    on a customer-supplied model whose habits we do not control."""
+    c = ModeContract(
+        name="pin_probe",
+        purpose="p",
+        fields=(
+            ContractField("Verdict", "d", allowed_values=("TRUE-POSITIVE", "NONE")),
+            ContractField("Why", "d"),
+        ),
+    )
+    for rendering in ("**TRUE-POSITIVE**", "_TRUE-POSITIVE_", "`TRUE-POSITIVE`",
+                      "**TRUE-POSITIVE** — as computed", "TRUE-POSITIVE."):
+        answer = f"## Verdict\n{rendering}\n\n## Why\nx\n"
+        result = c.validate(answer, pinned={"Verdict": "TRUE-POSITIVE"})
+        assert result.ok, f"{rendering}: {result.reason()}"
+
+
+def test_emphasis_trim_still_rejects_a_hyphenated_hedge():
+    """The guard rail on the fix above: trimming markdown must not rescue a real
+    hedge. "/" and the inner hyphen are untouched, so the S9 false-accept the
+    compound branch exists to prevent stays prevented."""
+    c = contract_for(Mode.ALERT_TRIAGE)
+    for hedged in ("**LOW/MEDIUM**", "**LOW-MEDIUM**", "*LOW/MEDIUM leaning low*"):
+        result = c.validate(
+            f"## Risk\n{hedged}\n\n## Reasoning\nx\n\n## Recommendation\ny\n"
+        )
         assert not result.ok, hedged
         assert any(b.startswith("Risk=") for b in result.bad_enum)
 
