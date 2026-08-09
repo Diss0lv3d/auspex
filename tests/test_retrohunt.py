@@ -9,6 +9,8 @@ Each test provisions its own workspace and deletes it at the end (cascades cover
 observables, verdicts, retrohunt_matches and verdict_flips).
 """
 
+import asyncio
+
 import asyncpg
 import pytest
 
@@ -30,6 +32,7 @@ from auspex.retrohunt import (
     record_matches,
     sweep,
 )
+from auspex.retrohunt.flips import latest_verdict
 from auspex.retrohunt.store import _SWEEP_SQL, SWEEP_CHUNK, normalize_doc_ids
 
 CVE_A = "CVE-2026-58644"
@@ -405,6 +408,109 @@ async def test_flip_rows_carry_both_verdict_ids(pool, workspace_id):
     )
     assert row["from_verdict_id"] == verdicts[0]["id"]
     assert row["to_verdict_id"] == verdicts[-1]["id"]
+
+
+async def test_concurrent_enrichments_of_one_observable_record_exactly_one_flip(
+    pool, workspace_id
+):
+    """S15 Step 0, concurrency angle. `latest_verdict` reads the trail and the
+    verdict insert follows it with no FOR UPDATE in between — the shape the S13
+    review found broken in `add_evidence`. It is safe HERE only because the
+    `observables` upsert already holds that row's lock to commit, so the two
+    transactions cannot interleave. Pinning it: without that lock both runs read
+    `benign` and record the same flip twice."""
+    await persist_enrichment(
+        pool, workspace_id, EnrichmentOutcome(items=(cve_item(CVE_A, VerdictLabel.BENIGN),))
+    )
+    await asyncio.gather(
+        persist_enrichment(
+            pool,
+            workspace_id,
+            EnrichmentOutcome(items=(cve_item(CVE_A, VerdictLabel.MALICIOUS),)),
+        ),
+        persist_enrichment(
+            pool,
+            workspace_id,
+            EnrichmentOutcome(items=(cve_item(CVE_A, VerdictLabel.MALICIOUS),)),
+        ),
+    )
+    flips = await list_flips(pool, workspace_id=workspace_id)
+    assert [(f.from_label, f.to_label) for f in flips] == [("benign", "malicious")]
+
+
+async def test_the_trail_orders_by_write_time_not_by_transaction_start(
+    pool, workspace_id
+):
+    """S15 Step 0, the executed defect. `created_at DEFAULT now()` is
+    transaction_timestamp — fixed at a transaction's FIRST statement. A
+    transaction that starts earlier, blocks on the shared observable's row lock,
+    and commits LAST wrote the newest belief but carried the OLDEST stamp, so
+    `latest_verdict` (and the sweep, which reads the trail the same way)
+    reported a superseded label as current.
+
+    Reproduced here in the shape production produces it: B's first statement is
+    an unrelated observable — exactly what persist_enrichment does when a turn
+    carries more than one, since it sorts by (type, value) before writing."""
+    await persist_enrichment(
+        pool, workspace_id, EnrichmentOutcome(items=(cve_item(CVE_A, VerdictLabel.BENIGN),))
+    )
+    conn_b = await pool.acquire()
+    tx_b = conn_b.transaction()
+    await tx_b.start()
+    try:
+        # B begins on an unrelated row. Under now() its clock stops here.
+        await conn_b.fetchval(
+            "INSERT INTO observables (workspace_id, obs_id, type, value)"
+            " VALUES ($1, $2, 'cve', $3)"
+            " ON CONFLICT (workspace_id, type, value) DO UPDATE SET last_seen = now()"
+            " RETURNING id",
+            workspace_id,
+            observable_id(ObservableType.CVE, CVE_B),
+            CVE_B,
+        )
+        # A starts later and commits first: 'malicious' is now the trail's head.
+        await persist_enrichment(
+            pool,
+            workspace_id,
+            EnrichmentOutcome(items=(cve_item(CVE_A, VerdictLabel.MALICIOUS),)),
+        )
+        # B reaches the shared observable and writes the newest belief last.
+        row_id = await conn_b.fetchval(
+            "INSERT INTO observables (workspace_id, obs_id, type, value)"
+            " VALUES ($1, $2, 'cve', $3)"
+            " ON CONFLICT (workspace_id, type, value) DO UPDATE SET last_seen = now()"
+            " RETURNING id",
+            workspace_id,
+            observable_id(ObservableType.CVE, CVE_A),
+            CVE_A,
+        )
+        new_id = await conn_b.fetchval(
+            "INSERT INTO verdicts (workspace_id, observable_id, label,"
+            " confidence_at_write, half_life_days, floor, source, details)"
+            " VALUES ($1, $2, 'suspicious', 0.5, 365.0, 0.1, 'enrichment:Test', '{}')"
+            " RETURNING id",
+            workspace_id,
+            row_id,
+        )
+        await tx_b.commit()
+    except BaseException:  # pragma: no cover — a failing assert must not leak the tx
+        await tx_b.rollback()
+        raise
+    finally:
+        await pool.release(conn_b)
+
+    async with pool.acquire() as conn:
+        current = await latest_verdict(
+            conn, workspace_id=workspace_id, observable_id=row_id
+        )
+    assert current["id"] == new_id, "the trail's head is not the last belief written"
+    assert current["label"] == "suspicious"
+    hits = [
+        h
+        for h in await sweep(pool, doc_ids=[CVE_A], feed="kev", change_kind="kev-added")
+        if h.workspace_id == workspace_id
+    ]
+    assert [h.verdict_label for h in hits] == ["suspicious"]
 
 
 async def test_flips_are_workspace_scoped(pool, workspace_id, other_workspace_id):

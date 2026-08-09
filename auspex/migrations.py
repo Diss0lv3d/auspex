@@ -152,7 +152,11 @@ SCHEMA_V0: list[str] = [
             CHECK (floor >= 0 AND floor <= confidence_at_write),
         source               text NOT NULL,
         details              jsonb NOT NULL DEFAULT '{}',
-        created_at           timestamptz NOT NULL DEFAULT now()
+        -- clock_timestamp(), NOT now(): see the S15 Step 0 note at the end of
+        -- this list. This column IS the definition of "the current verdict"
+        -- (latest_verdict, the retro-hunt sweep's LATERAL), so it must order by
+        -- when the row was WRITTEN, not by when its transaction began.
+        created_at           timestamptz NOT NULL DEFAULT clock_timestamp()
     )
     """,
     """
@@ -275,7 +279,11 @@ SCHEMA_V0: list[str] = [
         verdict_label  text,
         status         text NOT NULL DEFAULT 'open'
             CHECK (status IN ('open', 'reviewed')),
-        created_at     timestamptz NOT NULL DEFAULT now(),
+        -- clock_timestamp() (S15 Step 0 note below): record_matches writes a
+        -- whole sweep's rows in ONE transaction, so under now() every match in
+        -- a batch shares a timestamp and open_match_for's "newest open match"
+        -- picks arbitrarily among them.
+        created_at     timestamptz NOT NULL DEFAULT clock_timestamp(),
         UNIQUE (workspace_id, observable_id, doc_id, change_kind)
     )
     """,
@@ -302,13 +310,44 @@ SCHEMA_V0: list[str] = [
         to_verdict_id    uuid NOT NULL REFERENCES verdicts(id) ON DELETE CASCADE,
         trigger          text NOT NULL,
         match_id         uuid REFERENCES retrohunt_matches(id) ON DELETE SET NULL,
-        created_at       timestamptz NOT NULL DEFAULT now()
+        -- clock_timestamp() (S15 Step 0 note below): a flip is written in the
+        -- same transaction as the verdict it describes, so under now() it
+        -- inherits that transaction's start time — and two flips of one
+        -- observable could list in a different order than their own verdicts.
+        created_at       timestamptz NOT NULL DEFAULT clock_timestamp()
     )
     """,
     """
     CREATE INDEX IF NOT EXISTS idx_verdict_flips_ws_obs
         ON verdict_flips (workspace_id, observable_id, created_at DESC)
     """,
+    # S15 Step 0 — the same correction for databases that already exist.
+    #
+    # `now()` is transaction_timestamp(): fixed at a transaction's FIRST
+    # statement and unmoved for its lifetime. That is harmless on the tables
+    # above, where a creation time is only ever displayed. On these three it is
+    # not — they are ORDERED BY, and the newest row is read back as current
+    # truth.
+    #
+    # Proven by execution before it was fixed
+    # (docs/probes/2026-08-09-s15-step0-review.md): transaction B begins,
+    # upserts an unrelated observable (fixing its now()), then blocks on the
+    # shared observable's row lock while transaction A — which began LATER —
+    # writes a verdict and commits. B then writes the newest belief carrying the
+    # OLDER stamp. Read back, the trail reported A's superseded label as
+    # current, the sweep published it as `verdict_label_at_match`, and the next
+    # enrichment would compute `from_label` from a verdict that is no longer the
+    # latest.
+    #
+    # clock_timestamp() is read at INSERT time, which is exactly the order the
+    # `observables` row lock already serializes these writes into: B cannot
+    # reach its verdict insert until A has committed, so B's stamp is strictly
+    # greater. Existing rows keep their values — true write order is not
+    # reconstructible after the fact, and inventing one would be the same lie
+    # pointing the other way.
+    "ALTER TABLE verdicts ALTER COLUMN created_at SET DEFAULT clock_timestamp()",
+    "ALTER TABLE retrohunt_matches ALTER COLUMN created_at SET DEFAULT clock_timestamp()",
+    "ALTER TABLE verdict_flips ALTER COLUMN created_at SET DEFAULT clock_timestamp()",
 ]
 
 

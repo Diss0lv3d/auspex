@@ -30,6 +30,13 @@ async def persist_enrichment(pool: asyncpg.Pool, workspace_id, outcome: Enrichme
     async with pool.acquire() as conn, conn.transaction():
         for item in items:
             o = item.observable
+            # This upsert is load-bearing beyond the row it returns: DO UPDATE
+            # takes a row lock held until commit, so two concurrent enrichments
+            # of the SAME observable are serialized from here to the end of the
+            # transaction. That is what lets the latest_verdict → INSERT →
+            # record_flip_if_changed sequence below run without FOR UPDATE
+            # (verified by execution, S15 Step 0). Moving the verdict write out
+            # from under this lock would reintroduce the double-flip race.
             observable_row_id = await conn.fetchval(
                 """
                 INSERT INTO observables (workspace_id, obs_id, type, value)

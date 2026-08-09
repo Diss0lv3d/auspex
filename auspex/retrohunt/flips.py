@@ -40,7 +40,21 @@ async def latest_verdict(
 ) -> asyncpg.Record | None:
     """The current verdict for an observable — the latest row of the append-only
     trail. Must be read BEFORE the new verdict is inserted, or "previous" and
-    "new" are the same row."""
+    "new" are the same row.
+
+    No `FOR UPDATE`, and that is deliberate rather than an oversight (S15 Step 0
+    checked it by execution — 10 × `asyncio.gather` of two enrichments changing
+    the same observable's label produced exactly one flip each time, never two).
+    The caller has already run the `observables` upsert for this row in this
+    transaction, and `ON CONFLICT DO UPDATE` takes a row lock held to commit —
+    so all verdict writes for one observable are serialized before they get
+    here, and a competing enrichment cannot slip between this read and the
+    insert that follows it. The lock lives in `enrich/store.py`; this function
+    depends on it, which is why it is named here.
+
+    `created_at` must therefore be `clock_timestamp()`, not `now()` — the
+    serialization is by INSERT time, and a transaction-start stamp can invert
+    it (see the S15 note in migrations.py)."""
     return await conn.fetchrow(
         """
         SELECT id, label FROM verdicts
