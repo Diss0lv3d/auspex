@@ -14,12 +14,21 @@
 - **No pagination.** Newest-first with `limit` ≤ 200. A workspace with a long
   trail cannot page to older events; they are reachable only by narrowing
   `status`. Same shape as the S12 top-20 cap (TD-016).
-- **Scheduler timing unobserved.** The sink is pinned as WIRED by
-  `test_the_scheduler_is_wired_to_the_retrohunt_sink`, and the sweep is
-  live-verified end-to-end (docs/probes/2026-08-09-s14-retrohunt-live.md), but
-  the probe called `emit` directly rather than waiting for an ingest cycle to
-  call it. Observing that needs CISA to publish a KEV entry for a CVE this
-  workspace has already enriched — not schedulable within a session.
+- **Cycle path not driven end-to-end** (narrowed at S15 Step 0). The sink is
+  pinned as WIRED by `test_the_scheduler_is_wired_to_the_retrohunt_sink`, and
+  the sweep is live-verified end-to-end
+  (docs/probes/2026-08-09-s14-retrohunt-live.md), but the probe called `emit`
+  directly rather than waiting for an ingest cycle to call it. Observing that
+  needs CISA to publish a KEV entry for a CVE this workspace has already
+  enriched — not schedulable within a session.
+  The **cost** half of this bullet is now closed by measurement
+  (docs/probes/2026-08-09-s15-step0-review.md): the worst case named in the S14
+  review — a KEV first-run refresh of 1,600 ids where every id matches a held
+  observable — costs **175 ms** inside `run_cycle` (16 ms for 32 swept chunks,
+  159 ms for 1,600 match inserts), and 96 ms when the same batch is re-emitted
+  and written off as already-known. Against a cycle that paces NVD single
+  fetches at seconds apiece, that is not on the critical path, so the TD-008
+  precedent (move it off the cycle) is NOT warranted.
 **Why accepted:** S14's scope was the reasoning/event core (the sweep, the
 honesty rail, the flip trail). Type coverage is one line plus a per-type test
 once a non-CVE feed exists; pagination is surface work with no design question

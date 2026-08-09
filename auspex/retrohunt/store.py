@@ -31,19 +31,26 @@ logger = logging.getLogger("auspex.retrohunt")
 # One sweep's worth of doc ids. A KEV first-run refresh can carry ~1,600 ids
 # (S8 review), so this is a real bound, not a formality.
 #
-# 50 is not arbitrary — it is chosen from the measured plan crossover
-# (docs/probes/2026-08-09-s14-retrohunt-explain.md). The planner abandons the
-# per-id index descent for a whole-table hash join once the batch looks
-# expensive relative to one heap scan, and that threshold RISES with the table:
+# 50 is not arbitrary — it is chosen from the measured plan crossover. The
+# planner abandons the per-id index descent for a whole-table hash join once the
+# batch looks expensive relative to one heap scan, and that threshold RISES with
+# the table (docs/probes/2026-08-09-s14-retrohunt-explain.md, re-measured at
+# S15 Step 0 in docs/probes/2026-08-09-s15-step0-review.md):
 #
 #   observables(cve)     index path holds up to
-#   20,000               batch 50
-#   200,000              batch 1000+ (every size measured)
+#        1,600           never — seq scan at every batch size
+#       20,000           batch 50
+#       25,000           batch 50
+#      200,000           batch 1000+ (every size measured)
 #
-# So a chunk that stays on the index at the SMALLEST table size stays on it
-# forever — the table only ever grows, and a bigger table makes the index
-# relatively cheaper, never dearer. At 50 the sweep is index-driven at every
-# scale, and 1,600 ids cost 32 queries of ~0.3 ms rather than one query that
+# The small-table row is not a gap in the bound, and S14's comment was wrong to
+# claim the sweep is "index-driven at every scale" — measured, 1,600 observables
+# is 22 pages, so the planner reads the whole table in 0.37 ms and is right to.
+# What matters is that the scan never becomes the plan at a size where scanning
+# hurts, and the crossover moving UP with the table is what guarantees that: a
+# chunk that holds the index at 20k holds it at every size above, because the
+# table only ever grows and growth makes the index relatively cheaper, never
+# dearer. At 50, 1,600 ids cost 32 queries of ~0.3 ms rather than one query that
 # reads every observable the platform has ever recorded.
 SWEEP_CHUNK = 50
 
