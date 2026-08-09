@@ -110,6 +110,12 @@ class RetroHuntMatch:
     verdict_label: str | None
     status: str  # "open" | "reviewed"
     created_at: datetime
+    # S15: the claim a registered falsification watcher was guarding, when this
+    # same doc change satisfied one. None means the intel touched the observable
+    # without contradicting anything the verdict had committed to — a weaker
+    # and honestly different event, which is why it is a distinct field rather
+    # than stronger wording on every match.
+    falsified_claim: str | None = None
 
 
 @dataclass(frozen=True)

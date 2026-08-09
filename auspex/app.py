@@ -16,7 +16,7 @@ from auspex.ingest import IngestScheduler
 from auspex.kb import KnowledgeService
 from auspex.llm.registry import load_dev_registry
 from auspex.migrations import run_migrations
-from auspex.routes import auth, chat, health, investigations, retrohunt, ui
+from auspex.routes import auth, chat, health, investigations, retrohunt, ui, watchers
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
@@ -72,5 +72,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(chat.router)
     app.include_router(investigations.router)
     app.include_router(retrohunt.router)
+    app.include_router(watchers.router)
     app.include_router(ui.router)
     return app

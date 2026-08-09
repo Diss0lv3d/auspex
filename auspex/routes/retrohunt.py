@@ -58,6 +58,12 @@ def _match_payload(m) -> dict:
         # S14 described both with the sentence for the second (S15 Step 0).
         "action": "re-examine",
         "note": note_for(m.change_kind),
+        # S15: present only when this doc satisfied a falsification condition
+        # the verdict had REGISTERED IN ADVANCE. That is a strictly stronger
+        # event than a match — the platform said what would change its mind and
+        # then it happened — so it is named separately instead of being folded
+        # into the note, and it still does not change a label.
+        "falsifies": m.falsified_claim,
     }
 
 

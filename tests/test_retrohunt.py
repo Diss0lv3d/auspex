@@ -787,15 +787,26 @@ async def test_a_full_sweep_chunk_is_one_query(pool, workspace_id):
 async def test_the_scheduler_is_wired_to_the_retrohunt_sink(pool, settings):
     """S7 built the seam and defaulted it to NullSink; S14's job was to attach a
     consumer. Everything else in this file would pass with the sink unwired —
-    the sweep would simply never run in production."""
+    the sweep would simply never run in production.
+
+    S15 put a second consumer behind the same seam, so the assertion is now
+    "retro-hunt is among the wired sinks" rather than "is the sink". Both
+    consumers are named here on purpose: a fan-out that silently loses one is
+    exactly the failure this test exists to catch, and it would otherwise look
+    identical to a healthy one."""
     from auspex.ingest import IngestScheduler, NullSink
+    from auspex.watchers import FanoutSink, WatcherSink
 
     class FakeKB:
         active = False
 
     scheduler = IngestScheduler.from_settings(settings, FakeKB(), pool)
     try:
-        assert isinstance(scheduler._sink, RetroHuntSink)
-        assert not isinstance(scheduler._sink, NullSink)
+        sink = scheduler._sink
+        assert isinstance(sink, FanoutSink)
+        assert not isinstance(sink, NullSink)
+        wired = [type(s) for s in sink._sinks]
+        assert RetroHuntSink in wired
+        assert WatcherSink in wired
     finally:
         await scheduler.aclose()

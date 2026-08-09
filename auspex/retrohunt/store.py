@@ -180,9 +180,11 @@ async def list_matches(
     rows = await pool.fetch(
         """
         SELECT m.id, m.workspace_id, m.observable_id, o.obs_id, o.type, o.value,
-               m.doc_id, m.feed, m.change_kind, m.verdict_label, m.status, m.created_at
+               m.doc_id, m.feed, m.change_kind, m.verdict_label, m.status,
+               m.created_at, w.claim AS falsified_claim
         FROM retrohunt_matches m
         JOIN observables o ON o.id = m.observable_id AND o.workspace_id = m.workspace_id
+        LEFT JOIN watchers w ON w.id = m.watcher_id AND w.workspace_id = m.workspace_id
         WHERE m.workspace_id = $1 AND ($2::text IS NULL OR m.status = $2)
         ORDER BY m.created_at DESC, m.id
         LIMIT $3
@@ -205,6 +207,9 @@ async def list_matches(
             verdict_label=r["verdict_label"],
             status=r["status"],
             created_at=r["created_at"],
+            # S15: set when a registered falsification condition was satisfied
+            # by this same doc — the claim that just stopped being true.
+            falsified_claim=r["falsified_claim"],
         )
         for r in rows
     ]

@@ -348,6 +348,55 @@ SCHEMA_V0: list[str] = [
     "ALTER TABLE verdicts ALTER COLUMN created_at SET DEFAULT clock_timestamp()",
     "ALTER TABLE retrohunt_matches ALTER COLUMN created_at SET DEFAULT clock_timestamp()",
     "ALTER TABLE verdict_flips ALTER COLUMN created_at SET DEFAULT clock_timestamp()",
+    # S15: falsification watchers (Phase 3 flagship). Every verdict registers,
+    # AT WRITE TIME, the typed conditions that would prove it wrong — the only
+    # moment that answer is honest rather than rationalised. `claim` is the
+    # sentence the VERDICT asserts (what would become false), stored alongside
+    # the typed kind so the analyst surface never has to reconstruct prose from
+    # an enum, and so the exact wording a workspace was shown survives a later
+    # change to the derivation rules.
+    #
+    # verdict_id is the identity of the claim: a watcher belongs to ONE verdict,
+    # and when a newer verdict replaces it the old watcher is SUPERSEDED rather
+    # than deleted — "we were watching for this and stopped" is how you find a
+    # question that was dropped instead of answered.
+    """
+    CREATE TABLE IF NOT EXISTS watchers (
+        id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id   uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        observable_id  uuid NOT NULL REFERENCES observables(id) ON DELETE CASCADE,
+        verdict_id     uuid NOT NULL REFERENCES verdicts(id) ON DELETE CASCADE,
+        kind           text NOT NULL CHECK (kind IN
+            ('kev_listing', 'record_withdrawn', 'provider_escalation')),
+        claim          text NOT NULL,
+        params         jsonb NOT NULL DEFAULT '{}',
+        status         text NOT NULL DEFAULT 'open'
+            CHECK (status IN ('open', 'satisfied', 'superseded')),
+        satisfied_by   text,
+        created_at     timestamptz NOT NULL DEFAULT clock_timestamp(),
+        satisfied_at   timestamptz,
+        UNIQUE (verdict_id, kind)
+    )
+    """,
+    # The ingest-side check joins doc ids → observables → OPEN watchers of one
+    # kind, so the probe is (observable_id, kind) and the filter is status. A
+    # partial index on status='open' keeps it proportional to the watchers still
+    # watching rather than to every watcher ever registered — satisfied and
+    # superseded rows accumulate forever and are never joined against.
+    """
+    CREATE INDEX IF NOT EXISTS idx_watchers_open_obs_kind
+        ON watchers (observable_id, kind) WHERE status = 'open'
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_watchers_ws_status
+        ON watchers (workspace_id, status, created_at DESC)
+    """,
+    # A satisfied watcher does not get its own notification shape: it UPGRADES
+    # the S14 re-open event for the same doc from "new intel touches an
+    # observable you saw" to "new intel contradicts the specific claim this
+    # verdict made". Two rows for one fact would train the analyst to skim.
+    "ALTER TABLE retrohunt_matches ADD COLUMN IF NOT EXISTS watcher_id uuid"
+    " REFERENCES watchers(id) ON DELETE SET NULL",
 ]
 
 
