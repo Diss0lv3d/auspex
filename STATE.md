@@ -1,132 +1,172 @@
 # STATE — Auspex
 
-_Last updated: 2026-08-09 (S13 COMPLETE — Step 0: fresh-eyes review of the S12
-diff, 7 findings all verified by execution and fixed; promote #14 PR opened
-(HUMAN MERGE PENDING); then the S13 scope: citable evidence objects + the
-first LLM-rendered path since S11 — a cited investigation summary through a
-contract with a pinned leading hypothesis and a code-owned citation guard,
-live-verified against Scout twice)_
+_Last updated: 2026-08-10 (S16 COMPLETE — Step 0: adversarial review of the S15
+watcher commits, 4 angles executed, 1 defect fixed, 1 gap confirmed and closed
+inside the feature, 2 sound. Then **S16 Verdict timeline** (Phase 3): a
+verdict's whole life renders in one place, `effective_confidence` is rendered
+for the first time since S5, staleness becomes a band vocabulary (D-022),
+TD-020's open question is answered, and a quiet digest now has to be earned.)_
 
 ## Where we are
-- **S13 COMPLETE.** Three parts:
-  - **Step 0 — fresh-eyes review of `5d3d2dc..staging` (DONE).** Four lenses
-    the S12 same-session workflow did NOT run. 7 findings, every one verified
-    by execution BEFORE fixing (probe:
-    docs/probes/2026-08-09-s13-step0-review.md): a NUL byte in a paste 500'd
-    the live container (Postgres can't store U+0000 — now stripped at the
-    boundary); duplicate hypothesis keys double-rendered weights (sum 1.30 —
-    score_matrix now refuses); hand-edited cells jsonb crashed every GET
-    (string cell → TypeError) or manufactured a fake hard contradiction
-    (−7 accepted — load now enforces the declared CELL_MIN..CELL_MAX, skip +
-    warn); two CONCURRENT lookups folded the same provider claim twice
-    (FP inconsistency 5.0 instead of 2.5 — add_evidence now takes FOR UPDATE
-    + dedups per (kind, source, obs_id)); recipient_domains was unbounded in
-    the snapshot (300 entries — capped 50 + named truncation); API `weight`
-    renamed `plausibility_weight` (it is NOT a probability); zero-hypothesis
-    edge messages now say what is true. Two-workspace tenancy verified
-    end-to-end through the routes (404 both directions — pinned). Curated
-    numbers judged defensible, documented in the probe. Fix commits:
-    108f8d5, 9b53f72, cd13ea5, 52fc2ee.
-  - **Promote #14 — PR OPEN, MERGE PENDING (human-gated).** `gh pr merge`
-    was blocked by the permission classifier (same as #13 at S12). PR:
-    https://github.com/bh3082336888-cell/auspex/pull/14 — green, MERGEABLE.
-    **Burhan must merge it**; the squash back-merge reconciliation is then
-    S14 Step 0 (`git merge -X ours origin/main`, verify tree unchanged,
-    push). NOTE: the PR was opened BEFORE the S13 feature commits — those
-    five commits (3dd9b7c..7 range) rode onto the same PR since it tracks
-    `staging`; the PR now carries ALL of S12+S13. That is fine (everything
-    on it is reviewed, tested, live-verified) — just know #14 promotes both.
-  - **S13 feature — evidence graph + cited output (DONE, on staging).**
-    (1) `ach_evidence` row uuids surface as the STABLE citation identity:
-    store fills `Evidence.evidence_id` on load; labels are `E-<uuid hex8>`
-    (collision-extending, deterministic); GET exposes `evidence_id` + `cite`
-    per row. (2) `POST /api/investigations/{id}/summary` — the first LLM
-    call on the investigations surface, third application of the S10/S11
-    directive+pin doctrine: code compiles the AUTHORITATIVE directive
-    (matrix state, per-hypothesis "bearing evidence" ids computed from the
-    nonzero cells, statements flattened via auspex.untrusted at the
-    boundary, the engine's top lookup); the model narrates; the leading
-    hypothesis is PINNED (hyphen tokens: TRUE-POSITIVE… — underscores would
-    truncate in the validator's tokenizer); contract machinery reused via a
-    public `split_sections` seam (chat's six modes untouched). (3) The
-    citation guard (`check_citations`) is post-hoc (TD-012: detected, never
-    prevented): fabricated ids and uncited claim lines in the citable
-    sections are named in the response (`citations.ok/unknown/
-    uncited_lines`). No summary persistence — reads recompute, as everywhere.
-    Zero new env vars. KB-doc citability deliberately NOT picked up.
-- **Live-verified against Scout (D-015), twice** (probe:
-  docs/probes/2026-08-09-s13-cited-summary-live.md): run 1 caught a REAL
-  guard bug (Scout's legitimate grouped `[E-a, E-b]` citations were flagged
-  uncited — guard now token-based, typography-agnostic) and a directive gap
-  (rejected hypotheses had nothing to cite → literal `[ ]` — directive now
-  names bearing evidence per row); run 2 clean: contract_valid=true, pin
-  honored, **19 valid citations, 0 fabricated, 0 uncited**. Both probe
-  investigations deleted from the dev workspace.
-- **CI-green: 597 tests** (572 at S13 start → +7 Step-0 regressions/tenancy,
-  +14 render/guard fixtures, +4 summary route tests). `./ci.sh` green;
+- **S16 COMPLETE, on `staging`, not yet promoted.** Two parts:
+  - **Step 0 — adversarial review of `233c132`/`e940efd` (DONE).** Four angles
+    S15 never took, every finding reproduced by execution BEFORE the fix
+    (probe: docs/probes/2026-08-10-s16-step0-review.md).
+    **1 DEFECT fixed (44ccaa4):** the analyst-facing `falsifies` link existed
+    only by the order `FanoutSink` happened to be constructed in —
+    `satisfy_documents` wrote `retrohunt_matches.watcher_id`, which could only
+    land if `RetroHuntSink` had already written the match. Executing the lead
+    found two things it did not say: **the loss is PERMANENT** (the satisfy
+    UPDATE is guarded on `status='open'`, so no later cycle retries it, not even
+    a correctly-ordered redelivery), and **order is not the only trigger** — the
+    retro-hunt sink is DESIGNED to swallow its failures, so one survivable sweep
+    failure erases the claim with the order intact. That ruled out "enforce the
+    order" and made the link **derived at read time** from
+    `watchers.satisfied_change_kind`; `retrohunt_matches.watcher_id` is dropped
+    with its links backfilled in one guarded idempotent statement.
+    **1 CONFIRMED GAP, closed inside the S16 feature** (see below): 50
+    consecutive failed watcher checks were indistinguishable from 50 quiet ones
+    at every surface.
+    **2 SOUND, recorded as such:** concurrent `check_escalation` (the
+    observables row lock already serializes it — executed with `asyncio.gather`,
+    no interleaving, no duplicate open set) and `claim` text bounds (CVE regex
+    caps the value at 16 chars; measured worst case **197 chars** at 12
+    providers; zero signals produce no verdict at all).
+  - **S16 feature — Verdict timeline (DONE).** `auspex/timeline/` (staleness,
+    types, store) + `auspex/checks.py` + `auspex/routes/timeline.py` +
+    `auspex/static/timeline.html` + the `/timeline` page. Design ratified as
+    **D-022**. Three things it decides rather than inherits:
+    1. **Staleness in HALF-LIVES, not days** — `fresh` <0.5, `aging` 0.5–1.5,
+       `stale` 1.5–3, `lapsed` ≥3, plus `held` for a floored verdict (a floor
+       means "does not decay"; reporting it as lapsed would invert that). The
+       edges live in ONE module and travel as data — into the digest's crossing
+       SQL as a parameter, into the payload as descriptions, and the page holds
+       no decay arithmetic of its own.
+    2. **TD-020 answered** — an open claim on a decayed verdict gets a derived
+       `standing` (`load_bearing`/`lapsed`) and `status` is left alone. Two
+       different questions; merging them would erase the difference between
+       never-contradicted, contradicted and superseded. The claim stays open and
+       still fires.
+    3. **A quiet answer has to be earned** — every empty field in the digest is
+       an absence claim. Each consumer counts consecutive failures
+       (`auspex/checks.py`, the breaker shape minus the circuit) and
+       `Digest.trustworthy` requires a roster that is present AND healthy; an
+       unknown roster reads as untrustworthy rather than defaulting to healthy.
+    Nothing about decay is stored — every value is derived from columns already
+    written, so a verdict's staleness cannot fall out of date with itself. And
+    **no third notification shape** (D-020, D-021 held a third time): the digest
+    reuses `retrohunt_matches`, `verdict_flips` and `watchers`, and re-open
+    events are still acked at `POST /api/retrohunt/matches/{id}/ack`.
+- **Plans probed, not assumed** for the derived link
+  (docs/probes/2026-08-10-s16-step0-review.md): 25k satisfied watchers + 25k
+  matches, new PARTIAL index `idx_watchers_satisfied_obs` mirroring S15's
+  open-watcher index at the other end of a watcher's life. The outer LIMIT is
+  applied before the LATERAL, so the derivation runs once per event on screen
+  (51 loops for a 50-row page) — **0.373 ms**. **The one exception is logged:**
+  `_DECAYED_SQL` is the only new read S16 did not cost (TD-021).
+- **Live-verified in-container** against the installed dist (probe:
+  docs/probes/2026-08-10-s16-timeline-live.md): a verdict asserted at 0.80 still
+  standing at 0.28 after 1.504 half-lives → `stale`; its 3 open claims correctly
+  `lapsed` while STILL `open`; a real band crossing surfacing as `aging → stale`
+  inside the 7-day window while a tiny window correctly reports it as no news;
+  the real KEV DocChange through the real sinks leaving the trail untouched
+  (0 flips) and carrying `falsifies`; and a degraded checker turning a quiet
+  digest untrustworthy. Residue deleted.
+- **CI-green: 720 tests** (676 → +5 Step-0 regressions, +36 timeline, +3 UI).
+  `./ci.sh` green including the installed-dist gate (**106 modules**, was 100);
   container rebuilt; `/api/health/ready` 200.
-- **Primary dev LLM (D-015):** Llama-4-Scout via Northflank — used live for
-  the summary path (1.2k prompt / 0.6k completion tokens per summary).
-  Secondary/offline Ollama `qwen3:14b` (D-013) untouched this session.
-  TD-005 battery NOT re-triggered (no new doc_type, no model change).
+- **Zero new env vars** this session (and none across S14–S16).
+- **LLM untouched by S16** — the whole path is rows we already have plus the
+  D-017 curve.
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **S14 Step 0a: PR #14 — Burhan merges, then back-merge.** After the human
-   squash-merges https://github.com/bh3082336888-cell/auspex/pull/14:
-   on `staging`, `git merge -X ours origin/main -m "merge: back-merge main
-   after promote #14"`, verify `git diff <pre-merge-sha> HEAD --stat` empty,
-   push. (The classifier blocks `gh pr merge` for Claude — assume it will
-   again.)
-2. **S14 Step 0b: fresh-eyes review of the S13 feature commits**
-   (`3dd9b7c`, `62d332f`, `376dc13` — ~900 insertions: ach/render.py, the
-   summary route, evidence_id plumbing, contract split_sections seam).
-   Angles the S13 build did not adversarially test: prompt-injection through
-   evidence statements INTO the rendered summary (the directive flattens,
-   but is 160 chars of hostile statement enough to steer citations or the
-   narrative?); the guard's line-based heuristic (multi-line prose claims);
-   summary cost exposure (no per-workspace rate limit on an
-   inference-spending route — chat shares this, maybe a TD); pinned-token
-   edge cases (what does Scout do when NONE is pinned?). NOTE this code was
-   live-verified but got NO independent adversarial pass — the S12→S13
-   pattern says review before the next promote (#15).
-3. **TD-005 re-battery trigger (standing):** corpus > 30k chunks, ANY new
-   doc_type, or embedding-model change → re-run the labeled battery. (S13
-   added no doc_type — not tripped.)
+1. **PR #15 IS OPEN AND UNMERGED, AND IT NOW CARRIES EVERYTHING.**
+   https://github.com/bh3082336888-cell/auspex/pull/15 — it is `staging → main`,
+   so this session's pushes extended it rather than needing a "#16". Title and
+   body were rewritten this session to match its real scope: S14 + S15 + both
+   Step-0 reviews. `gh pr merge` is blocked by the Claude permission classifier:
+   **the human merges it by hand, then Claude back-merges** (`git merge -X ours
+   origin/main` on staging, verify the tree is unchanged, push). The S16 commits
+   (`44ccaa4`, `704dd87`, `1b9e8e2`, `b6a2eda`) landed after the body rewrite,
+   so re-read the PR before merging — it is one promote, not two.
+2. **S17 Step 0: fresh-eyes review of the S16 commits** (`44ccaa4`, `1b9e8e2`).
+   Angles S16 did NOT adversarially test:
+   - **(the uncosted query — strongest lead) `_DECAYED_SQL` is the only new read
+     in three sessions without an asserted plan** (TD-021, and it says so out
+     loud). It `DISTINCT ON`s the latest verdict per observable and filters on an
+     expression over `half_life_days`, so the crossing test cannot use an index.
+     Seed a workspace with ~100k enriched observables and EXPLAIN it; the digest
+     is the page an analyst opens FIRST after a week away.
+   - **(derived-link fan-out) the read-time LATERAL takes `ORDER BY satisfied_at
+     DESC, id LIMIT 1`.** S16 pinned the two-verdict case. What happens when two
+     watchers of DIFFERENT kinds are satisfied by the same doc id (a CVE that is
+     KEV-added and later withdrawn with no re-enrichment between)? There are two
+     matches and two claims; verify the pairing is still one-to-one and that
+     neither event borrows the other's claim.
+   - **(clock authority) staleness is computed against the READER's `now`.**
+     `timeline_for` and `digest` default to `datetime.now(UTC)` in the app
+     process while `created_at` is `clock_timestamp()` in Postgres. Two clocks
+     decide one band. The skew guard clamps negative ages, but nothing checks
+     the two agree — verify what a skewed app container reports.
+   - **(checker health honesty) `FailureCounter` resets on process restart.**
+     A crash-looping app would report a pristine roster and a trustworthy digest
+     forever. Is "degraded" reachable in the failure mode most likely to occur?
+   Verify findings BY EXECUTION before fixing; fix with regressions.
+3. **TD-005 re-battery trigger (standing, NOT tripped, CLOSER):** corpus > 30k
+   chunks, ANY new doc_type, or embedding-model change → re-run the labeled
+   battery. S16 added no doc_type and no model change. Corpus **26,711 docs** at
+   S16 end (was 25,938 at S15 start) — ~770/day while the container runs, so
+   **this likely trips at S17 or S18**. Check it at Step 0.
 
 ## Blockers / open risks
-1. **PR #14 unmerged** — main is stale until Burhan merges (see In-flight 1).
-2. **TD-001 (OAuth identity keyed on email)** — hard gate before any
+1. **TD-001 (OAuth identity keyed on email)** — hard gate before any
    GOOGLE_CLIENT_ID is configured.
-3. **Deep path is conversational-only (v1)** — AgentLoop still not wired
-   into /api/chat. TD-012 (post-hoc contract validation — now also covers
-   the citation guard), TD-014 (unbounded history), TD-015 (brand/confusable
-   coverage), TD-016 (ACH v1 surface bounds), TD-017 (NUL fixed only at the
-   investigations boundary; chat likely shares the 500 shape) open.
-4. **KB bootstrap needs outbound HTTPS once per fresh volume**; ingest needs
+2. **Deep path is conversational-only (v1)** — AgentLoop still not wired into
+   /api/chat. Open: TD-012 (post-hoc validation, incl. the citation guard),
+   TD-014 (unbounded history), TD-015 (brand/confusable coverage), TD-016 (ACH
+   surface bounds), TD-017 (chat-side NUL hardening), TD-018 (no per-workspace
+   bound on the NUMBER of inference calls), TD-019 (retro-hunt v1 bounds),
+   TD-020 (watcher v1 bounds — the expiry half is now ANSWERED by D-022),
+   TD-021 (timeline v1 bounds).
+3. **KB bootstrap needs outbound HTTPS once per fresh volume**; ingest needs
    NVD/CISA/FIRST/GitHub reachability — failures degrade honestly.
-5. **Corpus ~3.4k chunks, grows ~770 docs/day** while the container runs.
-   TD-011 tracks the rollover trigger.
+4. **Corpus ~26.7k docs, grows ~770/day** while the container runs. TD-011
+   tracks the rollover trigger; TD-005's 30k line is now close.
 
 ## Host notes (reality snapshot)
 - Postgres 55432; app 8000; OpenSearch 9200. Host runs pin via
   `auspex.devhost` (ENRICHMENT/KB/INGEST disabled on host).
 - Ollama 0.32.5 on :11434; models qwen3:14b / llama3.1:8b / mistral:latest.
-- `gh` did NOT flip at S13 start (first session it stayed personal), but
-  D-011 stands: re-check before EVERY `gh` call. `gh pr merge` is blocked by
-  the Claude permission classifier — the human merges PRs.
-- **S13 demo (needs Scout reachable; ~30 s):**
-  1. `TOKEN=$(curl -s -X POST localhost:8000/api/auth/dev-login -H 'Content-Type: application/json' -d '{"email":"burhan@auspexdev.com"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')`
-  2. POST the flagship typosquat email to `/api/investigations` (probe doc
-     has it) → note `evidence[].cite` labels (E-xxxxxxxx).
-  3. `curl -s -X POST localhost:8000/api/investigations/<id>/summary -H "Authorization: Bearer $TOKEN"` →
-     model-rendered summary where EVERY hypothesis line and evidence line
-     carries [E-…] citations; `contract_valid`, `pinned`, and
-     `citations.{ok,unknown,uncited_lines}` report the code's verdict on it.
-- **S12 demo (zero-LLM)** unchanged: POST /api/investigations →
-  4 hypotheses, FP+BENIGN rejected with named reasons, TP/TEST 50/50 at
-  1.0 bit, ranked lookups with itemized gain; POST /{id}/lookups executes
-  the top one through keyless enrichment.
-- **S11/S10/S9/S8 demo turns** unchanged (see git history of this file).
+- **`gh` DID flip at S16 start** — active account was SIRP-Burhan (work), fixed
+  with `gh auth switch --user bh3082336888-cell`. It did NOT flip at S13/S14/S15,
+  which is exactly why D-011 says re-check before EVERY `gh` call. Also: `gh pr
+  edit` fails on this repo with a Projects-classic GraphQL deprecation error —
+  use `gh api -X PATCH repos/.../pulls/N` instead.
+- **`gh pr merge` is blocked by the Claude permission classifier** — the human
+  merges PRs.
+- **Local `main` ref goes stale every promote** (the human squash-merges on
+  GitHub; nothing here checks out `main`). `/promote` and any `main..staging`
+  diff must `git fetch origin` and compare against `origin/main`. The commit
+  LIST is meaningless after a squash — read `git diff origin/main..staging
+  --stat` (currently **53 files, +7,898/-265**).
+- **Plan assertions on this dev DB must VACUUM first.** Seeding and dropping
+  25k rows leaves dead tuples behind; the planner costs a scan in PAGES, so
+  bloat — not the query — decides the plan.
+- **Small tables legitimately seq-scan.** Assert plans only at sizes where a
+  scan would cost something (the suites seed 25k).
+- **Data-modifying CTEs cannot see each other's rows through a table scan.**
+  Cost an hour in the S16 plan fixture: `INSERT ... RETURNING` chained into the
+  next CTE works; re-reading `observables` in a later CTE silently seeds zero
+  rows and the plan test then asserts against an empty table.
+- **S16 demo (zero-LLM, ~30 s):**
+  1. Open `localhost:8000/timeline` → sign in → the digest. Quiet weeks say so
+     AND say whether the silence can be believed.
+  2. Paste an `obs_id` (or click one) → the verdict's whole life: the decay bar
+     (asserted vs still-stands), every claim with its `standing`, every re-open
+     event with what it falsified, every flip, and the full trail.
+  3. Script version: `docs/probes/2026-08-10-s16-timeline-live.md`.
+- **S15 demo (zero-LLM)**, **S14 demo (zero-LLM)**, **S13 demo (needs Scout)**,
+  **S12/S11/S10/S9/S8 demo turns** unchanged (see git history of this file).
 
 ## Reference intelligence (from the SARA Open architecture study)
 Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
@@ -139,10 +179,12 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 - RRF retrieval + ID bypass: 2026-07-17-sara-rrf-retriever-pattern.md
 
 ## Next session should
-S14 Step 0a: back-merge after Burhan merges PR #14. Step 0b: fresh-eyes
-review of the S13 feature commits (see In-flight 2 — injection-through-
-statements, guard heuristics, cost exposure). Then S14 per ROADMAP: **Retro-
-hunt** — on-ingest sweep of historical observables (indexed join, never
-scan), re-open notifications, verdict flip events. The S6/S7 ingest layer
-already emits DocChange events into a NullSink hook built for exactly this
-(ROADMAP S7 note). NEXT-SESSION.md has the full prompt.
+Merge PR #15 first (human) — it carries S14+S15+S16 and both Step-0 reviews —
+then Claude back-merges. Then S17 Step 0: fresh-eyes review of the S16 commits
+(see In-flight 2 — `_DECAYED_SQL`'s uncosted plan is the strongest lead, and it
+is already logged as TD-021 rather than hidden). Check the TD-005 30k trigger at
+start; it is close. Then S17 per ROADMAP: **Actions SDK contract** — the
+`@action` decorator (semantics/scope/risk), undo required for destructive,
+dry_run required, registration API, planner manifest integration. This is the
+first session of Phase 4 and the first that is not Living Verdicts.
+NEXT-SESSION.md has the full prompt.

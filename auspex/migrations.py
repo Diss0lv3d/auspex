@@ -152,7 +152,11 @@ SCHEMA_V0: list[str] = [
             CHECK (floor >= 0 AND floor <= confidence_at_write),
         source               text NOT NULL,
         details              jsonb NOT NULL DEFAULT '{}',
-        created_at           timestamptz NOT NULL DEFAULT now()
+        -- clock_timestamp(), NOT now(): see the S15 Step 0 note at the end of
+        -- this list. This column IS the definition of "the current verdict"
+        -- (latest_verdict, the retro-hunt sweep's LATERAL), so it must order by
+        -- when the row was WRITTEN, not by when its transaction began.
+        created_at           timestamptz NOT NULL DEFAULT clock_timestamp()
     )
     """,
     """
@@ -245,6 +249,188 @@ SCHEMA_V0: list[str] = [
     """
     CREATE INDEX IF NOT EXISTS idx_ach_evidence_ws_inv
         ON ach_evidence (workspace_id, investigation_id, created_at)
+    """,
+    # S14: retro-hunt (Phase 3 flagship). New intel sweeps the workspace's
+    # HISTORICAL observables for matches. The sweep is an INDEXED JOIN, never a
+    # scan per DocChange, and ingest is platform-global (feeds are not
+    # workspace-private), so it must find matches ACROSS workspaces in one
+    # query: `WHERE type = 'cve' AND value = ANY($1)`. The existing
+    # UNIQUE (workspace_id, type, value) index cannot serve that — its leading
+    # column is workspace_id, which the sweep does not know yet. Hence a
+    # (type, value) index; tenancy is preserved by carrying each match's
+    # workspace_id into the event row it writes.
+    "CREATE INDEX IF NOT EXISTS idx_observables_type_value ON observables (type, value)",
+    # One row per (observable, triggering doc): the analyst-visible "this
+    # settled observable just showed up in new intel" event. The honesty rail
+    # of D-017 is structural here — a match records the verdict label as it
+    # stood AT MATCH TIME and NEVER writes a verdict. It is a reason to
+    # re-examine, not a re-classification.
+    # UNIQUE makes re-emission idempotent: the KEV first-run refresh re-emits
+    # every held KEV id on a fresh volume, and a catalog re-read can repeat ids.
+    """
+    CREATE TABLE IF NOT EXISTS retrohunt_matches (
+        id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id   uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        observable_id  uuid NOT NULL REFERENCES observables(id) ON DELETE CASCADE,
+        doc_id         text NOT NULL,
+        feed           text NOT NULL,
+        change_kind    text NOT NULL,
+        verdict_id     uuid REFERENCES verdicts(id) ON DELETE SET NULL,
+        verdict_label  text,
+        status         text NOT NULL DEFAULT 'open'
+            CHECK (status IN ('open', 'reviewed')),
+        -- clock_timestamp() (S15 Step 0 note below): record_matches writes a
+        -- whole sweep's rows in ONE transaction, so under now() every match in
+        -- a batch shares a timestamp and open_match_for's "newest open match"
+        -- picks arbitrarily among them.
+        created_at     timestamptz NOT NULL DEFAULT clock_timestamp(),
+        UNIQUE (workspace_id, observable_id, doc_id, change_kind)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_retrohunt_matches_ws_status
+        ON retrohunt_matches (workspace_id, status, created_at DESC)
+    """,
+    # The D-017 append-only verdict trail gains its first AUTOMATED writer: when
+    # re-enrichment changes an observable's label, the change itself becomes a
+    # typed, provenanced row (old → new, which verdict rows, what triggered it,
+    # and the retro-hunt match if one was open). Verdict rows already record
+    # what was believed; this records that belief CHANGED, which is the thing an
+    # analyst needs to see and the thing a falsification watcher will read.
+    """
+    CREATE TABLE IF NOT EXISTS verdict_flips (
+        id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id     uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        observable_id    uuid NOT NULL REFERENCES observables(id) ON DELETE CASCADE,
+        from_label       text NOT NULL CHECK (from_label IN
+            ('malicious', 'suspicious', 'benign', 'unknown')),
+        to_label         text NOT NULL CHECK (to_label IN
+            ('malicious', 'suspicious', 'benign', 'unknown')),
+        from_verdict_id  uuid REFERENCES verdicts(id) ON DELETE SET NULL,
+        to_verdict_id    uuid NOT NULL REFERENCES verdicts(id) ON DELETE CASCADE,
+        trigger          text NOT NULL,
+        match_id         uuid REFERENCES retrohunt_matches(id) ON DELETE SET NULL,
+        -- clock_timestamp() (S15 Step 0 note below): a flip is written in the
+        -- same transaction as the verdict it describes, so under now() it
+        -- inherits that transaction's start time — and two flips of one
+        -- observable could list in a different order than their own verdicts.
+        created_at       timestamptz NOT NULL DEFAULT clock_timestamp()
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_verdict_flips_ws_obs
+        ON verdict_flips (workspace_id, observable_id, created_at DESC)
+    """,
+    # S15 Step 0 — the same correction for databases that already exist.
+    #
+    # `now()` is transaction_timestamp(): fixed at a transaction's FIRST
+    # statement and unmoved for its lifetime. That is harmless on the tables
+    # above, where a creation time is only ever displayed. On these three it is
+    # not — they are ORDERED BY, and the newest row is read back as current
+    # truth.
+    #
+    # Proven by execution before it was fixed
+    # (docs/probes/2026-08-09-s15-step0-review.md): transaction B begins,
+    # upserts an unrelated observable (fixing its now()), then blocks on the
+    # shared observable's row lock while transaction A — which began LATER —
+    # writes a verdict and commits. B then writes the newest belief carrying the
+    # OLDER stamp. Read back, the trail reported A's superseded label as
+    # current, the sweep published it as `verdict_label_at_match`, and the next
+    # enrichment would compute `from_label` from a verdict that is no longer the
+    # latest.
+    #
+    # clock_timestamp() is read at INSERT time, which is exactly the order the
+    # `observables` row lock already serializes these writes into: B cannot
+    # reach its verdict insert until A has committed, so B's stamp is strictly
+    # greater. Existing rows keep their values — true write order is not
+    # reconstructible after the fact, and inventing one would be the same lie
+    # pointing the other way.
+    "ALTER TABLE verdicts ALTER COLUMN created_at SET DEFAULT clock_timestamp()",
+    "ALTER TABLE retrohunt_matches ALTER COLUMN created_at SET DEFAULT clock_timestamp()",
+    "ALTER TABLE verdict_flips ALTER COLUMN created_at SET DEFAULT clock_timestamp()",
+    # S15: falsification watchers (Phase 3 flagship). Every verdict registers,
+    # AT WRITE TIME, the typed conditions that would prove it wrong — the only
+    # moment that answer is honest rather than rationalised. `claim` is the
+    # sentence the VERDICT asserts (what would become false), stored alongside
+    # the typed kind so the analyst surface never has to reconstruct prose from
+    # an enum, and so the exact wording a workspace was shown survives a later
+    # change to the derivation rules.
+    #
+    # verdict_id is the identity of the claim: a watcher belongs to ONE verdict,
+    # and when a newer verdict replaces it the old watcher is SUPERSEDED rather
+    # than deleted — "we were watching for this and stopped" is how you find a
+    # question that was dropped instead of answered.
+    """
+    CREATE TABLE IF NOT EXISTS watchers (
+        id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id   uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        observable_id  uuid NOT NULL REFERENCES observables(id) ON DELETE CASCADE,
+        verdict_id     uuid NOT NULL REFERENCES verdicts(id) ON DELETE CASCADE,
+        kind           text NOT NULL CHECK (kind IN
+            ('kev_listing', 'record_withdrawn', 'provider_escalation')),
+        claim          text NOT NULL,
+        params         jsonb NOT NULL DEFAULT '{}',
+        status         text NOT NULL DEFAULT 'open'
+            CHECK (status IN ('open', 'satisfied', 'superseded')),
+        satisfied_by   text,
+        created_at     timestamptz NOT NULL DEFAULT clock_timestamp(),
+        satisfied_at   timestamptz,
+        UNIQUE (verdict_id, kind)
+    )
+    """,
+    # The ingest-side check joins doc ids → observables → OPEN watchers of one
+    # kind, so the probe is (observable_id, kind) and the filter is status. A
+    # partial index on status='open' keeps it proportional to the watchers still
+    # watching rather than to every watcher ever registered — satisfied and
+    # superseded rows accumulate forever and are never joined against.
+    """
+    CREATE INDEX IF NOT EXISTS idx_watchers_open_obs_kind
+        ON watchers (observable_id, kind) WHERE status = 'open'
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_watchers_ws_status
+        ON watchers (workspace_id, status, created_at DESC)
+    """,
+    # A satisfied watcher does not get its own notification shape: it UPGRADES
+    # the S14 re-open event for the same doc from "new intel touches an
+    # observable you saw" to "new intel contradicts the specific claim this
+    # verdict made". Two rows for one fact would train the analyst to skim.
+    #
+    # S16 Step 0 moved that link from a WRITTEN column to a DERIVED one. S15
+    # wrote `retrohunt_matches.watcher_id` from the watcher sink, which could
+    # only find the match if the retro-hunt sink had already written it — true
+    # by the order `FanoutSink` happened to be constructed in, and by nothing
+    # else. Executed: reversing the two sinks, or the retro-hunt sink simply
+    # failing that batch, dropped the link with no error anywhere, and the loss
+    # was PERMANENT (the satisfy UPDATE is guarded on status='open', so no later
+    # cycle ever retries it). Recording WHICH change satisfied the watcher makes
+    # the link a fact about the watcher row, derivable from either side in any
+    # order (docs/probes/2026-08-10-s16-step0-review.md).
+    "ALTER TABLE watchers ADD COLUMN IF NOT EXISTS satisfied_change_kind text",
+    # Mirrors idx_watchers_open_obs_kind for the other end of a watcher's life.
+    # The re-open list derives its claim per row, so this is a LIMIT-50 lateral
+    # of index descents rather than a scan of every watcher ever satisfied.
+    """
+    CREATE INDEX IF NOT EXISTS idx_watchers_satisfied_obs
+        ON watchers (observable_id, satisfied_by) WHERE status = 'satisfied'
+    """,
+    # Retire the written column, preserving every link it already holds. Guarded
+    # on the column's existence so the whole list stays idempotent — after the
+    # drop this statement is a no-op rather than an error on the next boot.
+    """
+    DO $$
+    BEGIN
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'retrohunt_matches' AND column_name = 'watcher_id'
+        ) THEN
+            UPDATE watchers w
+               SET satisfied_change_kind = m.change_kind
+              FROM retrohunt_matches m
+             WHERE m.watcher_id = w.id AND w.satisfied_change_kind IS NULL;
+            ALTER TABLE retrohunt_matches DROP COLUMN watcher_id;
+        END IF;
+    END $$
     """,
 ]
 

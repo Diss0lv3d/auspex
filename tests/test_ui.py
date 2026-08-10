@@ -28,3 +28,32 @@ def test_index_never_names_the_engine(client):
     body = client.get("/").text.lower()
     for name in FORBIDDEN_ENGINE_NAMES:
         assert name not in body, f"engine/provider name leaked into UI: {name!r}"
+
+
+def test_timeline_page_served_on_brand(client):
+    """S16 — the verdict timeline. Same dark-first palette, and Slate is the
+    stale colour it is everywhere else (CLAUDE.md brand)."""
+    resp = client.get("/timeline")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/html")
+    body = resp.text
+    assert "#0A0D12" in body and "#4FF2C0" in body
+    assert "#8B93A7" in body  # Slate — stale / lapsed
+    assert "/api/timeline/digest" in body
+
+
+def test_timeline_page_holds_no_decay_arithmetic_of_its_own(client):
+    """The band vocabulary lives in one place (auspex/timeline/staleness.py).
+    A page that recomputed staleness in JavaScript would be a second opinion
+    about aging, and the two would drift the first time an edge moved."""
+    body = client.get("/timeline").text
+    assert "half_life" not in body.replace("half_life_days", "")  # only the label
+    assert "Math.pow" not in body and "**" not in body
+    # It renders the server's answer, never its own.
+    assert "v.staleness" in body
+
+
+def test_timeline_page_never_names_the_engine(client):
+    body = client.get("/timeline").text.lower()
+    for name in FORBIDDEN_ENGINE_NAMES:
+        assert name not in body, f"engine/provider name leaked into UI: {name!r}"

@@ -41,6 +41,33 @@ _PIN_TOKENS = ("TRUE-POSITIVE", "FALSE-POSITIVE", "BENIGN-ACTIVITY", "TEST-ACTIV
 # Rendered when the matrix honestly claims no ranking (or nothing survives).
 NO_LEADER = "NONE"
 
+# What a citation looks like in rendered text: the label token itself, with
+# or without brackets. Live Scout groups several ids inside ONE bracket pair
+# ("[E-a, E-b, E-c]") — a bracket-per-id pattern refused that legitimate
+# format and flagged fully-cited lines as uncited (S13 live verification,
+# caught on the first Scout run). The guard checks resolvability and
+# presence, never typography.
+#
+# ONE regex, two jobs, and they must not diverge: it is what the guard DETECTS
+# in the answer and what `_data` REDACTS from untrusted text on the way in. If
+# redaction covered less than detection, attacker-authored text could still put
+# a citation-shaped token in front of the model.
+_CITE_RE = re.compile(r"\bE-[0-9a-fA-F]{8,32}\b")
+_CITE_REDACTED = "E-<redacted>"
+
+# Markdown emphasis/decoration trimmed off a token or block before it is judged
+# (the contract validator's own `_EMPHASIS` set — kept in step with it).
+_MD_TRIM = "*_`~ "
+
+# The directive's bounds. Evidence rows are bounded only by the enrichment fan-
+# out (_MAX_SNAPSHOT_IOCS=200 observables → up to 200 folds), and each rendered
+# row costs ~270 prompt chars: 200 rows compiled a 54k-char / ~13.5k-token
+# directive against a ~1.2k-token norm — a 10× inference bill on a route with no
+# per-workspace bound, and the pin instruction is the LAST line, so a
+# context-capped endpoint drops the pin first (S14 Step 0, finding 4).
+_MAX_DIRECTIVE_EVIDENCE = 40
+_MAX_BEARING_PER_HYPOTHESIS = 12
+
 SUMMARY_CONTRACT = ModeContract(
     name="investigation_summary",
     purpose=(
@@ -86,15 +113,42 @@ SUMMARY_CONTRACT = ModeContract(
 class DirectiveBundle:
     """Everything the summary route needs: the compiled system directive, the
     citation map it embedded (label → ach_evidence uuid), and the pinned
-    contract values the validator must enforce."""
+    contract values the validator must enforce.
+
+    `citations` maps EVERY persisted row's label, including rows the directive
+    truncated away: resolvability is a claim about what exists in the store, not
+    about what we chose to show the model. `evidence_shown`/`evidence_total`
+    report that choice so no cap is silent."""
 
     text: str
     citations: Mapping[str, str]
     pinned: dict[str, str]
+    evidence_shown: int = 0
+    evidence_total: int = 0
 
 
 def _pin_token(key_value: str) -> str:
     return key_value.upper().replace("_", "-")
+
+
+def _data(raw: str, cap: int) -> str:
+    """Untrusted text on its way into the code-owned directive.
+
+    `flatten` (auspex.untrusted) already stops injected text from opening a
+    fresh instruction line and bounds its length. This adds the citation-shape
+    guard: a citation label is a CODE-issued identity, but an email subject, a
+    display name, or a provider's statement is attacker-authored and may contain
+    a token of exactly that shape. S13 quoted it verbatim, which cost twice
+    (S14 Step 0, finding 1, executed): the model was shown a label-shaped thing
+    it might cite as real, and a summary that merely QUOTED the statement — the
+    most ordinary thing it can do in ## Key evidence — was reported as having
+    fabricated a citation. That handed an attacker a deterministic way to make
+    a correct summary look dishonest.
+
+    Redaction runs BEFORE flatten so the cap stays authoritative (substitution
+    lengthens the text) and so a token split by invisible-unicode is caught
+    while it is still one word."""
+    return _clean(_CITE_RE.sub(_CITE_REDACTED, raw), cap=cap)
 
 
 def citation_labels(evidence: tuple) -> dict[str, str]:
@@ -144,7 +198,7 @@ def investigation_directive(
     for field in ("name", "from_addr", "subject_line"):
         val = record.subject.get(field)
         if val:
-            subject_bits.append(f"{field}={_clean(str(val), cap=80)}")
+            subject_bits.append(f"{field}={_data(str(val), cap=80)}")
 
     lines = [
         "A deterministic, code-owned ACH engine has ALREADY scored this "
@@ -163,16 +217,31 @@ def investigation_directive(
     if assessment.notes:
         lines.extend(f"Note: {n}" for n in assessment.notes)
 
+    # Which rows the model actually sees, and therefore may cite. Only
+    # persisted rows are citable; if the trail is longer than the cap, the most
+    # DIAGNOSTIC rows are kept (they are the ones that discriminate between
+    # surviving hypotheses), then the selection is put back in load order so the
+    # directive reads the same way it always did.
+    citable = [r for r in assessment.readings if by_id.get(r.evidence.evidence_id or "")]
+    if len(citable) <= _MAX_DIRECTIVE_EVIDENCE:
+        shown = citable
+    else:
+        picked = sorted(
+            range(len(citable)), key=lambda i: (not citable[i].diagnostic, i)
+        )[:_MAX_DIRECTIVE_EVIDENCE]
+        shown = [citable[i] for i in sorted(picked)]
+    dropped = len(citable) - len(shown)
+
     # Code-computed provenance for each hypothesis's standing: the labels of
     # every evidence row whose cell moves THAT hypothesis (nonzero, non-None).
     # Without this the model has nothing to cite on a rejected row and
-    # improvises ("[ ]" — S13 live verification, first Scout run).
+    # improvises ("[ ]" — S13 live verification, first Scout run). Derived from
+    # `shown`, never the full trail: naming an id whose row was truncated away
+    # would order the model to cite something it was never shown.
     bearing_by_key: dict = {}
-    for e in record.evidence:
-        label = by_id.get(e.evidence_id or "")
-        if label is None:
-            continue
-        for k, cell in e.cells.items():
+    for r in shown:
+        label = by_id[r.evidence.evidence_id]
+        for k, cell in r.evidence.cells.items():
             if cell:
                 bearing_by_key.setdefault(k, []).append(label)
 
@@ -191,28 +260,36 @@ def investigation_directive(
         if s.rejected_reason:
             row += f" (rejected: {s.rejected_reason})"
         bearing = bearing_by_key.get(s.hypothesis.key, [])
-        row += (
-            f" — bearing evidence: {', '.join(bearing)}"
-            if bearing
-            else " — no recorded evidence bears on this hypothesis"
-        )
+        if len(bearing) > _MAX_BEARING_PER_HYPOTHESIS:
+            head = bearing[:_MAX_BEARING_PER_HYPOTHESIS]
+            row += (
+                f" — bearing evidence ({len(bearing)} rows bear on it; citing "
+                f"these {len(head)} is enough): {', '.join(head)}"
+            )
+        elif bearing:
+            row += f" — bearing evidence: {', '.join(bearing)}"
+        else:
+            row += " — no recorded evidence bears on this hypothesis"
         lines.append(row)
 
     lines.append("")
-    if record.evidence:
+    if shown:
         lines.append(
             "Evidence (cite by the bracketed id; diagnostic = discriminates "
             "between surviving hypotheses):"
         )
-        for reading in assessment.readings:
+        for reading in shown:
             e = reading.evidence
-            label = by_id.get(e.evidence_id or "")
-            if label is None:
-                continue  # unpersisted evidence cannot be cited
             lines.append(
-                f'- [{label}] {e.kind.value} ({e.source}, credibility '
+                f'- [{by_id[e.evidence_id]}] {e.kind.value} ({e.source}, credibility '
                 f'{e.credibility}, {"diagnostic" if reading.diagnostic else "non-diagnostic"}): '
-                f'"{_clean(e.statement, cap=160)}"'
+                f'"{_data(e.statement, cap=160)}"'
+            )
+        if dropped:
+            lines.append(
+                f"({dropped} further evidence row(s) exist but are NOT listed "
+                f"above: this summary covers the {len(shown)} most diagnostic of "
+                f"{len(citable)}. Say so, and cite no id absent from the list.)"
             )
     else:
         lines.append(
@@ -224,7 +301,7 @@ def investigation_directive(
         top = plan.ranked[0]
         lines.append(
             f"Engine-recommended next lookup: {top.candidate.kind.value} on "
-            f"{_clean(top.candidate.observable.value, cap=120)} "
+            f"{_data(top.candidate.observable.value, cap=120)} "
             f"({top.candidate.observable.type.value}) — expected information "
             f"gain {top.expected_gain_bits} bits of {plan.prior_entropy_bits} "
             "prior entropy."
@@ -246,20 +323,82 @@ def investigation_directive(
         text="\n".join(lines),
         citations=labels,
         pinned={"Leading hypothesis": pin},
+        evidence_shown=len(shown),
+        evidence_total=len(citable),
     )
 
 
-# What a citation looks like in rendered text: the label token itself, with
-# or without brackets. Live Scout groups several ids inside ONE bracket pair
-# ("[E-a, E-b, E-c]") — a bracket-per-id pattern refused that legitimate
-# format and flagged fully-cited lines as uncited (S13 live verification,
-# caught on the first Scout run). The guard checks resolvability and
-# presence, never typography.
-_CITE_RE = re.compile(r"\bE-[0-9a-fA-F]{8,32}\b")
 # The sections whose claims must each carry a citation. "Leading hypothesis"
 # and "Next lookup" narrate code-provided facts (the pin and the plan) and are
 # not required to cite evidence rows.
 CITABLE_SECTIONS = ("Competing hypotheses", "Key evidence")
+
+# A new claim starts here: a list bullet, an ordered item, or a table row.
+# Anything else continues the claim above it (wrapped prose).
+_CLAIM_START_RE = re.compile(r"^\s*(?:[-*•+]\s|\d+[.)]\s|\|)")
+# A markdown table's rule row: pipes, dashes, colons, nothing else.
+_TABLE_RULE_RE = re.compile(r"^\s*\|?[\s:|-]+\|?\s*$")
+_LETTER_RE = re.compile(r"[A-Za-z]")
+# A sub-heading inside a section ("**Surviving:**", "Rejected hypotheses:") —
+# trailing colon, a handful of words, no prose. Deliberately narrow: a label can
+# only ever introduce claims, and those claims are checked on their own lines.
+_MAX_LABEL_WORDS = 6
+
+
+def _is_label(text: str) -> bool:
+    if not text.rstrip(_MD_TRIM).endswith(":"):
+        return False
+    bare = text.strip(_MD_TRIM).rstrip(":").strip(_MD_TRIM)
+    return 0 < len(bare.split()) <= _MAX_LABEL_WORDS
+
+
+def claim_blocks(body: str) -> list[str]:
+    """Group a section body into CLAIM blocks — the unit the guard checks.
+
+    One claim per LINE was the S13 form, and it reported three of four faithful
+    renderings as uncited (S14 Step 0, finding 2, executed): prose wrapped over
+    several lines counted each fragment as its own uncited claim, a markdown
+    table's header and rule rows counted as claims, and a bold sub-heading
+    counted as a claim. Auspex runs on a CUSTOMER-SUPPLIED model (CLAUDE.md), so
+    the guard cannot be tuned to one model's markdown habits — and a guard that
+    cries wolf on correct output teaches the analyst to ignore it, which is
+    worse than no guard.
+
+    So: a bullet, an ordered item, or a table row opens a block; an unmarked
+    line continues the block above it; a blank line closes one. Table rules and
+    the header row above them, blocks with no letters at all, and pure labels
+    are structure rather than claims and are dropped. Everything left is a claim
+    and must carry a citation."""
+    grouped: list[list[str]] = []
+    for line in body.splitlines():
+        text = line.strip()
+        if not text:
+            grouped.append([])  # blank line closes the current block
+            continue
+        if not grouped or not grouped[-1] or _CLAIM_START_RE.match(line):
+            grouped.append([text])
+        else:
+            grouped[-1].append(text)
+    blocks = [b for b in grouped if b]
+
+    structural: set[int] = set()
+    for i, b in enumerate(blocks):
+        if len(b) == 1 and _TABLE_RULE_RE.match(b[0]):
+            structural.add(i)
+            if i and blocks[i - 1][0].lstrip().startswith("|"):
+                structural.add(i - 1)  # the header row the rule underlines
+
+    out: list[str] = []
+    for i, b in enumerate(blocks):
+        if i in structural:
+            continue
+        joined = " ".join(b)
+        if not _LETTER_RE.search(joined):
+            continue
+        if len(b) == 1 and _is_label(joined):
+            continue
+        out.append(joined)
+    return out
 
 
 @dataclass(frozen=True)
@@ -270,19 +409,19 @@ class CitationReport:
 
     cited_valid: int
     unknown: tuple[str, ...]  # cited labels that resolve to no evidence row
-    uncited_lines: tuple[str, ...]  # claim lines in citable sections with no citation
+    uncited_claims: tuple[str, ...]  # claim blocks in citable sections with no citation
     sections_checked: tuple[str, ...]
 
     @property
     def ok(self) -> bool:
-        return not self.unknown and not self.uncited_lines
+        return not self.unknown and not self.uncited_claims
 
     def reason(self) -> str:
         parts = []
         if self.unknown:
             parts.append(f"fabricated citation(s): {', '.join(self.unknown)}")
-        if self.uncited_lines:
-            parts.append(f"{len(self.uncited_lines)} uncited claim line(s)")
+        if self.uncited_claims:
+            parts.append(f"{len(self.uncited_claims)} uncited claim(s)")
         return "; ".join(parts) or "ok"
 
 
@@ -295,13 +434,14 @@ def check_citations(
 
     - every [E-…] token anywhere in the answer must resolve to a known label
       (a fabricated citation is worse than a missing one — it manufactures
-      provenance);
-    - inside the citable sections, every claim line (non-empty line) must
-      carry at least one VALID citation. Line-based on purpose: the directive
-      instructs one claim per line, so "a line without a citation" is the
-      checkable form of "a claim without a citation". With NO known labels
-      (an evidence-free investigation) the sections have nothing to cite and
-      only fabrication can fail the check."""
+      provenance). Untrusted text cannot reach here wearing a citation shape:
+      `_data` redacts it on the way into the directive, so an unresolvable
+      token is the MODEL's, which is what makes this check attributable
+      (S14 Step 0, finding 1);
+    - inside the citable sections, every claim block (see `claim_blocks`) must
+      carry at least one VALID citation. With NO known labels (an evidence-free
+      investigation) the sections have nothing to cite and only fabrication can
+      fail the check."""
     known_lower = {k.lower(): k for k in known_labels}
     cited_valid = 0
     unknown: list[str] = []
@@ -315,17 +455,13 @@ def check_citations(
     if known_labels:
         sections = split_sections(answer)
         for name in citable_sections:
-            body = sections.get(name.lower(), "")
-            for line in body.splitlines():
-                text = line.strip()
-                if not text:
-                    continue
-                tokens = [t.lower() for t in _CITE_RE.findall(text)]
+            for claim in claim_blocks(sections.get(name.lower(), "")):
+                tokens = [t.lower() for t in _CITE_RE.findall(claim)]
                 if not any(t in known_lower for t in tokens):
-                    uncited.append(f"{name}: {text[:80]}")
+                    uncited.append(f"{name}: {claim[:80]}")
     return CitationReport(
         cited_valid=cited_valid,
         unknown=tuple(dict.fromkeys(unknown)),
-        uncited_lines=tuple(uncited),
+        uncited_claims=tuple(uncited),
         sections_checked=citable_sections if known_labels else (),
     )

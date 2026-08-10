@@ -17,10 +17,25 @@ import asyncpg
 
 from auspex.enrich.types import EnrichmentOutcome
 from auspex.enrich.verdict import synthesize
+from auspex.retrohunt.flips import latest_verdict, record_flip_if_changed
 
 
 async def persist_enrichment(pool: asyncpg.Pool, workspace_id, outcome: EnrichmentOutcome) -> int:
     """Upsert observables + append verdict rows. Returns verdicts written."""
+    # Imported HERE, not at module scope, and the reason is structural rather
+    # than stylistic. `auspex.watchers` depends on this package's vocabulary
+    # (VerdictLabel, SEVERITY) to decide what would falsify a verdict, and this
+    # module depends on watchers to register those conditions — a genuine cycle
+    # at package level. At module scope it resolves only when `auspex.enrich`
+    # happens to be imported before `auspex.watchers`, which is true of the app
+    # and of the test suite and false for any script that reaches for watchers
+    # first: `import auspex.watchers` alone raised ImportError. That is the same
+    # class of accident as S14's packaging bug — correct by import order, not by
+    # construction — so the call-time import removes the cycle instead of
+    # ordering around it. Pinned by tests/test_watchers.py.
+    from auspex.watchers.derive import conditions_for
+    from auspex.watchers.store import check_escalation, register
+
     written = 0
     # Deterministic (type, value) order: two concurrent turns upserting an
     # overlapping observable set in one transaction each can deadlock if they
@@ -29,6 +44,13 @@ async def persist_enrichment(pool: asyncpg.Pool, workspace_id, outcome: Enrichme
     async with pool.acquire() as conn, conn.transaction():
         for item in items:
             o = item.observable
+            # This upsert is load-bearing beyond the row it returns: DO UPDATE
+            # takes a row lock held until commit, so two concurrent enrichments
+            # of the SAME observable are serialized from here to the end of the
+            # transaction. That is what lets the latest_verdict → INSERT →
+            # record_flip_if_changed sequence below run without FOR UPDATE
+            # (verified by execution, S15 Step 0). Moving the verdict write out
+            # from under this lock would reintroduce the double-flip race.
             observable_row_id = await conn.fetchval(
                 """
                 INSERT INTO observables (workspace_id, obs_id, type, value)
@@ -45,6 +67,11 @@ async def persist_enrichment(pool: asyncpg.Pool, workspace_id, outcome: Enrichme
             verdict = synthesize(o, item.signals)
             if verdict is None:
                 continue
+            # S14: the label this observable carried before this run. Read BEFORE
+            # the insert below — afterwards "latest" IS the new row.
+            previous = await latest_verdict(
+                conn, workspace_id=workspace_id, observable_id=observable_row_id
+            )
             details = {
                 "signals": [
                     {
@@ -57,12 +84,13 @@ async def persist_enrichment(pool: asyncpg.Pool, workspace_id, outcome: Enrichme
                     for s in item.signals
                 ]
             }
-            await conn.execute(
+            new_verdict_id = await conn.fetchval(
                 """
                 INSERT INTO verdicts
                     (workspace_id, observable_id, label, confidence_at_write,
                      half_life_days, floor, source, details)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                RETURNING id
                 """,
                 workspace_id,
                 observable_row_id,
@@ -72,6 +100,42 @@ async def persist_enrichment(pool: asyncpg.Pool, workspace_id, outcome: Enrichme
                 verdict.floor,
                 verdict.source,
                 json.dumps(details),
+            )
+            # S14: a changed label becomes its own provenanced row, inside THIS
+            # transaction — a flip that outlived a rolled-back verdict would
+            # misdescribe the trail. The verdict write is untouched: flips are
+            # a record of change, never a substitute for it.
+            flip_id = await record_flip_if_changed(
+                conn,
+                workspace_id=workspace_id,
+                observable_id=observable_row_id,
+                previous=previous,
+                new_verdict_id=new_verdict_id,
+                new_label=verdict.label.value,
+            )
+            # S15, and the ORDER of these two calls is the whole design.
+            #
+            # check_escalation judges the watchers of the verdict being
+            # REPLACED: "no connected source rates this worse than X" is a claim
+            # the previous verdict made, and this enrichment either contradicted
+            # it or did not. register() then retires those watchers and attaches
+            # the new verdict's own. Swapped, the claim would be superseded
+            # before anyone asked whether it had just been proven wrong — the
+            # platform would silently drop the one question it had committed to
+            # answering.
+            await check_escalation(
+                conn,
+                workspace_id=workspace_id,
+                observable_id=observable_row_id,
+                new_label=verdict.label.value,
+                satisfied_by=f"flip:{flip_id}" if flip_id else "enrichment",
+            )
+            await register(
+                conn,
+                workspace_id=workspace_id,
+                observable_id=observable_row_id,
+                verdict_id=new_verdict_id,
+                conditions=conditions_for(o, verdict, item.signals),
             )
             written += 1
     return written

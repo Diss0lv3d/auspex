@@ -45,6 +45,8 @@ from auspex.ingest.nvd import NVDFeed, has_valid_id, is_rejected, windows
 from auspex.ingest.state import IngestStateStore
 from auspex.kb.seed import nvd_to_doc
 from auspex.kb.types import KBDoc
+from auspex.retrohunt import RetroHuntSink
+from auspex.watchers import FanoutSink, WatcherSink
 
 logger = logging.getLogger("auspex.ingest")
 
@@ -118,6 +120,15 @@ class IngestScheduler:
 
     @classmethod
     def from_settings(cls, settings: Settings, kb, pool) -> "IngestScheduler":
+        # S14: the NullSink seam finally has its consumer. Ingest code is
+        # untouched — it emits exactly the DocChanges it emitted at S7; the sink
+        # decides which kinds are worth a sweep (TRIGGER_KINDS).
+        #
+        # S15 adds a second, INDEPENDENT consumer rather than teaching the first
+        # one a new job: retro-hunt asks "does this touch anything we saw?" and
+        # the watcher check asks "does this contradict a claim a verdict made?".
+        # FanoutSink owns the failure isolation between them, so `run_cycle`
+        # still holds exactly one sink and neither consumer can sink the other.
         return cls(
             kb=kb,
             state=IngestStateStore(pool),
@@ -125,8 +136,20 @@ class IngestScheduler:
             kev=KEVFeed(),
             epss=EPSSFeed(),
             attack=ATTACKFeed(),
+            sink=FanoutSink(RetroHuntSink(pool), WatcherSink(pool)),
             enabled=settings.ingest_enabled and kb.active,
         )
+
+    @property
+    def checker_health(self) -> tuple:
+        """What the change consumers know about their own last few attempts.
+
+        Empty when the sink does not track itself (the NullSink seam, and any
+        test double) — an unknown roster is reported as unknown rather than
+        defaulted to healthy, because the S16 digest reads this to decide
+        whether "nothing happened" may be shown as reassurance."""
+        health = getattr(self._sink, "health", None)
+        return tuple(health()) if callable(health) else ()
 
     async def aclose(self) -> None:
         feeds = [self._nvd, self._kev, self._epss]

@@ -137,12 +137,54 @@ may not grow mid-session (IDEAS.md exists for that).
 
 ## Phase 3 — Living Verdicts (flagship)
 
-- [ ] **S14 — Retro-hunt.** On-ingest sweep of historical observables (indexed
+- [x] **S14 — Retro-hunt.** On-ingest sweep of historical observables (indexed
   join, never scan), re-open notifications, verdict flip events.
-- [ ] **S15 — Falsification watchers.** Verdicts register "what would flip me";
+  _(Done 2026-08-09: Step 0 — independent adversarial review of the S13 cited-
+  summary commits, 4 findings all verified by execution before fixing (citation-
+  shaped tokens in attacker text poisoning the guard; the uncited check tuned to
+  one model's markdown, failing 3 of 4 faithful renderings; the pin broken by
+  bold on hyphenated tokens; a 200-row directive costing ~13.5k prompt tokens),
+  1 named angle confirmed sound. Then S14: the S7 NullSink seam got its consumer
+  — `auspex/retrohunt/` sweeps CVE observables for kev-added/deleted changes
+  through ONE indexed join per 50-id chunk, chunk size chosen from a MEASURED
+  plan crossover (EXPLAIN caught the first spelling as
+  `Seq Scan … Rows Removed by Filter: 19760`); re-open events are typed rows
+  that never touch a verdict (D-020 rail, held in code); verdict label changes
+  become provenanced `verdict_flips` rows naming the doc that prompted the
+  re-look. 3 zero-LLM routes with explicit analyst ack. Live-verified
+  in-container against a genuinely KEV-listed CVE, which also exposed two
+  long-standing packaging defects — `auspex.modes`/`auspex.retrohunt` absent from
+  the installed distribution and EVERY `__init__.py` installed at 0 bytes since
+  the Dockerfile was written, both masked by uvicorn's cwd shadowing
+  site-packages. 643 tests; zero new env vars.)_
+- [x] **S15 — Falsification watchers.** Verdicts register "what would flip me";
   watchers monitor feeds/enrichment for exactly that.
-- [ ] **S16 — Verdict timeline UI.** Decay/staleness surfaces, flip history,
+  _(D-021. Every verdict registers typed falsification conditions AT WRITE TIME
+  in the same transaction — a closed enum of three kinds, derived in code from
+  the observable/label/signals, never prose and never model-proposed. Each kind
+  is owned by a checker and the partition is asserted, so a watcher nobody
+  evaluates cannot be added. Ingest checks them through an indexed join per
+  bounded chunk on a PARTIAL index (closed watchers accumulate forever and are
+  never joined against — measured flat at 75k rows, 50k closed); enrichment
+  checks escalation by SEVERITY, not inequality. A satisfied watcher never
+  writes a verdict: it upgrades the S14 re-open event with the claim that
+  stopped being true. Live-verified in-container end to end. Also fixed a
+  circular import that resolved only by lucky import order. 676 tests; zero new
+  env vars.)_
+- [x] **S16 — Verdict timeline UI.** Decay/staleness surfaces, flip history,
   "your past got re-scored" view.
+  _(Step 0 first: fresh-eyes review of the S15 commits — 4 angles, 1 defect,
+  1 confirmed gap, 2 sound. The analyst-facing `falsifies` link survived only by
+  the order `FanoutSink` happened to be built in, and its loss was silent AND
+  permanent; executing the lead also found that a retro-hunt failure loses it
+  with the order intact, which ruled out "enforce the order" and made the link
+  derived at read time. Then S16: `auspex/timeline/` + `auspex/checks.py` +
+  `/api/timeline/{obs_id}` + `/api/timeline/digest` + a `/timeline` page.
+  `effective_confidence` renders for the first time since S5; staleness is a
+  band vocabulary in half-lives (D-022); TD-020's open question answered with a
+  derived `standing` that never touches `status`; and a quiet digest now has to
+  be earned — a checker that has failed every cycle no longer looks like one
+  with nothing to do. 720 tests; zero new env vars; zero LLM.)_
 
 ## Phase 4 — Platform
 

@@ -34,6 +34,10 @@ packages = [
     "auspex.enrich.providers",
     "auspex.ingest",
     "auspex.kb",
+    "auspex.modes",
+    "auspex.retrohunt",
+    "auspex.timeline",
+    "auspex.watchers",
 ]
 
 [tool.setuptools.package-data]

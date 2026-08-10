@@ -796,8 +796,12 @@ def test_summary_valid_contract_and_citations(client):
     assert body["pinned"] == {"Leading hypothesis": top_key}
     assert body["citations"]["ok"] is True
     assert body["citations"]["unknown"] == []
-    assert body["citations"]["uncited_lines"] == []
+    assert body["citations"]["uncited_claims"] == []
     assert set(body["citation_map"]) == {e["cite"] for e in created["evidence"] if e["cite"]}
+    # S14 Step 0, finding 4: the directive's evidence bound is reported, so a
+    # summary narrating a diagnostic subset can never look like a full account
+    assert body["evidence_total"] == len(cites)
+    assert body["evidence_shown"] == len(cites)  # well under the cap here
     assert fake.closed  # the seam client is always closed
 
 
@@ -816,7 +820,7 @@ def test_summary_guard_flags_fabricated_and_uncited_claims(client):
     assert body["contract_valid"] is True  # structurally conformant…
     assert body["citations"]["ok"] is False  # …but the guard names both sins
     assert body["citations"]["unknown"] == ["E-ffffffff"]
-    assert len(body["citations"]["uncited_lines"]) == 2
+    assert len(body["citations"]["uncited_claims"]) == 2
 
 
 def test_summary_pin_catches_a_laundered_leader(client):

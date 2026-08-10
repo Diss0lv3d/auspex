@@ -237,3 +237,142 @@ tables). Ratified for S12 and binding on S13+ (evidence graph builds on this):
   a default). A model-rendered hypothesis summary through a contract is
   expected later; when added it follows the S10/S11 directive+pin pattern and
   must be live-verified.
+
+**D-020 (2026-08-09) — Retro-hunt v1: a match is a reason to re-examine, the
+sweep is a bounded indexed join, a flip is its own typed row.** Probe:
+docs/probes/2026-08-09-s14-retrohunt-explain.md (query plans measured, not
+assumed). Ratified for S14, binding on S15 (falsification watchers read this
+trail):
+- **A retro-hunt match NEVER changes a verdict.** `record_matches` contains no
+  verdict write at all — the rail is structural, not a rule someone has to
+  remember. If a sweep could flip a label, CISA's publishing schedule would be
+  changing verdicts instead of evidence, which inverts D-017's "new evidence,
+  not the calendar, changes labels". A match records the label as it stood AT
+  MATCH TIME and stops; the API says `action: "re-examine"` in the payload.
+- **Analyst acknowledgement is explicit,** including after a flip. A flip is the
+  strongest sign the match was worth raising, so auto-closing it would hide the
+  event exactly when it mattered most (the approvals-table precedent).
+- **Trigger kinds are a closed set** (`kev-added`, `deleted`), not every
+  DocChange. The NVD delta feed upserts ~770 docs/day and a re-scored CVSS
+  vector is not news about an observable; a surface that cries wolf trains the
+  analyst to ignore the one signal meant to be trusted. Extended via PR with a
+  test, the doctrine-table pattern (D-019).
+- **The sweep is ONE indexed join per batch, bounded by SWEEP_CHUNK, and the
+  bound is chosen from a measured plan crossover** — not from taste. Feeds are
+  platform-global, so the join runs across workspaces on `(type, value)` and
+  each hit carries its own `workspace_id` into the row it writes; tenancy lives
+  in the write and in every read (D-008), never in the sweep.
+- **A verdict LABEL CHANGE is a first-class row** (`verdict_flips`), written
+  inside the enrichment transaction by the only code that writes verdicts.
+  `verdicts` records what was believed; it takes a diff of adjacent rows to see
+  that belief changed, and neither an analyst nor a watcher should have to do
+  that. `trigger` names why the re-look happened and `match_id` links the intel
+  that prompted it. A first-ever verdict is NOT a flip — no previous belief
+  existed to change, and that distinction is what makes the surface readable.
+- **Ingest owns the trigger; there is no "run a hunt" endpoint.** A retro-hunt
+  is something new intel does to you. The S7 `NullSink` seam is where it
+  attaches, and ingest code was not modified to attach it.
+
+**D-021 (2026-08-09) — Falsification watchers v1: typed conditions registered at
+write time, evaluated by code, and a satisfied watcher upgrades an event rather
+than changing a label.** Probes: docs/probes/2026-08-09-s15-watchers-explain.md
+(plans measured across table sizes AND across the open/closed mix),
+docs/probes/2026-08-09-s15-watchers-live.md. Ratified for S15, binding on S16
+(the verdict timeline UI reads these rows):
+- **A verdict registers what would falsify it AT WRITE TIME,** in the same
+  transaction that writes the verdict. Asked later, the answer is
+  rationalisation — you already know what happened. A verdict whose transaction
+  committed without its conditions would be a claim with no way to be wrong,
+  which is the thing this feature exists to prevent.
+- **The vocabulary is a closed enum, never prose.** `kev_listing`,
+  `record_withdrawn`, `provider_escalation`. A free-text falsifier ("watch for
+  registrar changes") is a wish; a typed kind plus params is something code can
+  evaluate against a feed. This is D-007 "specs over prompts" turned on our own
+  reasoning rather than the model's. Extended via PR with a test, the
+  doctrine-table pattern (D-019).
+- **Every kind must have a checker, and the partition is asserted.**
+  `CHECKED_ON_INGEST` and `CHECKED_ON_ENRICHMENT` split the enum with a test
+  that the split is total and disjoint. A registered watcher nobody evaluates is
+  WORSE than no watcher, because it reads as coverage.
+- **Conditions are DERIVED IN CODE from the observable, label and signals** —
+  never proposed by a model. Model-proposed falsifiers stay parked
+  (D-019-later); if they ever land they come through a contract and are marked
+  as proposed, because a falsifier the platform invented and cannot check is
+  the most confident-sounding lie available to it.
+- **Empty is a legitimate answer and is never padded.** A `malicious` CVE
+  registers no `kev_listing` watcher: KEV agrees with that verdict. Manufacturing
+  one would claim a self-check the platform does not perform.
+- **A satisfied watcher NEVER writes a verdict** — D-020's rail, and it binds
+  harder here: a fired watcher is the platform's own prediction coming true,
+  which is precisely when skipping the analyst would feel safest. It UPGRADES
+  the S14 re-open event for the same doc (`falsifies` on the existing payload)
+  instead of minting a second notification, and it is acknowledged through that
+  one event. Two inboxes for one fact means two half-read inboxes.
+- **Claims belong to a verdict; a newer verdict supersedes them, never deletes
+  them.** "We were watching for this and stopped" is how a dropped question is
+  found. Supersession is scoped to OPEN watchers, so a claim that was
+  contradicted survives the verdict that replaced it.
+- **The ingest check is an indexed join per bounded chunk, and the watcher index
+  is PARTIAL on `status='open'`** — satisfied and superseded rows accumulate for
+  the life of a workspace and are never joined against. Measured: tripling the
+  table to 75k rows with 50k closed left the check at 0.190 ms vs 0.174 ms at
+  25k.
+- **Watchers get their own sink, not an extension of the retro-hunt one.**
+  Retro-hunt asks "does this touch anything we saw?"; a watcher asks "does this
+  contradict a claim a verdict made?" Folding them together would make
+  falsification coverage a silent function of `TRIGGER_KINDS`. A `FanoutSink`
+  owns the isolation, so ingest still holds exactly one sink (S7's seam) and
+  neither consumer can take the other down.
+- **There is no endpoint to create or acknowledge a watcher.** Hand-registered
+  falsifiers would make coverage a function of who was paying attention.
+
+## D-022 — Staleness is a derived vocabulary over the D-017 curve, and decay never touches a label or a status (2026-08-10, S16)
+
+**Context.** `effective_confidence` has been executable and pinned by a test
+since S5 (D-017) and rendered by nothing since. Eleven sessions of surfaces have
+shown month-old beliefs at the strength they had when written. S16 renders it,
+which forces two questions S5 deferred: what counts as stale, and what a
+falsification claim attached to a decayed verdict is worth (TD-020).
+
+**Decided.**
+
+- **Bands are measured in HALF-LIVES elapsed, never days.** `fresh` <0.5,
+  `aging` 0.5–1.5, `stale` 1.5–3, `lapsed` ≥3, plus `held` for a verdict written
+  with `floor >= confidence_at_write`. A 14-day IP verdict and a 365-day hash
+  verdict are the same amount of stale after the same number of half-lives, and
+  that is the only comparison worth showing an analyst. Days would have required
+  a per-type table that drifts out of sync with `HALF_LIFE_DAYS`.
+- **The edges live in exactly one module** (`auspex/timeline/staleness.py`) and
+  travel to every consumer as data — the digest's crossing query takes them as a
+  parameter, the payload ships the band descriptions, and the UI renders the
+  server's answer. A client that recomputed staleness would be a second opinion
+  about aging, and the two would diverge the first time an edge moved.
+- **Nothing about decay is stored.** Every value is derived at read time from
+  (confidence_at_write, floor, half_life_days, created_at), so a verdict's
+  staleness cannot fall out of date with itself. A nightly job that stamped a
+  band onto a row would be wrong between runs by construction.
+- **Decay never changes a label.** A stale `malicious` verdict is still
+  malicious; what aged is how much the platform stands behind its own
+  confidence. The fix for a stale verdict is to re-enrich, never to re-label —
+  the D-017/D-020 rail, applied to the one place it would have been easy to
+  forget because no analyst is in the loop.
+- **TD-020's answer: an open claim on a decayed verdict gets a derived
+  `standing`, and `status` is left alone.** `status` answers "was this claim
+  contradicted?"; `standing` answers "does the belief behind it still stand?".
+  A claim guarding a stale verdict is `lapsed` — still open, still watched, and
+  it will still fire. Expiring it into `status` would have been the tempting
+  version and would have erased the difference between a claim nobody ever
+  contradicted, one that was, and one a newer verdict superseded.
+- **A quiet answer must be earned.** Every empty field in the digest is an
+  absence claim, and S16 Step 0 executed what absence looked like: 50
+  consecutive failed watcher checks were indistinguishable from 50 quiet ones.
+  Each change consumer now counts consecutive failures (`auspex/checks.py`,
+  the `enrich/breaker.py` shape minus the circuit — a failing checker should
+  keep trying), and `Digest.trustworthy` requires a roster that is present AND
+  healthy. An unknown roster is reported as untrustworthy rather than defaulted
+  to healthy; `ever_succeeded` is reported but deliberately not required, since
+  a checker only records success when a check actually ran.
+- **Still no third notification shape.** The digest reuses `retrohunt_matches`,
+  `verdict_flips` and `watchers` exactly as D-020 and D-021 require, and re-open
+  events are still acknowledged at `POST /api/retrohunt/matches/{id}/ack`. A
+  digest is the natural place to invent an inbox; it did not.

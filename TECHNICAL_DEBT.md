@@ -1,5 +1,139 @@
 # Technical debt — logged the moment it's taken
 
+## TD-021 (S16) — verdict timeline v1 bounds: unpaginated history, per-process checker health, and one uncosted digest query
+**Where:** `auspex/timeline/store.py` (`MAX_TRAIL`, `_DECAYED_SQL`),
+`auspex/checks.py`, `auspex/routes/timeline.py`.
+**Risk:** low today, and each item is visible in the payload rather than hidden.
+- **The decay-crossing query is the one read S16 did not cost.** `_DECAYED_SQL`
+  takes the latest verdict per observable (`DISTINCT ON`) and filters on an
+  expression over `half_life_days`, so it cannot use an index for the crossing
+  test — it is proportional to the number of OBSERVABLES a workspace has ever
+  had a verdict for, not to the handful that crossed a band. Fine at dev-DB
+  sizes; unmeasured above them, and deliberately not asserted at 25k the way
+  the S14 sweep and the S15/S16 watcher reads are, because the honest fixture
+  is "a workspace with 100k enriched observables" and this session did not seed
+  one. **Do not assume this one is indexed — it is the exception.**
+- **Checker health is per-process and in-memory.** `FailureCounter` lives on the
+  sink object, so it resets on restart and knows nothing about other replicas.
+  With one app container that is exactly right; with two, a digest served by a
+  healthy replica would call a degraded one's silence trustworthy.
+- **`ever_succeeded` is reported but not required for `trustworthy`.** A
+  checker only records success when a check actually RAN, so a genuinely quiet
+  week leaves it False on a healthy platform. Requiring it would flag health as
+  failure; not requiring it means "has never successfully checked" reads as
+  trustworthy. The field is in the payload so a stricter client can decide
+  differently, but the default is a trade, not a proof.
+- **No pagination.** `MAX_TRAIL` 200 on a verdict's history, `limit` <= 200 on
+  the digest — same shape as TD-016/TD-019/TD-020. An observable re-enriched
+  daily for a year silently shows its newest 200 verdicts.
+- **`/api/watchers` does not carry `standing`.** Only the timeline surface does
+  (see TD-020), so the same claim reads with different detail depending on which
+  surface you open.
+**Why accepted:** S16's scope was rendering a history that already existed and
+giving decay a vocabulary. The crossing query is the only genuinely new read
+shape, and seeding a 100k-observable workspace to cost it properly is its own
+piece of work.
+**Path to fix:** (a) seed a large workspace and EXPLAIN `_DECAYED_SQL`; if it
+scans, materialise "latest verdict per observable" (a partial index on
+`verdicts (workspace_id, observable_id, created_at DESC)` already exists — the
+crossing predicate is the part that resists) or precompute the next band-crossing
+timestamp per verdict at write time and index THAT; (b) move checker health into
+Postgres when a second replica is real; (c) keyset pagination on
+`(created_at, id)`, shared with TD-016/019/020.
+
+## TD-020 (S15) — falsification watcher v1 bounds: a thin vocabulary, one passive checker, no expiry
+**Where:** `auspex/watchers/types.py` (`WatcherKind` — three kinds),
+`auspex/watchers/derive.py` (the derivation rules), `auspex/routes/watchers.py`
+(`limit` only, no cursor).
+**Risk:** low, and the shape of it is stated in the payload (`kinds`,
+`checked_by`) rather than hidden — but "this verdict has 3 open falsifiers"
+reads as more self-scrutiny than it is, and that is the risk worth naming.
+- **The vocabulary is CVE-shaped.** `kev_listing` and `record_withdrawn` are
+  the only ingest-checked kinds, and both key off a CVE doc id, so a domain, IP
+  or hash verdict registers exactly one condition (`provider_escalation`). The
+  S15 prompt's own example — "this domain's registrar changes" — is not
+  implementable today: no connected feed reports registrar or ASN changes.
+  Deliberately NOT faked with a watcher that nothing evaluates; a kind with no
+  checker fails `test_every_kind_is_owned_by_exactly_one_checker` by
+  construction.
+- **`provider_escalation` is PASSIVE.** It is satisfied inside
+  `persist_enrichment`, so it fires only when something re-enriches the
+  observable — which today means an analyst happening to ask again. Nothing
+  schedules re-enrichment, so this watcher can sit open indefinitely while the
+  world changes. The ingest-checked kinds are genuinely active; this one is
+  "checked when someone looks", and the two are not distinguished on the
+  surface beyond `checked_by`.
+- ~~**Open watchers never expire.**~~ **ANSWERED in S16 (D-022).** A claim on a
+  decayed verdict now carries a derived `standing` (`load_bearing` / `lapsed`)
+  alongside its `status`, on `/api/timeline/{obs_id}`. It is deliberately NOT
+  expiry: the claim stays open and still fires, because the platform committed
+  to watching and quietly stopping is the failure this feature exists to
+  prevent. `status` answers "was this contradicted?", `standing` answers "does
+  the belief behind it still stand?" — expiring into `status` would have erased
+  the difference between never-contradicted, contradicted, and superseded.
+  Still open on the WATCHER surface: `/api/watchers` does not yet carry
+  `standing` (it has no verdict-age context in its query), so the two surfaces
+  describe the same claim with different detail.
+- **No pagination.** Newest-first with `limit` ≤ 200, same shape as TD-016 and
+  TD-019.
+- **The cycle path is unobserved end-to-end,** inheriting TD-019's open half:
+  `WatcherSink` is pinned as wired and live-verified by emitting the real
+  `DocChange` directly, but no test drives `run_cycle` all the way through to a
+  satisfied watcher.
+**Why accepted:** S15's scope was the registration/derivation/check core and the
+honesty rail. Widening the vocabulary is gated on feeds that do not exist yet,
+and inventing conditions for them now would be exactly the unfalsifiable
+self-scrutiny this feature exists to replace.
+**Path to fix:** (a) add kinds as feeds land (abuse.ch quartet, passive DNS,
+registrar/RDAP), each with a checker and a test, per D-021's extension rule;
+(b) give `provider_escalation` a real trigger by scheduling re-enrichment of
+observables with open escalation claims — bounded, off the ingest critical path
+(the TD-008 precedent); (c) decide what an expired claim means alongside S16's
+decay/staleness surfaces; (d) keyset pagination on `(created_at, id)`, shared
+with the retro-hunt collections; (e) drive `run_cycle` against a fake KEV feed
+whose catalogue contains an enriched CVE — hermetic, and it closes this bullet
+for both sinks at once.
+
+## TD-019 (S14) — retro-hunt v1 bounds: CVE-only sweep, no pagination, scheduler timing unobserved
+**Where:** `auspex/retrohunt/types.py` (`SWEEPABLE_TYPE = "cve"`),
+`auspex/routes/retrohunt.py` (`limit` only — no cursor/offset on
+`/matches` or `/flips`), and the emit-on-a-real-cycle path in
+`auspex/ingest/scheduler.py`.
+**Risk:** low, and named in the payload rather than hidden.
+- **CVE-only.** A CVE-keyed feed can only match CVE observables, so this is
+  currently complete rather than partial — but the moment a feed lands that
+  carries hashes, domains or IPs (abuse.ch quartet, ROADMAP S8 line), the sweep
+  silently covers none of them. `/matches` reports `sweeps_on` so a client can
+  see the trigger kinds, but nothing reports the swept observable TYPES.
+- **No pagination.** Newest-first with `limit` ≤ 200. A workspace with a long
+  trail cannot page to older events; they are reachable only by narrowing
+  `status`. Same shape as the S12 top-20 cap (TD-016).
+- **Cycle path not driven end-to-end** (narrowed at S15 Step 0). The sink is
+  pinned as WIRED by `test_the_scheduler_is_wired_to_the_retrohunt_sink`, and
+  the sweep is live-verified end-to-end
+  (docs/probes/2026-08-09-s14-retrohunt-live.md), but the probe called `emit`
+  directly rather than waiting for an ingest cycle to call it. Observing that
+  needs CISA to publish a KEV entry for a CVE this workspace has already
+  enriched — not schedulable within a session.
+  The **cost** half of this bullet is now closed by measurement
+  (docs/probes/2026-08-09-s15-step0-review.md): the worst case named in the S14
+  review — a KEV first-run refresh of 1,600 ids where every id matches a held
+  observable — costs **175 ms** inside `run_cycle` (16 ms for 32 swept chunks,
+  159 ms for 1,600 match inserts), and 96 ms when the same batch is re-emitted
+  and written off as already-known. Against a cycle that paces NVD single
+  fetches at seconds apiece, that is not on the critical path, so the TD-008
+  precedent (move it off the cycle) is NOT warranted.
+**Why accepted:** S14's scope was the reasoning/event core (the sweep, the
+honesty rail, the flip trail). Type coverage is one line plus a per-type test
+once a non-CVE feed exists; pagination is surface work with no design question
+in it.
+**Path to fix:** (a) widen `SWEEPABLE_TYPE` to a set when the first non-CVE feed
+lands, and report swept types alongside `sweeps_on`; (b) keyset pagination on
+`(created_at, id)` for both collections, shared with the S12 collection view
+when that arrives; (c) assert the cycle path by driving `run_cycle` against a
+fake KEV feed whose catalogue contains an enriched CVE — hermetic, and it closes
+the gap without waiting on CISA.
+
 ## TD-018 (S13) — inference-spending routes have no per-workspace bound
 **Where:** `POST /api/investigations/{id}/summary` (new in S13) and
 `/api/chat` DEEP turns both call the customer's LLM endpoint with no
@@ -13,6 +147,17 @@ doesn't miss the non-chat one.
 **Path to fix:** per-workspace token/request budget checked before the LLM
 call (Postgres counter, honest 429 with the budget named), shared by chat
 and summary; S19 already owns "rate limits".
+**Narrowed in S14 Step 0 (still open):** the per-CALL amplification is gone,
+which was the part specific to the summary route. The directive grew with the
+evidence count — 200 rows (reachable: `_MAX_SNAPSHOT_IOCS=200` observables can
+each fold one enrichment answer) compiled a 54k-char / ~13.5k-token directive
+against the ~1.2k-token norm, i.e. one request costing 10x, with the pin
+instruction sitting on the LAST line where a context-capped endpoint drops it
+first. `_MAX_DIRECTIVE_EVIDENCE=40` + `_MAX_BEARING_PER_HYPOTHESIS=12` now hold
+it flat at ~3k tokens (measured: 50 rows and 200 rows both compile ~12.1k
+chars), and the truncation is named to the model and to the analyst
+(`evidence_shown`/`evidence_total`). What remains is the original entry: no
+bound on the NUMBER of calls, on either route.
 
 ## TD-017 (S13) — NUL-byte hardening exists only at the investigations paste boundary
 **Where:** `auspex/routes/investigations.py` strips U+0000 before parsing
