@@ -1,115 +1,123 @@
 # NEXT-SESSION — paste everything below the line into a fresh Claude Code window opened in /home/burhan/auspex-new
 
-_(Standing follow-up: **PR #15 is OPEN and unmerged** —
-https://github.com/bh3082336888-cell/auspex/pull/15, MERGEABLE/CLEAN. It carries
-S14 (retro-hunt + the packaging fix) plus the S15 Step-0 fixes. Merge it by hand
-first; `gh pr merge` is blocked by the permission classifier. The S15 feature
-commits landed on staging AFTER the PR was raised, so promote #16 carries them.
-S15 shipped: Step 0 found the verdict trail's head was decided by transaction
-start rather than write order — a transaction that began earlier and committed
-last wrote the newest belief with the oldest stamp, so `latest_verdict` and the
-retro-hunt event both reported a superseded label — and that `deleted` (an
-NVD-withdrawn CVE) was announced with the copy written for a KEV addition. Then
-falsification watchers: verdicts register typed conditions that would prove them
-wrong, at write time; ingest and enrichment check them; a satisfied watcher
-upgrades the S14 re-open event and never touches a label. CI-green 676 tests.)_
+_(Standing follow-up: **PR #15 is OPEN, unmerged, and now carries EVERYTHING** —
+https://github.com/bh3082336888-cell/auspex/pull/15. It is `staging → main`, so
+S16's pushes extended it rather than creating a "#16"; its title and body were
+rewritten to match (S14 retro-hunt + S15 watchers + both Step-0 reviews), but
+the four S16 commits landed after that rewrite, so re-read it before merging.
+`gh pr merge` is blocked by the permission classifier — merge by hand, then
+Claude back-merges. S16 shipped: Step 0 found the analyst-facing `falsifies`
+link survived only by the order `FanoutSink` happened to be built in, that its
+loss was silent AND permanent, and — the part that decided the fix — that a
+retro-hunt failure loses it with the order intact, so the link is derived at
+read time now. Then the verdict timeline: `effective_confidence` renders for the
+first time since S5, staleness is a band vocabulary in half-lives (D-022),
+TD-020's open question is answered with a derived `standing` that never touches
+`status`, and a quiet digest has to be earned. CI-green 720 tests.)_
 
 ---
 
-SESSION S16 of Auspex. Working dir must be /home/burhan/auspex-new — run
-`/session-start S16` first (full ritual). Primary dev LLM is **Llama-4-Scout via
+SESSION S17 of Auspex. Working dir must be /home/burhan/auspex-new — run
+`/session-start S17` first (full ritual). Primary dev LLM is **Llama-4-Scout via
 Northflank (D-015)**; local Ollama `qwen3:14b` is the secondary/offline endpoint
 (D-013) and is what the session-start local-Ollama gate validates. Any mismatch →
 STOP and tell me. (D-011: `gh` flips to the work account between AND mid-session —
-re-check before every `gh` call. It did NOT flip at S13/S14/S15 start; assume it
-flips anyway. Also: local `main` goes stale every promote — `git fetch` and diff
-against `origin/main`, and read `git diff origin/main..staging --stat` rather
-than the commit list, which the squash workflow makes meaningless.)
+**it DID flip at S16 start**, so assume it has flipped again and re-check before
+every `gh` call. Note `gh pr edit` fails on this repo with a Projects-classic
+GraphQL error — use `gh api -X PATCH repos/.../pulls/N`. Also: local `main` goes
+stale every promote — `git fetch` and read `git diff origin/main..staging --stat`
+rather than the commit list, which the squash workflow makes meaningless.)
 
 Step 0 (carried follow-ups, do BEFORE new scope):
 
-- **Check the TD-005 re-battery trigger first — it is close.** The corpus was
-  **25,938** docs in `auspex-knowledge` at S15 start and grows ~770/day while
-  the container runs. Over 30k → re-run the labeled retrieval battery before
-  trusting any RAG-backed answer this session. (`curl -s
+- **Check the TD-005 re-battery trigger first — it is close and may have
+  tripped.** The corpus was **26,711** docs in `auspex-knowledge` at S16 end and
+  grows ~770/day while the container runs. Over 30k → re-run the labeled
+  retrieval battery before trusting any RAG-backed answer this session. (`curl -s
   "localhost:9200/_cat/indices/auspex-knowledge?v"`.)
-- **Fresh-eyes review of the S15 commits** — scope: `233c132` (watchers: types,
-  derive, store, sink, route, 1 table, the circular-import fix), `e940efd`
-  (probes/D-021), and the Step-0 fixes `4c00af9`/`1e8e5dc`/`fa7b70b` if #15 has
-  not shipped them. This code is live-verified with 29 tests but has had no
-  independent adversarial pass. Angles S15 did NOT test:
-  - **(order dependency — strongest lead) `satisfy_documents` links the re-open
-    event by natural key including `change_kind`,** so it only finds the match
-    if `RetroHuntSink` already wrote it — and `FanoutSink` happens to emit
-    retro-hunt first. Reorder the two sinks and `falsifies` silently stops
-    appearing, with no error anywhere. This is the exact class of defect S15
-    fixed TWICE (the trail ordering, the circular import): correct by order, not
-    by construction. Decide deliberately — make the link order-free, or make the
-    order an enforced invariant rather than a coincidence.
-  - **(double swallow) `FanoutSink` catches per sink and both sinks already
-    catch internally.** A watcher check failing every cycle logs and is
-    otherwise invisible; nothing counts consecutive failures. Is a silently dead
-    falsification checker distinguishable from one with nothing to do? (The
-    circuit-breaker precedent in `auspex/enrich/breaker.py` is the shape to
-    consider.)
-  - **(concurrency) escalation satisfaction under concurrent enrichment.** S15
-    pinned concurrent REGISTRATION but not concurrent `check_escalation` — two
-    enrichments racing on one observable, one escalating and one not. Verify
-    with `asyncio.gather` against the live DB, not by reading.
-  - **(claim text) `claim` is built from `observable.value` plus provider names
-    and stored unbounded.** The S4 classifier validates CVE shape so this is
-    probably fine — verify by execution rather than assume, and check what an
-    edge/non-CVE observable actually produces.
+- **Fresh-eyes review of the S16 commits** — scope: `44ccaa4` (the derived
+  falsifies link + migration), `1b9e8e2` (the timeline package, `auspex/checks.py`,
+  the routes and the page), plus `704dd87`/`b6a2eda` for what was claimed. This
+  code is live-verified with 41 new tests but has had no independent adversarial
+  pass. Angles S16 did NOT test:
+  - **(the uncosted query — strongest lead) `_DECAYED_SQL` is the only new read
+    in three sessions without an asserted plan,** and TD-021 says so out loud
+    rather than hiding it. It `DISTINCT ON`s the latest verdict per observable
+    and filters on an expression over `half_life_days`, so the crossing test
+    cannot use an index — it is proportional to a workspace's whole enriched
+    history, not to the handful of rows that crossed a band. Seed ~100k enriched
+    observables, VACUUM, EXPLAIN. The digest is the page an analyst opens FIRST
+    after a week away, so this is the read that must not be the slow one.
+  - **(derived-link fan-out) the read-time LATERAL takes `ORDER BY satisfied_at
+    DESC, id LIMIT 1`.** S16 pinned two verdicts of the SAME kind. Test the
+    different-kinds case: a CVE that is KEV-added and later NVD-withdrawn with no
+    re-enrichment between produces two matches and two satisfied claims sharing
+    one doc id. Verify the pairing stays one-to-one and neither event borrows the
+    other's claim.
+  - **(clock authority) staleness is computed against the READER's `now`.**
+    `timeline_for`/`digest` default to `datetime.now(UTC)` in the app process
+    while `created_at` is `clock_timestamp()` in Postgres — two clocks decide one
+    band. The negative-age clamp is tested; agreement between the two clocks is
+    not. Verify what a skewed app container actually reports.
+  - **(checker health honesty) `FailureCounter` resets on process restart.** A
+    crash-looping app would report a pristine roster and a trustworthy digest
+    forever — i.e. "degraded" may be unreachable in the failure mode most likely
+    to happen. Verify by execution, then decide whether that is acceptable for v1
+    or whether the counter belongs in Postgres (TD-021 has the note).
   Verify findings BY EXECUTION before fixing; fix with regressions.
-- **Then `/promote` #16** (S15 will have been reviewed once by then). Expect
-  `gh pr merge` to be blocked by the permission classifier — I merge by hand,
-  then Claude back-merges.
+- **Then `/promote`** (S16 will have been reviewed once by then). Expect
+  `gh pr merge` to be blocked — I merge by hand, then Claude back-merges.
 
-Goal (scope-locked, from ROADMAP.md S16 — Verdict timeline UI, Phase 3):
+Goal (scope-locked, from ROADMAP.md S17 — Actions SDK contract, **Phase 4**):
 
-1. **A verdict's life, readable end to end.** The substrate now exists and has
-   never been rendered: the append-only `verdicts` trail (D-017 decay fields),
-   `verdict_flips` (S14 — what changed and why), `retrohunt_matches` (S14 — what
-   intel re-opened it), and `watchers` (S15 — what the verdict committed to
-   being wrong about, and which of those claims were contradicted). Start by
-   reading `auspex/retrohunt/store.py`, `auspex/watchers/store.py`, and
-   `auspex/enrich/verdict.py::effective_confidence` — the decay curve is
-   executable and pinned by a test but **nothing has ever rendered it**.
-2. **Decay and staleness get a vocabulary.** `effective_confidence` has existed
-   since S5 and no surface uses it. Decide what "stale" means in code (not
-   prose), and answer TD-020's open question rather than inheriting it: an open
-   falsification claim attached to a verdict that has fully decayed still reads
-   as "open" with the same weight as one written yesterday.
-3. **"Your past got re-scored."** The view an analyst opens after a week away:
-   what changed, what contradicted a claim we made, what is now stale. Reuse the
-   existing event surfaces — do not invent a third notification shape (D-020,
-   D-021 both say this and it has held twice).
+This is the first session that is not Living Verdicts. Auspex's pitch is "an AI
+co-analyst with SOAR-grade action capabilities built in"; everything so far
+READS. S17 is the contract that lets it act, and the contract is the whole
+deliverable — no action that touches a real system ships this session.
+
+1. **The `@action` decorator and its typed contract.** Semantics, scope and risk
+   declared in code, not prose (D-006 "code over prompts", D-007 "specs over
+   prompts": the typed contract generates the prompt, the tests and the UI — not
+   the other way around). An action declares what it does, what it needs, and
+   what it can break.
+2. **Destructive ⇒ undo is REQUIRED, and `dry_run` is required everywhere.**
+   Not a convention, not a lint rule: registration must FAIL for a destructive
+   action with no undo. The S14/S15/S16 rail applied to writes — "correct by
+   construction, not by everyone remembering" — and this session is where it is
+   cheapest to enforce and most expensive to skip.
+3. **Registration API + planner manifest.** How an action becomes visible to the
+   agent loop, and how the loop is told what it may propose. Reuse the S13
+   capability negotiation shape rather than inventing a second manifest.
 
 Constraints:
-- Tests ship with each step (CLAUDE.md rule 8); CI hermetic. Zero LLM on this
-  path — it is rendering and arithmetic over rows we already have.
+- Tests ship with each step (CLAUDE.md rule 8); CI hermetic. Zero LLM on the
+  contract itself — a decorator and a registry are code.
+- **Nothing executes against a real external system this session.** Proposals
+  and approvals are S18. If a step needs a live side effect to be meaningful,
+  that is the signal it belongs in S18.
 - The dark-first brand palette is locked (CLAUDE.md Brand, D-002) — Night
   `#0A0D12`, Aurora `#4FF2C0`, Signal `#FFB454`, Ember `#FF5D5D`, Slate
-  `#8B93A7` for stale/DEFERRED. Space Grotesk / Inter / JetBrains Mono.
-  Never leak the underlying model or provider name into user-visible strings.
-- Every new env var → `.env.example` + `docs/ENV_VARS.md` at birth.
+  `#8B93A7`. Space Grotesk / Inter / JetBrains Mono. Never leak the underlying
+  model or provider name into user-visible strings.
+- Every new env var → `.env.example` + `docs/ENV_VARS.md` at birth. (S14, S15
+  and S16 each added zero — hold that line.)
 - New package directory? → `pyproject.toml [tool.setuptools] packages` AND the
   Dockerfile skeleton. `tests/test_packaging.py` fails loudly if you forget —
   do not work around it.
-- Plan assertions must VACUUM first, and only assert plans at table sizes where
-  a scan would actually cost something (both existing suites seed 25k) — small
-  tables legitimately seq-scan.
+- Plan assertions must VACUUM first, and only at table sizes where a scan would
+  actually cost something. Data-modifying CTEs cannot see each other's rows
+  through a table scan — chain `INSERT ... RETURNING`, do not re-read the table
+  (cost an hour in S16).
 - Deferred and waiting (do NOT pick up unless explicitly re-scoped): KB-doc
-  citability / ioc_check→KB-CVE-context (parked 9× now); TD-012 (post-hoc
+  citability / ioc_check→KB-CVE-context (parked 10× now); TD-012 (post-hoc
   validation); TD-014 (unbounded history); TD-015 (brand/confusable coverage);
   TD-016 (ACH surface bounds); TD-017 (chat-side NUL hardening); TD-018
   (per-workspace inference-call bound — S19 owns it); TD-019 (retro-hunt v1
-  bounds); TD-020 (watcher v1 bounds: CVE-shaped vocabulary, `provider_escalation`
-  is passive, open watchers never expire); model-PROPOSED hypotheses/evidence
-  and model-PROPOSED falsifiers (D-019-later, D-021).
+  bounds); TD-020 (watcher v1 bounds — the expiry half is ANSWERED, the rest
+  stands); TD-021 (timeline v1 bounds); model-PROPOSED hypotheses/evidence and
+  model-PROPOSED falsifiers (D-019-later, D-021).
 - Thrash brake: two failed approaches on one problem → STATE.md Blockers, move
   on. Tired human = short session; rituals anyway.
-- End with `/session-end`; S16 done = a verdict's full history renders in one
-  place with decay made visible, staleness defined in code, satisfied claims and
-  re-open events shown as the events they already are, all pinned by hermetic
-  tests and live-verified in-container.
+- End with `/session-end`; S17 done = an action can be declared, registered and
+  described to the planner; a destructive action without undo cannot be
+  registered at all; and every one of those claims is pinned by a hermetic test.
