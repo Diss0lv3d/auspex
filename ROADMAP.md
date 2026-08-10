@@ -171,8 +171,20 @@ may not grow mid-session (IDEAS.md exists for that).
   stopped being true. Live-verified in-container end to end. Also fixed a
   circular import that resolved only by lucky import order. 676 tests; zero new
   env vars.)_
-- [ ] **S16 — Verdict timeline UI.** Decay/staleness surfaces, flip history,
+- [x] **S16 — Verdict timeline UI.** Decay/staleness surfaces, flip history,
   "your past got re-scored" view.
+  _(Step 0 first: fresh-eyes review of the S15 commits — 4 angles, 1 defect,
+  1 confirmed gap, 2 sound. The analyst-facing `falsifies` link survived only by
+  the order `FanoutSink` happened to be built in, and its loss was silent AND
+  permanent; executing the lead also found that a retro-hunt failure loses it
+  with the order intact, which ruled out "enforce the order" and made the link
+  derived at read time. Then S16: `auspex/timeline/` + `auspex/checks.py` +
+  `/api/timeline/{obs_id}` + `/api/timeline/digest` + a `/timeline` page.
+  `effective_confidence` renders for the first time since S5; staleness is a
+  band vocabulary in half-lives (D-022); TD-020's open question answered with a
+  derived `standing` that never touches `status`; and a quiet digest now has to
+  be earned — a checker that has failed every cycle no longer looks like one
+  with nothing to do. 720 tests; zero new env vars; zero LLM.)_
 
 ## Phase 4 — Platform
 

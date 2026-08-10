@@ -1,5 +1,46 @@
 # Technical debt — logged the moment it's taken
 
+## TD-021 (S16) — verdict timeline v1 bounds: unpaginated history, per-process checker health, and one uncosted digest query
+**Where:** `auspex/timeline/store.py` (`MAX_TRAIL`, `_DECAYED_SQL`),
+`auspex/checks.py`, `auspex/routes/timeline.py`.
+**Risk:** low today, and each item is visible in the payload rather than hidden.
+- **The decay-crossing query is the one read S16 did not cost.** `_DECAYED_SQL`
+  takes the latest verdict per observable (`DISTINCT ON`) and filters on an
+  expression over `half_life_days`, so it cannot use an index for the crossing
+  test — it is proportional to the number of OBSERVABLES a workspace has ever
+  had a verdict for, not to the handful that crossed a band. Fine at dev-DB
+  sizes; unmeasured above them, and deliberately not asserted at 25k the way
+  the S14 sweep and the S15/S16 watcher reads are, because the honest fixture
+  is "a workspace with 100k enriched observables" and this session did not seed
+  one. **Do not assume this one is indexed — it is the exception.**
+- **Checker health is per-process and in-memory.** `FailureCounter` lives on the
+  sink object, so it resets on restart and knows nothing about other replicas.
+  With one app container that is exactly right; with two, a digest served by a
+  healthy replica would call a degraded one's silence trustworthy.
+- **`ever_succeeded` is reported but not required for `trustworthy`.** A
+  checker only records success when a check actually RAN, so a genuinely quiet
+  week leaves it False on a healthy platform. Requiring it would flag health as
+  failure; not requiring it means "has never successfully checked" reads as
+  trustworthy. The field is in the payload so a stricter client can decide
+  differently, but the default is a trade, not a proof.
+- **No pagination.** `MAX_TRAIL` 200 on a verdict's history, `limit` <= 200 on
+  the digest — same shape as TD-016/TD-019/TD-020. An observable re-enriched
+  daily for a year silently shows its newest 200 verdicts.
+- **`/api/watchers` does not carry `standing`.** Only the timeline surface does
+  (see TD-020), so the same claim reads with different detail depending on which
+  surface you open.
+**Why accepted:** S16's scope was rendering a history that already existed and
+giving decay a vocabulary. The crossing query is the only genuinely new read
+shape, and seeding a 100k-observable workspace to cost it properly is its own
+piece of work.
+**Path to fix:** (a) seed a large workspace and EXPLAIN `_DECAYED_SQL`; if it
+scans, materialise "latest verdict per observable" (a partial index on
+`verdicts (workspace_id, observable_id, created_at DESC)` already exists — the
+crossing predicate is the part that resists) or precompute the next band-crossing
+timestamp per verdict at write time and index THAT; (b) move checker health into
+Postgres when a second replica is real; (c) keyset pagination on
+`(created_at, id)`, shared with TD-016/019/020.
+
 ## TD-020 (S15) — falsification watcher v1 bounds: a thin vocabulary, one passive checker, no expiry
 **Where:** `auspex/watchers/types.py` (`WatcherKind` — three kinds),
 `auspex/watchers/derive.py` (the derivation rules), `auspex/routes/watchers.py`
@@ -22,11 +63,17 @@ reads as more self-scrutiny than it is, and that is the risk worth naming.
   world changes. The ingest-checked kinds are genuinely active; this one is
   "checked when someone looks", and the two are not distinguished on the
   surface beyond `checked_by`.
-- **Open watchers never expire.** A verdict decays (D-017 half-life) but its
-  claims do not: a 400-day-old `provider_escalation` watcher still reads as
-  "open" with the same weight as one written yesterday. What "open" means for a
-  claim whose verdict has fully decayed is an unanswered design question, not
-  an oversight — S16's verdict timeline is where staleness gets a vocabulary.
+- ~~**Open watchers never expire.**~~ **ANSWERED in S16 (D-022).** A claim on a
+  decayed verdict now carries a derived `standing` (`load_bearing` / `lapsed`)
+  alongside its `status`, on `/api/timeline/{obs_id}`. It is deliberately NOT
+  expiry: the claim stays open and still fires, because the platform committed
+  to watching and quietly stopping is the failure this feature exists to
+  prevent. `status` answers "was this contradicted?", `standing` answers "does
+  the belief behind it still stand?" — expiring into `status` would have erased
+  the difference between never-contradicted, contradicted, and superseded.
+  Still open on the WATCHER surface: `/api/watchers` does not yet carry
+  `standing` (it has no verdict-age context in its query), so the two surfaces
+  describe the same claim with different detail.
 - **No pagination.** Newest-first with `limit` ≤ 200, same shape as TD-016 and
   TD-019.
 - **The cycle path is unobserved end-to-end,** inheriting TD-019's open half:

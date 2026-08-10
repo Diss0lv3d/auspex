@@ -325,3 +325,54 @@ docs/probes/2026-08-09-s15-watchers-live.md. Ratified for S15, binding on S16
   neither consumer can take the other down.
 - **There is no endpoint to create or acknowledge a watcher.** Hand-registered
   falsifiers would make coverage a function of who was paying attention.
+
+## D-022 — Staleness is a derived vocabulary over the D-017 curve, and decay never touches a label or a status (2026-08-10, S16)
+
+**Context.** `effective_confidence` has been executable and pinned by a test
+since S5 (D-017) and rendered by nothing since. Eleven sessions of surfaces have
+shown month-old beliefs at the strength they had when written. S16 renders it,
+which forces two questions S5 deferred: what counts as stale, and what a
+falsification claim attached to a decayed verdict is worth (TD-020).
+
+**Decided.**
+
+- **Bands are measured in HALF-LIVES elapsed, never days.** `fresh` <0.5,
+  `aging` 0.5–1.5, `stale` 1.5–3, `lapsed` ≥3, plus `held` for a verdict written
+  with `floor >= confidence_at_write`. A 14-day IP verdict and a 365-day hash
+  verdict are the same amount of stale after the same number of half-lives, and
+  that is the only comparison worth showing an analyst. Days would have required
+  a per-type table that drifts out of sync with `HALF_LIFE_DAYS`.
+- **The edges live in exactly one module** (`auspex/timeline/staleness.py`) and
+  travel to every consumer as data — the digest's crossing query takes them as a
+  parameter, the payload ships the band descriptions, and the UI renders the
+  server's answer. A client that recomputed staleness would be a second opinion
+  about aging, and the two would diverge the first time an edge moved.
+- **Nothing about decay is stored.** Every value is derived at read time from
+  (confidence_at_write, floor, half_life_days, created_at), so a verdict's
+  staleness cannot fall out of date with itself. A nightly job that stamped a
+  band onto a row would be wrong between runs by construction.
+- **Decay never changes a label.** A stale `malicious` verdict is still
+  malicious; what aged is how much the platform stands behind its own
+  confidence. The fix for a stale verdict is to re-enrich, never to re-label —
+  the D-017/D-020 rail, applied to the one place it would have been easy to
+  forget because no analyst is in the loop.
+- **TD-020's answer: an open claim on a decayed verdict gets a derived
+  `standing`, and `status` is left alone.** `status` answers "was this claim
+  contradicted?"; `standing` answers "does the belief behind it still stand?".
+  A claim guarding a stale verdict is `lapsed` — still open, still watched, and
+  it will still fire. Expiring it into `status` would have been the tempting
+  version and would have erased the difference between a claim nobody ever
+  contradicted, one that was, and one a newer verdict superseded.
+- **A quiet answer must be earned.** Every empty field in the digest is an
+  absence claim, and S16 Step 0 executed what absence looked like: 50
+  consecutive failed watcher checks were indistinguishable from 50 quiet ones.
+  Each change consumer now counts consecutive failures (`auspex/checks.py`,
+  the `enrich/breaker.py` shape minus the circuit — a failing checker should
+  keep trying), and `Digest.trustworthy` requires a roster that is present AND
+  healthy. An unknown roster is reported as untrustworthy rather than defaulted
+  to healthy; `ever_succeeded` is reported but deliberately not required, since
+  a checker only records success when a check actually ran.
+- **Still no third notification shape.** The digest reuses `retrohunt_matches`,
+  `verdict_flips` and `watchers` exactly as D-020 and D-021 require, and re-open
+  events are still acknowledged at `POST /api/retrohunt/matches/{id}/ack`. A
+  digest is the natural place to invent an inbox; it did not.
