@@ -1,31 +1,63 @@
 # Technical debt — logged the moment it's taken
 
+## TD-022 (S17) — a checker that dies AFTER succeeding once still reads as healthy
+**Where:** `auspex/checks.py` (`FailureCounter`, `CheckerStatus`),
+`auspex/ingest/scheduler.py` (`_cycles`), `auspex/timeline/types.py`
+(`Digest.trustworthy`).
+**Risk:** S17 Step 0 closed the two holes it could close without a schema change
+(docs/probes/2026-08-11-s17-step0-review.md): a process that has run nothing no
+longer vouches for the quiet, and a checker whose only evidence is failure no
+longer hides behind `DEGRADED_AFTER` across restarts. **What remains is the
+mirror image:** `ever_succeeded` never expires and `consecutive_failures` only
+moves when something runs, so a scheduler task that dies silently after a week of
+health leaves a roster that reads perfectly clean — no failures, a recorded
+success, `trustworthy=True` — forever. Cycles simply stop, and nothing counts a
+cycle that did not happen.
+**Why accepted:** every honest fix needs a heartbeat with a TIMESTAMP behind it,
+durable across restarts, plus a staleness bound derived from the cycle interval —
+and a bound on the app side alone re-opens the restart false-alarm the S17 fix
+was careful to avoid. That is a schema change (`ingest_state` is the natural
+home — a checker heartbeat is the same shape as a feed watermark) and its own
+piece of work, not a rider on a review.
+**Path to fix:** record `last_success_at` per checker in Postgres on every
+completed cycle; `trustworthy` requires the newest heartbeat to be within a few
+cycle intervals of `now` (the DB clock — see `timeline.store.reader_now`). That
+also subsumes the second replica noted in TD-021, since the heartbeat stops being
+per-process.
+
 ## TD-021 (S16) — verdict timeline v1 bounds: unpaginated history, per-process checker health, and one uncosted digest query
 **Where:** `auspex/timeline/store.py` (`MAX_TRAIL`, `_DECAYED_SQL`),
 `auspex/checks.py`, `auspex/routes/timeline.py`.
 **Risk:** low today, and each item is visible in the payload rather than hidden.
-- **The decay-crossing query is the one read S16 did not cost.** `_DECAYED_SQL`
-  takes the latest verdict per observable (`DISTINCT ON`) and filters on an
-  expression over `half_life_days`, so it cannot use an index for the crossing
-  test — it is proportional to the number of OBSERVABLES a workspace has ever
-  had a verdict for, not to the handful that crossed a band. Fine at dev-DB
-  sizes; unmeasured above them, and deliberately not asserted at 25k the way
-  the S14 sweep and the S15/S16 watcher reads are, because the honest fixture
-  is "a workspace with 100k enriched observables" and this session did not seed
-  one. **Do not assume this one is indexed — it is the exception.**
+- ~~**The decay-crossing query is the one read S16 did not cost.**~~
+  **RESOLVED at S17 Step 0** (docs/probes/2026-08-11-s17-step0-review.md). The
+  worry was correct: seeded at 99k observables / 109k verdicts it read the whole
+  history and spilled its sort to disk, 143 ms. Rewriting the crossing as a
+  `created_at` range per (edge, half-life) pair — the same predicate with
+  `created_at` moved to one side — put it on a new index
+  (`idx_verdicts_ws_hl_created`) at **4.6 ms**, and it now has the plan
+  assertion at 25k the other reads have. One residue, logged rather than
+  buried: at the widest legal window (365 days) the new shape is ~9% slower
+  than the old one.
 - **Checker health is per-process and in-memory.** `FailureCounter` lives on the
   sink object, so it resets on restart and knows nothing about other replicas.
   With one app container that is exactly right; with two, a digest served by a
   healthy replica would call a degraded one's silence trustworthy.
-- **`ever_succeeded` is reported but not required for `trustworthy`.** A
-  checker only records success when a check actually RAN, so a genuinely quiet
-  week leaves it False on a healthy platform. Requiring it would flag health as
-  failure; not requiring it means "has never successfully checked" reads as
-  trustworthy. The field is in the payload so a stricter client can decide
-  differently, but the default is a trade, not a proof.
-- **No pagination.** `MAX_TRAIL` 200 on a verdict's history, `limit` <= 200 on
-  the digest — same shape as TD-016/TD-019/TD-020. An observable re-enriched
-  daily for a year silently shows its newest 200 verdicts.
+- ~~**`ever_succeeded` is reported but not required for `trustworthy`.**~~
+  **RESOLVED at S17 Step 0**, and the trade this entry described turned out to be
+  a false choice. Requiring it WOULD have flagged health as failure — but only
+  because nothing in the system meant "a cycle ran" (every `emit()` is guarded on
+  a non-empty doc list, so a quiet cycle reached no counter at all). The
+  scheduler now counts completed cycles, which is true in a quiet week and false
+  in a crash loop, so `trustworthy` can require a success without punishing an
+  idle platform. See TD-022 for what is still not caught.
+- **No pagination**, and **a page that is cut is now SAID to be cut** (S17 Step 0
+  — `limit`, `complete` and `truncated` in the digest payload; before that,
+  a 365-day window found 32,930 decayed verdicts, returned 50, and the page
+  announced "50 went stale"). `MAX_TRAIL` 200 on a verdict's history, `limit`
+  <= 200 on the digest — same shape as TD-016/TD-019/TD-020. An observable
+  re-enriched daily for a year still shows only its newest 200 verdicts, and the
+  TRAIL does not yet carry the truncation flag the digest now does.
 - **`/api/watchers` does not carry `standing`.** Only the timeline surface does
   (see TD-020), so the same claim reads with different detail depending on which
   surface you open.

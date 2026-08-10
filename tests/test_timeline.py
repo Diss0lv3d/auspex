@@ -42,6 +42,8 @@ from auspex.timeline.staleness import (
     LAPSED_AT_HALF_LIVES,
     STALE_AT_HALF_LIVES,
 )
+from auspex.timeline.store import _BAND_EDGES, _DECAYED_SQL, reader_now
+from auspex.timeline.types import Digest
 from auspex.watchers import FanoutSink, WatcherSink
 
 CVE_A = "CVE-2026-88001"
@@ -93,6 +95,42 @@ async def other_workspace_id(pool):
     )
     yield ws
     await pool.execute("DELETE FROM workspaces WHERE id = $1", ws)
+
+
+def item(
+    value: str,
+    obs_type: ObservableType,
+    label: VerdictLabel = VerdictLabel.SUSPICIOUS,
+    conf: float = 0.6,
+):
+    """Like `cve_item` for any observable type — the half-life comes from the
+    type (S5 HALF_LIFE_DAYS), so this is how a test gets more than one decay
+    family into one workspace."""
+    return ObservableEnrichment(
+        observable=Observable(
+            type=obs_type,
+            value=value,
+            obs_id=observable_id(obs_type, value),
+            defanged=False,
+        ),
+        signals=(ProviderSignal("TestProvider", label, conf, "seen", evidence={}),),
+    )
+
+
+async def _age_any(pool, workspace_id, value: str, obs_type: ObservableType, *, days: float):
+    await pool.execute(
+        """
+        UPDATE verdicts SET created_at = created_at - ($4 || ' days')::interval
+        WHERE workspace_id = $1 AND observable_id = (
+            SELECT id FROM observables
+            WHERE workspace_id = $1 AND type = $2 AND value = $3
+        )
+        """,
+        workspace_id,
+        obs_type.value,
+        value,
+        str(days),
+    )
 
 
 async def _age_verdicts(pool, workspace_id, value: str, *, days: float):
@@ -318,6 +356,56 @@ async def test_only_the_latest_verdict_can_go_stale(pool, workspace_id):
     assert [x for x in d if x.value == CVE_A] == []
 
 
+async def test_every_half_life_family_in_a_workspace_can_go_stale(pool, workspace_id):
+    """S17 Step 0. The decay read finds its (edge, half-life) ranges by
+    enumerating the half-lives that are actually IN the workspace, rather than
+    from a parameter carrying HALF_LIFE_DAYS. A parameter would have been
+    shorter and would have made a verdict written with an uncovered half-life
+    silently absent from a surface whose entire subject is absence claims.
+
+    An IP (14 d), a domain (30 d) and a CVE (365 d), each aged just past its own
+    `stale` edge: three different families, one query, all three reported."""
+    families = {
+        "9.9.9.1": (ObservableType.IPV4, 14.0),
+        "stale-family.test": (ObservableType.DOMAIN, 30.0),
+        CVE_A: (ObservableType.CVE, 365.0),
+    }
+    await persist_enrichment(
+        pool,
+        workspace_id,
+        EnrichmentOutcome(items=tuple(item(v, t) for v, (t, _) in families.items())),
+    )
+    for value, (obs_type, half_life) in families.items():
+        await _age_any(
+            pool, workspace_id, value, obs_type,
+            days=half_life * STALE_AT_HALF_LIVES + 2,
+        )
+    d = await decayed_since(
+        pool, workspace_id=workspace_id,
+        since=datetime.now(UTC) - timedelta(days=7), now=datetime.now(UTC),
+    )
+    assert {x.value for x in d} == set(families)
+    assert {(x.was, x.now) for x in d} == {(Staleness.AGING, Staleness.STALE)}
+
+
+async def test_a_verdict_that_crossed_two_edges_is_reported_once(pool, workspace_id):
+    """A verdict whose half-life is short next to the window can pass more than
+    one edge inside it — one row per crossing would double-count the observable
+    and read as two events. Reported once, naming the outermost transition."""
+    await persist_enrichment(pool, workspace_id, EnrichmentOutcome(items=(cve_item(CVE_A),)))
+    # 365-day half-life, so a 3.05-half-life age with a window wide enough to
+    # contain both the `stale` (1.5) and `lapsed` (3.0) crossings.
+    await _age_verdicts(pool, workspace_id, CVE_A, days=365 * LAPSED_AT_HALF_LIVES + 5)
+    d = await decayed_since(
+        pool, workspace_id=workspace_id,
+        since=datetime.now(UTC) - timedelta(days=365 * 2),
+        now=datetime.now(UTC),
+    )
+    crossed = [x for x in d if x.value == CVE_A]
+    assert len(crossed) == 1
+    assert (crossed[0].was, crossed[0].now) == (Staleness.AGING, Staleness.LAPSED)
+
+
 async def test_the_digest_reuses_the_events_that_already_exist(pool, workspace_id):
     """D-020/D-021: no third notification shape. What lands here is the same
     match, the same flip and the same contradicted claim the other surfaces
@@ -439,6 +527,245 @@ async def test_a_cycle_with_no_relevant_changes_leaves_health_untouched(pool):
     await sink.emit([DocChange(CVE_A, "nvd-delta", "upserted")])
     assert not sink.health.ever_succeeded
     assert sink.health.consecutive_failures == 0
+
+
+# -- S17 Step 0: the two ways a pristine roster lies ---------------------------
+
+
+def _roster_digest(*checkers) -> Digest:
+    """A digest with nothing in it — the case where the roster is the ONLY thing
+    deciding whether the quiet may be believed."""
+    return Digest(
+        since=NOW - timedelta(days=7), now=NOW, matches=(), flips=(),
+        contradicted=(), decayed=(), checkers=checkers,
+    )
+
+
+def test_a_process_that_has_run_nothing_cannot_vouch_for_the_quiet():
+    """Executed at S17 Step 0: a freshly restarted app reported every checker at
+    zero failures and a trustworthy digest, having never checked anything. Zero
+    failures out of zero attempts is not health."""
+    fresh = FailureCounter("watchers").status
+    assert not fresh.degraded and fresh.consecutive_failures == 0
+    assert not _roster_digest(fresh).trustworthy
+
+
+def test_a_crash_loop_cannot_outrun_the_failure_count():
+    """The counter lives in the process (auspex/checks.py), so a crash-looping
+    app resets it before DEGRADED_AFTER is ever reached — measured at S17 Step 0
+    as three restarts, every cycle failing, `trustworthy=True` throughout.
+
+    A checker whose only evidence in this process is failure is not given the
+    benefit of the threshold: the threshold exists to tolerate a bad batch among
+    successes."""
+    for cycles_before_the_crash in range(1, DEGRADED_AFTER):
+        c = FailureCounter("watchers")
+        for _ in range(cycles_before_the_crash):
+            c.failed(RuntimeError("boom"))
+        assert not c.status.degraded  # the fact is unchanged...
+        assert not _roster_digest(c.status).trustworthy  # ...the claim is not
+
+
+def test_a_transient_failure_after_a_success_is_still_tolerated():
+    """The other half of the same rule: DEGRADED_AFTER must keep meaning what it
+    means, or every feed hiccup becomes an alarm and the flag stops being read."""
+    c = FailureCounter("watchers")
+    c.succeeded()
+    c.failed(RuntimeError("one bad batch"))
+    assert _roster_digest(c.status).trustworthy
+
+
+def test_a_quiet_week_is_still_trustworthy_when_cycles_are_running():
+    """The regression that makes the rule above safe. A consumer records success
+    only when a relevant change arrives, so in a week where no feed moved the
+    consumers look exactly like dead ones — and requiring a success from THEM
+    would call a healthy platform untrustworthy for as long as it had nothing to
+    do. The scheduler's cycle counter is what carries the difference."""
+    idle_consumer = FailureCounter("watchers").status
+    cycles = FailureCounter("ingest-cycle")
+    cycles.succeeded()
+    d = _roster_digest(idle_consumer, cycles.status)
+    assert d.quiet and d.trustworthy
+
+
+# -- S17 Step 0: a bounded answer must not read as a complete one --------------
+
+
+async def test_a_digest_says_when_it_cut_a_list(pool, workspace_id):
+    """Two re-open events and room for one. Before S17 Step 0 this returned one
+    event and nothing else — the same failure as an unexplained empty list, which
+    this surface already refuses to make."""
+    await persist_enrichment(
+        pool, workspace_id,
+        EnrichmentOutcome(items=(cve_item(CVE_A), cve_item(CVE_B))),
+    )
+    await FanoutSink(RetroHuntSink(pool), WatcherSink(pool)).emit(
+        [DocChange(CVE_A, "kev", "kev-added"), DocChange(CVE_B, "kev", "kev-added")]
+    )
+    since = datetime.now(UTC) - timedelta(days=1)
+
+    full = await digest(pool, workspace_id=workspace_id, since=since, limit=50)
+    assert len(full.matches) == 2
+    assert full.complete and full.truncated == ()
+
+    cut = await digest(pool, workspace_id=workspace_id, since=since, limit=1)
+    assert len(cut.matches) == 1
+    assert not cut.complete
+    assert "matches" in cut.truncated
+    assert cut.limit == 1
+
+
+async def test_a_cut_list_is_named_as_the_payload_names_it(pool, client, workspace_id):
+    """A flag naming a key the client cannot find in the response is worse than
+    no flag: `matches` is rendered as `reopened`, and the route translates."""
+    from auspex.routes.timeline import _digest_payload
+
+    await persist_enrichment(
+        pool, workspace_id,
+        EnrichmentOutcome(items=(cve_item(CVE_A), cve_item(CVE_B))),
+    )
+    await FanoutSink(RetroHuntSink(pool), WatcherSink(pool)).emit(
+        [DocChange(CVE_A, "kev", "kev-added"), DocChange(CVE_B, "kev", "kev-added")]
+    )
+    d = await digest(
+        pool, workspace_id=workspace_id,
+        since=datetime.now(UTC) - timedelta(days=1), limit=1,
+    )
+    payload = _digest_payload(d)
+    # Two observables were re-opened AND two claims contradicted, so both of
+    # those lists were cut at one row.
+    assert set(payload["truncated"]) == {"reopened", "contradicted"}
+    assert payload["complete"] is False
+    assert payload["limit"] == 1
+    # every name in the flag is a list the client can actually go and read
+    for name in payload["truncated"]:
+        assert isinstance(payload[name], list)
+
+
+# -- S17 Step 0: TD-021's uncosted read, costed --------------------------------
+
+PLAN_SEED_ROWS = 25_000  # the size the S14/S15 plan suites use, so plans compare
+
+
+@pytest.fixture
+async def seeded_history(pool, workspace_id):
+    """A workspace's enriched history at a size where reading all of it costs
+    something. Three half-life families and ages spread over two years, because
+    the query enumerates the families it finds and probes a date range per
+    (family, band edge) pair."""
+    await pool.execute(
+        """
+        WITH obs AS (
+            INSERT INTO observables (workspace_id, obs_id, type, value)
+            SELECT $1, 'cve-tplan-' || i,
+                   (ARRAY['ipv4','domain','cve'])[1 + (i % 3)],
+                   CASE (i % 3)
+                       WHEN 0 THEN '10.' || (i/65536)%256 || '.' || (i/256)%256 || '.' || i%256
+                       WHEN 1 THEN 'd' || i || '.plan.test'
+                       ELSE 'CVE-2015-' || lpad(i::text, 6, '0')
+                   END
+            FROM generate_series(1, $2) AS s(i)
+            ON CONFLICT (workspace_id, type, value) DO NOTHING
+            RETURNING id, type, obs_id
+        )
+        INSERT INTO verdicts (workspace_id, observable_id, label,
+            confidence_at_write, half_life_days, floor, source, created_at)
+        SELECT $1, obs.id, 'suspicious', 0.6,
+               CASE obs.type WHEN 'ipv4' THEN 14.0 WHEN 'domain' THEN 30.0 ELSE 365.0 END,
+               0.0, 'enrichment:seed',
+               clock_timestamp() - ((
+                   ('x' || substr(md5(obs.obs_id), 1, 8))::bit(32)::int % 730
+               ) || ' days')::interval
+        FROM obs
+        """,
+        workspace_id,
+        PLAN_SEED_ROWS,
+    )
+    # Bloat, not the query, decides the plan on this dev DB — a seed of this size
+    # leaves enough dead tuples to cost a scan in pages.
+    await pool.execute("VACUUM (ANALYZE) observables")
+    await pool.execute("VACUUM (ANALYZE) verdicts")
+    yield
+    await pool.execute(
+        "DELETE FROM observables WHERE workspace_id = $1 AND obs_id LIKE 'cve-tplan-%'",
+        workspace_id,
+    )
+    await pool.execute("VACUUM (ANALYZE) observables")
+    await pool.execute("VACUUM (ANALYZE) verdicts")
+
+
+async def test_the_decay_read_probes_date_ranges_not_the_whole_history(
+    pool, workspace_id, seeded_history
+):
+    """TD-021: `_DECAYED_SQL` was the only new read in three sessions without an
+    asserted plan, and it earned the note — measured at S17 Step 0 on 99k
+    observables it read every verdict the workspace had ever written and spilled
+    its sort to disk (143 ms). The digest is the page an analyst opens FIRST
+    after a week away, so this is the read that must not be the slow one.
+
+    What the plan has to show is the algebra: a crossing is a created_at RANGE
+    per (edge, half-life) pair, so each pair is one descent into
+    idx_verdicts_ws_hl_created and the whole read is proportional to the rows
+    that crossed. Probe: docs/probes/2026-08-11-s17-step0-review.md."""
+    now = await reader_now(pool)
+    plan = "\n".join(
+        r[0]
+        for r in await pool.fetch(
+            f"EXPLAIN {_DECAYED_SQL}",
+            workspace_id,
+            now,
+            now - timedelta(days=7),
+            list(_BAND_EDGES),
+            50,
+        )
+    )
+    # the ranges are index descents, not a filter over everything...
+    assert "idx_verdicts_ws_hl_created" in plan, plan
+    assert "Seq Scan on verdicts" not in plan, plan
+    # ...the "is it still current?" question is one descent per candidate...
+    assert "idx_verdicts_ws_obs" in plan, plan
+    # ...and no observable is read that a candidate did not point at.
+    assert "Seq Scan on observables" not in plan, plan
+
+
+async def test_the_decay_read_still_answers_at_scale(pool, workspace_id, seeded_history):
+    """The plan above is only worth asserting if it returns the right rows on the
+    same table. A seeded history where thousands of verdicts crossed an edge, with
+    one known observable planted to be found among them."""
+    await persist_enrichment(pool, workspace_id, EnrichmentOutcome(items=(cve_item(CVE_A),)))
+    await _age_verdicts(pool, workspace_id, CVE_A, days=365 * STALE_AT_HALF_LIVES + 1)
+    now = await reader_now(pool)
+    found = await decayed_since(
+        pool, workspace_id=workspace_id, since=now - timedelta(days=7), now=now, limit=200
+    )
+    assert CVE_A in {x.value for x in found}
+    # Ordered by how far each verdict has decayed, worst first — the ordering the
+    # page renders, asserted here because the LIMIT depends on it being right.
+    assert [x.half_lives_elapsed for x in found] == sorted(
+        (x.half_lives_elapsed for x in found), reverse=True
+    )
+    # Every row genuinely changed band; a "fresh → fresh" row would be no news.
+    assert all(x.was != x.now for x in found)
+
+
+# -- S17 Step 0: one clock decides one band ------------------------------------
+
+
+async def test_staleness_is_measured_by_the_clock_that_stamped_the_row(pool, workspace_id):
+    """`created_at` is `clock_timestamp()` in Postgres; `now` used to default to
+    `datetime.now(UTC)` in the app process, so two clocks decided one band with
+    nothing checking they agreed. The default now comes from the database."""
+    db_now = await reader_now(pool)
+    assert db_now.tzinfo is not None
+    # Same instant, measured both ways, on a host whose skew is ~1 ms.
+    assert abs((db_now - datetime.now(UTC)).total_seconds()) < 60
+
+    await persist_enrichment(pool, workspace_id, EnrichmentOutcome(items=(cve_item(CVE_A),)))
+    t = await timeline_for(pool, workspace_id=workspace_id, obs_id=cve_obs(CVE_A).obs_id)
+    # A verdict Postgres stamped a moment ago cannot be old, and cannot be
+    # NEGATIVELY old either — the clamp is what a skewed reader would hit.
+    assert t.current.half_lives_elapsed == 0.0
+    assert t.current.staleness is Staleness.FRESH
 
 
 # -- the analyst surface -------------------------------------------------------

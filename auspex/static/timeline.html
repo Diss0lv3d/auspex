@@ -168,9 +168,24 @@ function claimCard(c) {
   </div>`;
 }
 
-function section(title, items, render) {
+function section(title, items, render, cut) {
   const body = items.length ? items.map(render).join("") : `<div class="card empty">nothing</div>`;
-  return `<h2>${title}</h2>${body}`;
+  // `cut` is the server saying this list had more rows than the page asked for
+  // (S17 Step 0). Rendering the page size as though it were the total is the
+  // same dishonesty as rendering an unexplained empty list, which the banner
+  // above already refuses.
+  const more = cut
+    ? `<div class="card empty">showing the first ${items.length} — there are more</div>`
+    : "";
+  return `<h2>${title}</h2>${body}${more}`;
+}
+
+// A count the page is allowed to state. `truncated` names the lists the server
+// cut at `limit`, and for those the length of what arrived is a floor, not a
+// total — "50 went stale" when 32,930 did is a wrong answer, not a short one.
+function count(d, name) {
+  const n = d[name].length;
+  return d.truncated.includes(name) ? `at least ${n}` : `${n}`;
 }
 
 async function digest() {
@@ -182,7 +197,8 @@ async function digest() {
           ? `<div class="banner ok">Nothing re-scored your past this week — and everything that would have noticed was running.</div>`
           : `<div class="banner warn">Nothing to report, but this silence is not evidence: ${
               d.checkers.length ? "a checker is degraded" : "nothing was watching"}.</div>`)
-      : `<div class="banner warn">Your past got re-scored. ${d.reopened.length} re-opened · ${d.flipped.length} changed label · ${d.contradicted.length} claims contradicted · ${d.decayed.length} went stale.</div>`;
+      : `<div class="banner warn">Your past got re-scored. ${count(d, "reopened")} re-opened · ${count(d, "flipped")} changed label · ${count(d, "contradicted")} claims contradicted · ${count(d, "decayed")} went stale.${
+          d.complete ? "" : ` Showing the first ${d.limit} of each — widen the page to see the rest.`}</div>`;
 
     const checkers = d.checkers.length
       ? d.checkers.map(c => `<span class="pill ${c.degraded ? "malicious" : "benign"}">${esc(c.name)}${c.degraded ? " degraded" : ""}</span>`).join(" ")
@@ -198,20 +214,20 @@ async function digest() {
             <span class="spacer"></span><span class="small muted">${when(m.created_at)}</span>
           </div>
           ${m.falsifies ? `<div class="small" style="margin-top:6px"><span class="muted">contradicts a claim this verdict made:</span> ${esc(m.falsifies)}</div>` : ""}
-        </div>`)
+        </div>`, d.truncated.includes("reopened"))
       + section("Labels that actually changed", d.flipped, f => `
         <div class="card"><div class="row">
           <a class="mono" href="#" onclick="open_(&quot;${esc(f.observable.obs_id)}&quot;);return false">${esc(f.observable.value)}</a>
           <span class="pill ${esc(f.from_label)}">${esc(f.from_label)}</span> →
           <span class="pill ${esc(f.to_label)}">${esc(f.to_label)}</span>
           <span class="spacer"></span><span class="small muted mono">${esc(f.trigger)}</span>
-        </div></div>`)
+        </div></div>`, d.truncated.includes("flipped"))
       + section("Claims that stopped being true", d.contradicted, c => `
         <div class="card">
           <div class="row"><a class="mono" href="#" onclick="open_(&quot;${esc(c.observable.obs_id)}&quot;);return false">${esc(c.observable.value)}</a>
           <span class="mono small muted">${esc(c.kind)}</span></div>
           <div style="margin-top:6px">${esc(c.claim)}</div>
-        </div>`)
+        </div>`, d.truncated.includes("contradicted"))
       + section("Went stale on their own", d.decayed, x => `
         <div class="card"><div class="row">
           <a class="mono" href="#" onclick="open_(&quot;${esc(x.observable.obs_id)}&quot;);return false">${esc(x.observable.value)}</a>
@@ -220,7 +236,7 @@ async function digest() {
           <span class="pill ${esc(x.now)}">${esc(x.now)}</span>
           <span class="spacer"></span>
           <span class="small muted">${x.confidence_at_write.toFixed(2)} → ${x.confidence_now.toFixed(2)}</span>
-        </div></div>`);
+        </div></div>`, d.truncated.includes("decayed"));
     setStatus(`digest · ${d.quiet ? "quiet" : "activity"}`);
   } catch (e) { setStatus("digest failed — sign in first", true); }
 }

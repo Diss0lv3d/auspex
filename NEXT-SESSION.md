@@ -1,12 +1,11 @@
 # NEXT-SESSION — paste everything below the line into a fresh Claude Code window opened in /home/burhan/auspex-new
 
-_(Standing follow-up: **PR #15 is OPEN, unmerged, and now carries EVERYTHING** —
-https://github.com/bh3082336888-cell/auspex/pull/15. It is `staging → main`, so
-S16's pushes extended it rather than creating a "#16"; its title and body were
-rewritten to match (S14 retro-hunt + S15 watchers + both Step-0 reviews), but
-the four S16 commits landed after that rewrite, so re-read it before merging.
-`gh pr merge` is blocked by the permission classifier — merge by hand, then
-Claude back-merges. S16 shipped: Step 0 found the analyst-facing `falsifies`
+_(**No promote is in flight — PR #15 was MERGED at S16 end** (squash `4829eaf`,
+S14 + S15 + S16 + both Step-0 reviews) and back-merged into staging, so `main`
+and `staging` are identical in content AND history. Also corrected: `gh pr
+merge` is **not** blocked — S14/S15 recorded it as blocked and S16 carried that
+forward unprobed, costing three hand-merges; it succeeded first try when finally
+tested. S16 shipped: Step 0 found the analyst-facing `falsifies`
 link survived only by the order `FanoutSink` happened to be built in, that its
 loss was silent AND permanent, and — the part that decided the fix — that a
 retro-hunt failure loses it with the order intact, so the link is derived at
@@ -65,8 +64,10 @@ Step 0 (carried follow-ups, do BEFORE new scope):
     to happen. Verify by execution, then decide whether that is acceptable for v1
     or whether the counter belongs in Postgres (TD-021 has the note).
   Verify findings BY EXECUTION before fixing; fix with regressions.
-- **Then `/promote`** (S16 will have been reviewed once by then). Expect
-  `gh pr merge` to be blocked — I merge by hand, then Claude back-merges.
+- **Then `/promote`** (S16 will have been reviewed once by then). Claude can
+  run `gh pr merge` itself now — verified at S16 end. Confirm the gh ACTIVE
+  account is `bh3082336888-cell` immediately before the call (D-011; it flipped
+  at S16 start), then back-merge and assert the tree is unchanged.
 
 Goal (scope-locked, from ROADMAP.md S17 — Actions SDK contract, **Phase 4**):
 

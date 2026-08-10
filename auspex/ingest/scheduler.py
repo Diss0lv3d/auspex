@@ -35,6 +35,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
+from auspex.checks import FailureCounter
 from auspex.config import Settings
 from auspex.ingest.attack import ATTACK_SOURCE, ATTACKFeed, bundle_to_docs
 from auspex.ingest.enrich import enrich_doc, enrichment_fields
@@ -117,6 +118,9 @@ class IngestScheduler:
         self._now = now
         self._sleep = sleep
         self._kev_cache: KEVCatalog | None = None  # 304 cycles reuse the last body
+        # Counts CYCLES, not dispatches — see run_cycle. Named for what it
+        # counts, because it appears on an analyst-facing roster.
+        self._cycles = FailureCounter("ingest-cycle")
 
     @classmethod
     def from_settings(cls, settings: Settings, kb, pool) -> "IngestScheduler":
@@ -142,14 +146,21 @@ class IngestScheduler:
 
     @property
     def checker_health(self) -> tuple:
-        """What the change consumers know about their own last few attempts.
+        """What the change consumers know about their own last few attempts,
+        plus whether cycles are running at all.
 
-        Empty when the sink does not track itself (the NullSink seam, and any
-        test double) — an unknown roster is reported as unknown rather than
-        defaulted to healthy, because the S16 digest reads this to decide
-        whether "nothing happened" may be shown as reassurance."""
+        The consumers' own entries are empty when the sink does not track itself
+        (the NullSink seam, and any test double) — an unknown roster is reported
+        as unknown rather than defaulted to healthy, because the S16 digest reads
+        this to decide whether "nothing happened" may be shown as reassurance.
+
+        `ingest-cycle` is always present, and it is what keeps a genuinely quiet
+        week distinguishable from a dead process (S17 Step 0): the consumers stay
+        silent when no feed moves, so without it a quiet week and a crash loop
+        produce the same roster."""
         health = getattr(self._sink, "health", None)
-        return tuple(health()) if callable(health) else ()
+        consumers = tuple(health()) if callable(health) else ()
+        return (*consumers, self._cycles.status)
 
     async def aclose(self) -> None:
         feeds = [self._nvd, self._kev, self._epss]
@@ -193,20 +204,39 @@ class IngestScheduler:
         # content the way it did when both lived in one unwrapped sequence
         # (S9 review: correctness lens). Each holds its own watermarks and
         # retries next interval; neither can mark the other failed.
+        failure: BaseException | None = None
         try:
             cve_status = await self._cve_pipeline()
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
             logger.exception("cve pipeline failed; watermarks hold, retrying next cycle")
             cve_status = "kev/nvd/kev-docs: failed (see log)"
+            failure = exc
         try:
             attack_status = await self._attack_phase()
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
             logger.exception("attack phase failed; retrying next cycle")
             attack_status = "failed (see log)"
+            failure = failure or exc
+        # S17 Step 0: the only thing that can prove the platform is alive during
+        # a QUIET week. A change consumer records success solely when a relevant
+        # change arrives, so in a week where no feed moved, every consumer looks
+        # exactly like a dead one — and the digest was reading that as
+        # trustworthy (auspex/timeline/types.py). A cycle that completed with
+        # both phases intact is the missing evidence: it is not proof any claim
+        # was checked, it is proof something would have checked one.
+        #
+        # The early return above deliberately does NOT reach here: a cycle
+        # skipped because the KB never came up looked at nothing, and recording
+        # it as a success is precisely the laundering this counter exists to
+        # stop.
+        if failure is None:
+            self._cycles.succeeded()
+        else:
+            self._cycles.failed(failure)
         return f"{cve_status}; attack: {attack_status}"
 
     async def _cve_pipeline(self) -> str:

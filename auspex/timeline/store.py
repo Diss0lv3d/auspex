@@ -9,7 +9,7 @@ exception because it is "just a view".
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import datetime
 from uuid import UUID
 
 import asyncpg
@@ -57,41 +57,114 @@ LIMIT $3
 """
 
 # The latest verdict per observable that crossed a band between `since` and
-# `now`. Crossing is expressed in the WHERE clause rather than computed for
-# every verdict in Python, because "went stale while you were away" is a
-# vanishingly small slice of a workspace's history and materialising the rest to
-# filter it would make the digest's cost the size of the archive.
+# `now`. "Went stale while you were away" is a vanishingly small slice of a
+# workspace's history, and the read is built so its cost is that slice rather
+# than the archive.
 #
 # For a band edge e (in half-lives), a verdict crossed it in the window iff
 #     age(now) >= e * half_life   AND   age(since) < e * half_life
 # — the row was on one side of the edge when the analyst left and the other side
 # when they came back. Edges arrive as a parameter, so this SQL knows the SHAPE
 # of a crossing and staleness.py stays the only place that knows the numbers.
+#
+# S17 Step 0 rearranged that same predicate rather than changing it. Moving
+# created_at to one side,
+#     since - e*half_life  <  created_at  <=  now - e*half_life
+# — so for each (edge, half-life) pair the crossing set is a created_at RANGE
+# exactly as wide as the window itself, whatever the half-life. Ranges use an
+# index; an expression over half_life_days cannot, and the original spelling
+# therefore read every verdict the workspace had ever written and sorted the
+# survivors on disk (143 ms and an external merge at 109k verdicts, measured in
+# docs/probes/2026-08-11-s17-step0-review.md — TD-021's uncosted read, now
+# costed at 4.6 ms).
+#
+# The distinct half-lives come from the DATA, via the recursive loose-index-scan
+# term below (3 values in 14 buffers here), not from a parameter carrying
+# HALF_LIFE_DAYS. A parameter would have been shorter and would have made a
+# writer with a new half-life silently absent from the digest — the exact class
+# of failure S16 Step 0 spent itself on, and this surface's whole subject is
+# absence claims.
+#
+# The two LATERALs are load-bearing, not style. Each makes the scan under it
+# PARAMETERISED by the row above, which is what turns a range into an index
+# descent; written as plain joins, the planner flattens both and hash-joins the
+# whole table instead (measured: 68 ms of the 71 ms, same rows).
 _DECAYED_SQL = """
-WITH latest AS (
-    SELECT DISTINCT ON (v.observable_id)
-           v.observable_id, v.label, v.confidence_at_write, v.floor,
-           v.half_life_days, v.created_at
-    FROM verdicts v
-    WHERE v.workspace_id = $1
-    ORDER BY v.observable_id, v.created_at DESC, v.id DESC
+WITH RECURSIVE hl AS (
+    SELECT (SELECT v.half_life_days FROM verdicts v
+            WHERE v.workspace_id = $1
+            ORDER BY v.half_life_days LIMIT 1) AS half_life_days
+  UNION ALL
+    SELECT (SELECT v.half_life_days FROM verdicts v
+            WHERE v.workspace_id = $1 AND v.half_life_days > hl.half_life_days
+            ORDER BY v.half_life_days LIMIT 1)
+    FROM hl WHERE hl.half_life_days IS NOT NULL
+), bounds AS (
+    SELECT hl.half_life_days,
+           $3::timestamptz - (e.edge * hl.half_life_days) * interval '1 day' AS lo,
+           $2::timestamptz - (e.edge * hl.half_life_days) * interval '1 day' AS hi
+    FROM hl, unnest($4::float8[]) AS e(edge)
+    WHERE hl.half_life_days IS NOT NULL
+), candidates AS (
+    -- DISTINCT because a short-half-life verdict can cross two edges inside one
+    -- window and would otherwise be reported twice. `was`/`now` in Python then
+    -- name the outermost transition, which is the honest reading of it.
+    SELECT DISTINCT c.id, c.observable_id, c.label, c.confidence_at_write,
+           c.floor, c.half_life_days, c.created_at
+    FROM bounds b
+    JOIN LATERAL (
+        SELECT v.id, v.observable_id, v.label, v.confidence_at_write, v.floor,
+               v.half_life_days, v.created_at
+        FROM verdicts v
+        WHERE v.workspace_id = $1
+          AND v.half_life_days = b.half_life_days
+          AND v.created_at > b.lo
+          AND v.created_at <= b.hi
+          AND v.floor < v.confidence_at_write
+        -- OFFSET 0 is an optimisation fence, not a leftover: without it Postgres
+        -- pulls this subquery up, loses b.lo/b.hi as scan parameters and
+        -- seq-scans the workspace instead of descending idx_verdicts_ws_hl_created.
+        OFFSET 0
+    ) c ON TRUE
 )
-SELECT l.observable_id, l.label, l.confidence_at_write, l.floor,
-       l.half_life_days, l.created_at, o.obs_id, o.type, o.value
-FROM latest l
-JOIN observables o ON o.id = l.observable_id AND o.workspace_id = $1
-WHERE l.floor < l.confidence_at_write
-  AND EXISTS (
-      SELECT 1 FROM unnest($4::float8[]) AS e(edge)
-      WHERE ($2::timestamptz - l.created_at)
-                >= (e.edge * l.half_life_days) * interval '1 day'
-        AND ($3::timestamptz - l.created_at)
-                < (e.edge * l.half_life_days) * interval '1 day'
-  )
-ORDER BY EXTRACT(EPOCH FROM ($2::timestamptz - l.created_at))
-         / (l.half_life_days * 86400) DESC
+SELECT c.observable_id, c.label, c.confidence_at_write, c.floor,
+       c.half_life_days, c.created_at, o.obs_id, o.type, o.value
+FROM candidates c
+-- "is this still the current verdict?", asked as one index descent per candidate
+-- instead of by materialising every observable's latest row. Same tiebreak the
+-- trail uses (created_at, then id), so the two surfaces cannot disagree about
+-- which verdict is current — S15 Step 0 found what happens when they do.
+JOIN LATERAL (
+    SELECT v.id
+    FROM verdicts v
+    WHERE v.workspace_id = $1 AND v.observable_id = c.observable_id
+    ORDER BY v.created_at DESC, v.id DESC
+    LIMIT 1
+) latest ON latest.id = c.id
+JOIN observables o ON o.id = c.observable_id AND o.workspace_id = $1
+ORDER BY EXTRACT(EPOCH FROM ($2::timestamptz - c.created_at))
+         / (c.half_life_days * 86400) DESC
 LIMIT $5
 """
+
+
+async def reader_now(pool: asyncpg.Pool) -> datetime:
+    """The instant staleness is measured against — read from the DATABASE.
+
+    Every `created_at` on this path is `clock_timestamp()` in Postgres, and
+    until S17 Step 0 every `now` defaulted to `datetime.now(UTC)` in the app
+    process. Two clocks decided one band, and nothing checked that they agreed:
+    on a skewed app container a verdict Postgres stamped one second ago reports
+    an age of whatever the skew is, and the digest's window slides by the same
+    amount. Measured on this host the skew is 0.001 s and no band moves (a
+    two-day skew moves a 365-day verdict by 0.005 half-lives), so this is not a
+    bug being fixed — it is a question being removed. The clock that stamps a
+    row is the clock that ages it.
+
+    Callers that pass an explicit `now` (every test, and the digest passing its
+    own window's end) still decide for themselves.
+    """
+    return await pool.fetchval("SELECT clock_timestamp()")
 
 
 def _decayed_verdict(row, *, now: datetime, current: bool) -> DecayedVerdict:
@@ -134,7 +207,7 @@ async def timeline_for(
     """One observable's whole life, or None when this workspace has never seen
     it. `obs_id` is the short id analysts already use in chat ("cve-1a2b3c4d"),
     not a UUID — the timeline is reachable from what is on screen."""
-    now = now or datetime.now(UTC)
+    now = now or await reader_now(pool)
     obs = await pool.fetchrow(
         "SELECT id, obs_id, type, value FROM observables"
         " WHERE workspace_id = $1 AND obs_id = $2",
@@ -266,33 +339,59 @@ async def digest(
     is not quiet, it is wrong — so the health of the checkers travels with the
     claim, and `Digest.trustworthy` is what a client asks before rendering the
     reassuring version."""
-    now = now or datetime.now(UTC)
+    now = now or await reader_now(pool)
+    # Every list is asked for one row more than the caller wants. A digest is
+    # read as "here is what happened", and S17 Step 0 measured what it does when
+    # there is more than fits: with two re-open events and limit=1 it returned
+    # one and said nothing about the other — and a 365-day window found 32,930
+    # decayed verdicts and showed 50. That is the same failure as an unexplained
+    # empty list, which this surface already refuses to make: a bounded answer
+    # presented as a complete one. The extra row is the cheapest honest signal —
+    # no COUNT(*) over the archive, and never a total the page cannot back up.
+    probe = limit + 1
+    over: list[str] = []
+
+    def cut(rows: list, field: str) -> tuple:
+        if len(rows) > limit:
+            over.append(field)
+        return tuple(rows[:limit])
+
+    matches = cut(
+        await list_matches(
+            pool, workspace_id=workspace_id, status="open", limit=probe, since=since
+        ),
+        "matches",
+    )
+    flips = cut(
+        await list_flips(pool, workspace_id=workspace_id, limit=probe, since=since),
+        "flips",
+    )
+    contradicted = cut(
+        await list_watchers(
+            pool,
+            workspace_id=workspace_id,
+            status="satisfied",
+            limit=probe,
+            satisfied_since=since,
+        ),
+        "contradicted",
+    )
+    decayed = cut(
+        await decayed_since(
+            pool, workspace_id=workspace_id, since=since, now=now, limit=probe
+        ),
+        "decayed",
+    )
     return Digest(
         since=since,
         now=now,
-        matches=tuple(
-            await list_matches(
-                pool, workspace_id=workspace_id, status="open", limit=limit, since=since
-            )
-        ),
-        flips=tuple(
-            await list_flips(pool, workspace_id=workspace_id, limit=limit, since=since)
-        ),
-        contradicted=tuple(
-            await list_watchers(
-                pool,
-                workspace_id=workspace_id,
-                status="satisfied",
-                limit=limit,
-                satisfied_since=since,
-            )
-        ),
-        decayed=tuple(
-            await decayed_since(
-                pool, workspace_id=workspace_id, since=since, now=now, limit=limit
-            )
-        ),
+        matches=matches,
+        flips=flips,
+        contradicted=contradicted,
+        decayed=decayed,
         checkers=tuple(checkers),
+        limit=limit,
+        truncated=tuple(over),
     )
 
 
