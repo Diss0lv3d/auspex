@@ -432,6 +432,20 @@ SCHEMA_V0: list[str] = [
         END IF;
     END $$
     """,
+    # S17 Step 0: the digest's decay read. A verdict crossed staleness edge `e`
+    # inside (since, now] iff its created_at falls in a window as wide as the
+    # window itself — see _DECAYED_SQL. That makes the crossing set a created_at
+    # RANGE per (edge, half-life) pair, and this is the index those ranges probe.
+    # Measured on 99k observables / 109k verdicts (docs/probes/
+    # 2026-08-11-s17-step0-review.md): without it the digest read the workspace's
+    # entire history and spilled its sort to disk at 143 ms; with it, 4.6 ms.
+    #
+    # half_life_days precedes created_at because the crossing offset is a
+    # multiple of it: the equality pins the family, the range walks the dates.
+    """
+    CREATE INDEX IF NOT EXISTS idx_verdicts_ws_hl_created
+        ON verdicts (workspace_id, half_life_days, created_at)
+    """,
 ]
 
 

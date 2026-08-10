@@ -53,6 +53,21 @@ def test_timeline_page_holds_no_decay_arithmetic_of_its_own(client):
     assert "v.staleness" in body
 
 
+def test_timeline_page_never_states_a_count_it_cannot_back_up(client):
+    """S17 Step 0. The digest banner used to render the arrival count as the
+    total, so a page cut at 50 announced "50 went stale" when 32,930 had. Counts
+    for a truncated list are stated as a floor, and each cut section says so."""
+    body = client.get("/timeline").text
+    # the banner reads its counts through the helper that knows about the cut...
+    assert 'count(d, "reopened")' in body
+    assert "at least" in body
+    # ...and no section renders a raw arrival length as a total any more.
+    assert "${d.decayed.length}" not in body
+    assert "${d.reopened.length}" not in body
+    # the server's own flags are what it trusts, not a guess from array sizes
+    assert "d.truncated" in body and "d.complete" in body
+
+
 def test_timeline_page_never_names_the_engine(client):
     body = client.get("/timeline").text.lower()
     for name in FORBIDDEN_ENGINE_NAMES:

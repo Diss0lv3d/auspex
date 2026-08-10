@@ -19,7 +19,7 @@ at the strength they had the day they were written.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -34,6 +34,7 @@ from auspex.timeline.staleness import (
     STALE_AT_HALF_LIVES,
     Staleness,
 )
+from auspex.timeline.store import reader_now
 
 logger = logging.getLogger("auspex.timeline")
 
@@ -138,11 +139,29 @@ def _timeline_payload(t: VerdictTimeline) -> dict:
     }
 
 
+# Which payload list each Digest field is rendered as. Explicit because the
+# payload renames three of the four, and a truncation flag naming a key the
+# client cannot find in the response would be worse than no flag at all.
+_LIST_NAMES = {
+    "matches": "reopened",
+    "flips": "flipped",
+    "contradicted": "contradicted",
+    "decayed": "decayed",
+}
+
+
 def _digest_payload(d: Digest) -> dict:
     return {
         "since": d.since.isoformat(),
         "now": d.now.isoformat(),
         "quiet": d.quiet,
+        # A page size and what it hid (S17 Step 0). Without these, a digest
+        # showing 50 of 32,930 decayed verdicts reads exactly like one showing
+        # all 50 there were — the surface that refuses to present an unexplained
+        # empty list must not present a truncated one either.
+        "limit": d.limit,
+        "complete": d.complete,
+        "truncated": [_LIST_NAMES[f] for f in d.truncated],
         # The honest half of a quiet answer (S16 Step 0): "nothing contradicted
         # your verdicts" is an absence claim, and 50 consecutive failed checks
         # produce exactly the same empty lists as 50 quiet ones.
@@ -226,7 +245,11 @@ async def get_digest(
     Declared BEFORE `/{obs_id}` so the literal path wins the route match — an
     observable can never be called "digest", but relying on that would be a
     coincidence rather than a decision."""
-    now = datetime.now(UTC)
+    # Both ends of the window come from the DATABASE's clock, because the
+    # `created_at` they are compared against does (S17 Step 0 — see
+    # timeline.store.reader_now). Deriving `since` from the app clock and the
+    # rows from Postgres let a skewed container slide the whole window.
+    now = await reader_now(request.app.state.pool)
     # The scheduler owns the change consumers; when ingest is disabled (the
     # devhost pins, a fresh process) there is no roster, and `trustworthy` says
     # so rather than assuming the quiet is real.

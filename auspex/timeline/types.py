@@ -122,10 +122,21 @@ class Digest:
     contradicted: tuple[Watcher, ...]  # claims that stopped being true
     decayed: tuple[Decayed, ...]  # these went stale by themselves
     checkers: tuple[CheckerStatus, ...]
+    # The page size these four lists were cut to, and which of them had more
+    # rows waiting (S17 Step 0). Field names are this dataclass's own; the route
+    # translates them into the names its payload gives the same lists.
+    limit: int = 0
+    truncated: tuple[str, ...] = ()
 
     @property
     def quiet(self) -> bool:
         return not (self.matches or self.flips or self.contradicted or self.decayed)
+
+    @property
+    def complete(self) -> bool:
+        """Whether these lists are all of it. A quiet digest is trivially
+        complete; a busy one is only complete if nothing was cut."""
+        return not self.truncated
 
     @property
     def trustworthy(self) -> bool:
@@ -136,11 +147,40 @@ class Digest:
         watching, so quiet is not evidence of quiet. Defaulting an unknown
         roster to trustworthy would be the same mistake in a nicer place.
 
-        It deliberately does NOT require `ever_succeeded`. A checker only
-        records success when a check actually ran, and in a genuinely quiet
-        week nothing triggers one — so demanding a success here would report a
-        healthy platform as untrustworthy for exactly as long as it had nothing
-        to do, which is the same conflation of "dead" and "idle" this field
-        exists to undo, pointed the other way. `ever_succeeded` travels in the
-        payload for a client that wants the stricter reading."""
-        return bool(self.checkers) and not any(c.degraded for c in self.checkers)
+        S17 Step 0 executed the two ways a pristine-looking roster lies, both
+        rooted in `FailureCounter` living in the process rather than the
+        database (auspex/checks.py):
+
+        * **Nothing has run yet.** A freshly started process reports every
+          checker at zero failures. Zero failures out of zero attempts is not
+          health, so a roster where NOTHING has ever succeeded cannot support an
+          absence claim. Measured: a process that had run no cycle at all
+          reported `quiet=True, trustworthy=True`.
+        * **The counter forgets across restarts.** A crash-looping app fails its
+          checks every single cycle and never reaches `DEGRADED_AFTER`, because
+          the count resets before it gets there. Measured: three restarts, every
+          cycle failing, `degraded=False` and `trustworthy=True` throughout. So
+          a checker whose only evidence in this process is failure is treated as
+          untrustworthy at the FIRST failure — `DEGRADED_AFTER` exists to
+          tolerate a bad batch among successes, and with no successes there is
+          nothing to tolerate it against.
+
+        Both live here rather than in `CheckerStatus.degraded`, which stays the
+        breaker-shaped fact it has always been: this property is the one that
+        makes a claim, so it is the one that has to be careful. What is still
+        NOT caught is a checker that succeeded and then stopped being run at all
+        — `ever_succeeded` never expires — which needs a heartbeat with a
+        timestamp behind it (TD-022).
+
+        `ever_succeeded` alone would have been too strict, and that is why the
+        scheduler counts completed CYCLES (`ingest-cycle`): a consumer only
+        records success when a relevant change actually arrives, so in a quiet
+        week nothing but the cycle counter can prove the platform is alive."""
+        if not self.checkers:
+            return False
+        if any(c.degraded for c in self.checkers):
+            return False
+        # Failure with nothing to weigh it against — see the second case above.
+        if any(c.consecutive_failures and not c.ever_succeeded for c in self.checkers):
+            return False
+        return any(c.ever_succeeded for c in self.checkers)

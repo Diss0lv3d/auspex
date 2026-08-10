@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from auspex.checks import DEGRADED_AFTER
 from auspex.ingest.events import DocChange
 from auspex.ingest.kev import KEVCatalog
 from auspex.ingest.scheduler import ATTACK_FEED, KEV_FEED, NVD_FEED, IngestScheduler
@@ -936,3 +937,54 @@ async def test_cycle_proceeds_after_bootstrap_heals():
     assert "cycle skipped" not in summary
     assert kb.bootstrap_calls == 1
     assert len(kev.conditional_args) == 1  # the same cycle continued into the feeds
+
+
+# ── cycle liveness (S17 Step 0) ─────────────────────────────────────────────
+
+
+async def test_a_completed_cycle_is_recorded_even_when_no_feed_moved():
+    """The evidence a quiet week needs. Every change consumer records success
+    only when a relevant change actually arrives, so a week where no feed moved
+    leaves them looking exactly like dead ones — and the S16 digest read that as
+    trustworthy (auspex/timeline/types.py). A cycle that completed is not proof
+    a claim was checked; it is proof something would have checked one."""
+    kb, state, sink = FakeKB(), idle_cursors(), RecordingSink()
+    sched = scheduler(kb=kb, state=state, sink=sink, kev=FakeKEV([kev_catalog()]))
+    await sched.run_cycle()
+    cycles = {c.name: c for c in sched.checker_health}["ingest-cycle"]
+    assert cycles.ever_succeeded
+    assert cycles.consecutive_failures == 0 and not cycles.degraded
+
+
+async def test_a_failed_phase_counts_against_the_cycle():
+    """A cycle whose CVE pipeline died looked at nothing, and must not be able to
+    vouch for a quiet digest."""
+    kev = FakeKEV([RuntimeError("CISA down")])
+    sched = scheduler(kev=kev)
+    for _ in range(DEGRADED_AFTER):
+        await sched.run_cycle()
+    cycles = {c.name: c for c in sched.checker_health}["ingest-cycle"]
+    assert cycles.consecutive_failures == DEGRADED_AFTER
+    assert cycles.degraded and not cycles.ever_succeeded
+
+
+async def test_a_cycle_skipped_for_a_dead_kb_is_not_a_success():
+    """The laundering this counter exists to stop: ingest that never came up has
+    not earned the right to say the quiet is real."""
+    kb = FakeKB()
+    kb.bootstrapped = False
+    kb.bootstrap_heals = False
+    sched = scheduler(kb=kb, kev=FakeKEV([kev_catalog()]))
+    assert "cycle skipped" in await sched.run_cycle()
+    cycles = {c.name: c for c in sched.checker_health}["ingest-cycle"]
+    assert not cycles.ever_succeeded
+    assert cycles.consecutive_failures == 0  # not a failure either — nothing ran
+
+
+async def test_the_cycle_counter_is_on_the_roster_even_without_a_tracking_sink():
+    """`checker_health` is what the digest reads. A NullSink seam contributes no
+    consumer entries, and the cycle counter must still be there — otherwise an
+    empty roster is the only signal and 'ingest is off' and 'ingest is wedged'
+    stay indistinguishable."""
+    sched = scheduler(sink=None)
+    assert [c.name for c in sched.checker_health] == ["ingest-cycle"]
