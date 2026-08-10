@@ -88,6 +88,39 @@ LEFT JOIN LATERAL (
 """
 
 
+# The re-open list, with the falsified claim derived rather than stored (S16
+# Step 0 — see `list_matches`). A module constant for the same reason as
+# `_SWEEP_SQL`: the plan is asserted by a test, and a query only a test can see
+# is a query nobody probes.
+#
+# The LATERAL runs at most `limit` times — the outer LIMIT is applied to the
+# match rows before it — and each run is a descent into the PARTIAL index on
+# status='satisfied'. That index is what keeps this proportional to the events
+# on screen instead of to every watcher the workspace has ever satisfied, which
+# is the population that grows without bound.
+_MATCHES_SQL = """
+SELECT m.id, m.workspace_id, m.observable_id, o.obs_id, o.type, o.value,
+       m.doc_id, m.feed, m.change_kind, m.verdict_label, m.status,
+       m.created_at, w.claim AS falsified_claim
+FROM retrohunt_matches m
+JOIN observables o ON o.id = m.observable_id AND o.workspace_id = m.workspace_id
+LEFT JOIN LATERAL (
+    SELECT claim
+    FROM watchers
+    WHERE workspace_id = m.workspace_id
+      AND observable_id = m.observable_id
+      AND status = 'satisfied'
+      AND satisfied_by = m.doc_id
+      AND satisfied_change_kind = m.change_kind
+    ORDER BY satisfied_at DESC, id
+    LIMIT 1
+) w ON TRUE
+WHERE m.workspace_id = $1 AND ($2::text IS NULL OR m.status = $2)
+ORDER BY m.created_at DESC, m.id
+LIMIT $3
+"""
+
+
 def normalize_doc_ids(doc_ids: Sequence[str]) -> list[str]:
     """CVE ids are canonically upper-case and every writer already upper-cases
     (kb/seed.py, kev.py, the S4 classifier), so the join can compare exactly and
@@ -176,23 +209,22 @@ async def list_matches(
     limit: int = 50,
 ) -> list[RetroHuntMatch]:
     """This workspace's re-open events, newest first. Workspace-scoped in the
-    WHERE clause (D-008) — the sweep is global, every read is not."""
-    rows = await pool.fetch(
-        """
-        SELECT m.id, m.workspace_id, m.observable_id, o.obs_id, o.type, o.value,
-               m.doc_id, m.feed, m.change_kind, m.verdict_label, m.status,
-               m.created_at, w.claim AS falsified_claim
-        FROM retrohunt_matches m
-        JOIN observables o ON o.id = m.observable_id AND o.workspace_id = m.workspace_id
-        LEFT JOIN watchers w ON w.id = m.watcher_id AND w.workspace_id = m.workspace_id
-        WHERE m.workspace_id = $1 AND ($2::text IS NULL OR m.status = $2)
-        ORDER BY m.created_at DESC, m.id
-        LIMIT $3
-        """,
-        workspace_id,
-        status,
-        limit,
-    )
+    WHERE clause (D-008) — the sweep is global, every read is not.
+
+    The falsified claim is DERIVED here rather than read from a column a writer
+    had to remember to set (S16 Step 0 — see satisfy_documents). A watcher and
+    the match it upgrades describe the same fact from two sides: same workspace,
+    same observable, same doc, same change kind. Deriving that pairing at read
+    time means neither writer has to run first, or at all, for the analyst to
+    see which claim the intel contradicted.
+
+    The LATERAL is ordered because the pairing is not unique over time: a later
+    verdict registers its own watcher of the same kind, and a re-emitted change
+    can satisfy that one too, leaving two satisfied rows with identical keys.
+    Newest wins — which is what the old column did when the second satisfaction
+    overwrote it, except now it is a decision instead of a write-order accident.
+    """
+    rows = await pool.fetch(_MATCHES_SQL, workspace_id, status, limit)
     return [
         RetroHuntMatch(
             id=r["id"],

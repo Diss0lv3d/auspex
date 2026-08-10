@@ -395,8 +395,43 @@ SCHEMA_V0: list[str] = [
     # the S14 re-open event for the same doc from "new intel touches an
     # observable you saw" to "new intel contradicts the specific claim this
     # verdict made". Two rows for one fact would train the analyst to skim.
-    "ALTER TABLE retrohunt_matches ADD COLUMN IF NOT EXISTS watcher_id uuid"
-    " REFERENCES watchers(id) ON DELETE SET NULL",
+    #
+    # S16 Step 0 moved that link from a WRITTEN column to a DERIVED one. S15
+    # wrote `retrohunt_matches.watcher_id` from the watcher sink, which could
+    # only find the match if the retro-hunt sink had already written it — true
+    # by the order `FanoutSink` happened to be constructed in, and by nothing
+    # else. Executed: reversing the two sinks, or the retro-hunt sink simply
+    # failing that batch, dropped the link with no error anywhere, and the loss
+    # was PERMANENT (the satisfy UPDATE is guarded on status='open', so no later
+    # cycle ever retries it). Recording WHICH change satisfied the watcher makes
+    # the link a fact about the watcher row, derivable from either side in any
+    # order (docs/probes/2026-08-10-s16-step0-review.md).
+    "ALTER TABLE watchers ADD COLUMN IF NOT EXISTS satisfied_change_kind text",
+    # Mirrors idx_watchers_open_obs_kind for the other end of a watcher's life.
+    # The re-open list derives its claim per row, so this is a LIMIT-50 lateral
+    # of index descents rather than a scan of every watcher ever satisfied.
+    """
+    CREATE INDEX IF NOT EXISTS idx_watchers_satisfied_obs
+        ON watchers (observable_id, satisfied_by) WHERE status = 'satisfied'
+    """,
+    # Retire the written column, preserving every link it already holds. Guarded
+    # on the column's existence so the whole list stays idempotent — after the
+    # drop this statement is a no-op rather than an error on the next boot.
+    """
+    DO $$
+    BEGIN
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'retrohunt_matches' AND column_name = 'watcher_id'
+        ) THEN
+            UPDATE watchers w
+               SET satisfied_change_kind = m.change_kind
+              FROM retrohunt_matches m
+             WHERE m.watcher_id = w.id AND w.satisfied_change_kind IS NULL;
+            ALTER TABLE retrohunt_matches DROP COLUMN watcher_id;
+        END IF;
+    END $$
+    """,
 ]
 
 

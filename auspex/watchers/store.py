@@ -140,9 +140,20 @@ async def check_documents(
 async def satisfy_documents(
     pool: asyncpg.Pool, hits: Sequence[WatcherHit], *, change_kind: str
 ) -> int:
-    """Mark watchers satisfied and point the S14 re-open event at the claim that
-    was contradicted. Returns watchers actually moved — re-emission of the same
-    DocChange is not news twice, so the UPDATE is guarded on status.
+    """Mark watchers satisfied, recording WHICH change contradicted the claim.
+    Returns watchers actually moved — re-emission of the same DocChange is not
+    news twice, so the UPDATE is guarded on status.
+
+    It does NOT reach into `retrohunt_matches` to link the S14 re-open event,
+    which is what S15 did. That write could only land if the retro-hunt sink had
+    already recorded the match, so the analyst-facing `falsifies` existed by
+    virtue of the order `FanoutSink` happened to be constructed in. Executed at
+    S16 Step 0: reverse the sinks — or let the retro-hunt sink fail that one
+    batch, which it is designed to survive — and the link vanished with no error
+    anywhere, permanently, because the next cycle finds the watcher already
+    satisfied and never retries. Storing `satisfied_change_kind` instead makes
+    the pairing a property of this row that `list_matches` derives from either
+    side, in any order, including when the two rows are written cycles apart.
 
     Writes NO verdict, exactly as `record_matches` writes none: a watcher firing
     is the platform's own prediction coming true, which is the moment it would
@@ -157,33 +168,17 @@ async def satisfy_documents(
                 UPDATE watchers
                 SET status = 'satisfied',
                     satisfied_at = clock_timestamp(),
-                    satisfied_by = $2
+                    satisfied_by = $2,
+                    satisfied_change_kind = $3
                 WHERE id = $1 AND status = 'open'
                 RETURNING id
                 """,
                 h.watcher_id,
                 h.doc_id,
-            )
-            if row is None:
-                continue
-            moved += 1
-            # Link the event S14 already wrote for this doc. Natural key, so
-            # this is a unique-index lookup, and a miss is silent on purpose:
-            # the retro-hunt sink may legitimately not have recorded a match
-            # (its TRIGGER_KINDS are its own), and a satisfied watcher is still
-            # true when nothing links to it.
-            await conn.execute(
-                """
-                UPDATE retrohunt_matches SET watcher_id = $1
-                WHERE workspace_id = $2 AND observable_id = $3
-                      AND doc_id = $4 AND change_kind = $5
-                """,
-                h.watcher_id,
-                h.workspace_id,
-                h.observable_id,
-                h.doc_id,
                 change_kind,
             )
+            if row is not None:
+                moved += 1
     return moved
 
 

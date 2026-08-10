@@ -27,7 +27,7 @@ from auspex.enrich.types import (
 from auspex.enrich.verdict import synthesize
 from auspex.ingest.events import DocChange
 from auspex.retrohunt import RetroHuntSink, list_matches
-from auspex.retrohunt.store import SWEEP_CHUNK
+from auspex.retrohunt.store import _MATCHES_SQL, SWEEP_CHUNK
 from auspex.watchers import (
     CHECKED_ON_ENRICHMENT,
     CHECKED_ON_INGEST,
@@ -435,6 +435,76 @@ async def test_the_check_query_plans_on_indexes_not_a_table_scan(
     assert "Seq Scan on watchers" not in plan, plan
 
 
+@pytest.fixture
+async def seeded_satisfied(pool, workspace_id):
+    """Satisfied watchers and their re-open events, at a size where scanning
+    would cost something. This is the population that grows WITHOUT BOUND — a
+    satisfied watcher is never revisited and never deleted — so the read that
+    derives a claim from it is the one that must not degrade over a workspace's
+    lifetime."""
+    await pool.execute(
+        """
+        WITH obs AS (
+            INSERT INTO observables (workspace_id, obs_id, type, value)
+            SELECT $1, 'cve-splan-' || i, 'cve', 'CVE-2017-' || lpad(i::text, 6, '0')
+            FROM generate_series(1, $2) AS s(i)
+            ON CONFLICT (workspace_id, type, value) DO NOTHING
+            RETURNING id, value
+        ), v AS (
+            INSERT INTO verdicts (workspace_id, observable_id, label,
+                confidence_at_write, half_life_days, floor, source)
+            SELECT $1, obs.id, 'suspicious', 0.5, 365.0, 0.0, 'enrichment:seed'
+            FROM obs RETURNING id, observable_id
+        ), w AS (
+            -- Chained through RETURNING, never re-read from `observables`: rows
+            -- a data-modifying CTE inserts are invisible to the statement's own
+            -- table scans, so a join here would silently seed nothing.
+            INSERT INTO watchers (workspace_id, observable_id, verdict_id, kind,
+                claim, status, satisfied_at, satisfied_by, satisfied_change_kind)
+            SELECT $1, v.observable_id, v.id, 'kev_listing', 'seeded plan fixture',
+                   'satisfied', clock_timestamp(), obs.value, 'kev-added'
+            FROM v JOIN obs ON obs.id = v.observable_id
+            RETURNING observable_id, satisfied_by
+        )
+        INSERT INTO retrohunt_matches (workspace_id, observable_id, doc_id, feed,
+            change_kind, verdict_label)
+        SELECT $1, w.observable_id, w.satisfied_by, 'kev', 'kev-added', 'suspicious'
+        FROM w
+        ON CONFLICT DO NOTHING
+        """,
+        workspace_id,
+        PLAN_SEED_ROWS,
+    )
+    await pool.execute("VACUUM (ANALYZE) watchers")
+    await pool.execute("VACUUM (ANALYZE) observables")
+    await pool.execute("VACUUM (ANALYZE) retrohunt_matches")
+    yield
+    await pool.execute(
+        "DELETE FROM observables WHERE workspace_id = $1 AND obs_id LIKE 'cve-splan-%'",
+        workspace_id,
+    )
+    await pool.execute("VACUUM (ANALYZE) watchers")
+    await pool.execute("VACUUM (ANALYZE) observables")
+    await pool.execute("VACUUM (ANALYZE) retrohunt_matches")
+
+
+async def test_deriving_the_claim_plans_on_the_satisfied_index(
+    pool, workspace_id, seeded_satisfied
+):
+    """S16 Step 0 traded a written link for a derived one, and a derivation that
+    scans is how a correctness fix becomes a performance defect. The claim is
+    resolved per event on screen through the PARTIAL status='satisfied' index,
+    never by reading the satisfied population."""
+    plan = "\n".join(
+        r[0] for r in await pool.fetch(f"EXPLAIN {_MATCHES_SQL}", workspace_id, "open", 50)
+    )
+    assert "idx_watchers_satisfied_obs" in plan, plan
+    assert "Seq Scan on watchers" not in plan, plan
+    # The outer half is S14's and must stay indexed too.
+    assert "idx_retrohunt_matches_ws_status" in plan, plan
+    assert "Seq Scan on retrohunt_matches" not in plan, plan
+
+
 # -- the enrichment-side check -------------------------------------------------
 
 
@@ -521,6 +591,117 @@ async def test_a_match_without_a_registered_claim_says_so(pool, workspace_id):
         m for m in await list_matches(pool, workspace_id=workspace_id) if m.doc_id == CVE_A
     ]
     assert len(matches) == 1
+    assert matches[0].falsified_claim is None
+
+
+async def test_the_link_survives_the_sinks_running_in_either_order(pool, workspace_id):
+    """S16 Step 0. S15 wrote the link from the watcher side into the match row,
+    so it only landed if the retro-hunt sink had already written that row —
+    which was true of the order `FanoutSink` is constructed in and of nothing
+    else. Executed then: reversing these two arguments dropped `falsifies`
+    silently. The claim is derived now, so neither order is privileged."""
+    await persist_enrichment(pool, workspace_id, EnrichmentOutcome(items=(cve_item(CVE_A),)))
+    await FanoutSink(WatcherSink(pool), RetroHuntSink(pool)).emit(
+        [DocChange(CVE_A, "kev", "kev-added")]
+    )
+    matches = [
+        m for m in await list_matches(pool, workspace_id=workspace_id) if m.doc_id == CVE_A
+    ]
+    assert len(matches) == 1
+    assert matches[0].falsified_claim is not None
+    assert "not known to be exploited" in matches[0].falsified_claim
+
+
+async def test_the_link_survives_a_sweep_that_failed_a_whole_cycle_earlier(
+    pool, workspace_id
+):
+    """The same defect without any reordering, which is why the fix could not be
+    "enforce the order". The retro-hunt sink is DESIGNED to swallow its failures
+    so ingest outlives them, so the watcher can legitimately be satisfied in a
+    cycle that recorded no match at all. S15 never retried the link — the next
+    cycle found the watcher already satisfied and skipped it — so one survivable
+    sweep failure erased the claim permanently."""
+
+    class BrokenSweep:
+        async def emit(self, changes):
+            raise RuntimeError("sweep down")
+
+    await persist_enrichment(pool, workspace_id, EnrichmentOutcome(items=(cve_item(CVE_A),)))
+    await FanoutSink(BrokenSweep(), WatcherSink(pool)).emit(
+        [DocChange(CVE_A, "kev", "kev-added")]
+    )
+    assert not [m for m in await list_matches(pool, workspace_id=workspace_id)]
+
+    # The next healthy cycle writes the match. The watcher was satisfied a cycle
+    # ago and is never re-examined; the claim must still reach the analyst.
+    await FanoutSink(RetroHuntSink(pool), WatcherSink(pool)).emit(
+        [DocChange(CVE_A, "kev", "kev-added")]
+    )
+    matches = [
+        m for m in await list_matches(pool, workspace_id=workspace_id) if m.doc_id == CVE_A
+    ]
+    assert len(matches) == 1
+    assert matches[0].falsified_claim is not None
+
+
+async def test_two_verdicts_satisfied_by_one_doc_resolve_to_the_newest_claim(
+    pool, workspace_id
+):
+    """The pairing is not unique over time: a later verdict registers its own
+    watcher of the same kind, and a re-emitted change satisfies that one too.
+    Deriving the claim must pick deterministically rather than return whichever
+    row the planner reached first."""
+    await persist_enrichment(pool, workspace_id, EnrichmentOutcome(items=(cve_item(CVE_A),)))
+    await FanoutSink(RetroHuntSink(pool), WatcherSink(pool)).emit(
+        [DocChange(CVE_A, "kev", "kev-added")]
+    )
+    # A later verdict with a different label — so its claim reads differently —
+    # registers a fresh kev_listing watcher, which the same doc then satisfies.
+    await persist_enrichment(
+        pool, workspace_id, EnrichmentOutcome(items=(cve_item(CVE_A, VerdictLabel.BENIGN),))
+    )
+    await FanoutSink(RetroHuntSink(pool), WatcherSink(pool)).emit(
+        [DocChange(CVE_A, "kev", "kev-added")]
+    )
+    satisfied = [
+        w
+        for w in await list_watchers(pool, workspace_id=workspace_id, status="satisfied")
+        if w.kind == WatcherKind.KEV_LISTING.value
+    ]
+    assert len(satisfied) == 2  # both verdicts' claims were contradicted
+    matches = [
+        m for m in await list_matches(pool, workspace_id=workspace_id) if m.doc_id == CVE_A
+    ]
+    assert len(matches) == 1  # still ONE event for one fact
+    assert "benign" in matches[0].falsified_claim  # the newest, every time
+
+
+async def test_an_escalation_satisfaction_never_links_a_doc_event(pool, workspace_id):
+    """`check_escalation` is satisfied by a flip, not by a document, so it must
+    not be picked up by a re-open event that happens to touch the same
+    observable. Its `satisfied_by` is a flip id and its change kind is NULL."""
+    await persist_enrichment(pool, workspace_id, EnrichmentOutcome(items=(cve_item(CVE_A),)))
+    await persist_enrichment(
+        pool,
+        workspace_id,
+        EnrichmentOutcome(items=(cve_item(CVE_A, VerdictLabel.MALICIOUS),)),
+    )
+    await FanoutSink(RetroHuntSink(pool), WatcherSink(pool)).emit(
+        [DocChange(CVE_A, "kev", "kev-added")]
+    )
+    row = await pool.fetchrow(
+        "SELECT satisfied_by, satisfied_change_kind FROM watchers"
+        " WHERE workspace_id = $1 AND kind = $2 AND status = 'satisfied'",
+        workspace_id,
+        WatcherKind.PROVIDER_ESCALATION.value,
+    )
+    assert row["satisfied_by"].startswith("flip:")
+    assert row["satisfied_change_kind"] is None
+    # The malicious verdict registered no kev_listing watcher, so this event has
+    # no claim to carry — and must not borrow the escalation one.
+    matches = [
+        m for m in await list_matches(pool, workspace_id=workspace_id) if m.doc_id == CVE_A
+    ]
     assert matches[0].falsified_claim is None
 
 
