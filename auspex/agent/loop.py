@@ -22,11 +22,17 @@ import json
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from auspex.agent.permissions import PermissionOutcome, ProposalStore, gate
 from auspex.agent.registry import ToolRegistry
+
+if TYPE_CHECKING:
+    # Type-only: auspex.actions imports auspex.agent.permissions for the gate, so
+    # importing it here at runtime would close a cycle. The loop only ever reads
+    # the manifest's rendered text.
+    from auspex.actions import ActionManifest
 from auspex.llm.capability import PROBE_MAX_TOKENS
 from auspex.llm.client import ChatResult, ToolCall
 
@@ -219,11 +225,14 @@ class AgentLoop:
         max_steps: int = DEFAULT_MAX_STEPS,
         max_tokens: int = PROBE_MAX_TOKENS,
         temperature: float = 0.0,
+        actions: "ActionManifest | None" = None,
     ):
         self.registry = registry
         self.proposal_store = proposal_store
         self.mode = mode
         self.channel = channel_for(mode)
+        # S17: the action surface, as a DESCRIPTION. See `_actions_prefix`.
+        self.actions = actions
         self.workspace_id = workspace_id
         self.session_id = session_id
         self.system_prompt = system_prompt
@@ -241,7 +250,12 @@ class AgentLoop:
     ) -> AgentResult:
         specs = [] if not self.channel.offers_tools else self.registry.specs(tool_names)
         messages: list[dict] = [
-            {"role": "system", "content": self.system_prompt + self.channel.system_prefix(specs)}
+            {
+                "role": "system",
+                "content": self.system_prompt
+                + self.channel.system_prefix(specs)
+                + self._actions_prefix(),
+            }
         ]
         messages.extend(history or [])
         messages.append({"role": "user", "content": user_message})
@@ -277,6 +291,28 @@ class AgentLoop:
             temperature=self.temperature,
         )
         return AgentResult(final.content, self.max_steps, invocations, "step_cap", self.mode)
+
+    def _actions_prefix(self) -> str:
+        """The action surface, described to the planner (S17).
+
+        The manifest says what the actions ARE; this says what this runtime can
+        do with them, and the two are separate because only the second changes
+        when S18 lands. Today: nothing. Actions are NOT offered as callable tools
+        — `specs` above comes from the ToolRegistry alone, and `_dispatch`
+        resolves names there — because an action's dispatch is the proposal
+        round-trip S18 owns. Offering a name the model can call that resolves to
+        "unknown tool" would be a worse failure than one it can only recommend:
+        it invites the model to believe it acted.
+        """
+        if self.actions is None or not self.actions.actions:
+            return ""
+        return (
+            "\n\n"
+            + self.actions.directive()
+            + "\n\nYou cannot invoke these yourself in this turn — no mechanism here "
+            "will run one. Name the action and its arguments in your answer so a "
+            "human can approve it."
+        )
 
     async def _dispatch(self, call: ToolCall) -> ToolInvocation:
         tool = self.registry.get(call.name)
