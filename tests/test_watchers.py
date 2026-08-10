@@ -495,8 +495,13 @@ async def test_deriving_the_claim_plans_on_the_satisfied_index(
     scans is how a correctness fix becomes a performance defect. The claim is
     resolved per event on screen through the PARTIAL status='satisfied' index,
     never by reading the satisfied population."""
+    # Same arguments the default lens passes: no `since`, no observable filter
+    # (S16 added both to this one query rather than forking it).
     plan = "\n".join(
-        r[0] for r in await pool.fetch(f"EXPLAIN {_MATCHES_SQL}", workspace_id, "open", 50)
+        r[0]
+        for r in await pool.fetch(
+            f"EXPLAIN {_MATCHES_SQL}", workspace_id, "open", 50, None, None
+        )
     )
     assert "idx_watchers_satisfied_obs" in plan, plan
     assert "Seq Scan on watchers" not in plan, plan

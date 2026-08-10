@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Sequence
+from datetime import datetime
 from uuid import UUID
 
 import asyncpg
@@ -248,9 +249,16 @@ async def list_watchers(
     workspace_id: UUID,
     status: str | None = None,
     limit: int = 50,
+    satisfied_since: datetime | None = None,
+    observable_id: UUID | None = None,
 ) -> list[Watcher]:
     """This workspace's registered falsification conditions, newest first.
-    Workspace-scoped in the WHERE clause (D-008)."""
+    Workspace-scoped in the WHERE clause (D-008).
+
+    `satisfied_since` orders by WHEN THE CLAIM WAS CONTRADICTED rather than when
+    it was registered — the S16 digest asks "what stopped being true while I was
+    away", and a claim registered a year ago that fell over this morning is the
+    single most interesting row a workspace can produce."""
     rows = await pool.fetch(
         """
         SELECT w.id, w.workspace_id, w.observable_id, o.obs_id, o.value,
@@ -260,12 +268,18 @@ async def list_watchers(
         JOIN observables o ON o.id = w.observable_id AND o.workspace_id = w.workspace_id
         JOIN verdicts v ON v.id = w.verdict_id AND v.workspace_id = w.workspace_id
         WHERE w.workspace_id = $1 AND ($2::text IS NULL OR w.status = $2)
-        ORDER BY w.created_at DESC, w.id
+              AND ($4::timestamptz IS NULL OR w.satisfied_at > $4)
+              AND ($5::uuid IS NULL OR w.observable_id = $5)
+        ORDER BY
+            CASE WHEN $4::timestamptz IS NULL THEN NULL ELSE w.satisfied_at END DESC,
+            w.created_at DESC, w.id
         LIMIT $3
         """,
         workspace_id,
         status,
         limit,
+        satisfied_since,
+        observable_id,
     )
     return [
         Watcher(

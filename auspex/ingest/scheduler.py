@@ -140,6 +140,17 @@ class IngestScheduler:
             enabled=settings.ingest_enabled and kb.active,
         )
 
+    @property
+    def checker_health(self) -> tuple:
+        """What the change consumers know about their own last few attempts.
+
+        Empty when the sink does not track itself (the NullSink seam, and any
+        test double) — an unknown roster is reported as unknown rather than
+        defaulted to healthy, because the S16 digest reads this to decide
+        whether "nothing happened" may be shown as reassurance."""
+        health = getattr(self._sink, "health", None)
+        return tuple(health()) if callable(health) else ()
+
     async def aclose(self) -> None:
         feeds = [self._nvd, self._kev, self._epss]
         if self._attack is not None:

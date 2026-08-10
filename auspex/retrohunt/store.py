@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from datetime import datetime
 from uuid import UUID
 
 import asyncpg
@@ -116,6 +117,8 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) w ON TRUE
 WHERE m.workspace_id = $1 AND ($2::text IS NULL OR m.status = $2)
+      AND ($4::timestamptz IS NULL OR m.created_at > $4)
+      AND ($5::uuid IS NULL OR m.observable_id = $5)
 ORDER BY m.created_at DESC, m.id
 LIMIT $3
 """
@@ -207,6 +210,8 @@ async def list_matches(
     workspace_id: UUID,
     status: str | None = None,
     limit: int = 50,
+    since: datetime | None = None,
+    observable_id: UUID | None = None,
 ) -> list[RetroHuntMatch]:
     """This workspace's re-open events, newest first. Workspace-scoped in the
     WHERE clause (D-008) — the sweep is global, every read is not.
@@ -223,8 +228,16 @@ async def list_matches(
     can satisfy that one too, leaving two satisfied rows with identical keys.
     Newest wins — which is what the old column did when the second satisfaction
     overwrote it, except now it is a decision instead of a write-order accident.
+
+    `since` and `observable_id` are S16's lenses on the same events (a digest of
+    what landed while an analyst was away; one observable's history) rather than
+    new queries. Duplicating this SELECT to add a WHERE clause would fork the
+    derivation above, and a second copy of it is exactly how the surface starts
+    disagreeing with itself about which claim an event contradicted.
     """
-    rows = await pool.fetch(_MATCHES_SQL, workspace_id, status, limit)
+    rows = await pool.fetch(
+        _MATCHES_SQL, workspace_id, status, limit, since, observable_id
+    )
     return [
         RetroHuntMatch(
             id=r["id"],
@@ -281,9 +294,15 @@ async def mark_reviewed(pool: asyncpg.Pool, *, workspace_id: UUID, match_id: UUI
 
 
 async def list_flips(
-    pool: asyncpg.Pool, *, workspace_id: UUID, limit: int = 50
+    pool: asyncpg.Pool,
+    *,
+    workspace_id: UUID,
+    limit: int = 50,
+    since: datetime | None = None,
+    observable_id: UUID | None = None,
 ) -> list[VerdictFlip]:
-    """This workspace's recorded label changes, newest first."""
+    """This workspace's recorded label changes, newest first. `since` and
+    `observable_id` narrow the same trail for S16's two lenses."""
     rows = await pool.fetch(
         """
         SELECT f.id, f.workspace_id, f.observable_id, o.obs_id, o.value,
@@ -291,11 +310,15 @@ async def list_flips(
         FROM verdict_flips f
         JOIN observables o ON o.id = f.observable_id AND o.workspace_id = f.workspace_id
         WHERE f.workspace_id = $1
+              AND ($3::timestamptz IS NULL OR f.created_at > $3)
+              AND ($4::uuid IS NULL OR f.observable_id = $4)
         ORDER BY f.created_at DESC, f.id
         LIMIT $2
         """,
         workspace_id,
         limit,
+        since,
+        observable_id,
     )
     return [
         VerdictFlip(

@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING
 
 import asyncpg
 
+from auspex.checks import CheckerStatus, FailureCounter
 from auspex.watchers.store import check_documents, satisfy_documents
 from auspex.watchers.types import SATISFIED_BY_CHANGE
 
@@ -44,12 +45,22 @@ class WatcherSink:
 
     def __init__(self, pool: asyncpg.Pool) -> None:
         self._pool = pool
+        # S16: the swallow below is correct and stays, but it used to be the
+        # whole story. See auspex/checks.py — a checker that fails every cycle
+        # and one with nothing to do are indistinguishable at every analyst
+        # surface, and this surface's whole job is claims about absence.
+        self._health = FailureCounter("watchers")
+
+    @property
+    def health(self) -> CheckerStatus:
+        return self._health.status
 
     async def emit(self, changes: Sequence[DocChange]) -> None:
         grouped: dict[str, list[str]] = {}
         for c in changes:
             if c.kind in SATISFIED_BY_CHANGE:
                 grouped.setdefault(c.kind, []).append(c.doc_id)
+        failed = False
         for change_kind, doc_ids in grouped.items():
             kind = SATISFIED_BY_CHANGE[change_kind]
             try:
@@ -57,7 +68,9 @@ class WatcherSink:
                 moved = await satisfy_documents(
                     self._pool, hits, change_kind=change_kind
                 )
-            except Exception:  # noqa: BLE001 — ingest outlives watcher failures
+            except Exception as exc:  # noqa: BLE001 — ingest outlives watcher failures
+                failed = True
+                self._health.failed(exc)
                 logger.exception(
                     "watcher check failed: change=%s kind=%s docs=%d",
                     change_kind,
@@ -75,6 +88,12 @@ class WatcherSink:
                     len(hits),
                     moved,
                 )
+        # Success is recorded only when a check actually RAN. A cycle carrying
+        # no relevant changes is not evidence the checker works, and resetting
+        # on it would let a broken checker look healthy in the quiet weeks —
+        # which are exactly the weeks an analyst would be trusting the digest.
+        if grouped and not failed:
+            self._health.succeeded()
 
 
 class FanoutSink:
@@ -88,10 +107,31 @@ class FanoutSink:
 
     def __init__(self, *sinks) -> None:
         self._sinks = sinks
+        # For a sink that raises OUT of emit rather than swallowing internally.
+        # The two real consumers never do — which is why each carries its own
+        # counter — but a consumer that dies loudly must not be the one failure
+        # mode nothing counts.
+        self._health = FailureCounter("fanout")
+
+    def health(self) -> tuple[CheckerStatus, ...]:
+        """Each consumer's own status, plus this fanout's. Sinks that do not
+        track themselves are simply absent — the digest reports what is known,
+        never a default that reads as healthy."""
+        own = tuple(
+            s
+            for s in (getattr(sink, "health", None) for sink in self._sinks)
+            if isinstance(s, CheckerStatus)
+        )
+        return (*own, self._health.status)
 
     async def emit(self, changes: Sequence[DocChange]) -> None:
+        failed = False
         for sink in self._sinks:
             try:
                 await sink.emit(changes)
-            except Exception:  # noqa: BLE001 — one consumer must not sink another
+            except Exception as exc:  # noqa: BLE001 — one consumer must not sink another
+                failed = True
+                self._health.failed(exc)
                 logger.exception("change sink failed: %s", type(sink).__name__)
+        if not failed:
+            self._health.succeeded()

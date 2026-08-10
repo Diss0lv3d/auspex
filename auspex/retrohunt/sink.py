@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 import asyncpg
 
+from auspex.checks import CheckerStatus, FailureCounter
 from auspex.retrohunt.store import record_matches, sweep
 from auspex.retrohunt.types import TRIGGER_KINDS
 
@@ -40,6 +41,14 @@ class RetroHuntSink:
 
     def __init__(self, pool: asyncpg.Pool) -> None:
         self._pool = pool
+        # S16: counted for the same reason as the watcher sink's — a sweep that
+        # has failed every cycle since Tuesday produces the same empty re-open
+        # list as a quiet week (auspex/checks.py).
+        self._health = FailureCounter("retrohunt")
+
+    @property
+    def health(self) -> CheckerStatus:
+        return self._health.status
 
     async def emit(self, changes: Sequence[DocChange]) -> None:
         material = [c for c in changes if c.kind in TRIGGER_KINDS]
@@ -48,13 +57,16 @@ class RetroHuntSink:
         grouped: dict[tuple[str, str], list[str]] = {}
         for c in material:
             grouped.setdefault((c.feed, c.kind), []).append(c.doc_id)
+        failed = False
         for (feed, kind), doc_ids in grouped.items():
             try:
                 hits = await sweep(
                     self._pool, doc_ids=doc_ids, feed=feed, change_kind=kind
                 )
                 written = await record_matches(self._pool, hits)
-            except Exception:  # noqa: BLE001 — ingest outlives retro-hunt failures
+            except Exception as exc:  # noqa: BLE001 — ingest outlives retro-hunt failures
+                failed = True
+                self._health.failed(exc)
                 logger.exception(
                     "retro-hunt sweep failed: feed=%s kind=%s docs=%d",
                     feed,
@@ -72,3 +84,5 @@ class RetroHuntSink:
                     len(hits),
                     written,
                 )
+        if not failed:
+            self._health.succeeded()

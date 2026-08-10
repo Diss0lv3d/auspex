@@ -36,6 +36,7 @@ packages = [
     "auspex.kb",
     "auspex.modes",
     "auspex.retrohunt",
+    "auspex.timeline",
     "auspex.watchers",
 ]
 
