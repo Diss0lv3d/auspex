@@ -1,5 +1,40 @@
 # Technical debt — logged the moment it's taken
 
+## TD-023 (S17) — Actions SDK v1 bounds: scope is declared but not enforced, and an undo is never exercised
+**Where:** `auspex/actions/types.py` (`ActionScope`, `UndoSpec`, `ParamType`),
+`auspex/actions/registry.py` (in-process registry).
+**Risk:** none today — nothing executes (D-023, and S17 ships no executor). Each
+item becomes real the moment S18 wires the proposal round-trip:
+- **`scope` is a declaration, not a permission.** An action says it touches
+  `edr`, and nothing checks that this workspace granted anything at `edr`. The
+  approval card will name the system, so a human is the only enforcement — which
+  is the S18 design anyway, but it means scope is currently documentation with a
+  type.
+- **An undo is declared and never exercised.** The contract proves an undo
+  EXISTS and says what it restores; it cannot know whether it works. An undo
+  discovered to be broken at undo time is the worst moment to find out, and it is
+  the moment this design currently chooses.
+- **Parameters are primitives only** (string/integer/number/boolean). Deliberate
+  — the S2 harness measured every model mangling long/structured arguments — but
+  an action needing a list of host ids has no way to say so today.
+- **The registry is in-process and workspace-blind.** One `ActionRegistry` per
+  app, populated by code. There is no per-workspace action surface and nothing
+  persisted, so "which actions does this tenant have?" has no answer yet — and
+  the future customer Python SDK is exactly that question.
+- **No spec identity across time.** A proposal filed against an action, approved
+  an hour later, is executed against whatever that action's code says THEN.
+  Nothing pins the spec a human approved to the spec that runs.
+**Why accepted:** S17's scope was the contract, and every item above is either
+S18's subject (approval, execution, re-check at execute time) or needs a real
+customer action to design against. Logging them now so S18 does not rediscover
+them as surprises.
+**Path to fix:** (a) S18 — carry a spec fingerprint on the proposal row and
+re-validate at execute time (the "permission re-check at execute time" the S18
+roadmap line already promises, extended to the spec); (b) grant scopes per
+workspace and check them in the gate, not just render them; (c) require an undo
+DRY RUN so the reversal path is exercised whenever the action is; (d) array
+params once a real action needs one, with a measured bound per the S2 finding.
+
 ## TD-022 (S17) — a checker that dies AFTER succeeding once still reads as healthy
 **Where:** `auspex/checks.py` (`FailureCounter`, `CheckerStatus`),
 `auspex/ingest/scheduler.py` (`_cycles`), `auspex/timeline/types.py`

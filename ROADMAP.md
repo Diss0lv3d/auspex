@@ -188,9 +188,16 @@ may not grow mid-session (IDEAS.md exists for that).
 
 ## Phase 4 — Platform
 
-- [ ] **S17 — Actions SDK contract.** `@action` decorator (semantics/scope/risk),
+- [x] **S17 — Actions SDK contract.** `@action` decorator (semantics/scope/risk),
   **undo required for destructive**, dry_run required, registration API,
-  planner manifest integration.
+  planner manifest integration. _Ratified D-023. Destructive-without-undo is
+  unrepresentable (the spec cannot be constructed, and the registry re-checks);
+  `dry_run` required of everything with no defaulting; an undo declares what it
+  CANNOT restore; risk IS `ToolLevel` so the D-014 gate stays the only opinion
+  about approval; the manifest reuses the S13 capability decision. The loop is
+  told about actions and given no way to call one — dispatch is S18's proposal
+  round-trip. Also this session: Step-0 review of S16 fixed 3 defects, incl.
+  the digest's decay read at 143 ms → 4.6 ms (TD-021 closed on that item)._
 - [ ] **S18 — Approval flow.** Approval cards over SSE, atomic claim-first
   settlement, permission re-check at execute time.
 - [ ] **S19 — Hardening.** Input guard (injection patterns + security-content
