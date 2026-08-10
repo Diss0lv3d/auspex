@@ -111,9 +111,10 @@ TD-020's open question is answered, and a quiet digest now has to be earned.)_
    Verify findings BY EXECUTION before fixing; fix with regressions.
 3. **TD-005 re-battery trigger (standing, NOT tripped, CLOSER):** corpus > 30k
    chunks, ANY new doc_type, or embedding-model change → re-run the labeled
-   battery. S16 added no doc_type and no model change. Corpus **26,711 docs** at
-   S16 end (was 25,938 at S15 start) — ~770/day while the container runs, so
-   **this likely trips at S17 or S18**. Check it at Step 0.
+   battery. S16 added no doc_type and no model change. Corpus **27,460 docs** measured at
+   S17 start (26,711 at S16 end, 25,938 at S15 start) — ~750/day while the container runs.
+   **NOT tripped at S17 start** (2,540 short of the 30k line ≈ 3 days of
+   uptime), so this trips at **S18 or S19**. Re-check at every Step 0.
 
 ## Blockers / open risks
 1. **TD-001 (OAuth identity keyed on email)** — hard gate before any
@@ -134,9 +135,10 @@ TD-020's open question is answered, and a quiet digest now has to be earned.)_
 - Postgres 55432; app 8000; OpenSearch 9200. Host runs pin via
   `auspex.devhost` (ENRICHMENT/KB/INGEST disabled on host).
 - Ollama 0.32.5 on :11434; models qwen3:14b / llama3.1:8b / mistral:latest.
-- **`gh` DID flip at S16 start** — active account was SIRP-Burhan (work), fixed
-  with `gh auth switch --user bh3082336888-cell`. It did NOT flip at S13/S14/S15,
-  which is exactly why D-011 says re-check before EVERY `gh` call. Also: `gh pr
+- **`gh` did NOT flip at S17 start** (active = `bh3082336888-cell`, verified),
+  but it DID flip at S16 start and did not at S13/S14/S15 — the pattern is
+  "unpredictable", which is exactly why D-011 says re-check before EVERY `gh`
+  call rather than once per session. Also: `gh pr
   edit` fails on this repo with a Projects-classic GraphQL deprecation error —
   use `gh api -X PATCH repos/.../pulls/N` instead.
 - **`gh pr merge` is NOT blocked — corrected 2026-08-10.** S14/S15 recorded it
@@ -152,7 +154,12 @@ TD-020's open question is answered, and a quiet digest now has to be earned.)_
   GitHub; nothing here checks out `main`). `/promote` and any `main..staging`
   diff must `git fetch origin` and compare against `origin/main`. The commit
   LIST is meaningless after a squash — read `git diff origin/main..staging
-  --stat` (currently **53 files, +7,898/-265**).
+  --stat`. **Measured at S17 start: 2 files, +28/-23 — STATE.md and
+  NEXT-SESSION.md only** (commit `04d3e43`, the post-promote state correction).
+  The commit list still shows ~200 commits `origin/main..staging`; the diff is
+  the only honest reading. Content-wise `main` and `staging` differ by nothing
+  but those two docs, so **there is no code to promote until this session
+  produces some.**
 - **Plan assertions on this dev DB must VACUUM first.** Seeding and dropping
   25k rows leaves dead tuples behind; the planner costs a scan in PAGES, so
   bloat — not the query — decides the plan.
