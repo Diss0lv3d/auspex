@@ -1,5 +1,37 @@
 # Technical debt — logged the moment it's taken
 
+## TD-034 (S23) — the late-write knows the row was abandoned, not which operation was
+**Where:** `auspex/actions/settlement.py` — `_finish_claim`, the second
+statement (the late-write onto a terminal row).
+**Risk:** LOW, and **currently unreachable** — pinned by a test, not by luck.
+
+S22 gave a late handler the right to record its answer on a row a human already
+abandoned. That statement matches `WHERE status = 'abandoned' AND <column> IS
+NULL`, and `status` does not record *which* operation was abandoned: `execute`
+and `undo` both land in `abandoned`. Probed directly in
+docs/probes/s23-step0/probe_late_write.py, an undo late-write therefore stamps an
+`undo_result` onto a row abandoned during `execute` — an answer for an undo that
+never began.
+
+**Nothing can reach it today**, and the reason is a property of the *claim*, not
+of this statement: `undo` claims `WHERE status = 'executed'`, so an undo handler
+can only be in flight on a row that was executed, and abandon then moves that row
+out of `undoing` — never out of `executing`. Measured in the same probe (a real
+`undo()` on an execute-abandoned row raises `ExecutionRefused: not_executed`) and
+pinned by `test_an_undo_cannot_start_on_a_row_abandoned_during_execute`, which
+fails loudly if the undo claim is ever loosened.
+
+Two things that ARE sound, measured in the same probe: two late handlers race and
+exactly one answer lands (the `IS NULL` guard holds), and neither moves the row or
+touches the human's `decided_at`/`decided_by`.
+
+**Path to fix:** the schema has no column saying which operation a row was
+abandoned *from*, so the guard cannot express its own intent without one — e.g.
+`abandoned_from status` written by `abandon`, matched by the late-write. That is a
+migration plus a fourth writer's worth of care for a state nothing can currently
+enter, which is why it is logged rather than taken. Natural to fold into TD-028
+(b/c/d), which is already about what terminal states mean.
+
 ## TD-033 (S22) — an abbreviation ends the sentence, and takes the attribution with it
 **Where:** `auspex/guard.py` — `_SENTENCE_END_RE` / `_last_sentence`, carve-out (4).
 **Risk:** LOW. This is the *safe* half of the error, and it is ratified, not missed.

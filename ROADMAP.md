@@ -276,6 +276,32 @@ may not grow mid-session (IDEAS.md exists for that).
   abandoning human), raced with a real handler rather than simulated. TD-033
   ratified. 1014 tests; 118 modules; zero new env vars — nine sessions running.
 
+- [x] **S23 — the S22 review, and the ground under the agent path.** _Step 0 was
+  the session's substance; the chosen goal (wire AgentLoop into `/api/chat`)
+  landed its groundwork, not its implementation._ Promote #23 merged the whole
+  S22 slate. The fresh-eyes review found **two real defects in the day-old output
+  rail**, both confirmed by execution before anything was changed: **a leak in
+  pass 1 did not stop the turn** — `break` left only its own loop, and a tripped
+  scanner returns `None` by design, so pass 2 made a second inference call and
+  streamed a whole answer **completely unscanned** (S22's two leak tests both used
+  `native_reasoning=True`, so the two-pass path — the one a customer endpoint
+  actually takes — had no leak coverage at all); and **the scanner's carry crossed
+  the reasoning/answer boundary**, tripping on a run that existed in neither, which
+  is a false positive on the deep path's most ordinary shape. Both fixed with
+  regressions **proven to fail pre-fix**. **TD-034** ratified: the late-write is one
+  column short of its own intent but unreachable, and the reachability is now
+  pinned by a test rather than by luck. 34 assertions pinned sound — including the
+  question the brief asked, that an answer reproducing a whole deterministic verdict
+  block stays CLEAN. Then **D-031**: the agent path's streaming shape **measured on
+  real Scout** before a line of wiring — tool calls arrive with **zero content
+  before them** (so the answer can stream honestly), arguments come **fragmented
+  across nine deltas** split mid-token (so they must be accumulated), and
+  `finish_reason` is the step signal. Three hard constraints recorded with it: the
+  app populates **no ToolRegistry at all** (zero read tools today), the usage claim
+  must move inside the loop or TD-018 breaks, and the rail's index must follow the
+  composed system message. 1021 tests; 118 modules; zero new env vars — ten
+  sessions running.
+
 ## Later / explicitly deferred
 Herd Immunity federation (needs k≥3 workspaces + privacy review) · billing ·
 i18n · admin console · Python SDK public packaging · KSA residency routing.

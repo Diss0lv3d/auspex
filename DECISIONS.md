@@ -701,6 +701,59 @@ rail bounds accidents and naive attempts, not a determined authenticated
 caller). This decision is about *which text* a carve-out is allowed to read, and
 it supersedes nothing.
 
+## D-031 — The agent path streams: tool calls first, then the answer (2026-08-16, S23)
+
+**Context.** Wiring `AgentLoop` into `/api/chat` is the largest gap between the
+platform and its own README, and it was blocked on a shape mismatch: the loop is
+blocking and multi-step (`client.chat`, auspex/agent/loop.py:321), the route is
+SSE. Which way to resolve that depends on a fact about the customer's endpoint,
+not on taste, so it was probed before any code. Record:
+docs/probes/2026-08-16-s23-agentloop-streaming.md.
+
+**Decision 1 — the answer streams after the tools, and the tool steps are
+narrated.** Measured on real Scout: a tool-calling turn emits `tool_call` deltas
+with **zero content before them** (`content chars: 0`), and a control question
+needing no tool streams content normally. Because no prose precedes the tool
+results, the route can narrate each tool step and then stream the final answer
+without ever having streamed a sentence the results might contradict. The
+degenerate fallback — run the whole loop, emit one content blob — is not needed.
+
+**Decision 2 — tool-call arguments are accumulated before they are parsed.** One
+IP address arrived as **nine** fragments split mid-token (`'185', '.', '220'`).
+A streaming loop that parses a delta on arrival fails on the first one. The
+non-streaming path never saw this because the client already joins the fragments.
+
+**Decision 3 — `finish_reason` is the step signal, not a model sentence.**
+`"tool_calls"` means another step follows; `"stop"` ends the turn. Code-owned, per
+ADR 0006.
+
+**Decision 4 — the usage claim moves inside the loop.** The route claims 1–2
+inference calls up front (chat.py:506); a loop makes up to `DEFAULT_MAX_STEPS = 8`
+plus a synthesis call. Wiring the loop without moving the claim would let a
+workspace cause 9 calls while being charged 1, breaking exactly the guarantee
+TD-018 and D-027 exist to hold. A refusal mid-loop synthesises from what was
+gathered rather than failing the turn.
+
+**Decision 5 — the output rail indexes what the turn actually issued.** D-030
+decision 2 said only configuration WE issued is indexed; with a loop that set is
+composed at runtime (`system_prompt + channel.system_prefix + _actions_prefix`),
+so the index is built from the composed message rather than four fixed strings.
+Tool **results** stay unindexed — they are data, like the analyst's paste. And
+since the S23 Step-0 review made the scanner channel-aware, a tool result is its
+own channel: a run spanning a tool result and the answer is not a leak.
+
+**Consequence, stated because it is not a detail.** No `ToolRegistry` is populated
+anywhere in the running app — the only callable surface is
+`app.state.action_registry` with a single action. A loop wired in today has **zero
+read tools**, so the platform's real capabilities (enrichment, CVE lookup, KB
+retrieval) must be exposed as agent tools for an agent turn to be worth taking.
+That is the substance of the work, and it is separate from the wiring.
+
+**Scope of the measurement.** Native tool mode only. `prompted_tools` parses
+`<tool_call>` tags out of **content**, which would stream to the analyst as prose
+before the loop could strip them. It needs its own probe before being wired to a
+streaming surface.
+
 ## D-030 — The output rail checks for our configuration coming back, not for obedience (2026-08-16, S22)
 
 **Context.** Four entries now end with the same sentence — D-027, TD-031,

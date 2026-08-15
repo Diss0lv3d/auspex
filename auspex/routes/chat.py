@@ -546,11 +546,11 @@ async def chat(
                     messages, max_tokens=CHAT_ANSWER_MAX_TOKENS, temperature=0
                 ):
                     if ev.kind == "reasoning":
-                        if scanner.feed(ev.text):
+                        if scanner.feed(ev.text, channel="reasoning"):
                             break
                         yield _sse({"reasoning": ev.text})
                     elif ev.kind == "content":
-                        if scanner.feed(ev.text):
+                        if scanner.feed(ev.text, channel="content"):
                             break
                         content_parts.append(ev.text)
                         yield _sse({"content": ev.text})
@@ -567,26 +567,34 @@ async def chat(
                     temperature=0,
                 ):
                     if ev.kind == "content":
-                        if scanner.feed(ev.text):
+                        if scanner.feed(ev.text, channel="reasoning"):
                             break
                         analysis_parts.append(ev.text)
                         yield _sse({"reasoning": ev.text})
                 analysis = "".join(analysis_parts).strip()
-                # pass 2 = the answer, grounded in the private analysis → content.
-                async for ev in endpoint.client.chat_stream(
-                    [*messages, {"role": "system", "content": _pass2_directive(analysis)}],
-                    max_tokens=CHAT_ANSWER_MAX_TOKENS,
-                    temperature=0,
-                ):
-                    if ev.kind == "content":
-                        if scanner.feed(ev.text):
-                            break
-                        content_parts.append(ev.text)
-                        yield _sse({"content": ev.text})
-                    elif ev.kind == "finish":
-                        finish_reason = ev.finish_reason
-                    elif ev.kind == "usage" and ev.usage:
-                        usage = _usage_dict(ev.usage)
+                # A leak in pass 1 ENDS the turn. `break` leaves only its own
+                # loop, and a tripped scanner returns None from every later
+                # feed() by design (one leak, one report) — so without this
+                # guard pass 2 ran anyway and streamed a whole answer UNSCANNED.
+                # S23 review measured both halves: a second inference call on
+                # the customer's endpoint, and the full pass-2 answer reaching
+                # the analyst after the rail had already fired.
+                if not scanner.tripped:
+                    # pass 2 = the answer, grounded in the private analysis → content.
+                    async for ev in endpoint.client.chat_stream(
+                        [*messages, {"role": "system", "content": _pass2_directive(analysis)}],
+                        max_tokens=CHAT_ANSWER_MAX_TOKENS,
+                        temperature=0,
+                    ):
+                        if ev.kind == "content":
+                            if scanner.feed(ev.text, channel="content"):
+                                break
+                            content_parts.append(ev.text)
+                            yield _sse({"content": ev.text})
+                        elif ev.kind == "finish":
+                            finish_reason = ev.finish_reason
+                        elif ev.kind == "usage" and ev.usage:
+                            usage = _usage_dict(ev.usage)
         except LLMError as err:
             # Endpoint failure: report it, persist nothing as the assistant turn.
             yield _sse({"error": str(err)})

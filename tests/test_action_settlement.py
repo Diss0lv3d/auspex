@@ -1109,3 +1109,48 @@ async def test_the_abandon_route_refuses_a_fresh_claim_and_accepts_a_dead_one(
         p for p in client.get("/api/proposals", headers=hdr).json()["proposals"]
         if p["id"] == str(pid)
     ]
+
+
+async def test_an_undo_cannot_start_on_a_row_abandoned_during_execute(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """S23 review — the guarantee that keeps a measured bound unreachable.
+
+    `_finish_claim`'s late-write matches on `status = 'abandoned'`, and the
+    status does not record WHICH operation was abandoned: `execute` and `undo`
+    both land there. Probed directly, an `undo` late-write DOES stamp an
+    `undo_result` onto a row abandoned during `execute` — the statement is one
+    column short of its own intent (TD-034).
+
+    Nothing can reach it, and this is why: an undo claims `WHERE status =
+    'executed'`, so an undo handler can only ever be in flight on a row that was
+    executed, and abandon then moves that row out of `undoing` — never out of
+    `executing`. That is a guarantee of the *claim*, not of the late-write, so it
+    is pinned HERE. If someone later loosens the undo claim, this fails and
+    points at the statement that has to be tightened with it.
+    """
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await settlement.settle(
+        workspace_id=workspace_id, proposal_id=pid, decision="approved", decided_by=None
+    )
+    # The row a slow execute handler holds, old enough for a human to abandon.
+    await pool.execute(
+        "UPDATE proposals SET status = 'executing', claimed_at = now() - interval '1 hour'"
+        " WHERE id = $1::uuid",
+        str(pid),
+    )
+    abandoned = await settlement.abandon(
+        workspace_id=workspace_id, proposal_id=pid, decided_by=None
+    )
+    assert abandoned.won and abandoned.proposal["status"] == "abandoned"
+
+    with pytest.raises(ExecutionRefused) as caught:
+        await ActionExecutor(pool, registry).undo(
+            workspace_id=workspace_id, proposal_id=pid
+        )
+    assert caught.value.reason == "not_executed"
+
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert row["status"] == "abandoned"
+    assert row["undo_result"] is None
