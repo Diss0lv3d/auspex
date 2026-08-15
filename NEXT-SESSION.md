@@ -1,7 +1,9 @@
 # NEXT-SESSION — paste everything below the line into a fresh Claude Code window opened in /home/burhan/auspex-new
 
-_(**S20 is done, and it was the last session the ROADMAP had written down.** Six
-commits are waiting to promote. S20 promoted S19 via PR #19 **and recorded the
+_(**S20 is done, and it was the last session the ROADMAP had written down.**
+**Nothing is waiting to promote — S20 is already on `main` as `fc7c921` via PR #20,
+the first promote merged on a check anyone can see.** S20 promoted S19 via PR #19
+**and recorded the
 promote at merge time**, then reviewed it and found the sharpest defect was not the
 one the brief predicted: the guard was refusing **4 of 6 legitimate SOC questions**
 — "write a Sigma rule that fires on 'ignore all previous instructions'" got a 400 —
