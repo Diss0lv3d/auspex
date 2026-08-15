@@ -30,8 +30,8 @@ Five things make text CONTENT rather than an instruction:
    own vocabulary (`_is_analytical`), plus the presentational framings that
    precede a paste.
 4. **It is reported, not issued** — the imperative is attributed to someone
-   else before it appears ("the attacker told the model to …", "prompts that
-   say …", "did the model …"). See `_REPORTED_SPEECH_RE`.
+   else, in the same sentence, before it appears ("the attacker told the model
+   to …", "prompts that say …", "did the model …"). See `_REPORTED_SPEECH_RE`.
 5. **It is a bare artefact body** — the match sits inside a long block of text
    that is plainly a document rather than a request (see `_ARTEFACT_MIN_CHARS`).
 
@@ -39,11 +39,14 @@ Anything else — an imperative aimed at the platform, in the analyst's own voic
 outside any artefact — is REFUSED, in code, before the message reaches a model
 or the KB.
 
-Matching runs over a **folded** copy of the message (`_normalize`): invisible
-characters deleted and Latin lookalikes mapped back to ASCII, because
-"ig<ZWSP>nore" and "ignоre" (Cyrillic o) are the word to every reader and every
-tokenizer but not to `\\b(?:ignore)\\b`. The carve-outs still measure the
-ORIGINAL text, so the guard and the router never see two different messages.
+Matching runs over a **folded** copy of the message (`_normalize`) **and over
+the raw message**, unioned: folding deletes invisible characters and maps Latin
+lookalikes back to ASCII, because "ig<ZWSP>nore" and "ignоre" (Cyrillic o) are
+the word to every reader and every tokenizer but not to `\\b(?:ignore)\\b`.
+Both passes are needed because deletion is lossy in both directions — the same
+operation that repairs a broken word welds two whole ones together where the
+invisible stood in for a space. The carve-outs still measure the ORIGINAL text,
+so the guard and the router never see two different messages.
 
 What this module deliberately does NOT do: judge whether an answer was
 influenced. Post-hoc validation is TD-012, and asking a model to police itself
@@ -233,11 +236,20 @@ _QUOTE_LINE_RE = re.compile(r"^\s*>.*$", re.MULTILINE)
 # deliberately as one who fenced it. The lookarounds keep apostrophes out: in
 # "don't ignore all previous instructions, it's urgent" the two apostrophes are
 # both letter-adjacent, so they never open a span that could swallow the match.
+#
+# S21 review: the same lookarounds now guard EVERY pair, not just the
+# apostrophe. They were originally justified against contractions, which only
+# the apostrophe has — but the property they actually buy is that a quote
+# character welded to a word cannot OPEN a span, and that is what stops a stray
+# unpaired mark from pairing with the next real quote and covering everything
+# between them. Measured: `The rack is 42" deep. <imperative>. Ticket "OPS-1".`
+# returned CONTENT because the inch mark opened a span that ran to the ticket
+# reference. An inch mark is letter-adjacent; a real opening quote is not.
 _INLINE_QUOTE_RE = re.compile(
     r"(?<![A-Za-z0-9])'[^'\n]{1,300}'(?![A-Za-z0-9])"
-    r"|\"[^\"\n]{1,300}\""
-    r"|‘[^’\n]{1,300}’"
-    r"|“[^”\n]{1,300}”"
+    r"|(?<![A-Za-z0-9])\"[^\"\n]{1,300}\"(?![A-Za-z0-9])"
+    r"|(?<![A-Za-z0-9])‘[^’\n]{1,300}’(?![A-Za-z0-9])"
+    r"|(?<![A-Za-z0-9])“[^”\n]{1,300}”(?![A-Za-z0-9])"
 )
 
 # Reported speech: the imperative belongs to somebody else. This is the same
@@ -273,6 +285,29 @@ _REPORTED_SPEECH_RE = re.compile(
     )""",
     re.IGNORECASE | re.VERBOSE,
 )
+
+# Reported speech is a relation INSIDE one sentence — a subject, a speech verb,
+# and the words spoken. Two sentences are not an attribution, they are two
+# sentences, so this carve-out reads only the sentence the match lives in.
+#
+# S21 review, measured: checked against the whole preamble, an unrelated earlier
+# sentence licensed everything after it. `Open the ticket that contains the API
+# key. <imperative>` came back CONTENT — six such pairs out of six, none of them
+# describing anything. Scoping to the sentence closes all six and refuses none
+# of the pinned legitimate corpus, because every legitimate use of this
+# carve-out is same-sentence by construction ("the attacker told the model to
+# …", "prompts that say …", "did the model …").
+#
+# The analysis framing at (3) is deliberately NOT scoped this way: "here is the
+# email body:" is an INTRODUCER and is meant to govern everything after it. That
+# asymmetry is the point, and its cost is named in D-029.
+_SENTENCE_END_RE = re.compile(r"[.!?]\s")
+
+
+def _last_sentence(preamble: str) -> str:
+    cuts = [m.end() for m in _SENTENCE_END_RE.finditer(preamble)]
+    return preamble[cuts[-1]:] if cuts else preamble
+
 
 # What the analyst is told. Calm, specific, and it names the rule rather than
 # implying the platform detected an attacker — an analyst who tripped this on a
@@ -322,19 +357,32 @@ def inspect(message: str) -> GuardOutcome:
     if not message:
         return GuardOutcome(GuardVerdict.CLEAN)
 
-    # Match on the folded copy, report positions in the original (see
-    # `_normalize`): "ig<ZWSP>nore" is the word, and the carve-outs below must
-    # still see the message the router will see.
+    # Match on the folded copy AND on the raw message, then take the union.
+    # Positions are always reported in the original (see `_normalize`), because
+    # the carve-outs below must see the message the router will see.
+    #
+    # Both passes are required, because folding is lossy in BOTH directions.
+    # Deleting an invisible character reveals a match when the character sits
+    # inside a word ("ig<ZWSP>nore" -> "ignore"), and destroys one when it sits
+    # where a space would be: "previous<ZWSP>instructions" welds into
+    # "previousinstructions", and `\binstructions\b` has no boundary left to
+    # match. S20 fixed the first case by matching ONLY the folded copy, which
+    # opened the second — measured at 18 escapes across 9 invisible characters,
+    # and returning CLEAN rather than CONTENT, i.e. invisible to the rail
+    # exactly as the S20 defect was. The raw text is authoritative about
+    # boundaries the fold removes; the folded text is authoritative about words
+    # the raw text breaks. Neither is sufficient alone.
     folded, index_map = _normalize(message)
     hits: list[tuple[str, list[tuple[int, int]]]] = []
     for label, pattern in _INJECTION_PATTERNS:
-        spans = [
+        spans = {
             (index_map[start], index_map[end - 1] + 1)
             for start, end in _spans(folded, pattern)
             if end > start
-        ]
+        }
+        spans |= {(start, end) for start, end in _spans(message, pattern) if end > start}
         if spans:
-            hits.append((label, spans))
+            hits.append((label, sorted(spans)))
     if not hits:
         return GuardOutcome(GuardVerdict.CLEAN)
 
@@ -370,8 +418,11 @@ def inspect(message: str) -> GuardOutcome:
     # (4) Attributed to someone else before it appears — described, not issued.
     # Same position rule as (3), and for the same reason: an attribution that
     # counted from anywhere in the message would let an attacker staple "the
-    # email said so" onto the end of a bare imperative.
-    if _REPORTED_SPEECH_RE.search(preamble):
+    # email said so" onto the end of a bare imperative. Narrower than (3) in one
+    # way, though: only the sentence the match lives in counts, because an
+    # attribution two sentences back is not attributing anything. See
+    # `_last_sentence`.
+    if _REPORTED_SPEECH_RE.search(_last_sentence(preamble)):
         return GuardOutcome(GuardVerdict.CONTENT, label, "reported, not issued")
 
     # (5) A long document that happens to contain the line. An artefact pasted
