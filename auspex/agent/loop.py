@@ -209,6 +209,39 @@ def channel_for(mode: str) -> ToolChannel:
 # --- The loop ----------------------------------------------------------------
 
 
+def _refuse_shadowed_actions(
+    registry: ToolRegistry, actions: "ActionManifest | None"
+) -> None:
+    """An action's name and a tool's name live in one namespace as far as the
+    MODEL is concerned — and in two as far as the code is concerned.
+
+    S18 Step 0, executed. `ActionRegistry` and `ToolRegistry` never consult each
+    other, so an action `isolate_host` (risk DESTRUCTIVE, "requires human
+    approval") could coexist with a tool of the same name. The model is told the
+    action's `planner_description`, names `isolate_host`, and `_dispatch`
+    resolves that name in the ToolRegistry — running the TOOL, gated by the
+    TOOL's level. A read-level tool auto-executes. The action's declared risk is
+    bypassed entirely by name shadowing, and the D-014 gate never sees it.
+
+    This is the moment the two namespaces meet, so this is where it is refused —
+    at construction, before a single token is sent, and regardless of the order
+    the two registries were filled in. Raising is right rather than renaming:
+    silently preferring one would leave the model told about an action that is
+    not the thing it can call, which is the confusion the S17 loop integration
+    was arranged to avoid in the first place.
+    """
+    if actions is None or not actions.actions:
+        return
+    shadowed = sorted({a.name for a in actions.actions if a.name in registry})
+    if shadowed:
+        raise ValueError(
+            "action names collide with tool names: "
+            + ", ".join(shadowed)
+            + " — the model resolves one namespace, so an approval-gated action "
+            "would silently dispatch the tool of the same name (D-014)"
+        )
+
+
 class AgentLoop:
     """One instance per conversation turn context. `run()` takes the client so a
     loop can be exercised against a fake LLM in tests (no live endpoint)."""
@@ -233,6 +266,7 @@ class AgentLoop:
         self.channel = channel_for(mode)
         # S17: the action surface, as a DESCRIPTION. See `_actions_prefix`.
         self.actions = actions
+        _refuse_shadowed_actions(registry, actions)
         self.workspace_id = workspace_id
         self.session_id = session_id
         self.system_prompt = system_prompt

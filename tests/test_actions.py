@@ -49,6 +49,10 @@ async def _release(**kwargs) -> ActionOutcome:
     raise AssertionError("no test may execute an undo either")
 
 
+async def _run_other(**kwargs) -> ActionOutcome:
+    raise AssertionError("no test may execute a second action either")
+
+
 RELEASE = UndoSpec(
     description="Release the host from isolation",
     handler=_release,
@@ -217,8 +221,13 @@ def test_an_action_must_name_a_system_it_touches():
 
 
 def test_an_action_name_must_survive_the_wire():
-    with pytest.raises(ActionSpecError, match="must be non-empty"):
+    with pytest.raises(ActionSpecError, match="must be a wire identifier"):
         _spec(name="isolate host!")
+    # `str.isalnum()` is true for every unicode letter, so the original spelling
+    # of this rule read as ASCII-only and was not (S18 Step 0).
+    for bad in ("", "   ", "2fast", "isolate-host", "π"):
+        with pytest.raises(ActionSpecError, match="must be a wire identifier"):
+            _spec(name=bad)
 
 
 def test_parameters_must_be_distinct_and_self_describing():
@@ -396,7 +405,13 @@ def test_the_same_confusion_is_caught_in_the_other_order():
 
 def test_two_actions_may_share_a_dry_run():
     """Not every collision is a mistake: a shared "would do nothing" preview is a
-    legitimate pattern, and only execute-vs-dry_run confusion is dangerous."""
+    legitimate pattern, and only execute-vs-dry_run confusion is dangerous.
+
+    This test used `_release` — the FIRST action's undo handler — as the second
+    action's execute, which is the hazard S18 Step 0 found rather than the
+    sharing this test is about (undoing the isolation would have closed a
+    ticket). A distinct callable keeps the stated point and drops the accident.
+    """
     r = ActionRegistry()
     r.register(_spec(dry_run=_would))
     r.register(
@@ -406,7 +421,111 @@ def test_two_actions_may_share_a_dry_run():
             scope=(TICKETS,),
             undo=None,
             dry_run=_would,
-            execute=_release,
+            execute=_run_other,
         )
     )
     assert len(r) == 2
+
+
+# -- S18 Step 0: the slots S17's rails did not cover ---------------------------
+#
+# Every refusal in `validate_spec` is a claim that something cannot be built, so
+# Step 0 tried to build each one. Three got through, all confirmed by RUNNING the
+# result rather than by reading it (probe: docs/probes/2026-08-15-s18-step0-review.md).
+
+
+def test_an_undo_that_is_this_actions_own_dry_run_is_refused():
+    """`undo.handler is execute` was the only guard on the undo slot, so an undo
+    that was the action's own dry_run registered happily — reported
+    `reversible=True`, put "Undo: ..." in front of an approver, and then restored
+    nothing when run, because not doing anything is a dry run's whole job.
+
+    Same shape as the `dry_run=another_action` case S17 caught by execution: the
+    dangerous value is a legal callable that reads correctly at the call site."""
+    with pytest.raises(ActionSpecError, match="undo.handler is this action's dry_run"):
+        _spec(undo=UndoSpec(description="put it back", handler=_would, restores="connectivity"))
+
+
+def test_an_undo_may_not_be_another_actions_execute():
+    """Verified by execution before it was fixed: registering this and then
+    calling `isolate_host`'s undo really ran `close_ticket`'s execute. A spec
+    sees one action, so only the registry can catch it."""
+    r = ActionRegistry()
+    r.register(
+        _spec(
+            name="close_ticket",
+            risk=ActionRisk.WRITE,
+            scope=(TICKETS,),
+            undo=None,
+            dry_run=_would,
+            execute=_run_other,
+        )
+    )
+    with pytest.raises(ActionSpecError, match="undo.handler is the execute handler"):
+        r.register(
+            _spec(undo=UndoSpec(description="reconnect", handler=_run_other, restores="network"))
+        )
+
+
+def test_an_undo_may_not_be_another_actions_dry_run():
+    """The quieter half: this one performs nothing at all, reports success, and
+    the approval it unlocked was granted on its strength."""
+    r = ActionRegistry()
+    r.register(
+        _spec(
+            name="close_ticket",
+            risk=ActionRisk.WRITE,
+            scope=(TICKETS,),
+            undo=None,
+            dry_run=_run_other,
+            execute=_release,
+        )
+    )
+    with pytest.raises(ActionSpecError, match="undo.handler is the dry_run of action"):
+        r.register(
+            _spec(
+                dry_run=_would,
+                execute=_run,
+                undo=UndoSpec(description="reconnect", handler=_run_other, restores="network"),
+            )
+        )
+
+
+def test_a_later_action_may_not_claim_a_handler_an_undo_depends_on():
+    """Registration order must not decide whether the collision is caught — the
+    same reasoning S17 applied to dry_run/execute in both directions."""
+    r = ActionRegistry()
+    r.register(_spec())  # its undo is _release
+    with pytest.raises(ActionSpecError, match="already the undo of action"):
+        r.register(
+            _spec(
+                name="close_ticket",
+                risk=ActionRisk.WRITE,
+                scope=(TICKETS,),
+                undo=None,
+                dry_run=_would,
+                execute=_release,  # the undo isolate_host promised its approver
+            )
+        )
+
+
+def test_parameter_names_must_survive_the_wire_too():
+    """The action NAME was checked because "it is a tool name on the wire"; a
+    parameter name is a JSON-schema property key on the SAME wire and was checked
+    by nothing. All of these reached `wire_spec` and landed in `properties` AND
+    `required` — a model cannot reliably emit an argument named ''."""
+    for bad in ("", "   ", "host id", "host-id", "π", "2fast"):
+        with pytest.raises(ActionSpecError, match="must be a wire identifier"):
+            _spec(params=(ActionParam(bad, ParamType.STRING, "the host"),))
+
+
+def test_a_legal_parameter_name_still_compiles_to_the_wire():
+    """The rail must not have eaten the ordinary case."""
+    spec = _spec(
+        params=(
+            ActionParam("host_id", ParamType.STRING, "Short host id"),
+            ActionParam("_internal2", ParamType.INTEGER, "Second one"),
+        )
+    )
+    props = spec.wire_spec["function"]["parameters"]["properties"]
+    assert set(props) == {"host_id", "_internal2"}

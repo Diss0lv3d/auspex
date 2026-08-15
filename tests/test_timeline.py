@@ -851,3 +851,95 @@ def test_the_digest_window_is_bounded(client):
     assert client.get(
         "/api/timeline/digest", params={"days": 10_000}, headers=_hdr(client)
     ).status_code == 422
+
+
+# -- S18 Step 0: the rewrite's suspected blind spot, measured ------------------
+
+MANY_HALF_LIVES = 50  # S7 floors + per-type curves + a future per-source curve
+
+
+@pytest.fixture
+async def many_half_life_families(pool, workspace_id):
+    """The same 25k history, but spread over 50 distinct `half_life_days` values
+    instead of three.
+
+    `bounds` is `edges x half-lives`, so this is 150 LATERAL descents where the
+    S17 measurement had 9 — the reason S18 Step 0 suspected the rewrite of having
+    been measured on the one shape that flatters it."""
+    await pool.execute(
+        """
+        WITH obs AS (
+            INSERT INTO observables (workspace_id, obs_id, type, value)
+            SELECT $1, 'hlfam-' || i, 'domain', 'd' || i || '.families.test'
+            FROM generate_series(1, $2) AS s(i)
+            ON CONFLICT (workspace_id, type, value) DO NOTHING
+            RETURNING id, obs_id
+        )
+        INSERT INTO verdicts (workspace_id, observable_id, label,
+            confidence_at_write, half_life_days, floor, source, created_at)
+        SELECT $1, obs.id, 'suspicious', 0.6,
+               (7.0 * (1 + (substr(obs.obs_id, 7)::int % $3)))::real,
+               0.0, 'enrichment:seed',
+               clock_timestamp() - ((
+                   ('x' || substr(md5(obs.obs_id), 1, 8))::bit(32)::int % 730
+               ) || ' days')::interval
+        FROM obs
+        """,
+        workspace_id,
+        PLAN_SEED_ROWS,
+        MANY_HALF_LIVES,
+    )
+    await pool.execute("VACUUM (ANALYZE) observables")
+    await pool.execute("VACUUM (ANALYZE) verdicts")
+    yield
+    await pool.execute(
+        "DELETE FROM observables WHERE workspace_id = $1 AND obs_id LIKE 'hlfam-%'",
+        workspace_id,
+    )
+    await pool.execute("VACUUM (ANALYZE) observables")
+    await pool.execute("VACUUM (ANALYZE) verdicts")
+
+
+async def test_the_decay_read_stays_index_driven_with_many_half_life_families(
+    pool, workspace_id, many_half_life_families
+):
+    """S18 Step 0's strongest lead, refuted BY EXECUTION and pinned here.
+
+    The worry was multiplicative: every extra distinct half-life adds one edge's
+    worth of LATERAL descents, so 50 families means 150 descents and 2000 would
+    mean 6000. Measured (probe: docs/probes/2026-08-15-s18-step0-review.md), the
+    fan-out is close to free — 3 families 1.9 ms, 50 families 2.4 ms, and even
+    2000 families 12.2 ms, still faster than the query this replaced. The reason
+    it does not blow up is the part worth pinning: the SAME rows are partitioned
+    into more families, so each descent finds proportionally fewer of them, and
+    the total work tracks the rows that actually crossed rather than the number
+    of descents.
+
+    What must never come back is the shape: if a future change makes the planner
+    give up on the per-family descent and scan, this asserts before anyone
+    notices the digest got slow."""
+    now = await reader_now(pool)
+    families = await pool.fetchval(
+        "SELECT count(DISTINCT half_life_days) FROM verdicts WHERE workspace_id = $1",
+        workspace_id,
+    )
+    assert families >= MANY_HALF_LIVES  # the fixture really did spread them
+    plan = "\n".join(
+        r[0]
+        for r in await pool.fetch(
+            f"EXPLAIN {_DECAYED_SQL}",
+            workspace_id,
+            now,
+            now - timedelta(days=7),
+            list(_BAND_EDGES),
+            50,
+        )
+    )
+    assert "idx_verdicts_ws_hl_created" in plan, plan
+    assert "Seq Scan on verdicts" not in plan, plan
+    assert "Seq Scan on observables" not in plan, plan
+    # and it still answers correctly on that shape
+    found = await decayed_since(
+        pool, workspace_id=workspace_id, since=now - timedelta(days=7), now=now, limit=50
+    )
+    assert all(x.was != x.now for x in found)

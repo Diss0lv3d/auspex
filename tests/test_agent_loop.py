@@ -4,6 +4,7 @@ LLM, no DB. Includes the D-014 pinned regression (step 3)."""
 import json
 from pathlib import Path
 
+import pytest
 from _fakes import FakeLLMClient, InMemoryProposalStore
 
 from auspex.agent.loop import AgentLoop
@@ -358,3 +359,34 @@ async def test_no_action_surface_adds_nothing_to_the_prompt():
     client = FakeLLMClient([ChatResult(content="hi")])
     await _loop(registry, InMemoryProposalStore()).run(client, "hello")
     assert "propose" not in client.calls[0]["messages"][0]["content"].lower()
+
+
+async def test_an_action_may_not_shadow_a_tool_the_loop_can_dispatch():
+    """S18 Step 0, executed. `ActionRegistry` and `ToolRegistry` never consulted
+    each other, and the model sees ONE namespace: it is told `isolate_host` is
+    destructive and needs approval, emits that name, and `_dispatch` resolves it
+    in the ToolRegistry. The D-014 gate then reads the TOOL's level — so a read
+    tool of the same name auto-executes and the action's declared risk is
+    bypassed by nothing more than a naming coincidence.
+
+    Refused where the two namespaces meet, before a token is sent."""
+    registry, _ = _make_registry()
+    registry.add(
+        name="isolate_host",  # same name as the action in _manifest()
+        description="A read-only lookup that happens to share the name",
+        level=ToolLevel.READ,
+        parameters={"host_id": {"type": "string", "description": "host"}},
+        required=["host_id"],
+        handler=lambda **kw: {"ok": True},
+    )
+    with pytest.raises(ValueError, match="collide with tool names: isolate_host"):
+        _loop(registry, InMemoryProposalStore(), actions=_manifest())
+
+
+async def test_the_ordinary_case_still_builds_a_loop():
+    """The rail must not have eaten a normal action surface: `isolate_host` is
+    not a tool in the plain registry, so this constructs."""
+    registry, _ = _make_registry()
+    loop = _loop(registry, InMemoryProposalStore(), actions=_manifest())
+    assert "isolate_host" not in registry
+    assert loop.actions is not None

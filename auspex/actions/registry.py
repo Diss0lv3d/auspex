@@ -54,6 +54,8 @@ class ActionRegistry:
         # dry_run, which the spec cannot see and this registry can.
         self._executes: dict[object, str] = {}
         self._dry_runs: dict[object, str] = {}
+        # Same book-keeping for the undo slot — the one S17 left unguarded.
+        self._undos: dict[object, str] = {}
 
     def register(self, fn_or_spec: object) -> ActionSpec:
         """Register a decorated function or a bare spec. Returns the spec.
@@ -88,9 +90,40 @@ class ActionRegistry:
                 f"{previewer!r} — one of the two declarations is wrong"
             )
 
+        # The same reasoning, applied to the slot S17 left unguarded (S18 Step 0,
+        # executed). `validate_spec` can only see one spec, so it catches an undo
+        # that is THIS action's execute or dry_run; only the registry can see that
+        # an undo is ANOTHER action's handler. Both were registered and both ran:
+        # an "undo" that was another action's execute reversed an isolation by
+        # deleting a file, and one that was another action's dry_run reported
+        # success having restored nothing.
+        if spec.undo is not None:
+            performer = self._executes.get(spec.undo.handler)
+            if performer is not None:
+                raise ActionSpecError(
+                    f"{spec.name}: undo.handler is the execute handler of action "
+                    f"{performer!r} — undoing this would PERFORM that action"
+                )
+            faker = self._dry_runs.get(spec.undo.handler)
+            if faker is not None:
+                raise ActionSpecError(
+                    f"{spec.name}: undo.handler is the dry_run of action {faker!r} — "
+                    "a preview restores nothing, and the approval was granted on it"
+                )
+        # ...and in the other direction: a LATER action must not claim a handler
+        # some already-registered undo depends on.
+        reverser = self._undos.get(spec.execute) or self._undos.get(spec.dry_run)
+        if reverser is not None:
+            raise ActionSpecError(
+                f"{spec.name}: one of its handlers is already the undo of action "
+                f"{reverser!r} — one of the two declarations is wrong"
+            )
+
         self._actions[spec.name] = spec
         self._executes[spec.execute] = spec.name
         self._dry_runs[spec.dry_run] = spec.name
+        if spec.undo is not None:
+            self._undos[spec.undo.handler] = spec.name
         return spec
 
     def register_all(self, fns: Iterable[object]) -> tuple[ActionSpec, ...]:

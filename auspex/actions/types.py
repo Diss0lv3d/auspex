@@ -38,12 +38,19 @@ drift S16's staleness module exists to prevent for aging.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 
 from auspex.agent.registry import ToolLevel
 from auspex.llm.client import tool_spec
+
+# Both an action's name and a parameter's name are identifiers a MODEL has to
+# reproduce exactly on the wire. ASCII only and explicitly, because `str.isalnum`
+# is true for 'π' and every other unicode letter — the check that was here read
+# like it excluded them and did not.
+_WIRE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 # An action's risk IS its permission level. Same enum, same gate, one decision.
 ActionRisk = ToolLevel
@@ -227,10 +234,11 @@ def validate_spec(spec: ActionSpec) -> None:
     is impossible — the registry re-runs them so a spec built by any other route
     meets the same bar.
     """
-    if not spec.name or not spec.name.replace("_", "").isalnum():
+    if not _WIRE_NAME.fullmatch(spec.name or ""):
         raise ActionSpecError(
-            f"action name {spec.name!r} must be non-empty and alphanumeric/underscore "
-            "(it is a tool name on the wire)"
+            f"action name {spec.name!r} must be a wire identifier — ASCII letters, "
+            "digits and underscore, not starting with a digit (it is a tool name "
+            "on the wire)"
         )
     if not spec.description.strip():
         raise ActionSpecError(f"{spec.name}: an action must say what it does")
@@ -270,6 +278,19 @@ def validate_spec(spec: ActionSpec) -> None:
             )
         if spec.undo.handler is spec.execute:
             raise ActionSpecError(f"{spec.name}: undo cannot be the action itself")
+        # S18 Step 0, executed: `undo.handler is execute` was the ONLY guard on
+        # the undo slot, so an undo that was the action's own dry_run registered
+        # happily, reported `reversible=True`, and put the approval text "Undo:
+        # ..." in front of a human — then restored nothing when run, because a
+        # dry run's whole job is to not do anything. That is the failure
+        # UndoSpec's own docstring calls worse than having no undo at all: the
+        # approval was granted on the strength of it. Same family as the
+        # `dry_run=another_action` case S17 found by RUNNING the contract.
+        if spec.undo.handler is spec.dry_run:
+            raise ActionSpecError(
+                f"{spec.name}: undo.handler is this action's dry_run — a preview "
+                "restores nothing, and the approval was granted on the undo's strength"
+            )
 
     if not spec.scope:
         raise ActionSpecError(
@@ -287,6 +308,20 @@ def validate_spec(spec: ActionSpec) -> None:
 
     seen: set[str] = set()
     for p in spec.params:
+        # S18 Step 0, executed: the action NAME was checked because "it is a tool
+        # name on the wire" — and a parameter name is a JSON-schema property key
+        # on the SAME wire, checked by nothing. `''`, `'   '`, `'host id'`,
+        # `'host-id'` and `'π'` all reached `wire_spec`, landing in both
+        # `properties` and `required`. A model cannot reliably emit an argument
+        # named `''`, so the action would be approved and then uncallable — and
+        # S2's harness already measured that models mangle unusual identifiers
+        # (docs/probes/2026-07-15-ollama-endpoint.md).
+        if not _WIRE_NAME.fullmatch(p.name or ""):
+            raise ActionSpecError(
+                f"{spec.name}: parameter name {p.name!r} must be a wire identifier — "
+                "ASCII letters, digits and underscore, not starting with a digit "
+                "(it is a JSON-schema property the model has to name)"
+            )
         if p.name in seen:
             raise ActionSpecError(f"{spec.name}: duplicate parameter {p.name!r}")
         seen.add(p.name)
