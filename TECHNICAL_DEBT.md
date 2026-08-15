@@ -1,5 +1,37 @@
 # Technical debt — logged the moment it's taken
 
+## TD-024 (S18) — the digest's decay read is slower than the defect it replaced at the widest legal window
+**Where:** `auspex/timeline/store.py` `_DECAYED_SQL`; `MAX_SINCE_DAYS = 365` in
+`auspex/routes/timeline.py:46`.
+**Measured (S18 Step 0, docs/probes/2026-08-15-s18-step0-review.md):** the S17
+rewrite wins overwhelmingly on the windows analysts actually open and loses on
+the tail. At **100k verdicts / 12 half-life families**: 7 d = 5.4 ms vs the old
+query's 150.9 ms (0.04×), 90 d = 37 ms (0.26×), but **365 d = 161.4 ms vs 133.8 ms
+(1.21×)**. The crossover is **~300 days** there and **~185 days** at 25k/50
+families — it moves IN as a workspace accumulates half-life families.
+**Risk:** low but real and reachable — `days` is a user-supplied query parameter
+capped at 365, so any analyst can request the slow shape, and 161 ms is slower
+than the 143 ms defect the S17 rewrite existed to fix. It scales with the table:
+at 200k rows the 365-day case would be ~320 ms.
+**Why not fixed in S18 Step 0:** a variant WAS built and measured — sort the
+candidates by decay first (a key each row carries alone) and let the `LIMIT` stop
+the "is this still current?" probe early. It is **2.2–2.9× faster at every
+window** with byte-identical output at limits 50/200/1000 (probe count 59 instead
+of ~30 000), and it beats the old query everywhere, removing the crossover. It is
+not shipped because the early stop depends on the candidate ordering surviving
+into the outer query, which Postgres does not guarantee — a non-recursive CTE
+referenced once may be inlined and its `ORDER BY` dropped. That is a second
+load-bearing invisible construct and a worse one than the `OFFSET 0` fence:
+losing the fence makes the query slow, losing this ordering makes the digest
+render **the wrong rows first** while returning the right set. Not a trade to
+make mid-review, in a session whose goal is the approval flow.
+**Path to fix:** ship the variant WITH a test that fails on mis-ordering at a size
+where the planner has a real choice (not just the row set — assert
+`half_lives_elapsed` is descending at 100k), or get the same early stop from a
+shape Postgres guarantees. `MAX_SINCE_DAYS` should NOT move: narrowing the API to
+protect a 161 ms tail would cost a real capability to save an explicit,
+rarely-asked whole-year request.
+
 ## TD-023 (S17) — Actions SDK v1 bounds: scope is declared but not enforced, and an undo is never exercised
 **Where:** `auspex/actions/types.py` (`ActionScope`, `UndoSpec`, `ParamType`),
 `auspex/actions/registry.py` (in-process registry).
