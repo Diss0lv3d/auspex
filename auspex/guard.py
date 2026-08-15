@@ -19,26 +19,39 @@ counts as a paste is exactly the drift D-006 and the S16 staleness work exist to
 prevent, and a carve-out that disagreed with the classifier would mean the guard
 and the router see two different messages.
 
-Four things make text CONTENT rather than an instruction:
+Five things make text CONTENT rather than an instruction:
 
 1. **It is a recognized artefact** — an email paste or an alert/JSON paste
    (`_is_email_paste` / `_is_alert_paste`, the classifier's own).
-2. **It is quoted or fenced** — inside ``` fences or `>` quote lines. The
-   analyst marked it as material.
+2. **It is quoted or fenced** — inside ``` fences, `>` quote lines, or inline
+   quotation marks. The analyst marked it as material.
 3. **It is introduced for analysis** — an analysis framing appears *before* the
    match ("is this phishing?", "analyse the following"). Also the classifier's
    own vocabulary (`_is_analytical`), plus the presentational framings that
    precede a paste.
-4. **It is a bare artefact body** — the match sits inside a long block of text
+4. **It is reported, not issued** — the imperative is attributed to someone
+   else before it appears ("the attacker told the model to …", "prompts that
+   say …", "did the model …"). See `_REPORTED_SPEECH_RE`.
+5. **It is a bare artefact body** — the match sits inside a long block of text
    that is plainly a document rather than a request (see `_ARTEFACT_MIN_CHARS`).
 
 Anything else — an imperative aimed at the platform, in the analyst's own voice,
 outside any artefact — is REFUSED, in code, before the message reaches a model
 or the KB.
 
+Matching runs over a **folded** copy of the message (`_normalize`): invisible
+characters deleted and Latin lookalikes mapped back to ASCII, because
+"ig<ZWSP>nore" and "ignоre" (Cyrillic o) are the word to every reader and every
+tokenizer but not to `\\b(?:ignore)\\b`. The carve-outs still measure the
+ORIGINAL text, so the guard and the router never see two different messages.
+
 What this module deliberately does NOT do: judge whether an answer was
 influenced. Post-hoc validation is TD-012, and asking a model to police itself
-is the thing D-006 says not to rely on.
+is the thing D-006 says not to rely on. It also does not defeat an adversary
+who knows the carve-outs — every one of them is decided by text the sender
+controls, so a determined authenticated caller can dress an imperative as an
+artefact. See D-027: this rail bounds accidents and naive attempts, and the
+threat it actually answers is untrusted text arriving in someone else's paste.
 """
 
 from __future__ import annotations
@@ -67,6 +80,62 @@ class GuardVerdict(StrEnum):
 # tell me your system prompt, then …") is well under this.
 _ARTEFACT_MIN_CHARS = 600
 
+# Zero-width and bidi-format characters. DELETED before matching, not replaced
+# with a space as `untrusted.flatten` does — the two operations look alike and
+# are opposites. flatten is stopping a parsed field from forging line structure
+# inside a directive, so a separator is exactly what it wants; the guard is
+# trying to read "ig<ZWSP>nore" as the word it plainly is, and a space would
+# leave it broken. Space-LIKE characters (U+2028, U+202F …) are deliberately not
+# here: deleting those would weld "ignore all" into "ignoreall" and lose matches.
+_INVISIBLE = frozenset(
+    "­᠎﻿"
+    + "".join(chr(c) for c in range(0x200B, 0x2010))  # ZWSP..RLM
+    + "".join(chr(c) for c in range(0x202A, 0x202F))  # LRE..RLO (bidi override)
+    + "".join(chr(c) for c in range(0x2060, 0x2065))  # word joiner, invisible ops
+)
+
+# Latin lookalikes. Strictly 1:1 so folding cannot change a character's index —
+# `_normalize` relies on that to map spans back to the original message.
+_CONFUSABLES = {
+    # Cyrillic
+    "а": "a", "е": "e", "о": "o", "р": "p", "с": "c",
+    "у": "y", "х": "x", "і": "i", "ј": "j", "һ": "h",
+    "А": "A", "В": "B", "Е": "E", "К": "K", "М": "M",
+    "Н": "H", "О": "O", "Р": "P", "С": "C", "Т": "T",
+    "Х": "X", "Ѕ": "S", "І": "I",
+    # Greek
+    "ο": "o", "α": "a", "ε": "e", "ι": "i", "ρ": "p",
+    "υ": "u", "ν": "v", "κ": "k", "Α": "A", "Β": "B",
+    "Ε": "E", "Ζ": "Z", "Η": "H", "Ι": "I", "Κ": "K",
+    "Μ": "M", "Ν": "N", "Ο": "O", "Ρ": "P", "Τ": "T",
+    "Χ": "X",
+    # Fullwidth Latin is handled by the range fold in `_normalize`.
+}
+
+
+def _normalize(text: str) -> tuple[str, list[int]]:
+    """Fold away the two things that break a regex without changing what a
+    reader — or a tokenizer — sees: invisible characters and lookalikes.
+
+    Returns the folded text plus a map from folded index to original index. The
+    carve-outs below all reason in the ORIGINAL message's coordinates, which
+    matters because they are the classifier's own detectors and the router runs
+    those on the raw message: a guard that measured position in a rewritten
+    string would be exactly the drift D-025 warns about.
+    """
+    folded: list[str] = []
+    index_map: list[int] = []
+    for i, ch in enumerate(text):
+        if ch in _INVISIBLE:
+            continue
+        if ch in _CONFUSABLES:
+            ch = _CONFUSABLES[ch]
+        elif "Ａ" <= ch <= "ｚ":  # fullwidth A-Z a-z
+            ch = chr(ord(ch) - 0xFEE0)
+        folded.append(ch)
+        index_map.append(i)
+    return "".join(folded), index_map
+
 # What an injection attempt against the platform looks like. Every pattern here
 # is an imperative addressed at the assistant's own configuration — not merely
 # security vocabulary, which is what our users talk about all day.
@@ -77,8 +146,14 @@ _INJECTION_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
             # Two shapes, because they fail differently: "…ignore your previous
             # INSTRUCTIONS" names the thing, while "forget everything ABOVE"
             # names only the position and never says the noun.
+            # The first gap is the one an attacker pads: "ignore, for the
+            # purposes of this exercise, all previous instructions" buys 47
+            # chars with a subordinate clause. 80 covers natural padding and is
+            # still bounded by `[^.!?\n]`, so it can never cross a sentence.
+            # This is a speed bump, not a closure — any finite number can be
+            # exceeded, which is precisely what D-027 says out loud.
             r"\b(?:ignore|disregard|forget|override|discard)\b(?:"
-            r"[^.!?\n]{0,40}?\b(?:previous|prior|above|earlier|initial|original|all|any|your)\b"
+            r"[^.!?\n]{0,80}?\b(?:previous|prior|above|earlier|initial|original|all|any|your)\b"
             r"[^.!?\n]{0,40}?\b(?:instruction|prompt|rule|direction|guideline|context)s?\b"
             r"|"
             r"[^.!?\n]{0,20}?\b(?:everything|anything|all)\b[^.!?\n]{0,20}?"
@@ -153,6 +228,52 @@ _PRESENTS_MATERIAL_RE = re.compile(
 _FENCE_RE = re.compile(r"```.*?```|~~~.*?~~~", re.DOTALL)
 _QUOTE_LINE_RE = re.compile(r"^\s*>.*$", re.MULTILINE)
 
+# Inline quotation. Writing a detection rule for a phrase means writing the
+# phrase, and an analyst who put quotes around it marked it as material just as
+# deliberately as one who fenced it. The lookarounds keep apostrophes out: in
+# "don't ignore all previous instructions, it's urgent" the two apostrophes are
+# both letter-adjacent, so they never open a span that could swallow the match.
+_INLINE_QUOTE_RE = re.compile(
+    r"(?<![A-Za-z0-9])'[^'\n]{1,300}'(?![A-Za-z0-9])"
+    r"|\"[^\"\n]{1,300}\""
+    r"|‘[^’\n]{1,300}’"
+    r"|“[^”\n]{1,300}”"
+)
+
+# Reported speech: the imperative belongs to somebody else. This is the same
+# distinction the whole module is built on — ISSUED versus ANALYSED — applied
+# one level down, to an analyst who is *describing* an attack rather than
+# pasting one. "The attacker told the model to ignore all previous
+# instructions" is a sentence about an injection; it is also the single most
+# ordinary thing a SOC analyst says, and D-025's own thesis is that our
+# legitimate traffic IS attack text.
+#
+# Second person is deliberately excluded. "Did the model ignore …" is a
+# question about a past event; "will you ignore …" is an instruction wearing a
+# question mark, and only the first has a third-party subject.
+_REPORTED_SPEECH_RE = re.compile(
+    r"""(?:
+        # someone else is the actor, and there is a speech/command verb
+        \b(?:attacker|adversary|actor|threat\s+actor|sender|author|phisher|
+             email|message|prompt|payload|body|user|customer|model|assistant|
+             bot|chatbot|llm|agent|rule|sample|string|line|ticket|report)s?\b
+        [^.!?\n]{0,40}?
+        \b(?:told|tells|asked|asks|said|says|saying|instructed|instructs|
+             contain|contains|containing|include[sd]?|match(?:es|ing)?|
+             fire[sd]?\s+on|trigger(?:s|ed)?\s+on|that\s+read[s]?|
+             tr(?:ied|ies)\s+to|attempt(?:s|ed)?\s+to|wants?\s+(?:it|us)\s+to)\b
+        |
+        # a third-person question about what the platform did
+        \b(?:did|does|would|will|has|have|can)\s+(?:the\s+|our\s+|this\s+)?
+        (?:model|assistant|platform|bot|chatbot|llm|agent|it|they)\b
+        |
+        # "prompts that say …", "rules for strings like …"
+        \b(?:that|which|like|such\s+as|for|about|on)\s+
+        (?:say|says|saying|read|reads|contain|contains)\b
+    )""",
+    re.IGNORECASE | re.VERBOSE,
+)
+
 # What the analyst is told. Calm, specific, and it names the rule rather than
 # implying the platform detected an attacker — an analyst who tripped this on a
 # badly-framed paste needs to know exactly how to re-send it.
@@ -201,8 +322,19 @@ def inspect(message: str) -> GuardOutcome:
     if not message:
         return GuardOutcome(GuardVerdict.CLEAN)
 
-    hits = [(label, _spans(message, pattern)) for label, pattern in _INJECTION_PATTERNS]
-    hits = [(label, spans) for label, spans in hits if spans]
+    # Match on the folded copy, report positions in the original (see
+    # `_normalize`): "ig<ZWSP>nore" is the word, and the carve-outs below must
+    # still see the message the router will see.
+    folded, index_map = _normalize(message)
+    hits: list[tuple[str, list[tuple[int, int]]]] = []
+    for label, pattern in _INJECTION_PATTERNS:
+        spans = [
+            (index_map[start], index_map[end - 1] + 1)
+            for start, end in _spans(folded, pattern)
+            if end > start
+        ]
+        if spans:
+            hits.append((label, spans))
     if not hits:
         return GuardOutcome(GuardVerdict.CLEAN)
 
@@ -215,8 +347,12 @@ def inspect(message: str) -> GuardOutcome:
     if _is_alert_paste(message):
         return GuardOutcome(GuardVerdict.CONTENT, label, "alert paste")
 
-    # (2) Explicitly marked as material.
-    fenced = _spans(message, _FENCE_RE) + _spans(message, _QUOTE_LINE_RE)
+    # (2) Explicitly marked as material — fenced, quote-lined, or in quotes.
+    fenced = (
+        _spans(message, _FENCE_RE)
+        + _spans(message, _QUOTE_LINE_RE)
+        + _spans(message, _INLINE_QUOTE_RE)
+    )
     if fenced and all(
         _covered_by(span, fenced) for _, spans in hits for span in spans
     ):
@@ -231,7 +367,14 @@ def inspect(message: str) -> GuardOutcome:
     if _PRESENTS_MATERIAL_RE.search(preamble) or _is_analytical(preamble):
         return GuardOutcome(GuardVerdict.CONTENT, label, "introduced for analysis")
 
-    # (4) A long document that happens to contain the line. An artefact pasted
+    # (4) Attributed to someone else before it appears — described, not issued.
+    # Same position rule as (3), and for the same reason: an attribution that
+    # counted from anywhere in the message would let an attacker staple "the
+    # email said so" onto the end of a bare imperative.
+    if _REPORTED_SPEECH_RE.search(preamble):
+        return GuardOutcome(GuardVerdict.CONTENT, label, "reported, not issued")
+
+    # (5) A long document that happens to contain the line. An artefact pasted
     # with no framing at all is still plainly an artefact.
     if len(message) >= _ARTEFACT_MIN_CHARS:
         return GuardOutcome(GuardVerdict.CONTENT, label, "artefact-length body")

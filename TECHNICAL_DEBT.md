@@ -767,3 +767,46 @@ touches three test files and deserved its own change, not a rider on the 92/8 wo
 moved there in S4) and import everywhere; delete the copies.
 **Grew in S6:** `tests/test_chat_kb.py` added another copy of `_frames`/`_token`/
 `_use` (now 3 SSE-parser copies + 2 token helpers). Same fix, more call sites.
+
+## TD-029 (S20) — `workspaces.plan` has no CHECK constraint, so a typo silently downgrades
+**Where:** `auspex/migrations.py:512` (`ADD COLUMN ... plan text NOT NULL DEFAULT
+'free'`), read by `auspex/limits.py:91` `plan_for`.
+**What was verified (S20 Step 0):** `plan_for` is sound — all ten hostile inputs
+(`None`, `''`, `'   '`, `'Enterprise'`, `'ENTERPRISE'`, `'enterprise '`,
+`' enterprise'`, `'enterprise\n'`, `'free; DROP TABLE'`, `'legacy_gold'`) resolve to
+`free`, and no path reaches a more generous tier. The security direction holds.
+**Risk:** the *availability* direction. Nothing constrains what may be written to
+the column, so `UPDATE workspaces SET plan = 'enterprise '` (trailing space) leaves
+a paying customer silently capped at 100 calls/hour with only a `logger.warning` to
+say so. Fails safe, fails quiet — and the quiet is the problem once a plan is
+something a human sets.
+**Why deferred:** correctly restrictive today, and a CHECK constraint has to be
+written against the tier list the commercial model settles on, which does not exist
+yet (D-026: `PLANS` is explicitly a seam, nothing is sold).
+**Path to fix:** either a `CHECK (plan IN (...))` migration generated from `PLANS`,
+or — better, since the tier list is code and the constraint would drift from it — a
+startup assertion that every distinct `workspaces.plan` value resolves to itself
+under `plan_for`, logged loudly at ERROR. Cheap either way; do it when a plan
+becomes settable by anything other than SQL.
+
+## TD-030 (S20) — a failed or abandoned turn is charged in full, and there is no refund seam
+**Where:** `auspex/routes/chat.py:504-517`, `auspex/routes/investigations.py:464`.
+**Measured (S20 Step 0):** claim happens before the call; forcing an endpoint
+failure after the claim gives `claimed=2 charged=2 for 0 inference received`.
+`UsageLimiter` has no `release`/`refund`/`unclaim` method. A client that
+disconnects mid-stream is charged identically.
+**This is RATIFIED behaviour, not an accident** — D-027 decided to keep it, because
+refund-on-failure means a failing endpoint costs a workspace nothing (the retry
+storm the ceiling exists to bound), and an up-front claim of the full turn cost is
+what lets a turn either run completely or be refused cleanly instead of being cut
+off mid-answer at 99/100.
+**Residual risk it is logged for:** during a sustained endpoint outage a workspace
+can burn its entire hourly ceiling receiving nothing, and the 429 it then gets says
+"you reached your limit" when the truthful sentence is "our endpoint is down and you
+were charged for it." The refusal copy cannot currently tell those apart.
+**Path to fix (costed, deliberately not taken):** a `settled` counter alongside
+`used`, incremented when a turn actually produces content, plus refusal copy that
+reads the gap between them and names an outage when `used - settled` is large. One
+column, one UPDATE in the stream's `finally`, one branch in `refusal_text`. Do it
+when the platform runs against an endpoint whose uptime we do not control — i.e. the
+first real customer deployment.
