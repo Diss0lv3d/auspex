@@ -1,0 +1,93 @@
+[
+  {
+    "query": "what is lateral movement",
+    "expected": [
+      "TA0008",
+      "CONCEPT-LATERAL-MOVEMENT"
+    ],
+    "rendered_top": "TA0008",
+    "rendered_top_title": "TA0008: Lateral Movement",
+    "n_hits": 5,
+    "ok": true
+  },
+  {
+    "query": "how do adversaries abuse command line interpreters",
+    "expected": "T1059",
+    "rendered_top": "T1059",
+    "rendered_top_title": "T1059: Command and Scripting Interpreter",
+    "n_hits": 5,
+    "ok": true
+  },
+  {
+    "query": "what is credential access",
+    "expected": "TA0006",
+    "rendered_top": "TA0006",
+    "rendered_top_title": "TA0006: Credential Access",
+    "n_hits": 5,
+    "ok": true
+  },
+  {
+    "query": "what is process injection",
+    "expected": "T1055",
+    "rendered_top": "T1055",
+    "rendered_top_title": "T1055: Process Injection",
+    "n_hits": 5,
+    "ok": true
+  },
+  {
+    "query": "what is phishing",
+    "expected": "T1566",
+    "rendered_top": "T1566",
+    "rendered_top_title": "T1566: Phishing",
+    "n_hits": 5,
+    "ok": true
+  },
+  {
+    "query": "what is credential dumping",
+    "expected": "T1003",
+    "rendered_top": "T1003",
+    "rendered_top_title": "T1003: OS Credential Dumping",
+    "n_hits": 5,
+    "ok": true
+  },
+  {
+    "query": "living off the land binaries",
+    "expected": "CONCEPT-LOLBIN",
+    "rendered_top": "CONCEPT-LOLBIN",
+    "rendered_top_title": "Living off the land (LOLBins)",
+    "n_hits": 5,
+    "ok": true
+  },
+  {
+    "query": "employee vacation policy template",
+    "expected": null,
+    "rendered_top": null,
+    "rendered_top_title": null,
+    "n_hits": 0,
+    "ok": true
+  },
+  {
+    "query": "what is quantum entanglement",
+    "expected": null,
+    "rendered_top": null,
+    "rendered_top_title": null,
+    "n_hits": 0,
+    "ok": true
+  },
+  {
+    "query": "best hiking trails in the alps",
+    "expected": null,
+    "rendered_top": null,
+    "rendered_top_title": null,
+    "n_hits": 0,
+    "ok": true
+  },
+  {
+    "query": "how do I bake sourdough bread",
+    "expected": null,
+    "rendered_top": null,
+    "rendered_top_title": null,
+    "n_hits": 0,
+    "ok": true
+  }
+]

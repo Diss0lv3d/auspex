@@ -7,9 +7,11 @@ from auspex.kb.fuse import (
     NEURAL_FLOORS,
     RRF_K,
     apply_floor,
+    best_chunk_per_doc,
     neural_leg_floor,
     regime_cutoff,
     rrf_fuse,
+    rrf_fuse_docs,
 )
 from auspex.kb.types import KBHit
 
@@ -204,3 +206,47 @@ def test_every_produced_doc_type_has_a_calibrated_floor():
     produced |= {"cve"}  # the live NVD delta feed's doc_type
     missing = produced - set(NEURAL_FLOORS)
     assert not missing, f"doc_types without a calibrated neural floor: {missing}"
+
+
+# -- TD-026: fusion over documents, for callers that render a page ------------
+
+
+def test_chunk_fusion_lets_a_one_chunk_neighbour_beat_the_right_page():
+    """The mechanism behind TD-026, pinned as the reason `rrf_fuse_docs` exists.
+
+    T1566 (the page an analyst asking "what is phishing" wants) is split into
+    three chunks that each score alone, while single-chunk T1598 accumulates
+    across both legs and wins. This is `rrf_fuse` behaving exactly as designed —
+    the design is simply wrong for a caller that renders a document.
+    """
+    neural = [hit("T1598#0"), hit("T1566#0"), hit("T1566#1"), hit("T1566#2")]
+    bm25 = [hit("T1598#0"), hit("T1204#0")]
+    top = rrf_fuse(bm25, neural, top_k=3)[0]
+    assert top.doc_id == "T1598"
+
+
+def test_doc_fusion_gives_each_page_one_vote_per_leg():
+    """Same legs, fused by document: T1566's best chunk carries the page, and
+    the page that is actually rank 2 in the neural leg is no longer beaten by
+    its own fragmentation."""
+    neural = [hit("T1598#0"), hit("T1566#0"), hit("T1566#1"), hit("T1566#2")]
+    bm25 = [hit("T1566#0"), hit("T1204#0")]
+    fused = rrf_fuse_docs(bm25, neural, top_k=3)
+    assert fused[0].doc_id == "T1566"
+    # One entry per document, never one per chunk.
+    assert [h.doc_id for h in fused] == list(dict.fromkeys(h.doc_id for h in fused))
+
+
+def test_doc_fusion_does_not_reward_a_page_for_being_long():
+    """The inverse bias, guarded. Summing a doc's chunks would let any
+    sufficiently chunked page outrank a precise one; each doc gets ONE rank per
+    leg, so a page with six chunks scores exactly like a page with one."""
+    many = [hit("LONG#0"), hit("LONG#1"), hit("LONG#2"), hit("LONG#3"), hit("LONG#4")]
+    fused = rrf_fuse_docs([hit("SHORT#0"), *many], [hit("SHORT#0"), *many], top_k=2)
+    assert fused[0].doc_id == "SHORT"
+    assert fused[0].score == pytest.approx(0.4 / (RRF_K + 1) + 0.6 / (RRF_K + 1), abs=1e-6)
+
+
+def test_best_chunk_per_doc_keeps_the_earliest_rank():
+    leg = [hit("A#3"), hit("B#0"), hit("A#0"), hit("A#1")]
+    assert [h.chunk_id for h in best_chunk_per_doc(leg)] == ["A#3", "B#0"]

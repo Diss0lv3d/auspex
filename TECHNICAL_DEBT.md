@@ -106,43 +106,31 @@ for a surface that does not exist.
 **HARD GATE:** re-run the CVE battery and re-derive the cve floor **before** any
 free-text-over-CVEs retrieval surface ships. Do not assume the filter buys recall.
 
-## TD-026 (S19) — the definition path renders a neighbouring ATT&CK page
-**Where:** `auspex/kb/fuse.py::rrf_fuse` (accumulates per `chunk_id`, line 64),
-`auspex/kb/echo.py::render_definition_answer` (renders `hits[0]` as THE definition),
-`auspex/routes/chat.py:383`.
-**Risk:** user-visible wrong answers on the shipped definition path. Labeled
-through the real path for the first time at S19 (the S8 battery labeled the neural
-*leg*, which is fine): **3 of 7** true positives render the wrong page —
-"what is phishing" → **T1598: Phishing for Information** (T1566 not in the returned
-5 at all), "what is credential dumping" → **TA0006: Credential Access** (the parent
-tactic, T1003 absent), "how do adversaries abuse command line interpreters" →
-**T1202: Indirect Command Execution** (T1059 at rank 1). A fourth, "what is lateral
-movement" → TA0008, is a **stale label rather than a defect** — TA0008's page is
-titled exactly "Lateral Movement".
-**Not a safety issue:** every hit involved is above its floor, and all four
-off-corpus queries still return an honest miss. Nothing fabricates. This is
-relevance, not fabrication — but an analyst asking "what is phishing" and reading
-about reconnaissance is bad output on a shipped surface.
-**Measured mechanism** (docs/probes/2026-08-15-td005-rebattery.md §4):
-1. **RRF fragments a doc's vote.** Scores accumulate on `chunk_id`, so T1566's
-   three chunks (neural ranks 2/4/5) each score separately and never combine,
-   while single-chunk T1598 sits at rank 0 in both legs and accumulates. RRF runs
-   over chunks; the answer is a doc.
-2. **BM25 omits the canonical page entirely** — T1566 and T1003 are absent from
-   their BM25 legs; sub-technique neighbours fill all 10 slots.
-3. **Tactic pages out-score their techniques** on technique questions (TA0006 is
-   rank 0 in both legs for "credential dumping").
-**Two fixes measured, neither clean (thrash brake, CLAUDE.md rule 7):** dedupe each
-leg to best-chunk-per-doc before fusion — principled, fixes mechanism 1, moves the
-battery **3/7 → 3/7** because mechanisms 2 and 3 dominate; plus a title-exactness
-promotion → **4/7**, fixing only "what is phishing" via a stopword list that will
-rot. Harness in `docs/probes/s19-step0/variant_fusion.py`, re-runnable.
-**Path to fix:** treat retrieval-for-definitions as doc-level, not chunk-level —
-fuse by `doc_id` with a best-chunk representative, and give the canonical page a
-real signal (exact title match on the `ids`/title keyword field, or preferring the
-technique over its tactic when both clear the floor) rather than hoping BM25
-surfaces it. Needs the labeled battery re-run as the acceptance test, and the
-labels re-examined first: two of the seven are corpus-stale.
+## TD-026 (S19, RESOLVED S21) — the definition path rendered a neighbouring ATT&CK page
+**Was:** `what is phishing` rendered **T1598: Phishing for Information**;
+`what is credential dumping` rendered its parent tactic. 3 of 7 on the labeled
+battery — user-visible wrong output on a shipped surface, and advertised in the
+README, which made fixing it a promise rather than a preference.
+**Resolved 2026-08-15** — record: docs/probes/2026-08-15-s21-td026.md.
+**7/7 positives, 4/4 honest misses, live-verified through the rebuilt container.**
+- `rrf_fuse_docs` gives each page one rank per leg instead of one per chunk, so a
+  three-chunk page stops splitting its own vote (mechanism 1).
+- `auspex/kb/canonical.py` adds the signal neither leg had — whether a title and
+  a question are *about each other*, measured in both directions and combined as
+  a harmonic mean (mechanisms 2 and 3). The one-sided version reached 6/7 and
+  then picked a page titled simply "Credentials" for a question about credential
+  dumping; both directions are load-bearing and each was seen failing alone.
+- `search_definition` fuses 12 candidates and truncates AFTER promotion: T1003
+  was above its floor at fused rank 9, where nothing could reach it.
+**Bounds that remain, stated rather than closed:**
+- **The battery is 11 queries.** That is the whole of the evidence, and the
+  README says so.
+- **Only 5 of the 7 positives reach this path in production** — the classifier
+  routes the other two to the deep path. The battery is an acceptance test for
+  the retrieval function, not a measurement of end-user answers.
+- **Labels rot with the corpus.** One of the seven was already stale when this
+  session started. TD-005's trigger list is the right place to re-check them.
+
 ## TD-025 (S18) — approval flow v1 bounds: one executable system, a polled stream, no expiry
 **Where:** `auspex/actions/settlement.py`, `auspex/actions/builtin.py`,
 `auspex/routes/proposals.py`.

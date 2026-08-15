@@ -126,10 +126,12 @@ Read this part. A demo that only walks the happy path is a demo that lies.
 - **Three proposal states have no way back.** A row wedged in `executing` or
   `undoing` has no reaper and is invisible to the approver's queue (TD-028).
   Known, reproduced, written down.
-- **The definition path can render the wrong ATT&CK page.** Measured at 3 of 7
-  on a calibration battery: everything returned is above the relevance floor and
-  nothing is fabricated, but the *top* hit can be a sibling technique
-  (TD-026).
+- **Definition ranking is measured on eleven queries, not a benchmark.** The
+  definition path fuses over documents and picks the page a question is most
+  *about*, by title/question overlap in code (`auspex/kb/canonical.py`) — 7 of 7
+  correct on the labeled battery, with all four off-corpus queries still missing
+  honestly. Eleven queries is the whole of that evidence. The corpus grows daily,
+  and TD-005 says when the floors and labels must be measured again.
 - **No billing, no multi-workspace federation, no admin console.** The plan tier
   list is a seam, not a commercial model. Herd Immunity — anonymised verdict
   propagation across workspaces at k≥3 — is designed and deliberately unbuilt.

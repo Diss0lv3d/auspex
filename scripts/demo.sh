@@ -212,9 +212,9 @@ say "rail are real; the reach is deliberately one system until a first customer.
 
 echo
 echo "${B}Known defects, reproduced and written down${R}"
-warn "TD-026 — the definition path renders the WRONG ATT&CK page 3 times in 7."
-say  "         Everything returned is above the relevance floor and nothing is"
-say  "         fabricated, but the top hit can be a sibling technique."
+warn "TD-031 — two quotation marks around an imperative make it 'material'."
+say  "         Ratified, not accidental (D-029): removing the carve-out refused"
+say  "         7 of 7 real analyst sentences that quote a detection string."
 warn "TD-028 — a proposal wedged in 'executing' has no reaper and is invisible"
 say  "         to the approver's queue. Three states with no way back."
 warn "TD-030 — a turn whose endpoint fails is charged in full. Ratified (D-027),"

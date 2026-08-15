@@ -7,10 +7,11 @@ from auspex.kb.echo import (
     render_cve_answer,
     render_definition_answer,
 )
-from auspex.kb.service import MAX_IDS_PER_LOOKUP, KnowledgeService
+from auspex.kb.service import DEFINITION_DOC_TYPES, MAX_IDS_PER_LOOKUP, KnowledgeService
 from auspex.kb.types import KBDoc, KBHit, KBUnavailable
 
 __all__ = [
+    "DEFINITION_DOC_TYPES",
     "DEFINITION_MISS_COPY",
     "KB_UNAVAILABLE_COPY",
     "KBDoc",

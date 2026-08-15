@@ -67,6 +67,50 @@ def rrf_fuse(
     return [KBHit(**{**h.__dict__, "score": round(scores[h.chunk_id], 6)}) for h in merged[:top_k]]
 
 
+def best_chunk_per_doc(leg: list[KBHit]) -> list[KBHit]:
+    """Collapse a leg to one hit per doc, keeping its best-ranked chunk.
+
+    Legs arrive rank-ordered, so the first chunk of a doc IS its best.
+    """
+    best: dict[str, KBHit] = {}
+    for hit in leg:
+        best.setdefault(hit.doc_id, hit)
+    return list(best.values())
+
+
+def rrf_fuse_docs(
+    leg_a: list[KBHit],
+    leg_b: list[KBHit],
+    *,
+    weight_a: float = BM25_WEIGHT,
+    weight_b: float = NEURAL_WEIGHT,
+    top_k: int,
+) -> list[KBHit]:
+    """RRF over DOCUMENTS rather than chunks, for callers that render a doc.
+
+    `rrf_fuse` accumulates per `chunk_id`, which is right when the caller wants
+    passages and wrong when it wants a page: a doc split into three chunks casts
+    three separate votes that never combine, while a single-chunk neighbour
+    accumulates across both legs and wins. Measured at S19 (TD-026): "what is
+    phishing" returned T1598 *Phishing for Information* because T1566's three
+    chunks sat at neural ranks 2/4/5 and each scored alone.
+
+    Deduping to the best chunk per doc BEFORE fusion is the fix for that, and it
+    deliberately does NOT sum a doc's chunks — that would just invert the bias
+    and let a long page outrank a precise one. Each doc gets one rank in each
+    leg, which is what RRF is defined over.
+    """
+    fused: dict[str, KBHit] = {}
+    scores: dict[str, float] = {}
+    for weight, leg in ((weight_a, best_chunk_per_doc(leg_a)),
+        (weight_b, best_chunk_per_doc(leg_b)),):
+        for rank, hit in enumerate(leg):
+            scores[hit.doc_id] = scores.get(hit.doc_id, 0.0) + weight / (RRF_K + rank + 1)
+            fused.setdefault(hit.doc_id, hit)
+    merged = sorted(fused.values(), key=lambda h: scores[h.doc_id], reverse=True)
+    return [KBHit(**{**h.__dict__, "score": round(scores[h.doc_id], 6)}) for h in merged[:top_k]]
+
+
 def regime_cutoff(top_score: float, *, threshold: float = DEFAULT_SCORE_THRESHOLD) -> float:
     """Relevance floor adapted to which score regime the top hit is in."""
     if top_score < _REGIME_BOUNDARY:

@@ -34,8 +34,15 @@ import httpx
 from auspex import __version__
 from auspex.config import Settings
 from auspex.enrich.breaker import CircuitBreaker
+from auspex.kb.canonical import promote_canonical
 from auspex.kb.chunking import chunk_doc
-from auspex.kb.fuse import apply_floor, neural_leg_floor, rrf_fuse
+from auspex.kb.fuse import (
+    apply_floor,
+    best_chunk_per_doc,
+    neural_leg_floor,
+    rrf_fuse,
+    rrf_fuse_docs,
+)
 from auspex.kb.idquery import extract_kb_ids, is_id_query
 from auspex.kb.mapping import (
     EMBED_MODEL_FORMAT,
@@ -71,6 +78,19 @@ _TECHNIQUE_PARENT_LEN = 5  # "T1059"
 # rendered copy (render_cve_answer's `omitted`) — a capped CVE must never
 # render as a KB miss. S6 review finding.
 MAX_IDS_PER_LOOKUP = 25
+
+# Definitions come from curated pages, never CVE record chunks. Named once here
+# because the definition path and the batteries that measure it must filter
+# identically — two copies of this tuple is how a battery starts measuring a
+# path the app does not take.
+DEFINITION_DOC_TYPES = ("concept", "technique", "tactic")
+
+# How deep the definition path fuses before it picks. The canonical page is
+# often retrievable but out-ranked (TD-026), and it cannot be promoted from
+# outside the list. 12 is where every positive in the labeled battery is
+# present; it is a candidate pool, not an answer count — the caller still gets
+# top_k.
+DEFINITION_CANDIDATE_DEPTH = 12
 
 
 class KnowledgeService:
@@ -506,8 +526,46 @@ class KnowledgeService:
             "sort": [{"_score": "desc"}, {"chunk_index": "asc"}],
         }
 
+    async def search_definition(self, query: str, *, top_k: int = 5) -> list[KBHit]:
+        """Retrieval for a question of the form "what is X" — where the answer
+        is a PAGE, not a passage, and exactly one page is the right one.
+
+        Three things differ from `search`, and all three exist because the
+        definition path renders `hits[0]` as THE definition (TD-026):
+
+        1. It filters to the curated doc types. Definitions never come from CVE
+           record chunks, and the filter is load-bearing for recall besides.
+        2. It fuses over documents, so a page split into chunks casts one vote
+           instead of three that never combine.
+        3. It promotes the page the question is most *about* by title coverage,
+           because neither leg has a signal for "this page IS the term" —
+           see `auspex.kb.canonical`.
+
+        Steps 2 and 3 re-order candidates that have already cleared their floor.
+        Neither can add a hit, so the honest-miss guarantee is unchanged: an
+        off-corpus query returns [] here exactly as it does from `search`.
+        """
+        # Promotion runs over a DEEPER candidate list than the caller wants,
+        # then the result is cut to top_k. Truncating first would hide the very
+        # pages promotion exists to find: "what is credential dumping" put
+        # T1003 (OS Credential Dumping) at fused rank 9, above its floor and
+        # three places past a top-5 cut. Depth costs one wider fetch and no
+        # extra round trip.
+        candidates = await self.search(
+            query,
+            top_k=max(top_k, DEFINITION_CANDIDATE_DEPTH),
+            doc_types=DEFINITION_DOC_TYPES,
+            fuse_docs=True,
+        )
+        return promote_canonical(query, candidates)[:top_k]
+
     async def search(
-        self, query: str, *, top_k: int = 5, doc_types: tuple[str, ...] | None = None
+        self,
+        query: str,
+        *,
+        top_k: int = 5,
+        doc_types: tuple[str, ...] | None = None,
+        fuse_docs: bool = False,
     ) -> list[KBHit]:
         """The retrieval front door. ID-dominant → ID rail only (an unknown ID
         is an honest miss — no fuzzy-prose fallback; SARA's BM25 fallback
@@ -521,7 +579,13 @@ class KnowledgeService:
         best match (cosine 0.840) wasn't in the list at all — HNSW recall
         collapses at small k on a grown graph — and two noise chunks crossed
         the 0.6 floor for an off-corpus query (max-of-N cosine grows with N).
-        A filter over a small doc_type subset makes lucene kNN exact."""
+        A filter over a small doc_type subset makes lucene kNN exact.
+
+        `fuse_docs` says the caller renders a DOCUMENT rather than a passage, so
+        each doc should cast one vote per leg instead of one per chunk. Off by
+        default: the chunk-level behaviour is what every passage consumer wants,
+        and changing it under them would move the CVE surfaces that TD-027
+        gates."""
         if is_id_query(query):
             return await self.lookup_ids(extract_kb_ids(query), top_k=top_k)
         bm25_task = self._bm25(query, top_k * 2, doc_types)
@@ -535,7 +599,8 @@ class KnowledgeService:
         if isinstance(neural, BaseException):
             # Missing/undeployed model etc. — BM25 alone is still a KB answer.
             logger.warning("kb neural leg failed, serving BM25 only: %s", neural)
-            return apply_floor(bm25[:top_k])
+            leg = best_chunk_per_doc(bm25) if fuse_docs else bm25
+            return apply_floor(leg[:top_k])
         if not neural:
             # Neural ran and nothing in the corpus is semantically near the
             # query (post-floor). BM25 hits here are fuzzy/stopword noise —
@@ -545,8 +610,10 @@ class KnowledgeService:
             return []
         if isinstance(bm25, BaseException):
             logger.warning("kb bm25 leg failed, serving neural only: %s", bm25)
-            return apply_floor(neural[:top_k])
-        return apply_floor(rrf_fuse(bm25, neural, top_k=top_k))
+            leg = best_chunk_per_doc(neural) if fuse_docs else neural
+            return apply_floor(leg[:top_k])
+        fuse = rrf_fuse_docs if fuse_docs else rrf_fuse
+        return apply_floor(fuse(bm25, neural, top_k=top_k))
 
     async def _bm25(
         self, query: str, size: int, doc_types: tuple[str, ...] | None = None
