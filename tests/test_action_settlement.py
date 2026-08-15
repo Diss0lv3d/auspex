@@ -23,6 +23,7 @@ from unittest import mock
 import pytest
 
 from auspex.actions import (
+    STALE_CLAIM_SECONDS,
     ActionExecutor,
     ActionOutcome,
     ActionParam,
@@ -728,3 +729,216 @@ async def test_the_card_stream_replays_what_is_already_waiting(
             frames.append(frame)
             break
     assert frames, "the stream sent no card for a proposal that was already waiting"
+
+
+# ── S21, TD-028a: a dead claim is visible, and only a human resolves it ───────
+
+
+async def _wedge(pool, settlement, workspace_id, pid, *, age_seconds: float, state="executing"):
+    """Put a row into the state a process death leaves behind: claimed, with a
+    claim that old. Reproduced by writing the row rather than by killing a
+    worker, because that is exactly what a killed worker leaves."""
+    await pool.execute(
+        """
+        UPDATE proposals
+           SET status = $2, claimed_at = now() - make_interval(secs => $3::double precision)
+         WHERE id = $1::uuid
+        """,
+        str(pid),
+        state,
+        float(age_seconds),
+    )
+    return await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+
+
+async def test_a_dead_claim_has_no_door_out_except_abandon(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """The defect itself, reproduced: every other transition refuses a wedged
+    row, which is why it could never be recovered."""
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await settlement.settle(
+        workspace_id=workspace_id, proposal_id=pid, decision="approved", decided_by=None
+    )
+    await _wedge(pool, settlement, workspace_id, pid, age_seconds=STALE_CLAIM_SECONDS + 60)
+    executor = ActionExecutor(pool, registry)
+
+    with pytest.raises(ExecutionRefused) as execute_refused:
+        await executor.execute(workspace_id=workspace_id, proposal_id=pid)
+    assert execute_refused.value.reason == "not_approved"
+    with pytest.raises(ExecutionRefused) as undo_refused:
+        await executor.undo(workspace_id=workspace_id, proposal_id=pid)
+    assert undo_refused.value.reason == "not_executed"
+    rejected = await settlement.settle(
+        workspace_id=workspace_id, proposal_id=pid, decision="rejected", decided_by=None
+    )
+    assert rejected.outcome is Settlement.ALREADY_DECIDED
+
+    # The one door that does open.
+    abandoned = await settlement.abandon(
+        workspace_id=workspace_id, proposal_id=pid, decided_by=None
+    )
+    assert abandoned.won and abandoned.proposal["status"] == "abandoned"
+    assert abandoned.proposal["claimed_at"] is None
+
+
+async def test_a_stale_claim_is_visible_in_the_queue(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """The sharpest half of TD-028a: the row was not merely stuck, it was GONE
+    from the approvals list, so a human watching the queue saw the action
+    vanish with nothing to click."""
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await settlement.settle(
+        workspace_id=workspace_id, proposal_id=pid, decision="approved", decided_by=None
+    )
+    await _wedge(pool, settlement, workspace_id, pid, age_seconds=STALE_CLAIM_SECONDS + 60)
+
+    waiting = await settlement.pending(workspace_id=workspace_id)
+    stuck = [p for p in waiting if p["id"] == pid]
+    assert stuck, "a wedged claim must be visible to the human who has to resolve it"
+    assert stuck[0]["status"] == "executing"  # shown as what it is, not relabelled
+
+
+async def test_a_fresh_claim_is_neither_visible_nor_abandonable(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """The counterweight. A claim seconds old belongs to a handler that is
+    almost certainly still running: showing it would make every execution flicker
+    through the approval queue, and abandoning it would manufacture exactly the
+    half-executed row this state exists to describe."""
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await settlement.settle(
+        workspace_id=workspace_id, proposal_id=pid, decision="approved", decided_by=None
+    )
+    await _wedge(pool, settlement, workspace_id, pid, age_seconds=1)
+
+    assert not [p for p in await settlement.pending(workspace_id=workspace_id) if p["id"] == pid]
+    refused = await settlement.abandon(
+        workspace_id=workspace_id, proposal_id=pid, decided_by=None
+    )
+    assert refused.outcome is Settlement.ALREADY_DECIDED
+    assert refused.current_status == "executing"
+    still = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert still["status"] == "executing"  # untouched
+
+
+async def test_undoing_wedges_the_same_way_and_recovers_the_same_way(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """`undoing` is the other claim, and it had the same hole."""
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await settlement.settle(
+        workspace_id=workspace_id, proposal_id=pid, decision="approved", decided_by=None
+    )
+    await ActionExecutor(pool, registry).execute(workspace_id=workspace_id, proposal_id=pid)
+    await _wedge(
+        pool, settlement, workspace_id, pid,
+        age_seconds=STALE_CLAIM_SECONDS + 60, state="undoing",
+    )
+    assert [p for p in await settlement.pending(workspace_id=workspace_id) if p["id"] == pid]
+    result = await settlement.abandon(workspace_id=workspace_id, proposal_id=pid, decided_by=None)
+    assert result.won and result.proposal["status"] == "abandoned"
+
+
+async def test_a_completed_run_leaves_no_claim_behind(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """`claimed_at` means "a claim is outstanding right now", so every exit from
+    a claim must clear it — otherwise a finished action drifts into the queue
+    five minutes later and asks a human to resolve something that is done."""
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await settlement.settle(
+        workspace_id=workspace_id, proposal_id=pid, decision="approved", decided_by=None
+    )
+    executor = ActionExecutor(pool, registry)
+    await executor.execute(workspace_id=workspace_id, proposal_id=pid)
+    executed = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert executed["status"] == "executed" and executed["claimed_at"] is None
+    await executor.undo(workspace_id=workspace_id, proposal_id=pid)
+    undone = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert undone["status"] == "undone" and undone["claimed_at"] is None
+
+
+async def test_a_failed_run_leaves_no_claim_behind(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """The failure path clears the claim too. A failed row is already terminal
+    and visible; leaving its claim set would put it in the queue as well, asking
+    a human to abandon something that already reported what happened."""
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await settlement.settle(
+        workspace_id=workspace_id, proposal_id=pid, decision="approved", decided_by=None
+    )
+    boom = dataclasses.replace(
+        spec, execute=mock.AsyncMock(side_effect=RuntimeError("handler died"))
+    )
+    exploding = ActionRegistry()
+    exploding.register(boom)
+    with pytest.raises(RuntimeError):
+        await ActionExecutor(pool, exploding).execute(
+            workspace_id=workspace_id, proposal_id=pid
+        )
+    failed = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert failed["status"] == "failed" and failed["claimed_at"] is None
+    assert not [p for p in await settlement.pending(workspace_id=workspace_id) if p["id"] == pid]
+
+
+async def test_abandon_is_tenant_scoped_like_every_other_transition(
+    pool, registry, spec, workspace_id, other_workspace_id, an_observable
+):
+    """D-008: the workspace is part of the key, not a filter applied after."""
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await settlement.settle(
+        workspace_id=workspace_id, proposal_id=pid, decision="approved", decided_by=None
+    )
+    await _wedge(pool, settlement, workspace_id, pid, age_seconds=STALE_CLAIM_SECONDS + 60)
+    result = await settlement.abandon(
+        workspace_id=other_workspace_id, proposal_id=pid, decided_by=None
+    )
+    assert result.outcome is Settlement.NOT_FOUND
+    assert (await settlement.get(workspace_id=workspace_id, proposal_id=pid))["status"] == (
+        "executing"
+    )
+
+
+async def test_the_abandon_route_refuses_a_fresh_claim_and_accepts_a_dead_one(
+    pool, client, route_ws
+):
+    ws, obs_id = route_ws
+    registry = ActionRegistry()
+    registry.register_all(build_builtin_actions(pool))
+    spec = registry.get("annotate_observable")
+    settlement, proposal = await _file(pool, registry, spec, ws, obs_id)
+    pid = proposal["id"]
+    await settlement.settle(
+        workspace_id=ws, proposal_id=pid, decision="approved", decided_by=None
+    )
+    hdr = _hdr(client)
+
+    await _wedge(pool, settlement, ws, pid, age_seconds=1)
+    early = client.post(f"/api/proposals/{pid}/abandon", headers=hdr)
+    assert early.status_code == 409
+    assert "nothing to abandon" in early.json()["detail"]
+
+    await _wedge(pool, settlement, ws, pid, age_seconds=STALE_CLAIM_SECONDS + 60)
+    listed = client.get("/api/proposals", headers=hdr).json()["proposals"]
+    card_for_it = [p for p in listed if p["id"] == str(pid)]
+    assert card_for_it, "the stale claim must reach the surface a human watches"
+    assert card_for_it[0]["claimed_at"] is not None
+
+    out = client.post(f"/api/proposals/{pid}/abandon", headers=hdr)
+    assert out.status_code == 200
+    assert out.json()["settled"] == "abandoned"
+    assert out.json()["proposal"]["claimed_at"] is None
+    assert not [
+        p for p in client.get("/api/proposals", headers=hdr).json()["proposals"]
+        if p["id"] == str(pid)
+    ]

@@ -52,15 +52,32 @@ corpus the way S19's carve-outs were. Not worth it before TD-012.
 docs/probes/2026-08-15-s19-step0-review.md, harness
 `docs/probes/s19-step0/probe_s18_review.py`.
 
-**(a) `executing` and `undoing` are claims with no timeout, and nothing reaps them.**
-A process that dies between the claim and the handler wedges the row forever:
-`execute` refuses `not_approved`, `undo` refuses `not_executed`, `reject` gets
-`already_decided`. Measured. Worse than the S18 hand-off predicted — the row is
-also **invisible**, because the approvals list filters `status = 'pending_approval'`,
-so **a human watching the queue sees the action vanish** with nothing to click.
-*Fix wants:* a claim timestamp plus a reaper on the existing SKIP LOCKED job seam,
-and a decision about what a reaped row becomes (back to `approved` is wrong if the
-handler had already half-run — see (b)).
+**(a) RESOLVED S21 — `executing`/`undoing` wedged forever, and invisibly.**
+A process that died between the claim and the handler wedged the row: `execute`
+refused `not_approved`, `undo` refused `not_executed`, `reject` got
+`already_decided`, and the approvals list filtered `status = 'pending_approval'`
+so **a human watching the queue saw the action vanish** with nothing to click.
+Fixed by `claimed_at` + `STALE_CLAIM_SECONDS` (300) + the `abandoned` state:
+- **The queue shows stale claims.** `ProposalSettlement.pending` returns rows
+  whose claim is older than the threshold, with their real status, beside the
+  pending ones. A fresh claim stays hidden, so ordinary executions do not
+  flicker through the approval queue.
+- **`POST /api/proposals/{id}/abandon` is the door out**, guarded on claim age
+  in the same statement that moves the row (the `settle` device), so it cannot
+  kill a handler that is still working.
+- **NO REAPER, deliberately** — reversing the S19 note that asked for one. A
+  timer cannot know whether the handler ran before the process died, so every
+  status it could pick asserts something nobody knows: `approved` invites a
+  second run of a half-run action, `failed` claims nothing happened, `executed`
+  claims it did. `abandoned` records that the answer was **lost**, and D-014
+  reserves that call for the human anyway.
+- `claimed_at` is cleared by every exit from a claim (executed, failed, undone,
+  undo-failed, abandoned), so a finished action never drifts into the queue.
+Live-verified through the rebuilt container; 8 regressions, 3 of which fail if
+the visibility query is reverted. **Still open:** the card STREAM only emits new
+cards, never status changes, so a client watching `/stream` sees the card while
+it is pending and is not told when its claim goes stale — the polled list is
+where a stale claim surfaces today.
 
 **(b) A failed execute leaves effects it denies.** Forced a failure after the
 handler's INSERT landed: the note is really in the table and the row says `failed`
@@ -82,12 +99,12 @@ human decision, and collapsing two requests would have the platform decide that 
 second intent was a mistake, which is the judgement D-014 reserves for the human.
 The defect is that the card gives an approver no signal they are being asked the
 same question twice.
-**Why deferred:** (a) needs a durable job and a state decision; (b)/(c) need
-terminal-state semantics that belong with TD-025's idempotency gap; (d) is card
-rendering. None is Step-0-sized, and S19's scope is Hardening.
-**Risk if left:** (a) is the sharpest — an action can silently disappear from the
-queue after a restart, and the S18 demo's "something really executes" claim quietly
-depends on nothing crashing mid-run.
+**Why (b)/(c)/(d) are still deferred:** (b) and (c) need terminal-state
+semantics that belong with TD-025's idempotency gap — and (c) is now sharper,
+not softer, because `abandoned` joins `failed` as a state whose effects are
+unknown and whose `undo` is gated shut. (d) is card rendering.
+**Risk if left:** (b) is now the sharpest: a failed execute reports that nothing
+happened while its INSERT is really in the table.
 ## TD-027 (S19) — the `doc_types` filter no longer restores recall for `cve`
 **Where:** `auspex/kb/service.py:518-524` (the `search()` docstring's recall
 argument), `NEURAL_FLOORS["cve"]` in `auspex/kb/fuse.py`.

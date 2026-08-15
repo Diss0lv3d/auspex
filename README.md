@@ -123,9 +123,12 @@ Read this part. A demo that only walks the happy path is a demo that lies.
   influenced — that is post-hoc validation, deliberately not shipped
   (TD-012) — and it does not defeat a determined authenticated caller, because
   every carve-out is decided by text the sender controls (D-027).
-- **Three proposal states have no way back.** A row wedged in `executing` or
-  `undoing` has no reaper and is invisible to the approver's queue (TD-028).
-  Known, reproduced, written down.
+- **A failed action can leave effects it denies.** If a handler dies after its
+  write lands, the row says `failed` and the write is really in the table; there
+  is no idempotency key and no partial-effect reasoning (TD-028b). A claim whose
+  process died is at least *visible* now — it appears in the approvals queue and
+  a human can abandon it, which records that nobody knows whether it ran rather
+  than guessing (TD-028a, fixed).
 - **Definition ranking is measured on eleven queries, not a benchmark.** The
   definition path fuses over documents and picks the page a question is most
   *about*, by title/question overlap in code (`auspex/kb/canonical.py`) — 7 of 7
