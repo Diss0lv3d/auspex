@@ -146,17 +146,21 @@ S22 needs the same.**
   sessions are in git history and in DECISIONS.md — this file no longer restates them.
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: docs-only at this instant — S21 reached `main` as squash
-   `f8d8c19` via PR #21** (merged 2026-08-15 18:58 UTC), back-merged `d83b998`,
-   tree verified unchanged, real diff **30 files, +2578/-128**. The slate now holds
-   `a306106` (the promote record, written immediately after the merge) **and this
-   session-end commit** — which is the steady state, not a divergence.
+1. **Promote slate: EMPTY at this instant — the S21 session-end record reached
+   `main` as squash `4056070` via PR #22** (merged 2026-08-15 19:22 UTC),
+   back-merged `7700d07`, tree verified unchanged (`git diff <pre> HEAD --stat`
+   empty), `git diff origin/main..staging --stat` now **zero files**. Real diff
+   promoted: **4 files, +376/-376, docs-only** — NEXT-SESSION, ROADMAP, STATE,
+   TECHNICAL_DEBT. Exactly the steady state S21 predicted, promoted rather than
+   skipped. This S22 promote-record commit re-opens the slate immediately, which
+   is the point: **the slate is docs-only between sessions, never empty for long.**
    - **Read the diff at promote time. Never trust a quoted number or the commit
-     LIST** — after a squash the list is meaningless (PR #21's list still showed
-     every S20 commit).
-   - PR #21 was the second promote merged on a check anyone can see, and the first
-     with **two** green runs on it (push-triggered 5m18s, PR-triggered 4m41s);
-     `mergeStateStatus` UNSTABLE → CLEAN, merged only on CLEAN.
+     LIST** — after a squash the list is meaningless. PR #22's list still showed
+     **every commit back to S2**; the real change was 4 files.
+   - PR #22 is the third promote merged on a visible check, and the second with
+     **two** green runs (push-triggered 5m26s, PR-triggered 5m40s);
+     `mergeStateStatus` **CLEAN** before the merge, 964 tests, 117 modules,
+     `/api/health/ready` 200 after.
 2. **Branch protection on `main` is the ONE manual step left** — the CI check exists
    and is green, but nothing yet REQUIRES it before a promote merge. Repository
    settings, Burhan's call, not a commit's (D-028). One command when wanted:
@@ -207,8 +211,9 @@ S22 needs the same.**
 - **S21 session-end (2026-08-16):** staging, tree clean, identity
   `bh3082336888-cell`. All three containers healthy; `./ci.sh` **green, 964 tests,
   117 modules**; `/api/health/ready` **200** (postgres reachable, opensearch 2.19.4).
-- **`gh` did NOT flip to the work account at S21 start, mid-session, or at
-  session-end.** It DID at S18 and S16; did not at S17, S13–S15, S19, S20 or S21.
+- **`gh` did NOT flip to the work account at S22 start or across the promote**
+  (checked three times: ritual, before `gh pr create`, before `gh pr merge`).
+  It DID at S18 and S16; did not at S17, S13–S15, S19–S22.
   **Unpredictable is the pattern** — re-check before EVERY `gh` call.
 - **`gh pr merge` works.** `gh pr edit` still fails with a Projects-classic GraphQL
   deprecation — use `gh api -X PATCH repos/.../pulls/N`.
