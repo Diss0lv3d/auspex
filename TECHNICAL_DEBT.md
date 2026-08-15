@@ -634,7 +634,28 @@ is a strong prompt-level defense, not a structural guarantee — the residual
 attacker-influenceable-text-in-the-instruction-stream gap is TD-013. Original
 entry kept below for the record.
 
-## TD-012 (S9) — mode contract validation is post-hoc/observability-only
+## TD-012 (S9, HALF RESOLVED S22 — read this first, the name covers two things)
+**The number has been used for two different pieces of work, and only one of
+them shipped in S22.** Whoever picks this up next needs the distinction:
+
+- **(a) Output-side injection detection — SHIPPED S22, D-030.** "An injection
+  that got in, however it got in, is still uncaught" is what D-027, TD-031,
+  TD-032 and TD-033 each meant when they wrote "the real answer is TD-012".
+  `auspex/outguard.py` now scans the stream for verbatim runs of the
+  configuration we issued, cuts the turn off, and refuses to persist it.
+  Calibrated on 34 live answers (`SHINGLE_WORDS = 8`, legitimate ceiling 6);
+  record: docs/probes/2026-08-16-s22-outguard.md.
+- **(b) Contract-conformance repair — STILL OPEN**, and it is what the original
+  S9 entry below actually describes. A non-conforming answer (missing `## Risk`,
+  out-of-enum value) is still reported and not repaired. Unchanged by S22.
+
+**The two bounds (a) deliberately does not cover**, both named in D-030: a
+paraphrase of the configuration rather than a verbatim run, and an injection
+that made the answer *wrong* rather than leaky. The second is not an output-rail
+problem at all — only a verdict the platform computed in code can contradict a
+confident wrong answer, which is what the 92/8 split already exists for.
+
+### The original S9 entry — (b), still accurate
 **Where:** `auspex/routes/chat.py` `event_stream()` — `contract.validate(answer)`
 runs after the answer has streamed; the `done` frame reports `contract_valid`
 but a non-conforming answer is NOT re-asked or repaired.
