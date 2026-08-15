@@ -376,3 +376,53 @@ falsification claim attached to a decayed verdict is worth (TD-020).
   `verdict_flips` and `watchers` exactly as D-020 and D-021 require, and re-open
   events are still acknowledged at `POST /api/retrohunt/matches/{id}/ack`. A
   digest is the natural place to invent an inbox; it did not.
+
+## D-023 — An action's contract is code, and destructive-without-undo is unrepresentable (2026-08-11, S17)
+The first Phase 4 decision: what an Auspex action IS, before any action touches a
+real system. `auspex/actions/`, ratified as built.
+
+- **The declaration is the source of truth, and the prompt is generated from it
+  (D-007).** One `@action` declaration compiles to the JSON-schema parameters on
+  the wire, the planner directive, and the human-facing approval summary. This is
+  the S9 `ModeContract` relationship applied to acting: we do not hand-write a
+  sentence describing an action and hope it matches the code, because that pair
+  drifts and the drift is invisible until an approver reads a description of
+  something the action does not do.
+- **Risk is not a new vocabulary — it IS `ToolLevel`.** `ActionRisk` is the same
+  enum the D-014 permission gate already reads to decide allow-vs-propose. An
+  action with its own notion of danger would be a second opinion about whether a
+  human must approve it, which is the exact shape D-022 refuses for aging and S16
+  Step 0 found in the falsifies link.
+- **A destructive action with no undo cannot be CONSTRUCTED.** Not a lint rule,
+  not a review checklist item, not a "respond with EXACTLY" instruction (D-006):
+  `ActionSpec.__post_init__` raises, so the action is an ImportError at the
+  moment someone writes it. The registry re-runs the identical validation,
+  because the decorator must not be the only door. S14, S15 and S16 each spent a
+  Step 0 on a rail that held only because everyone remembered it; this is what
+  the lesson cost.
+- **`dry_run` is required of every action, with no defaulting.** An action must be
+  able to say what it WOULD do without doing it. Defaulting it for reads, or
+  falling back to `execute` when absent, would turn the guarantee back into a
+  convention. Also refused: a `dry_run` that IS the execute handler, and — found
+  by running the contract rather than reading it — a `dry_run` that is some OTHER
+  registered action's execute handler, which would really perform that action
+  while reporting itself as a preview.
+- **An undo declares what it CANNOT restore.** An undo that silently fails to
+  restore something is worse than no undo, because the approval it unlocked was
+  granted on its strength. `cannot_restore` travels in the declaration and into
+  the planner text, and an action carrying one reports itself as not reversible.
+  An undo that restores nothing is refused: that is a second action.
+- **The planner manifest reuses the S13 capability decision.** `native_tools` →
+  wire specs; `prompted_tools` → the same specs compiled to prose; `plan_only` →
+  names and one-liners, nothing on the wire. The modes differ in how an action is
+  DESCRIBED, never in whether approval is required. An endpoint that cannot be
+  trusted with a tools array is not handed one, so a model that cannot call an
+  action cannot believe it did.
+- **S17 tells the loop about actions and gives it no way to call them.** An
+  action's dispatch is the proposal round-trip S18 owns. Offering a callable name
+  that resolves to `unknown tool` would invite the model to believe it acted, so
+  the manifest reaches the system prompt while the wire array stays the
+  ToolRegistry's. Revisit in S18, not before.
+- **An empty action surface says so.** The same rule as an empty digest (D-022):
+  "no actions are available" is a claim, and it is stated rather than left as
+  silence the model fills in.

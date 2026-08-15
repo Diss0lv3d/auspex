@@ -261,3 +261,100 @@ async def test_unknown_mode_fails_safe_to_plan_only():
     # unknown mode must not assume native tool calling
     assert loop.channel.offers_tools is False
     assert result.invocations == []
+
+
+# ── the S17 action surface, as a description (planner manifest integration) ──
+
+
+def _manifest(mode="native_tools"):
+    from auspex.actions import (
+        ActionParam,
+        ActionRegistry,
+        ActionRisk,
+        ActionScope,
+        ParamType,
+        UndoSpec,
+        action,
+    )
+
+    async def would(**kw):
+        return None
+
+    async def never(**kw):
+        raise AssertionError("the loop must not execute an action in S17")
+
+    @action(
+        name="isolate_host",
+        description="Isolate a host at the EDR",
+        risk=ActionRisk.DESTRUCTIVE,
+        scope=[ActionScope("edr", writes=True)],
+        params=[ActionParam("host_id", ParamType.STRING, "Short host id")],
+        dry_run=would,
+        undo=UndoSpec("Release the host", never, restores="network connectivity"),
+    )
+    async def isolate_host(host_id: str):
+        raise AssertionError("the loop must not execute an action in S17")
+
+    reg = ActionRegistry()
+    reg.register(isolate_host)
+    return reg.manifest(mode)
+
+
+async def test_the_planner_is_told_what_it_may_propose():
+    """S17: how an action becomes visible to the loop. The manifest's own text,
+    compiled from the specs (D-007), reaches the system prompt."""
+    registry, _ = _make_registry()
+    store = InMemoryProposalStore()
+    client = FakeLLMClient([ChatResult(content="noted")])
+    loop = _loop(registry, store, actions=_manifest())
+    await loop.run(client, "isolate host h-1")
+
+    system = client.calls[0]["messages"][0]["content"]
+    assert "isolate_host(host_id: string)" in system
+    assert "RISK destructive: requires human approval" in system
+    assert "Undo: Release the host" in system
+
+
+async def test_actions_are_described_but_never_offered_as_callable_tools():
+    """The S17 line, held in code: an action's dispatch is the proposal
+    round-trip S18 owns, so nothing here puts one on the wire. A tool the model
+    can call that resolves to 'unknown tool' would invite it to believe it
+    acted."""
+    registry, _ = _make_registry()
+    client = FakeLLMClient([ChatResult(content="noted")])
+    loop = _loop(registry, InMemoryProposalStore(), actions=_manifest())
+    await loop.run(client, "isolate host h-1")
+
+    offered = {s["function"]["name"] for s in (client.calls[0]["kwargs"].get("tools") or [])}
+    assert offered == {"lookup_ip", "create_ticket"}  # the ToolRegistry only
+    assert "isolate_host" not in offered
+    system = client.calls[0]["messages"][0]["content"]
+    assert "cannot invoke these yourself" in system
+
+
+async def test_a_model_that_calls_an_action_anyway_is_told_it_did_not_run():
+    """The rough edge, made explicit rather than left to chance: an action name
+    is not in the ToolRegistry, so it dispatches as an unknown tool — an error,
+    never a silent success and never an execution."""
+    registry, executed = _make_registry()
+    client = FakeLLMClient(
+        [
+            ChatResult(content=None, tool_calls=[
+                ToolCall(id="c1", name="isolate_host", arguments='{"host_id": "h-1"}')
+            ]),
+            ChatResult(content="I could not do that myself."),
+        ]
+    )
+    loop = _loop(registry, InMemoryProposalStore(), actions=_manifest())
+    result = await loop.run(client, "isolate host h-1")
+
+    assert [i.status for i in result.invocations] == ["error"]
+    assert "unknown tool" in result.invocations[0].feedback["error"]
+    assert executed == []
+
+
+async def test_no_action_surface_adds_nothing_to_the_prompt():
+    registry, _ = _make_registry()
+    client = FakeLLMClient([ChatResult(content="hi")])
+    await _loop(registry, InMemoryProposalStore()).run(client, "hello")
+    assert "propose" not in client.calls[0]["messages"][0]["content"].lower()
