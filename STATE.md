@@ -163,17 +163,23 @@ complete.**
 - **Zero new env vars** this session — and none across S14–S19 (six sessions).
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: EMPTY — S19 reached `main` as squash `45da831` via PR #19**
-   (merged 2026-08-15, S20 Step 0), back-merged `6c75190`, tree verified unchanged,
-   `git diff origin/main..staging --stat` now empty. Checks at merge: `./ci.sh`
-   green, **883 tests**, installed-dist gate 116 modules, `/api/health/ready` 200.
-   **This line was written and committed immediately after the merge, not at
-   session-end** — that is the fix for the S18 defect where a session-end commit
-   described a promote that had not happened yet.
-   - Note for accuracy: S19's hand-off quoted the slate as "26 files, +3565/-18";
-     the live diff at S20 start was **27 files, +3811/-317**. The difference is
-     exactly S19's own session-end commit, which cannot count itself. Read the
-     diff at promote time; never trust a quoted number or the commit LIST.
+1. **Promote slate: EMPTY — S20 reached `main` as squash `fc7c921` via PR #20**
+   (merged 2026-08-15 17:13 UTC), back-merged `a5c9c7f`, tree verified unchanged,
+   `git diff origin/main..staging --stat` now empty. Real diff was 19 files,
+   +2146/-151.
+   - **This was the first promote in this repo merged on a check anyone can see.**
+     `gh pr checks` reported the `ci.sh` job **pass in 5m25s** on the PR-triggered
+     run (`31897332660`) instead of the 0 checks every promote from #1 to #19 got.
+     Local gate at merge: `./ci.sh` green, **912 tests**, installed-dist 116
+     modules, `/api/health/ready` 200 after rebuild.
+   - **Written and committed immediately after the merge, not at session-end** —
+     the fix for the S18 defect where a session-end commit described a promote that
+     had not happened yet. S19 did it this way too; keep doing it.
+   - Earlier this session: S19 reached `main` as squash `45da831` via PR #19,
+     back-merged `6c75190`. Its hand-off had quoted the slate as "26 files,
+     +3565/-18" while the live diff was **27 files, +3811/-317** — the difference
+     being S19's own session-end commit, which cannot count itself. **Read the diff
+     at promote time; never trust a quoted number or the commit LIST.**
 2. **Branch protection on `main` is the ONE manual step left** — the CI check now
    exists and is green, but nothing yet REQUIRES it before a promote merge. That is
    a repository-settings change and Burhan's call, not a commit's (D-028). One
