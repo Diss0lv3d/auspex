@@ -1,5 +1,33 @@
 # Technical debt — logged the moment it's taken
 
+## TD-033 (S22) — an abbreviation ends the sentence, and takes the attribution with it
+**Where:** `auspex/guard.py` — `_SENTENCE_END_RE` / `_last_sentence`, carve-out (4).
+**Risk:** LOW. This is the *safe* half of the error, and it is ratified, not missed.
+
+A sentence boundary is spelled `[.!?](?:\s|$)|\n`, so the period in `e.g.`,
+`i.e.` or `Dr.` ends the sentence early — which **discards** the attribution and
+refuses legitimate analyst prose. Measured 3/3 in
+docs/probes/s22-step0/probe_s21_review.py, each against a control that is CONTENT
+for the reported-speech reason (the first draft of that probe used payloads
+carve-out (3) caught instead, and would have called this harmless):
+
+```
+control: The attacker told the model to <imperative>            -> content
+spliced: The attacker told the model, e.g. to <imperative>      -> refused
+spliced: The attacker, Dr. Chen, told the model to <imperative> -> refused
+```
+
+It fails **closed**: an analyst is refused with copy that tells them to quote the
+material, rather than an imperative being admitted. Structural periods are not
+affected — `T1566.001`, `192.168.1.1` and `3.5` do not split, because the period
+is followed by a digit rather than by whitespace.
+
+**Path to fix:** an abbreviation list, which is exactly the rot-prone
+hand-written vocabulary `kb/canonical.py`'s docstring argues against and TD-031
+says not to spend another session building. A real sentence segmenter is a
+dependency and a parser for a carve-out that already fails closed. **The real
+answer is TD-012** — the same answer D-027, TD-031 and TD-032 all reached.
+
 ## TD-031 (S21) — quoting an imperative is a two-character carve-out
 **Where:** `auspex/guard.py` — `_INLINE_QUOTE_RE`, carve-out (2).
 **Risk:** LOW-MEDIUM. Ratified in D-029, not an oversight.
