@@ -232,6 +232,28 @@ may not grow mid-session (IDEAS.md exists for that).
   demo turns from nine STATE.md revisions into one runnable script that ends on
   real refusals. Step 0 promoted S19 (PR #19) and reviewed it: the guard was
   refusing 4 of 6 legitimate SOC questions (D-027).
+- [x] **S21 — beta debt paid down.** _Not a planned entry: the roadmap ended at S20,
+  so this session was scoped by a decision and is recorded here after the fact._
+  **TD-026 CLOSED** — the definition path renders the page the question is about,
+  3/7 → **7/7** positives and 4/4 honest misses, live-verified. Two mechanisms:
+  `rrf_fuse_docs` gives a page one rank per leg instead of one per chunk, and
+  `auspex/kb/canonical.py` adds the signal neither leg had — whether title and
+  question are *about each other*, as a harmonic mean of both directions, because
+  each direction alone was observed picking a wrong page. **TD-028a CLOSED** — a
+  claim orphaned by a dead process is now visible in the queue with its age, and
+  `POST /api/proposals/{id}/abandon` is the door out, guarded on claim age in the
+  same UPDATE. **Deliberately no reaper**, reversing the S19 note: a timer cannot
+  know whether the handler ran, so every status it could pick asserts something
+  nobody knows (D-014 reserves that call for the human). Step 0 reviewed S20 and
+  found the sharpest defect of the session: **S20 fixed one invisible-character hole
+  by opening its inverse** — folding deletes invisibles and deletion welds words, so
+  `previous<ZWSP>instructions` returned CLEAN (18 escapes measured); matching now
+  unions the folded and raw passes. Also fixed: reported speech was read over the
+  whole preamble so an attribution two sentences back licensed a bare imperative
+  (6/6), an inch mark opened a covering quote span, and a docs test passed with its
+  entire input removed. Two bounds ratified rather than chased (**D-029**,
+  TD-031/032) — the real answer to both is TD-012. 964 tests; 117 modules; zero new
+  env vars.
 
 ## Later / explicitly deferred
 Herd Immunity federation (needs k≥3 workspaces + privacy review) · billing ·
