@@ -163,30 +163,24 @@ complete.**
 - **Zero new env vars** this session — and none across S14–S19 (six sessions).
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: DOCS ONLY — S20's code reached `main` as squash `fc7c921` via
-   PR #20** (merged 2026-08-15 17:13 UTC), back-merged `a5c9c7f`, tree verified
-   unchanged. Real code diff was 19 files, +2146/-151.
-   - **Corrected at S21 start (divergence).** This item said the diff was "now
-     empty". It is not, and could not be: the live slate is **2 files, +30/-21 —
-     `STATE.md` and `NEXT-SESSION.md` only, zero code** (`8a4aebf`, `02318b5`,
-     `f6495b8`). The commit that records "the slate is empty" is itself on the
-     slate. That is the S18 trap one level deeper: a record written *after* the
-     merge still lands *after* the merge. **The honest steady state between
-     sessions is docs-only, never empty** — say that instead of "empty", and
-     always read the diff at promote time.
-   - **This was the first promote in this repo merged on a check anyone can see.**
-     `gh pr checks` reported the `ci.sh` job **pass in 5m25s** on the PR-triggered
-     run (`31897332660`) instead of the 0 checks every promote from #1 to #19 got.
-     Local gate at merge: `./ci.sh` green, **912 tests**, installed-dist 116
-     modules, `/api/health/ready` 200 after rebuild.
+1. **Promote slate: EMPTY at this instant — S21 reached `main` as squash `f8d8c19`
+   via PR #21** (merged 2026-08-15), back-merged `d83b998`, tree verified unchanged
+   (`git diff 9f023f0 HEAD --stat` empty), `git diff origin/main..staging --stat`
+   empty. Real diff was **30 files, +2578/-128**.
+   - **The second promote merged on a check anyone can see**, and the first with
+     TWO green runs on the PR: the push-triggered `ci.sh` job passed in 5m18s and
+     the PR-triggered one in 4m41s. `mergeStateStatus` went UNSTABLE → CLEAN as
+     they landed; merged only on CLEAN.
    - **Written and committed immediately after the merge, not at session-end** —
-     the fix for the S18 defect where a session-end commit described a promote that
-     had not happened yet. S19 did it this way too; keep doing it.
-   - Earlier this session: S19 reached `main` as squash `45da831` via PR #19,
-     back-merged `6c75190`. Its hand-off had quoted the slate as "26 files,
-     +3565/-18" while the live diff was **27 files, +3811/-317** — the difference
-     being S19's own session-end commit, which cannot count itself. **Read the diff
-     at promote time; never trust a quoted number or the commit LIST.**
+     the fix for the S18 defect that cost S19 and S20 a correction each.
+   - **It will not stay empty.** The S21 start ritual corrected the standing claim
+     that this line goes to "empty": the commit recording a promote lands *after*
+     the promote, so the steady state between sessions is **docs-only, never
+     empty**. This entry and every session-end commit after it are already the
+     next slate. Read the diff at promote time; never trust a quoted number or
+     the commit LIST (after a squash the list is meaningless — PR #21's list
+     still showed every S20 commit).
+
 2. **Branch protection on `main` is the ONE manual step left** — the CI check now
    exists and is green, but nothing yet REQUIRES it before a promote merge. That is
    a repository-settings change and Burhan's call, not a commit's (D-028). One
