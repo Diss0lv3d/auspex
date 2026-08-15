@@ -548,3 +548,104 @@ ratified as built. Closes TD-018, open since S14.
   a plan that stopped counting could not answer "what did this workspace spend?",
   which is the whole point of a gating skeleton. This is NOT billing — nothing
   here prices anything (explicitly deferred).
+
+## D-027 — What the input guard actually bounds, and who pays when the endpoint fails (2026-08-15, S20)
+Ratified after the S20 Step-0 review executed against `auspex/guard.py` and
+`auspex/limits.py` (record: docs/probes/2026-08-15-s20-step0-review.md).
+**This EXTENDS D-025 and D-026 and overturns neither** — it names bounds those
+entries left implied, and ratifies two behaviours that the review forced and
+found correct.
+
+- **Matching is done on a FOLDED copy of the message.** Invisible characters are
+  deleted and Latin lookalikes mapped to ASCII before the patterns run, because
+  "ig<ZWSP>nore" and "ignоre" (Cyrillic o) are the word to every reader and every
+  tokenizer but not to `\b(?:ignore)\b`. Measured: before this, all four
+  variants returned **CLEAN** — not CONTENT, invisible. `untrusted.flatten` is
+  deliberately NOT reused: it *replaces* invisible runs with a space, which
+  leaves "ig nore" just as broken. Same-looking operation, opposite requirement.
+- **Carve-outs still measure the ORIGINAL text.** Folding is for matching only;
+  positions map back. The carve-out detectors are the classifier's own and the
+  router runs them on the raw message, so measuring position in a rewritten
+  string would be the exact drift D-025 warns about.
+- **Describing an attack is not issuing one — a fifth carve-out.** S19 justified
+  the carve-outs against pasted artefacts, which always have a format to carve
+  them out, and never tested the case with no artefact at all: an analyst
+  writing ABOUT an injection in their own words. **Four of six such sentences
+  were refused with a 400**, including "write a Sigma rule that fires on
+  'ignore all previous instructions'". That is the failure D-025 exists to
+  prevent, arriving through the door D-025 did not check. Reported speech is now
+  content, checked in the PREAMBLE under D-025's position rule so an attribution
+  stapled on the end is not an off switch.
+- **The guard does not defeat an adversary, and now says so.** Every carve-out
+  is decided by text the sender controls: two forged RFC-5322 header lines, a
+  `{"k": "v"}` prefix, or 600 characters of padding each turn an issued
+  imperative into CONTENT, all confirmed by execution. This is not a hole to be
+  closed but a property of the design — a structural carve-out is forgeable by
+  whoever writes the message. **What the rail actually bounds is accidents and
+  naive attempts from an authenticated caller; the threat it genuinely answers
+  is untrusted text arriving inside somebody else's paste.** Base64 and rot13
+  wrappers are explicitly OUT OF SCOPE for the same reason: a guard that decoded
+  every encoding an LLM can read would be a decoder, not a guard. A rail that
+  claimed more than this would be worse than a narrow one.
+- **Spend is claimed before the call and is NOT refunded when the call fails.**
+  Forced and measured: the endpoint 502s after the claim and the workspace is
+  charged 2 for 0 inference received; a client that disconnects mid-stream is
+  charged likewise. This is deliberate. A refund-on-failure design means a
+  failing endpoint costs a workspace nothing, which is precisely the retry storm
+  a ceiling exists to bound, and the up-front claim of the FULL turn cost is
+  what lets a turn either run completely or be refused cleanly — claiming
+  per-pass would let a workspace be cut off mid-answer at 99/100. The
+  over-charge on a failed turn is the price of never starting a turn we cannot
+  finish, and it is documented rather than hidden.
+- **The window is fixed, not sliding, and that is a real 2x burst.** Measured:
+  `window_start` truncates to the hour, so a workspace can spend its full
+  ceiling at 13:59:59 and again at 14:00:01 — 2x the hourly ceiling in two
+  seconds of wall clock. Kept: truncation is what lets every replica agree on
+  the boundary without coordinating, the burst is bounded (2x over two hours
+  averages to the ceiling), and the refusal copy already names the exact reset
+  time so an analyst is never guessing. A sliding window would trade that
+  coordination-free property for a smoother curve nobody asked for.
+
+## D-028 — CI runs `./ci.sh`, and nothing else (2026-08-15, S20)
+The beta deploy pipeline. `.github/workflows/ci.yml`, ratified as built and
+verified by running it.
+
+Until S20 the gate was "Burhan runs `./ci.sh` locally and Claude reports green."
+That is a real gate for one human who has agreed to a protocol, and it does not
+survive a second contributor. It was also unprovable from outside: `gh pr checks`
+reported **0 checks** on every promote PR from #1 to #19, so the promote ritual
+asserted a green nobody could see.
+
+- **The workflow calls `./ci.sh` and re-implements none of it.** A workflow that
+  re-listed the steps would be a second definition of "green", and the first time
+  someone edited one and not the other the gate would start lying. Same rule as
+  the guard importing the classifier's detectors (D-025) and the tier list living
+  in code beside `EXECUTABLE_SYSTEMS` (D-026): one source of truth per decision.
+  `test_ci_runs_the_same_gate_a_developer_runs` fails if the workflow grows its
+  own `ruff check`, `pytest` or `pip install`.
+- **No secrets, and none referenced.** `auspex/devhost.py` already pins
+  `KB_ENABLED` / `INGEST_ENABLED` / `ENRICHMENT_ENABLED` to false for host runs,
+  so the suite reaches no feed, no provider, no LLM and no OpenSearch ML. A fork
+  PR runs the identical gate. **S20 added zero env vars — seven sessions now.**
+- **It is the gate on `main` and `staging`, both push and PR.** The
+  always-demoable invariant is unchanged and now enforced by something other
+  than a promise.
+- **It paid for itself on the first run**, which is the reason this entry is
+  ratified rather than proposed. Two defects that were green on the developer's
+  laptop and red on a clean runner:
+  1. **IPv6 identity was delegated to a stdlib formatting choice.**
+     `observable_id` hashes the value, and the value came from `ip.compressed` —
+     which CPython renders in mixed notation for IPv4-mapped addresses on newer
+     patch releases. A silent interpreter upgrade would have forked every
+     IPv4-mapped observable into a second identity and split its verdict history,
+     which is precisely what Living Verdicts cannot survive. Now canonicalised in
+     our own code, measured equal to the stdlib across **200,268 addresses** with
+     every output re-parsing to its input.
+  2. **Three tests depended on accumulated developer state** — a fixture SELECTed
+     the `default` workspace and asserted it existed, which was only ever true
+     because a laptop's long-lived dev database had one from an earlier login.
+  Neither was findable locally. That is the argument for the pipeline, and it is
+  evidence rather than assertion.
+- **Branch protection is NOT set by this decision.** Requiring the check before a
+  promote merge is a repository-settings change and the human's call, not a
+  commit's — recorded in STATE.md as the one manual step left.

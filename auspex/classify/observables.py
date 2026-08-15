@@ -62,6 +62,54 @@ def observable_id(type_: ObservableType, value: str) -> str:
     return f"{type_}-{digest}"
 
 
+def _canonical_ipv6(ip: ipaddress.IPv6Address) -> str:
+    """Our OWN canonical form for an IPv6 address, not the stdlib's.
+
+    `observable_id` hashes the VALUE, so the text an address normalizes to is
+    that observable's identity — and identity is what every verdict, decay
+    curve, watcher and retro-hunt match hangs off. Delegating it to
+    `ip.compressed` looked like reusing a canonical form and was actually
+    delegating our primary key to a formatting choice that moves.
+
+    It moved: CPython renders IPv4-mapped addresses in mixed notation on newer
+    patch releases, so `::ffff:203.0.113.9` compresses to `::ffff:cb00:7109` on
+    3.12.3 and to itself on the runner. Found by the S20 CI gate on its first
+    run — the suite was green locally and red on a different interpreter. A
+    silent interpreter upgrade would have forked every IPv4-mapped observable
+    into a second identity and split its verdict history in half.
+
+    Pinned to the all-hex form: it is what this code has produced to date, so
+    no existing obs_id changes. The mixed form is what RFC 5952 §5 recommends
+    for readability and is a display concern, not an identity one — parked in
+    IDEAS.md rather than silently swapped here.
+
+    Applied to EVERY address, not just the mapped ones. Measured against the
+    stdlib over 200,268 addresses (random 128-bit draws plus structured sweeps
+    of zero-runs, mapped and compatible ranges): zero disagreements, and every
+    output re-parses to the address it came from. So doing it universally
+    changes no identity today and leaves none of them depending on a formatting
+    policy tomorrow — the narrow version would only have covered the one case
+    that has bitten us so far. `test_our_canonical_ipv6_agrees_with_the_stdlib`
+    keeps that measurement running.
+    """
+    # Rendered from the integer and compressed HERE. Handing the hex back to
+    # `IPv6Address(...).compressed` would not help: the result is the same
+    # address, so the same formatting policy would apply again.
+    groups = [f"{(int(ip) >> shift) & 0xFFFF:x}" for shift in range(112, -1, -16)]
+    # RFC 5952 §4.2: collapse the longest run of zero groups (2 or more).
+    best_start, best_len, run_start = -1, 0, -1
+    for i, group in enumerate([*groups, "end"]):
+        if group == "0":
+            run_start = i if run_start < 0 else run_start
+            continue
+        if run_start >= 0 and i - run_start > best_len:
+            best_start, best_len = run_start, i - run_start
+        run_start = -1
+    if best_len < 2:
+        return ":".join(groups)
+    return f"{':'.join(groups[:best_start])}::{':'.join(groups[best_start + best_len:])}"
+
+
 # -- refang -------------------------------------------------------------------
 
 # One pattern per replacement, any bracket pair ([.], (.), {.}, and mixed pairs —
@@ -236,7 +284,7 @@ def extract(text: str) -> Extraction:
         if ip.version != 6:
             continue
         ipv6_spans.append((start, end))
-        found.append((ObservableType.IPV6, ip.compressed, candidate, (start, end)))
+        found.append((ObservableType.IPV6, _canonical_ipv6(ip), candidate, (start, end)))
 
     host_spans = url_spans + ipv6_spans  # complete by now; loop-invariant
     for m in _IPV4_CAND_RE.finditer(refanged):

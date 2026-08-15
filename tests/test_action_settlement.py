@@ -591,8 +591,22 @@ def _hdr(client) -> dict:
 
 @pytest.fixture
 async def route_ws(pool, client):
-    """The default workspace the dev login lands in, cleaned around the test."""
-    ws = await pool.fetchval("SELECT id FROM workspaces WHERE name = 'default'")
+    """The default workspace the dev login lands in, cleaned around the test.
+
+    Provisioned here rather than SELECTed. It used to be a bare SELECT with an
+    `assert ws is not None`, which passed only because a developer's long-lived
+    dev database already had a `default` workspace from some earlier login: the
+    fixture runs BEFORE the test body calls `_hdr()`, so on a fresh database
+    nothing had created it yet. Three tests errored on the first CI run against
+    an empty Postgres and were green on every laptop.
+
+    Same get-or-create as `auth.py:135`, so the fixture provisions it exactly
+    the way a real dev-login does instead of inventing a second shape.
+    """
+    ws = await pool.fetchval(
+        "INSERT INTO workspaces (name) VALUES ('default')"
+        " ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id"
+    )
     assert ws is not None
     value = "route-settlement.test"
     obs_id = observable_id(ObservableType.DOMAIN, value)
