@@ -31,8 +31,16 @@ from auspex.agent.registry import ToolRegistry
 if TYPE_CHECKING:
     # Type-only: auspex.actions imports auspex.agent.permissions for the gate, so
     # importing it here at runtime would close a cycle. The loop only ever reads
-    # the manifest's rendered text.
+    # the manifest's rendered text and calls the proposer it was handed.
+    from collections.abc import Awaitable, Callable
+
     from auspex.actions import ActionManifest
+
+    # Files a proposal for one action call and returns the stored row (which
+    # carries `id` and the rendered `card`). A callable rather than the
+    # settlement class so the loop keeps depending on a seam, not on Postgres —
+    # the same reason `ProposalStore` is a Protocol.
+    ActionProposer = Callable[..., Awaitable[dict]]
 from auspex.llm.capability import PROBE_MAX_TOKENS
 from auspex.llm.client import ChatResult, ToolCall
 
@@ -70,6 +78,11 @@ class ToolInvocation:
     feedback: dict[str, Any]  # exactly what was fed back to the model
     level: str | None = None
     proposal_id: str | None = None
+    # S18: for a proposed ACTION, the card a human will decide on — compiled from
+    # the spec and the action's own dry run (auspex/actions/proposal.py). Carried
+    # on the invocation so the surface streams what was RENDERED rather than
+    # re-deriving it from the model's sentence.
+    card: dict[str, Any] | None = None
 
 
 @dataclass
@@ -259,13 +272,16 @@ class AgentLoop:
         max_tokens: int = PROBE_MAX_TOKENS,
         temperature: float = 0.0,
         actions: "ActionManifest | None" = None,
+        action_proposer: "ActionProposer | None" = None,
     ):
         self.registry = registry
         self.proposal_store = proposal_store
         self.mode = mode
         self.channel = channel_for(mode)
         # S17: the action surface, as a DESCRIPTION. See `_actions_prefix`.
+        # S18: plus the one thing calling an action may do — file a proposal.
         self.actions = actions
+        self.action_proposer = action_proposer
         _refuse_shadowed_actions(registry, actions)
         self.workspace_id = workspace_id
         self.session_id = session_id
@@ -283,6 +299,12 @@ class AgentLoop:
         tool_names: Sequence[str] | None = None,
     ) -> AgentResult:
         specs = [] if not self.channel.offers_tools else self.registry.specs(tool_names)
+        # S18: actions join the wire array only when this runtime can actually
+        # file a proposal for one. Offering a callable name with no proposer
+        # behind it is the failure S17 refused to ship — the model would call it,
+        # get an error, and be tempted to narrate success anyway.
+        if self.channel.offers_tools and self.actions is not None and self.action_proposer:
+            specs = [*specs, *self.actions.wire_specs()]
         messages: list[dict] = [
             {
                 "role": "system",
@@ -327,28 +349,47 @@ class AgentLoop:
         return AgentResult(final.content, self.max_steps, invocations, "step_cap", self.mode)
 
     def _actions_prefix(self) -> str:
-        """The action surface, described to the planner (S17).
+        """The action surface, described to the planner.
 
         The manifest says what the actions ARE; this says what this runtime can
-        do with them, and the two are separate because only the second changes
-        when S18 lands. Today: nothing. Actions are NOT offered as callable tools
-        — `specs` above comes from the ToolRegistry alone, and `_dispatch`
-        resolves names there — because an action's dispatch is the proposal
-        round-trip S18 owns. Offering a name the model can call that resolves to
-        "unknown tool" would be a worse failure than one it can only recommend:
-        it invites the model to believe it acted.
+        do with them. The two are separate because exactly this half changed at
+        S18: S17 could only describe actions, because dispatch without a proposal
+        round-trip would have offered a callable name resolving to "unknown
+        tool", inviting the model to believe it acted. With a proposer wired in,
+        calling an action is meaningful and still not an execution — it files a
+        request for a human. Without one, the honest sentence is the S17 one.
         """
         if self.actions is None or not self.actions.actions:
             return ""
+        if self.action_proposer is None:
+            return (
+                "\n\n"
+                + self.actions.directive()
+                + "\n\nYou cannot invoke these yourself in this turn — no mechanism here "
+                "will run one. Name the action and its arguments in your answer so a "
+                "human can approve it."
+            )
         return (
             "\n\n"
             + self.actions.directive()
-            + "\n\nYou cannot invoke these yourself in this turn — no mechanism here "
-            "will run one. Name the action and its arguments in your answer so a "
-            "human can approve it."
+            + "\n\nCalling one of these FILES A PROPOSAL for a human to approve. It "
+            "does not perform the action, and nothing in this turn can: the result "
+            "you get back is a proposal id, never an outcome. Say that you have "
+            "proposed it and what it would do — never that it is done."
         )
 
     async def _dispatch(self, call: ToolCall) -> ToolInvocation:
+        # S18: an action name resolves HERE, before the tool registry, and never
+        # to an execution. S17 kept actions off the wire entirely because a
+        # callable name that resolved to "unknown tool" would invite the model to
+        # believe it acted; the answer was always going to be this round-trip
+        # rather than silence. The model may now CALL an action, and calling one
+        # produces a dry run and a proposal — a request for a human, not a side
+        # effect. `_refuse_shadowed_actions` guarantees the two namespaces are
+        # disjoint, so this ordering cannot hide a tool.
+        if self._action_spec(call.name) is not None:
+            return await self._propose_action(call)
+
         tool = self.registry.get(call.name)
         if tool is None:
             return ToolInvocation(call.name, {}, "error", {"error": f"unknown tool '{call.name}'"})
@@ -395,4 +436,74 @@ class AgentLoop:
         return ToolInvocation(
             call.name, args, "proposed", feedback,
             level=tool.level.value, proposal_id=proposal_id,
+        )
+
+    # ── the action round-trip (S18) ──────────────────────────────────────────
+
+    def _action_spec(self, name: str):
+        """The spec for a name the model called, if it is an action at all."""
+        if self.actions is None:
+            return None
+        for spec in self.actions.actions:
+            if spec.name == name:
+                return spec
+        return None
+
+    async def _propose_action(self, call: ToolCall) -> ToolInvocation:
+        """Dry-run the action and file a proposal. Never executes.
+
+        The dry run happens HERE rather than at approval time on purpose: the
+        card a human reads has to say what this action would do with THESE
+        arguments, and computing it later would describe a world that has since
+        moved. It also means a model that calls an action with nonsense arguments
+        finds out now, in the turn, instead of wasting a human's decision.
+        """
+        spec = self._action_spec(call.name)
+        try:
+            args = call.parse_arguments()
+        except ValueError:
+            return ToolInvocation(
+                call.name, {}, "error", {"error": "action arguments were not valid JSON"}
+            )
+        missing = [p for p in spec.required if p not in args]
+        if missing:
+            return ToolInvocation(
+                call.name, args, "error",
+                {"error": f"missing required parameter(s): {missing}"},
+                level=spec.risk.value,
+            )
+        if self.action_proposer is None:
+            # Told about actions, given no way to file one: say so honestly
+            # rather than let the model narrate a proposal that does not exist.
+            return ToolInvocation(
+                call.name, args, "error",
+                {"error": f"'{call.name}' cannot be proposed in this context"},
+                level=spec.risk.value,
+            )
+        try:
+            proposal = await self.action_proposer(
+                spec=spec,
+                arguments=args,
+                workspace_id=self.workspace_id,
+                session_id=self.session_id,
+            )
+        except Exception as err:
+            return ToolInvocation(
+                call.name, args, "error",
+                {"error": f"proposing raised {type(err).__name__}"},
+                level=spec.risk.value,
+            )
+        feedback = {
+            "status": "pending_approval",
+            "proposal_id": proposal["id"],
+            "would": proposal["card"]["summary"],
+            "note": (
+                f"'{call.name}' was PROPOSED and requires human approval. It has NOT "
+                "been performed, and nothing you say can perform it — do not report "
+                "it as done."
+            ),
+        }
+        return ToolInvocation(
+            call.name, args, "proposed", feedback,
+            level=spec.risk.value, proposal_id=proposal["id"], card=proposal["card"],
         )

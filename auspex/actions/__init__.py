@@ -1,8 +1,15 @@
-"""Actions SDK — S17 (Phase 4).
+"""Actions SDK — S17 (the contract) + S18 (the decision), Phase 4.
 
-The contract that lets the co-analyst ACT, and only the contract: an action can
-be declared, registered and described to the planner, and nothing in this package
-executes anything against a real system. Proposals and approvals are S18.
+S17 made an action declarable: it can be declared, registered and described to
+the planner, and the declaration is the source of truth for the wire schema, the
+planner directive and the approval text (D-007, D-023).
+
+S18 is where the declaration stops being a document. A proposal carries the card
+a human sees and the IDENTITY of the declaration it was rendered from
+(`proposal.py`); settlement claims the row before anything runs, and execution
+re-checks both the D-014 gate and that identity before it touches anything
+(`settlement.py`). What actually executes is limited to systems Auspex owns
+(`builtin.py`) — anything reaching a third party stays proposal-only.
 
     from auspex.actions import ActionRegistry, ActionRisk, ActionScope, action
 
@@ -23,7 +30,17 @@ executes anything against a real system. Proposals and approvals are S18.
 """
 
 from auspex.actions.decorator import SPEC_ATTR, action, spec_of
+from auspex.actions.proposal import canonical_spec, card, fingerprint
 from auspex.actions.registry import ActionManifest, ActionRegistry
+from auspex.actions.settlement import (
+    EXECUTABLE_SYSTEMS,
+    ActionExecutor,
+    ExecutionRefused,
+    ProposalSettlement,
+    Settlement,
+    SettleResult,
+    check_executable,
+)
 from auspex.actions.types import (
     ActionOutcome,
     ActionParam,
@@ -37,7 +54,9 @@ from auspex.actions.types import (
 )
 
 __all__ = [
+    "EXECUTABLE_SYSTEMS",
     "SPEC_ATTR",
+    "ActionExecutor",
     "ActionManifest",
     "ActionOutcome",
     "ActionParam",
@@ -46,9 +65,17 @@ __all__ = [
     "ActionScope",
     "ActionSpec",
     "ActionSpecError",
+    "ExecutionRefused",
     "ParamType",
+    "ProposalSettlement",
+    "SettleResult",
+    "Settlement",
     "UndoSpec",
     "action",
+    "canonical_spec",
+    "card",
+    "check_executable",
+    "fingerprint",
     "spec_of",
     "validate_spec",
 ]

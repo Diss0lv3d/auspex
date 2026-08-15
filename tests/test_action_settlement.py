@@ -1,0 +1,643 @@
+"""Approval flow — S18 (Phase 4), against live Postgres (compose dev DB).
+
+S17 shipped a contract in which nothing executed. This is the session where a
+human decides and something happens, so these tests are arranged around the four
+claims S18 makes:
+
+1. a proposal can be approved EXACTLY once, proven by racing it;
+2. what the approver sees is compiled from the spec, not from model prose;
+3. an approved action re-checks BOTH permission and the spec before running;
+4. an executed action can be put back — by a test that actually runs the undo.
+
+The action under test is `annotate_observable`, which writes to a table we own.
+That is the point rather than a shortcut: an action reaching a third party needs
+a real credential and a real blast radius, so the executor allow-lists `auspex`
+and everything else stays proposal-only.
+"""
+
+import asyncio
+import json
+
+import pytest
+
+from auspex.actions import (
+    ActionExecutor,
+    ActionOutcome,
+    ActionParam,
+    ActionRegistry,
+    ActionRisk,
+    ActionScope,
+    ActionSpec,
+    ExecutionRefused,
+    ParamType,
+    ProposalSettlement,
+    Settlement,
+    UndoSpec,
+    card,
+    check_executable,
+    fingerprint,
+)
+from auspex.actions.builtin import NOTE_SOURCE, build_builtin_actions
+from auspex.classify.observables import ObservableType, observable_id
+from auspex.db import create_pool
+from auspex.routes import proposals as proposals_route
+
+
+@pytest.fixture
+async def pool(client, settings):
+    pool = await create_pool(settings.database_url, retries=2, delay=0.5)
+    yield pool
+    await pool.close()
+
+
+@pytest.fixture
+async def workspace_id(pool):
+    ws = await pool.fetchval(
+        "INSERT INTO workspaces (name) VALUES ($1)"
+        " ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id",
+        "t-settlement",
+    )
+    yield ws
+    await pool.execute("DELETE FROM workspaces WHERE id = $1", ws)
+
+
+@pytest.fixture
+async def other_workspace_id(pool):
+    ws = await pool.fetchval(
+        "INSERT INTO workspaces (name) VALUES ($1)"
+        " ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id",
+        "t-settlement-other",
+    )
+    yield ws
+    await pool.execute("DELETE FROM workspaces WHERE id = $1", ws)
+
+
+@pytest.fixture
+async def an_observable(pool, workspace_id):
+    """One real observable to annotate."""
+    value = "evil-settlement.test"
+    obs_id = observable_id(ObservableType.DOMAIN, value)
+    await pool.execute(
+        """
+        INSERT INTO observables (workspace_id, obs_id, type, value)
+        VALUES ($1, $2, 'domain', $3)
+        ON CONFLICT (workspace_id, type, value) DO NOTHING
+        """,
+        workspace_id,
+        obs_id,
+        value,
+    )
+    return obs_id
+
+
+@pytest.fixture
+def registry(pool):
+    r = ActionRegistry()
+    r.register_all(build_builtin_actions(pool))
+    return r
+
+
+@pytest.fixture
+def spec(registry):
+    return registry.get("annotate_observable")
+
+
+async def _file(pool, registry, spec, workspace_id, obs_id, note="looks like a staging domain"):
+    """File a proposal the way the surface does: dry-run first, card from the
+    spec, then persist."""
+    settlement = ProposalSettlement(pool)
+    args = {"observable_id": obs_id, "note": note}
+    dry = await spec.dry_run(workspace_id=workspace_id, **args)
+    return settlement, await settlement.file(
+        workspace_id=workspace_id, spec=spec, arguments=args, dry_run=dry
+    )
+
+
+# -- 1. exactly once ----------------------------------------------------------
+
+
+async def test_two_approvers_one_proposal_exactly_one_execution(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """The claim wins the row before anything runs. Eight concurrent approvals of
+    one proposal: exactly one may be told it succeeded.
+
+    This is the D-001 reason Postgres holds truth. A read-then-write would pass
+    this test most of the time, which is precisely why the guarantee has to be in
+    the WHERE clause instead of in the sequence of statements."""
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+
+    results = await asyncio.gather(
+        *[
+            settlement.settle(
+                workspace_id=workspace_id,
+                proposal_id=proposal["id"],
+                decision="approved",
+                decided_by=None,
+            )
+            for _ in range(8)
+        ]
+    )
+    winners = [r for r in results if r.won]
+    losers = [r for r in results if not r.won]
+    assert len(winners) == 1, [r.outcome for r in results]
+    assert len(losers) == 7
+    # and every loser is TOLD it lost, with the status that beat it
+    assert all(r.outcome is Settlement.ALREADY_DECIDED for r in losers)
+    assert all(r.current_status == "approved" for r in losers)
+    # the row itself agrees
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=proposal["id"])
+    assert row["status"] == "approved" and row["decided_at"] is not None
+
+
+async def test_a_rejected_proposal_cannot_then_be_approved(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Settlement is terminal in both directions — the loser of a reject/approve
+    race is not special-cased into a second chance."""
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    first = await settlement.settle(
+        workspace_id=workspace_id,
+        proposal_id=proposal["id"],
+        decision="rejected",
+        decided_by=None,
+    )
+    assert first.won
+    second = await settlement.settle(
+        workspace_id=workspace_id,
+        proposal_id=proposal["id"],
+        decision="approved",
+        decided_by=None,
+    )
+    assert not second.won and second.current_status == "rejected"
+
+
+async def test_settlement_is_scoped_to_the_workspace(
+    pool, registry, spec, workspace_id, other_workspace_id, an_observable
+):
+    """D-008: another tenant cannot settle this proposal, and does not learn that
+    it exists — the same answer as a proposal that never existed."""
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    result = await settlement.settle(
+        workspace_id=other_workspace_id,
+        proposal_id=proposal["id"],
+        decision="approved",
+        decided_by=None,
+    )
+    assert result.outcome is Settlement.NOT_FOUND
+    assert await settlement.get(
+        workspace_id=other_workspace_id, proposal_id=proposal["id"]
+    ) is None
+
+
+# -- 2. the card is compiled from the spec ------------------------------------
+
+
+async def test_the_card_says_what_the_action_would_do_from_its_own_declaration(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """D-007/D-023: every field an approver reads comes from the spec or from the
+    action's own dry run against the REAL arguments. No model text anywhere."""
+    _, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    stored = proposal["card"]
+
+    assert stored["action"] == "annotate_observable"
+    assert stored["risk"] == "write" and stored["requires_approval"] is True
+    # what it would do, generated by the action against the real target
+    assert "evil-settlement.test" in stored["summary"]
+    assert stored["affects"] == [an_observable]
+    # the systems it touches, named for the human consenting to them
+    assert stored["systems"] == [
+        {"system": "auspex", "writes": True, "detail": "observable_notes in this workspace"}
+    ]
+    # whether it can be taken back, and what the undo does NOT cover
+    assert stored["reversible"] is True
+    assert stored["undo"]["restores"].startswith("the observable's notes")
+    assert stored["undo"]["cannot_restore"] == []
+    # and the identity of the declaration this card was rendered from
+    assert stored["spec_fingerprint"] == fingerprint(spec)
+
+
+async def test_the_dry_run_wrote_nothing(pool, registry, spec, workspace_id, an_observable):
+    """`dry_run` is required of every action precisely so this is checkable: the
+    card exists and the note does not."""
+    await _file(pool, registry, spec, workspace_id, an_observable)
+    assert 0 == await pool.fetchval(
+        "SELECT count(*) FROM observable_notes WHERE workspace_id = $1", workspace_id
+    )
+
+
+async def test_a_partial_undo_reaches_the_card_as_not_reversible():
+    """An action whose undo names what it cannot restore must not present itself
+    as fully reversible at the moment someone is deciding — the card reads the
+    SPEC's answer, not the outcome's optimistic default."""
+
+    async def would(**kw):
+        return ActionOutcome(would="would disable the account", reversible=True)
+
+    async def run(**kw):  # pragma: no cover — never executed here
+        raise AssertionError
+
+    async def put_back(**kw):  # pragma: no cover
+        raise AssertionError
+
+    partial = ActionSpec(
+        name="disable_account",
+        description="Disable a user account",
+        risk=ActionRisk.DESTRUCTIVE,
+        scope=(ActionScope("idp", writes=True),),
+        params=(ActionParam("user", ParamType.STRING, "the user"),),
+        dry_run=would,
+        execute=run,
+        undo=UndoSpec(
+            description="Re-enable the account",
+            handler=put_back,
+            restores="the account's ability to sign in",
+            cannot_restore=("sessions killed at disable time",),
+        ),
+    )
+    rendered = card(partial, arguments={"user": "u1"}, dry_run=await would())
+    assert rendered["reversible"] is False
+    assert rendered["undo"]["cannot_restore"] == ["sessions killed at disable time"]
+
+
+# -- 3. the re-check at execute time ------------------------------------------
+
+
+async def test_an_unapproved_proposal_cannot_execute(
+    pool, registry, spec, workspace_id, an_observable
+):
+    _, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    with pytest.raises(ExecutionRefused) as err:
+        await ActionExecutor(pool, registry).execute(
+            workspace_id=workspace_id, proposal_id=proposal["id"]
+        )
+    assert err.value.reason == "not_approved"
+
+
+async def test_an_action_approved_under_a_different_declaration_refuses_to_run(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """TD-023, the item this session owes: an hour can pass between the approval
+    and the run, and a deploy can change the action in between. The approval was
+    a decision about a specific declaration, so the fingerprint on the row must
+    still match the one the registry holds."""
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    await settlement.settle(
+        workspace_id=workspace_id,
+        proposal_id=proposal["id"],
+        decision="approved",
+        decided_by=None,
+    )
+    # the deploy: same name, same handlers, but the undo no longer restores what
+    # the approver was told it would
+    changed = ActionSpec(
+        name=spec.name,
+        description=spec.description,
+        risk=spec.risk,
+        scope=spec.scope,
+        params=spec.params,
+        dry_run=spec.dry_run,
+        execute=spec.execute,
+        undo=UndoSpec(
+            description=spec.undo.description,
+            handler=spec.undo.handler,
+            restores=spec.undo.restores,
+            cannot_restore=("anything a colleague edited afterwards",),
+        ),
+    )
+    assert fingerprint(changed) != fingerprint(spec)
+    deployed = ActionRegistry()
+    deployed.register(changed)
+
+    with pytest.raises(ExecutionRefused) as err:
+        await ActionExecutor(pool, deployed).execute(
+            workspace_id=workspace_id, proposal_id=proposal["id"]
+        )
+    assert err.value.reason == "spec_changed"
+    # and nothing was written
+    assert 0 == await pool.fetchval(
+        "SELECT count(*) FROM observable_notes WHERE workspace_id = $1", workspace_id
+    )
+
+
+def test_an_action_the_gate_would_auto_execute_is_refused_at_run_time():
+    """The permission half of the same re-check. A declaration that is now READ
+    would not be proposed at all today — so the approval on the row was granted
+    under a different rule, and running it would launder a gate change into an
+    execution."""
+
+    async def would(**kw):
+        return ActionOutcome(would="x")
+
+    async def run(**kw):  # pragma: no cover
+        raise AssertionError
+
+    now_read = ActionSpec(
+        name="annotate_observable",
+        description="Attach a note",
+        risk=ActionRisk.READ,
+        scope=(ActionScope("auspex", writes=False),),
+        params=(),
+        dry_run=would,
+        execute=run,
+    )
+    with pytest.raises(ExecutionRefused) as err:
+        check_executable(
+            now_read,
+            {"status": "approved", "spec_fingerprint": fingerprint(now_read)},
+        )
+    assert err.value.reason == "risk_no_longer_gated"
+
+
+def test_an_action_touching_a_system_we_do_not_own_never_executes():
+    """S18's blast-radius rule, in code rather than in a comment. It may be
+    declared, proposed, approved and rendered — it will not be run from here."""
+
+    async def would(**kw):
+        return ActionOutcome(would="would isolate the host")
+
+    async def run(**kw):  # pragma: no cover
+        raise AssertionError("a third-party system must never be reached in S18")
+
+    async def release(**kw):  # pragma: no cover
+        raise AssertionError
+
+    edr = ActionSpec(
+        name="isolate_host",
+        description="Isolate a host at the EDR",
+        risk=ActionRisk.DESTRUCTIVE,
+        scope=(ActionScope("edr", writes=True),),
+        params=(),
+        dry_run=would,
+        execute=run,
+        undo=UndoSpec("Release the host", release, restores="network connectivity"),
+    )
+    with pytest.raises(ExecutionRefused) as err:
+        check_executable(edr, {"status": "approved", "spec_fingerprint": fingerprint(edr)})
+    assert err.value.reason == "system_not_executable"
+
+
+# -- 4. it really runs, and it really comes back ------------------------------
+
+
+async def test_an_approved_action_executes_and_the_undo_actually_runs(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """The whole session in one test: propose → approve → execute → undo, with
+    the state checked after each step.
+
+    TD-023 said an undo that is declared and never exercised is a promise nobody
+    checked. This runs it."""
+    settlement, proposal = await _file(
+        pool, registry, spec, workspace_id, an_observable, note="staging domain, not malicious"
+    )
+    pid = proposal["id"]
+
+    approved = await settlement.settle(
+        workspace_id=workspace_id, proposal_id=pid, decision="approved", decided_by=None
+    )
+    assert approved.won
+
+    executor = ActionExecutor(pool, registry)
+    outcome = await executor.execute(workspace_id=workspace_id, proposal_id=pid)
+    assert "evil-settlement.test" in outcome.would
+
+    notes = await pool.fetch(
+        "SELECT note, source, proposal_id FROM observable_notes WHERE workspace_id = $1",
+        workspace_id,
+    )
+    assert len(notes) == 1
+    assert notes[0]["note"] == "staging domain, not malicious"
+    assert notes[0]["source"] == NOTE_SOURCE
+    assert str(notes[0]["proposal_id"]) == str(pid)
+
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert row["status"] == "executed" and row["result"]["would"]
+
+    # ── and back again ──
+    undone = await executor.undo(workspace_id=workspace_id, proposal_id=pid)
+    assert undone.detail["removed"] == 1
+    assert 0 == await pool.fetchval(
+        "SELECT count(*) FROM observable_notes WHERE workspace_id = $1", workspace_id
+    )
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert row["status"] == "undone" and row["undone_at"] is not None
+
+
+async def test_execution_cannot_happen_twice(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """The same claim-first device guards the run itself: two callers hitting
+    execute on one approved proposal is the same race as two approvers."""
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await settlement.settle(
+        workspace_id=workspace_id, proposal_id=pid, decision="approved", decided_by=None
+    )
+    executor = ActionExecutor(pool, registry)
+    results = await asyncio.gather(
+        *[executor.execute(workspace_id=workspace_id, proposal_id=pid) for _ in range(5)],
+        return_exceptions=True,
+    )
+    ran = [r for r in results if isinstance(r, ActionOutcome)]
+    refused = [r for r in results if isinstance(r, ExecutionRefused)]
+    assert len(ran) == 1, results
+    assert len(refused) == 4
+    # one note, not five
+    assert 1 == await pool.fetchval(
+        "SELECT count(*) FROM observable_notes WHERE workspace_id = $1", workspace_id
+    )
+
+
+async def test_the_undo_removes_only_what_this_approval_added(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """An undo that deleted "the notes on this observable" would delete a
+    colleague's note that arrived in between — a different action wearing an
+    undo's clothes. Keyed on the proposal, so it removes exactly its own."""
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await settlement.settle(
+        workspace_id=workspace_id, proposal_id=pid, decision="approved", decided_by=None
+    )
+    executor = ActionExecutor(pool, registry)
+    await executor.execute(workspace_id=workspace_id, proposal_id=pid)
+
+    # a human writes their own note on the same observable, afterwards
+    obs_uuid = await pool.fetchval(
+        "SELECT id FROM observables WHERE workspace_id = $1 AND obs_id = $2",
+        workspace_id,
+        an_observable,
+    )
+    await pool.execute(
+        """
+        INSERT INTO observable_notes (workspace_id, observable_id, note, source)
+        VALUES ($1, $2, 'a colleague typed this', 'human')
+        """,
+        workspace_id,
+        obs_uuid,
+    )
+
+    await executor.undo(workspace_id=workspace_id, proposal_id=pid)
+    left = await pool.fetch(
+        "SELECT note, source FROM observable_notes WHERE workspace_id = $1", workspace_id
+    )
+    assert len(left) == 1
+    assert left[0]["source"] == "human"
+
+
+async def test_an_undo_cannot_run_before_an_execution(
+    pool, registry, spec, workspace_id, an_observable
+):
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    await settlement.settle(
+        workspace_id=workspace_id,
+        proposal_id=proposal["id"],
+        decision="approved",
+        decided_by=None,
+    )
+    with pytest.raises(ExecutionRefused) as err:
+        await ActionExecutor(pool, registry).undo(
+            workspace_id=workspace_id, proposal_id=proposal["id"]
+        )
+    assert err.value.reason == "not_executed"
+
+
+# -- 5. the analyst surface ---------------------------------------------------
+
+ROUTE_EMAIL = "analyst@auspex.dev"
+
+
+def _hdr(client) -> dict:
+    token = client.post("/api/auth/dev-login", json={"email": ROUTE_EMAIL}).json()[
+        "access_token"
+    ]
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+async def route_ws(pool, client):
+    """The default workspace the dev login lands in, cleaned around the test."""
+    ws = await pool.fetchval("SELECT id FROM workspaces WHERE name = 'default'")
+    assert ws is not None
+    value = "route-settlement.test"
+    obs_id = observable_id(ObservableType.DOMAIN, value)
+    await pool.execute(
+        """
+        INSERT INTO observables (workspace_id, obs_id, type, value)
+        VALUES ($1, $2, 'domain', $3)
+        ON CONFLICT (workspace_id, type, value) DO NOTHING
+        """,
+        ws,
+        obs_id,
+        value,
+    )
+    yield ws, obs_id
+    await pool.execute(
+        "DELETE FROM observables WHERE workspace_id = $1 AND value = $2", ws, value
+    )
+    await pool.execute("DELETE FROM proposals WHERE workspace_id = $1", ws)
+
+
+async def test_the_approval_surface_carries_the_card_and_settles_once(
+    pool, client, route_ws
+):
+    """The analyst's round trip: see what is waiting, approve it, and get back
+    both the settlement and what actually happened."""
+    ws, obs_id = route_ws
+    registry = ActionRegistry()
+    registry.register_all(build_builtin_actions(pool))
+    spec = registry.get("annotate_observable")
+    settlement, proposal = await _file(pool, registry, spec, ws, obs_id, note="route note")
+
+    hdr = _hdr(client)
+    listed = client.get("/api/proposals", headers=hdr).json()
+    mine = [p for p in listed["proposals"] if p["id"] == str(proposal["id"])]
+    assert len(mine) == 1
+    card_seen = mine[0]["card"]
+    assert card_seen["risk"] == "write"
+    assert "route-settlement.test" in card_seen["summary"]
+    assert card_seen["systems"][0]["system"] == "auspex"
+    assert card_seen["reversible"] is True
+
+    approved = client.post(f"/api/proposals/{proposal['id']}/approve", headers=hdr)
+    assert approved.status_code == 200, approved.text
+    body = approved.json()
+    assert body["settled"] == "approved" and body["executed"] is True
+    assert "route-settlement.test" in body["outcome"]["did"]
+    assert body["proposal"]["status"] == "executed"
+
+    # the note is really there
+    assert 1 == await pool.fetchval(
+        "SELECT count(*) FROM observable_notes WHERE proposal_id = $1::uuid",
+        str(proposal["id"]),
+    )
+
+    # a second approval is a 409, not a second execution
+    again = client.post(f"/api/proposals/{proposal['id']}/approve", headers=hdr)
+    assert again.status_code == 409
+    assert "already" in again.json()["detail"]
+    assert 1 == await pool.fetchval(
+        "SELECT count(*) FROM observable_notes WHERE proposal_id = $1::uuid",
+        str(proposal["id"]),
+    )
+
+    # and it can be put back through the surface
+    undone = client.post(f"/api/proposals/{proposal['id']}/undo", headers=hdr)
+    assert undone.status_code == 200, undone.text
+    assert undone.json()["proposal"]["status"] == "undone"
+    assert 0 == await pool.fetchval(
+        "SELECT count(*) FROM observable_notes WHERE proposal_id = $1::uuid",
+        str(proposal["id"]),
+    )
+
+
+async def test_rejecting_never_executes(pool, client, route_ws):
+    ws, obs_id = route_ws
+    registry = ActionRegistry()
+    registry.register_all(build_builtin_actions(pool))
+    spec = registry.get("annotate_observable")
+    _, proposal = await _file(pool, registry, spec, ws, obs_id)
+
+    hdr = _hdr(client)
+    out = client.post(f"/api/proposals/{proposal['id']}/reject", headers=hdr)
+    assert out.status_code == 200 and out.json()["settled"] == "rejected"
+    assert 0 == await pool.fetchval(
+        "SELECT count(*) FROM observable_notes WHERE workspace_id = $1", ws
+    )
+    # and an approve afterwards cannot resurrect it
+    assert client.post(f"/api/proposals/{proposal['id']}/approve", headers=hdr).status_code == 409
+
+
+async def test_the_card_stream_replays_what_is_already_waiting(
+    pool, client, route_ws, monkeypatch
+):
+    """Approval cards over SSE: a client that connects late is not told the queue
+    is empty. One frame per waiting card, same single-key protocol as chat.
+
+    The stream's lifetime is bounded in code, so this shortens it rather than
+    relying on `is_disconnected()` — which is exactly the condition the bound
+    exists because we cannot rely on."""
+    monkeypatch.setattr(proposals_route, "STREAM_MAX_TICKS", 1)
+    monkeypatch.setattr(proposals_route, "STREAM_POLL_SECONDS", 0.05)
+    ws, obs_id = route_ws
+    registry = ActionRegistry()
+    registry.register_all(build_builtin_actions(pool))
+    spec = registry.get("annotate_observable")
+    _, proposal = await _file(pool, registry, spec, ws, obs_id, note="streamed")
+
+    frames = []
+    with client.stream("GET", "/api/proposals/stream", headers=_hdr(client)) as resp:
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/event-stream")
+        for line in resp.iter_lines():
+            if not line.startswith("data: "):
+                continue
+            frame = json.loads(line[6:])
+            assert "proposal" in frame, frame
+            assert frame["proposal"]["id"] == str(proposal["id"])
+            assert frame["proposal"]["card"]["summary"]
+            frames.append(frame)
+            break
+    assert frames, "the stream sent no card for a proposal that was already waiting"

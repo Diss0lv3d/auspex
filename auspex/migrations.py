@@ -446,6 +446,61 @@ SCHEMA_V0: list[str] = [
     CREATE INDEX IF NOT EXISTS idx_verdicts_ws_hl_created
         ON verdicts (workspace_id, half_life_days, created_at)
     """,
+    # S18: a proposal stops being a record of a tool call and becomes a decision
+    # about a DECLARATION. `spec_fingerprint` is the identity of the declaration
+    # the approver saw (auspex/actions/proposal.py) — re-checked at execute time,
+    # because an hour can pass between the approval and the run and a deploy can
+    # change an action's risk, scope or undo in between (TD-023). `card` is what
+    # was actually shown, stored rather than re-rendered: re-deriving it later
+    # would show today's declaration for yesterday's decision, which is the one
+    # thing an audit trail must not do.
+    """
+    ALTER TABLE proposals
+        ADD COLUMN IF NOT EXISTS spec_fingerprint text,
+        ADD COLUMN IF NOT EXISTS card jsonb,
+        ADD COLUMN IF NOT EXISTS undo_result jsonb,
+        ADD COLUMN IF NOT EXISTS undone_at timestamptz
+    """,
+    # 'executed' and 'rejected' were terminal in S3. S18 adds the states a real
+    # execution produces: the two in-flight claims ('executing', 'undoing' — the
+    # same claim-first device as approval, so a second caller cannot start a
+    # second run), one that ran and failed, and one that was put back.
+    """
+    DO $$
+    BEGIN
+        ALTER TABLE proposals DROP CONSTRAINT IF EXISTS proposals_status_check;
+        ALTER TABLE proposals ADD CONSTRAINT proposals_status_check
+            CHECK (status IN ('pending_approval', 'approved', 'rejected',
+                              'executing', 'executed', 'failed',
+                              'undoing', 'undone'));
+    END $$
+    """,
+    # The claim-first settlement reads exactly this: one row, by id, within a
+    # workspace, still pending. D-008 tenancy is part of the key, not a filter
+    # applied afterwards.
+    """
+    CREATE INDEX IF NOT EXISTS idx_proposals_ws_id_status
+        ON proposals (workspace_id, id, status)
+    """,
+    # S18: the internal system an action can actually touch this session. A note
+    # on an observable is ours, has a real undo, and needs no third-party
+    # credential — the executor refuses anything whose scope we do not own, so
+    # this is what makes "something actually happens" demonstrable.
+    """
+    CREATE TABLE IF NOT EXISTS observable_notes (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        observable_id uuid NOT NULL REFERENCES observables(id) ON DELETE CASCADE,
+        note text NOT NULL,
+        source text NOT NULL,
+        proposal_id uuid REFERENCES proposals(id) ON DELETE SET NULL,
+        created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_observable_notes_ws_obs
+        ON observable_notes (workspace_id, observable_id, created_at DESC)
+    """,
 ]
 
 
