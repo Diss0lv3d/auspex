@@ -1,0 +1,112 @@
+[
+  {
+    "query": "what is lateral movement",
+    "expected": "CONCEPT-LATERAL-MOVEMENT",
+    "fused_top": "TA0008",
+    "fused_top_title": "TA0008: Lateral Movement",
+    "n_hits": 5,
+    "expected_rank": 1,
+    "ok": false,
+    "first_line": "TA0008: Lateral Movement \u2014 from the knowledge base:"
+  },
+  {
+    "query": "how do adversaries abuse command line interpreters",
+    "expected": "T1059",
+    "fused_top": "T1202",
+    "fused_top_title": "T1202: Indirect Command Execution",
+    "n_hits": 5,
+    "expected_rank": 1,
+    "ok": false,
+    "first_line": "T1202: Indirect Command Execution \u2014 from the knowledge base:"
+  },
+  {
+    "query": "what is credential access",
+    "expected": "TA0006",
+    "fused_top": "TA0006",
+    "fused_top_title": "TA0006: Credential Access",
+    "n_hits": 5,
+    "expected_rank": 0,
+    "ok": true,
+    "first_line": "TA0006: Credential Access \u2014 from the knowledge base:"
+  },
+  {
+    "query": "what is process injection",
+    "expected": "T1055",
+    "fused_top": "T1055",
+    "fused_top_title": "T1055: Process Injection",
+    "n_hits": 5,
+    "expected_rank": 0,
+    "ok": true,
+    "first_line": "T1055: Process Injection \u2014 from the knowledge base:"
+  },
+  {
+    "query": "what is phishing",
+    "expected": "T1566",
+    "fused_top": "T1598",
+    "fused_top_title": "T1598: Phishing for Information",
+    "n_hits": 5,
+    "expected_rank": null,
+    "ok": false,
+    "first_line": "T1598: Phishing for Information \u2014 from the knowledge base:"
+  },
+  {
+    "query": "what is credential dumping",
+    "expected": "T1003",
+    "fused_top": "TA0006",
+    "fused_top_title": "TA0006: Credential Access",
+    "n_hits": 5,
+    "expected_rank": null,
+    "ok": false,
+    "first_line": "TA0006: Credential Access \u2014 from the knowledge base:"
+  },
+  {
+    "query": "living off the land binaries",
+    "expected": "CONCEPT-LOLBIN",
+    "fused_top": "CONCEPT-LOLBIN",
+    "fused_top_title": "Living off the land (LOLBins)",
+    "n_hits": 5,
+    "expected_rank": 0,
+    "ok": true,
+    "first_line": "Living off the land (LOLBins) \u2014 from the knowledge base:"
+  },
+  {
+    "query": "employee vacation policy template",
+    "expected": null,
+    "fused_top": null,
+    "fused_top_title": null,
+    "n_hits": 0,
+    "expected_rank": null,
+    "ok": true,
+    "first_line": null
+  },
+  {
+    "query": "what is quantum entanglement",
+    "expected": null,
+    "fused_top": null,
+    "fused_top_title": null,
+    "n_hits": 0,
+    "expected_rank": null,
+    "ok": true,
+    "first_line": null
+  },
+  {
+    "query": "best hiking trails in the alps",
+    "expected": null,
+    "fused_top": null,
+    "fused_top_title": null,
+    "n_hits": 0,
+    "expected_rank": null,
+    "ok": true,
+    "first_line": null
+  },
+  {
+    "query": "how do I bake sourdough bread",
+    "expected": null,
+    "fused_top": null,
+    "fused_top_title": null,
+    "n_hits": 0,
+    "expected_rank": null,
+    "ok": true,
+    "first_line": null
+  }
+]

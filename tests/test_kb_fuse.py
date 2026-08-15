@@ -3,7 +3,14 @@ Pattern + constants: docs/probes/2026-07-17-sara-rrf-retriever-pattern.md §1,§
 
 import pytest
 
-from auspex.kb.fuse import RRF_K, apply_floor, neural_leg_floor, regime_cutoff, rrf_fuse
+from auspex.kb.fuse import (
+    NEURAL_FLOORS,
+    RRF_K,
+    apply_floor,
+    neural_leg_floor,
+    regime_cutoff,
+    rrf_fuse,
+)
 from auspex.kb.types import KBHit
 
 
@@ -81,9 +88,11 @@ def test_apply_floor_empty():
 
 
 # TD-005 operating point — every (doc_type, score, keep) row below is a
-# MEASURED value from the live 3,417-chunk corpus battery
-# (docs/probes/2026-07-18-td005-calibration.md). If a floor constant moves,
-# these labeled boundary cases flip and this test names the query that broke.
+# MEASURED value from a live-corpus battery. If a floor constant moves, these
+# labeled boundary cases flip and this test names the query that broke.
+#   S8  @  3,417 chunks: docs/probes/2026-07-18-td005-calibration.md
+#   S19 @ 31,819 chunks: docs/probes/2026-08-15-td005-rebattery.md (re-run
+#         when the >30k trigger fired; same embedding model, same queries)
 TD005_OPERATING_POINT = [
     # (query the score came from, doc_type, measured score, must_keep)
     ("living off the land binaries → CONCEPT-LOLBIN", "concept", 0.691, True),
@@ -97,6 +106,29 @@ TD005_OPERATING_POINT = [
     ("k8s ingress config → CVE-2026-55723 (RELEVANT)", "cve", 0.793, True),
     ("employee vacation policy → CVE-2026-52840 NOISE", "cve", 0.624, False),
     ("hiking trails → CVE-2026-54468 NOISE", "cve", 0.609, False),
+    # ── S19 re-battery, 31,819 chunks (9.3x the corpus the floors were fit to).
+    # The curated pool barely moved (it is structurally bounded — ATT&CK is the
+    # full universe); the CVE pool grew 15x and its noise ceiling moved with it.
+    ("S19 living off the land binaries → CONCEPT-LOLBIN", "concept", 0.6905, True),
+    ("S19 employee vacation policy → T1556.009 NOISE", "technique", 0.6184, False),
+    ("S19 what is quantum entanglement → T1090.002 NOISE", "technique", 0.6169, False),
+    ("S19 best hiking trails → T1596.005 NOISE (curated)", "technique", 0.5825, False),
+    ("S19 sourdough bread → T1059.004 NOISE (curated)", "technique", 0.5548, False),
+    ("S19 Log4j JNDI RCE → CVE-2021-44228", "cve", 0.8413, True),
+    ("S19 k8s ingress config → CVE-2026-55723", "cve", 0.7929, True),
+    ("S19 SharePoint deser. RCE → CVE-2026-58644 (rank 22)", "cve", 0.7660, True),
+    ("S19 employee vacation policy → CVE-2026-72908 NOISE", "cve", 0.6563, False),
+    ("S19 sourdough bread → CVE-2021-47126 NOISE", "cve", 0.6321, False),
+    ("S19 hiking trails → CVE-2026-54468 NOISE", "cve", 0.6093, False),
+]
+
+# Measured headroom between each pool's worst off-corpus noise and its floor.
+# This is the number that decides when the battery must run again: the CVE
+# pool's margin fell from 0.076 (S8, 2k CVE chunks) to 0.0437 (S19, 30.5k).
+TD005_MEASURED_MARGINS = [
+    # (pool, doc_type, S19 noise ceiling, S19 weakest true positive)
+    ("curated", "technique", 0.6184, 0.6905),
+    ("cve", "cve", 0.6563, 0.7660),
 ]
 
 
@@ -104,6 +136,23 @@ TD005_OPERATING_POINT = [
 def test_neural_floor_operating_point_matches_the_live_battery(label, doc_type, score, keep):
     kept = neural_leg_floor([hit("X#0", score, doc_type=doc_type)])
     assert bool(kept) is keep, label
+
+
+@pytest.mark.parametrize("pool,doc_type,ceiling,weakest", TD005_MEASURED_MARGINS)
+def test_each_floor_still_sits_inside_its_measured_gap(pool, doc_type, ceiling, weakest):
+    """The floor must separate the two S19-measured extremes, not merely exist.
+
+    A floor that drifts above the weakest true positive false-misses; one that
+    drifts below the noise ceiling fabricates (which is exactly what 0.6 did,
+    live, at S8). Asserting the GAP rather than the constant means this test
+    keeps its meaning when a future re-battery re-fits the numbers.
+    """
+    floor = NEURAL_FLOORS[doc_type]
+    assert ceiling < floor <= weakest, (
+        f"{pool}: floor {floor} escaped the measured gap [{ceiling} .. {weakest}]"
+    )
+    assert not neural_leg_floor([hit("noise#0", ceiling, doc_type=doc_type)])
+    assert neural_leg_floor([hit("true#0", weakest, doc_type=doc_type)])
 
 
 def test_neural_leg_floor_cuts_off_corpus_noise():

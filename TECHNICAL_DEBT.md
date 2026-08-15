@@ -1,5 +1,60 @@
 # Technical debt — logged the moment it's taken
 
+## TD-027 (S19) — the `doc_types` filter no longer restores recall for `cve`
+**Where:** `auspex/kb/service.py:518-524` (the `search()` docstring's recall
+argument), `NEURAL_FLOORS["cve"]` in `auspex/kb/fuse.py`.
+**Risk:** S7/S8 established that filtering kNN to a `doc_type` "makes lucene kNN
+exact over the subset — this restores recall, it doesn't just trim". That
+justification is load-bearing for the curated pool and is **no longer true for
+`cve`**: cve is 30,553 of 31,819 chunks (96%), so filtering to it is not a subset.
+Measured at S19 — the filtered and unfiltered CVE batteries returned **byte-identical**
+results (docs/probes/2026-08-15-td005-rebattery.md §3). Nothing is broken today
+because no shipped surface does free-text CVE search, but a future one would
+inherit a recall argument that does not apply to it, on a floor (0.70) that has
+never gated a real request and whose noise headroom is down to 0.0437.
+**Why deferred:** purely latent — v1 has no such surface (verified by grepping
+every `kb.search`/`kb.lookup_ids` caller). Fixing it speculatively means designing
+for a surface that does not exist.
+**HARD GATE:** re-run the CVE battery and re-derive the cve floor **before** any
+free-text-over-CVEs retrieval surface ships. Do not assume the filter buys recall.
+
+## TD-026 (S19) — the definition path renders a neighbouring ATT&CK page
+**Where:** `auspex/kb/fuse.py::rrf_fuse` (accumulates per `chunk_id`, line 64),
+`auspex/kb/echo.py::render_definition_answer` (renders `hits[0]` as THE definition),
+`auspex/routes/chat.py:383`.
+**Risk:** user-visible wrong answers on the shipped definition path. Labeled
+through the real path for the first time at S19 (the S8 battery labeled the neural
+*leg*, which is fine): **3 of 7** true positives render the wrong page —
+"what is phishing" → **T1598: Phishing for Information** (T1566 not in the returned
+5 at all), "what is credential dumping" → **TA0006: Credential Access** (the parent
+tactic, T1003 absent), "how do adversaries abuse command line interpreters" →
+**T1202: Indirect Command Execution** (T1059 at rank 1). A fourth, "what is lateral
+movement" → TA0008, is a **stale label rather than a defect** — TA0008's page is
+titled exactly "Lateral Movement".
+**Not a safety issue:** every hit involved is above its floor, and all four
+off-corpus queries still return an honest miss. Nothing fabricates. This is
+relevance, not fabrication — but an analyst asking "what is phishing" and reading
+about reconnaissance is bad output on a shipped surface.
+**Measured mechanism** (docs/probes/2026-08-15-td005-rebattery.md §4):
+1. **RRF fragments a doc's vote.** Scores accumulate on `chunk_id`, so T1566's
+   three chunks (neural ranks 2/4/5) each score separately and never combine,
+   while single-chunk T1598 sits at rank 0 in both legs and accumulates. RRF runs
+   over chunks; the answer is a doc.
+2. **BM25 omits the canonical page entirely** — T1566 and T1003 are absent from
+   their BM25 legs; sub-technique neighbours fill all 10 slots.
+3. **Tactic pages out-score their techniques** on technique questions (TA0006 is
+   rank 0 in both legs for "credential dumping").
+**Two fixes measured, neither clean (thrash brake, CLAUDE.md rule 7):** dedupe each
+leg to best-chunk-per-doc before fusion — principled, fixes mechanism 1, moves the
+battery **3/7 → 3/7** because mechanisms 2 and 3 dominate; plus a title-exactness
+promotion → **4/7**, fixing only "what is phishing" via a stopword list that will
+rot. Harness in `docs/probes/s19-step0/variant_fusion.py`, re-runnable.
+**Path to fix:** treat retrieval-for-definitions as doc-level, not chunk-level —
+fuse by `doc_id` with a best-chunk representative, and give the canonical page a
+real signal (exact title match on the `ids`/title keyword field, or preferring the
+technique over its tactic when both clear the floor) rather than hoping BM25
+surfaces it. Needs the labeled battery re-run as the acceptance test, and the
+labels re-examined first: two of the seven are corpus-stale.
 ## TD-025 (S18) — approval flow v1 bounds: one executable system, a polled stream, no expiry
 **Where:** `auspex/actions/settlement.py`, `auspex/actions/builtin.py`,
 `auspex/routes/proposals.py`.
@@ -592,6 +647,26 @@ tests/test_kb_fuse.py — each boundary row names the live query that breaks
 if a constant moves. **Standing trigger to re-run the battery:** corpus
 > 30k chunks, any new doc_type, or an embedding-model change.
 Original entry kept below for the record.
+
+**S19 (2026-08-15) — the size trigger FIRED and the battery was re-run.**
+Corpus 3,417 → **31,819** chunks (9.3×), same embedding model, same doc_types.
+Record: docs/probes/2026-08-15-td005-rebattery.md. **Both floors verified sound
+by measurement, and nothing fabricates** — all four off-corpus queries still
+return an honest miss through the real `search()` path.
+- **curated 0.65:** gap `[0.6184 .. 0.6905]` vs S8's `[0.618 .. 0.691]` — the
+  pool is structurally bounded and barely moved. Recall 7/7 in the leg.
+- **cve 0.70:** gap `[0.6563 .. 0.7660]`. Noise ceiling rose 0.624 → 0.6563 as
+  that pool grew 15× (2k → 30.5k chunks); headroom fell 0.076 → **0.0437**.
+  Still holds, and the floor is **dormant in v1** — no shipped surface reaches it
+  (CVE questions take the exact-ID rail; definitions filter to the curated pool).
+- S8's "growth is flattening logarithmically" claim **confirmed across a 9× jump**
+  (~0.023/ln-unit early vs ~0.0145 for the 3.4k→30.5k leg).
+- **Trigger refreshed** so it can fire again: cve pool > 300k chunks, curated pool
+  > 5k chunks, any new doc_type, any embedding-model change, or **before any
+  free-text-over-CVEs surface ships** (see TD-027).
+- The re-battery also surfaced a defect TD-005 was never scoped to catch — the
+  battery labeled the neural *leg*, never the fused top hit users actually read.
+  Logged as **TD-026**.
 
 ## TD-005-original (S6) — NEURAL_MIN_SCORE=0.6 calibrated on a 3-point sample
 **Where:** `auspex/kb/fuse.py::NEURAL_MIN_SCORE` (the pre-fusion absolute floor that
