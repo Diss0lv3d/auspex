@@ -92,10 +92,17 @@ while the same sentence issued bare is refused in code.**)_
 - **Zero new env vars** this session — and none across S14–S19 (six sessions).
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: 4 commits on staging, NOT on `main`** — `2bb20ad`, `e14a684`,
-   `74adb7d`, `928705a` + the session-end commit. Real diff:
-   `git diff origin/main..staging --stat` = **26 files, +3565/-18**. (The commit
-   LIST is meaningless after a squash — read the diff.) **`/promote` is S20 Step 0.**
+1. **Promote slate: EMPTY — S19 reached `main` as squash `45da831` via PR #19**
+   (merged 2026-08-15, S20 Step 0), back-merged `6c75190`, tree verified unchanged,
+   `git diff origin/main..staging --stat` now empty. Checks at merge: `./ci.sh`
+   green, **883 tests**, installed-dist gate 116 modules, `/api/health/ready` 200.
+   **This line was written and committed immediately after the merge, not at
+   session-end** — that is the fix for the S18 defect where a session-end commit
+   described a promote that had not happened yet.
+   - Note for accuracy: S19's hand-off quoted the slate as "26 files, +3565/-18";
+     the live diff at S20 start was **27 files, +3811/-317**. The difference is
+     exactly S19's own session-end commit, which cannot count itself. Read the
+     diff at promote time; never trust a quoted number or the commit LIST.
 2. **TD-026 — the definition path renders the wrong ATT&CK page (3/7).** User-visible
    bad output on a shipped surface, measured, with both attempted fixes and their
    numbers written down. **Two of the seven battery labels are corpus-stale and must
@@ -167,10 +174,10 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 - RRF retrieval + ID bypass: 2026-07-17-sara-rrf-retriever-pattern.md
 
 ## Next session should
-**Start with `/promote`** — 4 commits + the session-end commit are on staging and
-`main` has nothing since PR #18. Then S20 Step 0: fresh-eyes review of the S19
-commits (angles in NEXT-SESSION.md — the guard's regexes are the obvious attack
-surface, and `plan_for`'s fallback is a security control nothing has tried to
-defeat). Then **S20 per ROADMAP: Beta — deploy pipeline, docs pass, demo script.**
-S20 is the last roadmap session, so it should also decide what TD-026/TD-028 mean
-for a beta that real analysts touch. NEXT-SESSION.md has the full prompt.
+_(Rewritten at S20 session-end. As of the S20 promote: **`main` is at `45da831`,
+staging converged, slate empty.**) S20 in progress: Step 0 promote DONE; next is
+the fresh-eyes review of the S19 commits (the guard's regexes are the obvious
+attack surface, and `plan_for`'s fallback is a security control nothing has tried
+to defeat), then **S20 per ROADMAP: Beta — deploy pipeline, docs pass, demo
+script** — the last roadmap session, which must also decide what TD-026/TD-028
+mean for a beta that real analysts touch._
