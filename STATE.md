@@ -163,10 +163,17 @@ complete.**
 - **Zero new env vars** this session — and none across S14–S19 (six sessions).
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: EMPTY — S20 reached `main` as squash `fc7c921` via PR #20**
-   (merged 2026-08-15 17:13 UTC), back-merged `a5c9c7f`, tree verified unchanged,
-   `git diff origin/main..staging --stat` now empty. Real diff was 19 files,
-   +2146/-151.
+1. **Promote slate: DOCS ONLY — S20's code reached `main` as squash `fc7c921` via
+   PR #20** (merged 2026-08-15 17:13 UTC), back-merged `a5c9c7f`, tree verified
+   unchanged. Real code diff was 19 files, +2146/-151.
+   - **Corrected at S21 start (divergence).** This item said the diff was "now
+     empty". It is not, and could not be: the live slate is **2 files, +30/-21 —
+     `STATE.md` and `NEXT-SESSION.md` only, zero code** (`8a4aebf`, `02318b5`,
+     `f6495b8`). The commit that records "the slate is empty" is itself on the
+     slate. That is the S18 trap one level deeper: a record written *after* the
+     merge still lands *after* the merge. **The honest steady state between
+     sessions is docs-only, never empty** — say that instead of "empty", and
+     always read the diff at promote time.
    - **This was the first promote in this repo merged on a check anyone can see.**
      `gh pr checks` reported the `ci.sh` job **pass in 5m25s** on the PR-triggered
      run (`31897332660`) instead of the 0 checks every promote from #1 to #19 got.
@@ -224,9 +231,15 @@ complete.**
 ## Host notes (reality snapshot)
 - Postgres 55432; app 8000; OpenSearch 9200. Host runs pin via `auspex.devhost`.
 - Ollama 0.32.5 on :11434; models qwen3:14b / llama3.1:8b / mistral:latest.
+- **S21 start ritual (2026-08-15):** staging, tree clean, identity
+  `bh3082336888-cell`. All three containers healthy (app rebuilt 16 min prior);
+  `/api/health/ready` **200** (postgres reachable, opensearch 2.19.4). Ollama
+  0.32.5 up with `qwen3:14b` present. **Corpus 31,822** — cve 30,556, technique
+  1,248, tactic 15, concept 3: **TD-005 not tripped** (cve trigger 300k, curated
+  trigger 5k, curated pool is 1,266). Slate docs-only, see in-flight item 1.
 - **`gh` did NOT flip to the work account at S20 start** (active was
   `bh3082336888-cell`), nor at any point mid-session across ~6 `gh` calls. It DID
-  at S18 and S16, did not at S17, S13–S15, S19 or S20.
+  at S18 and S16, did not at S17, S13–S15, S19 or S20. **Nor at S21 start.**
   **Unpredictable is the pattern** — re-check before EVERY `gh` call.
 - **`gh pr merge` works** (re-verified S18). `gh pr edit` still fails with a
   Projects-classic GraphQL deprecation — use `gh api -X PATCH repos/.../pulls/N`.
