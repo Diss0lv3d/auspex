@@ -163,17 +163,30 @@ complete.**
 - **Zero new env vars** this session — and none across S14–S19 (six sessions).
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: EMPTY — S19 reached `main` as squash `45da831` via PR #19**
-   (merged 2026-08-15, S20 Step 0), back-merged `6c75190`, tree verified unchanged,
-   `git diff origin/main..staging --stat` now empty. Checks at merge: `./ci.sh`
-   green, **883 tests**, installed-dist gate 116 modules, `/api/health/ready` 200.
-   **This line was written and committed immediately after the merge, not at
-   session-end** — that is the fix for the S18 defect where a session-end commit
-   described a promote that had not happened yet.
-   - Note for accuracy: S19's hand-off quoted the slate as "26 files, +3565/-18";
-     the live diff at S20 start was **27 files, +3811/-317**. The difference is
-     exactly S19's own session-end commit, which cannot count itself. Read the
-     diff at promote time; never trust a quoted number or the commit LIST.
+1. **Promote slate: DOCS ONLY — S20's code reached `main` as squash `fc7c921` via
+   PR #20** (merged 2026-08-15 17:13 UTC), back-merged `a5c9c7f`, tree verified
+   unchanged. Real code diff was 19 files, +2146/-151.
+   - **Corrected at S21 start (divergence).** This item said the diff was "now
+     empty". It is not, and could not be: the live slate is **2 files, +30/-21 —
+     `STATE.md` and `NEXT-SESSION.md` only, zero code** (`8a4aebf`, `02318b5`,
+     `f6495b8`). The commit that records "the slate is empty" is itself on the
+     slate. That is the S18 trap one level deeper: a record written *after* the
+     merge still lands *after* the merge. **The honest steady state between
+     sessions is docs-only, never empty** — say that instead of "empty", and
+     always read the diff at promote time.
+   - **This was the first promote in this repo merged on a check anyone can see.**
+     `gh pr checks` reported the `ci.sh` job **pass in 5m25s** on the PR-triggered
+     run (`31897332660`) instead of the 0 checks every promote from #1 to #19 got.
+     Local gate at merge: `./ci.sh` green, **912 tests**, installed-dist 116
+     modules, `/api/health/ready` 200 after rebuild.
+   - **Written and committed immediately after the merge, not at session-end** —
+     the fix for the S18 defect where a session-end commit described a promote that
+     had not happened yet. S19 did it this way too; keep doing it.
+   - Earlier this session: S19 reached `main` as squash `45da831` via PR #19,
+     back-merged `6c75190`. Its hand-off had quoted the slate as "26 files,
+     +3565/-18" while the live diff was **27 files, +3811/-317** — the difference
+     being S19's own session-end commit, which cannot count itself. **Read the diff
+     at promote time; never trust a quoted number or the commit LIST.**
 2. **Branch protection on `main` is the ONE manual step left** — the CI check now
    exists and is green, but nothing yet REQUIRES it before a promote merge. That is
    a repository-settings change and Burhan's call, not a commit's (D-028). One
@@ -218,9 +231,15 @@ complete.**
 ## Host notes (reality snapshot)
 - Postgres 55432; app 8000; OpenSearch 9200. Host runs pin via `auspex.devhost`.
 - Ollama 0.32.5 on :11434; models qwen3:14b / llama3.1:8b / mistral:latest.
+- **S21 start ritual (2026-08-15):** staging, tree clean, identity
+  `bh3082336888-cell`. All three containers healthy (app rebuilt 16 min prior);
+  `/api/health/ready` **200** (postgres reachable, opensearch 2.19.4). Ollama
+  0.32.5 up with `qwen3:14b` present. **Corpus 31,822** — cve 30,556, technique
+  1,248, tactic 15, concept 3: **TD-005 not tripped** (cve trigger 300k, curated
+  trigger 5k, curated pool is 1,266). Slate docs-only, see in-flight item 1.
 - **`gh` did NOT flip to the work account at S20 start** (active was
   `bh3082336888-cell`), nor at any point mid-session across ~6 `gh` calls. It DID
-  at S18 and S16, did not at S17, S13–S15, S19 or S20.
+  at S18 and S16, did not at S17, S13–S15, S19 or S20. **Nor at S21 start.**
   **Unpredictable is the pattern** — re-check before EVERY `gh` call.
 - **`gh pr merge` works** (re-verified S18). `gh pr edit` still fails with a
   Projects-classic GraphQL deprecation — use `gh api -X PATCH repos/.../pulls/N`.

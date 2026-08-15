@@ -14,22 +14,34 @@ from auspex.enrich.breaker import CircuitBreaker
 from auspex.kb.chunking import chunk_doc
 from auspex.kb.mapping import KNOWLEDGE_INDEX, KNOWLEDGE_MAPPING
 from auspex.kb.seed import load_seed_docs
-from auspex.kb.service import MODEL_LOOKUP_RETRY_SECONDS, KnowledgeService, seed_fingerprint
+from auspex.kb.service import (
+    DEFINITION_DOC_TYPES,
+    MODEL_LOOKUP_RETRY_SECONDS,
+    KnowledgeService,
+    seed_fingerprint,
+)
 from auspex.kb.types import KBDoc, KBUnavailable
 
 MODEL_ID = "model-abc123"
 
 
-def kb_hit(chunk_id: str, score: float, *, ids: list[str] | None = None) -> dict:
+def kb_hit(
+    chunk_id: str,
+    score: float,
+    *,
+    ids: list[str] | None = None,
+    title: str | None = None,
+    doc_type: str = "cve",
+) -> dict:
     doc_id = chunk_id.split("#")[0]
     return {
         "_id": chunk_id,
         "_score": score,
         "_source": {
             "doc_id": doc_id,
-            "title": f"Title of {doc_id}",
+            "title": title if title is not None else f"Title of {doc_id}",
             "content": f"Body of {chunk_id}",
-            "doc_type": "cve",
+            "doc_type": doc_type,
             "source": "nvd",
             "source_ref": f"https://nvd.nist.gov/vuln/detail/{doc_id}",
             "ids": ids if ids is not None else [doc_id],
@@ -862,3 +874,73 @@ async def test_ingest_upserts_by_chunk_id_and_flags_bulk_errors():
         await svc.ingest_docs([doc])
     action_line = json.loads(captured[0].splitlines()[0])
     assert action_line["index"]["_id"] == "CVE-2000-0001#0"  # deterministic upsert id
+
+
+# ── search_definition: the definition path is a different question (TD-026) ──
+
+
+def _attack_hit(chunk_id: str, score: float, title: str) -> dict:
+    return kb_hit(chunk_id, score, title=title, doc_type="technique")
+
+
+async def test_search_definition_returns_the_page_the_question_is_about():
+    """The whole of TD-026 in one turn, through the real service seam.
+
+    T1566 is split across three chunks and absent from BM25; T1598 is a single
+    chunk sitting at rank 0 in both legs. Chunk-level fusion renders T1598 —
+    a reconnaissance page — as the definition of phishing.
+    """
+    router = Router()
+    router.neural_hits = [
+        _attack_hit("T1598#0", 0.80, "T1598: Phishing for Information"),
+        _attack_hit("T1566#0", 0.78, "T1566: Phishing"),
+        _attack_hit("T1566#1", 0.76, "T1566: Phishing"),
+        _attack_hit("T1566#2", 0.75, "T1566: Phishing"),
+    ]
+    router.bm25_hits = [_attack_hit("T1598#0", 9.1, "T1598: Phishing for Information")]
+    svc = service_with(router)
+
+    assert (await svc.search("what is phishing"))[0].doc_id == "T1598"  # the defect
+    assert (await svc.search_definition("what is phishing"))[0].doc_id == "T1566"
+
+
+async def test_search_definition_filters_to_curated_doc_types():
+    """Definitions never come from CVE record chunks — and the filter is
+    load-bearing for kNN recall besides. Asserted on the wire so the tuple
+    cannot drift away from DEFINITION_DOC_TYPES."""
+    router = Router()
+    router.neural_hits = [_attack_hit("T1566#0", 0.78, "T1566: Phishing")]
+    router.bm25_hits = [_attack_hit("T1566#0", 9.1, "T1566: Phishing")]
+    svc = service_with(router)
+    await svc.search_definition("what is phishing")
+    bodies = [b for _, p, b in router.requests if p == f"/{KNOWLEDGE_INDEX}/_search"]
+    assert len(bodies) == 2, "expected one BM25 and one neural search"
+    # The two legs carry the filter in different places — BM25 wraps the match
+    # in a bool, kNN puts it inside the embedding clause so lucene can evaluate
+    # it during traversal. What matters is that BOTH are filtered and to the
+    # same tuple, so this looks for the clause rather than assuming its nesting.
+    for body in bodies:
+        assert f'"doc_type": {json.dumps(list(DEFINITION_DOC_TYPES))}' in json.dumps(body)
+
+
+async def test_search_definition_returns_at_most_top_k_despite_fusing_deeper():
+    """It fuses over a deeper candidate pool so a buried canonical page can be
+    promoted, then hands the caller exactly what it asked for."""
+    router = Router()
+    router.neural_hits = [
+        _attack_hit(f"T10{i:02d}#0", 0.9 - i / 100, f"T10{i:02d}: Technique {i}") for i in range(12)
+    ]
+    router.bm25_hits = list(router.neural_hits)
+    svc = service_with(router)
+    assert len(await svc.search_definition("what is something", top_k=3)) == 3
+
+
+async def test_promotion_cannot_resurrect_an_off_corpus_miss():
+    """The honest-miss guarantee, through the definition path. The neural leg
+    returns nothing above its floor, so there is nothing to promote and nothing
+    to render — re-ranking must never become retrieval."""
+    router = Router()
+    router.neural_hits = []
+    router.bm25_hits = [_attack_hit("T1059#0", 4.4, "T1059: Command and Scripting Interpreter")]
+    svc = service_with(router)
+    assert await svc.search_definition("how do I bake sourdough bread") == []

@@ -123,13 +123,18 @@ Read this part. A demo that only walks the happy path is a demo that lies.
   influenced — that is post-hoc validation, deliberately not shipped
   (TD-012) — and it does not defeat a determined authenticated caller, because
   every carve-out is decided by text the sender controls (D-027).
-- **Three proposal states have no way back.** A row wedged in `executing` or
-  `undoing` has no reaper and is invisible to the approver's queue (TD-028).
-  Known, reproduced, written down.
-- **The definition path can render the wrong ATT&CK page.** Measured at 3 of 7
-  on a calibration battery: everything returned is above the relevance floor and
-  nothing is fabricated, but the *top* hit can be a sibling technique
-  (TD-026).
+- **A failed action can leave effects it denies.** If a handler dies after its
+  write lands, the row says `failed` and the write is really in the table; there
+  is no idempotency key and no partial-effect reasoning (TD-028b). A claim whose
+  process died is at least *visible* now — it appears in the approvals queue and
+  a human can abandon it, which records that nobody knows whether it ran rather
+  than guessing (TD-028a, fixed).
+- **Definition ranking is measured on eleven queries, not a benchmark.** The
+  definition path fuses over documents and picks the page a question is most
+  *about*, by title/question overlap in code (`auspex/kb/canonical.py`) — 7 of 7
+  correct on the labeled battery, with all four off-corpus queries still missing
+  honestly. Eleven queries is the whole of that evidence. The corpus grows daily,
+  and TD-005 says when the floors and labels must be measured again.
 - **No billing, no multi-workspace federation, no admin console.** The plan tier
   list is a seam, not a commercial model. Herd Immunity — anonymised verdict
   propagation across workspaces at k≥3 — is designed and deliberately unbuilt.

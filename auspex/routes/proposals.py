@@ -4,8 +4,9 @@ GET  /api/proposals                  — what is waiting, each with its card
 POST /api/proposals/{id}/approve     — claim it, then run it
 POST /api/proposals/{id}/reject      — claim it, and do not
 POST /api/proposals/{id}/undo        — put an executed action back
+POST /api/proposals/{id}/abandon     — declare a dead claim dead (TD-028a)
 
-Three things about this surface are deliberate:
+Four things about this surface are deliberate:
 
 **The card is served, not rebuilt.** Each row carries the card that was rendered
 when the proposal was filed. Re-deriving it on read would show today's
@@ -22,6 +23,12 @@ that wins the claim and then fails the re-check gets `approved` plus the refusal
 **A 409 means someone else decided.** Not a 400: nothing about the request was
 malformed, and the client's correct response is to re-read the proposal rather
 than to fix and retry.
+
+**The queue shows stale claims, and no timer resolves them.** A row wedged in
+`executing` because the process holding it died is a decision waiting on a human
+exactly like a pending one, so `GET /api/proposals` returns it (S21, TD-028a).
+What it does NOT do is guess: only a human can say whether a lost handler ran,
+and `abandon` records that the answer is unknown rather than asserting one.
 """
 
 from __future__ import annotations
@@ -36,6 +43,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from auspex.actions.settlement import (
+    STALE_CLAIM_SECONDS,
     ActionExecutor,
     ExecutionRefused,
     ProposalSettlement,
@@ -84,6 +92,10 @@ def _public(row: dict) -> dict:
         "created_at": row["created_at"].isoformat(),
         "decided_at": row["decided_at"].isoformat() if row["decided_at"] else None,
         "undone_at": row["undone_at"].isoformat() if row.get("undone_at") else None,
+        # Present only while a claim is outstanding. A card showing `executing`
+        # with a claim five minutes old is the one thing an approver must be
+        # able to tell apart from a run that started a second ago (TD-028a).
+        "claimed_at": row["claimed_at"].isoformat() if row.get("claimed_at") else None,
         "arguments": row["tool_input"],
         "card": row["card"],
         "spec_fingerprint": row["spec_fingerprint"],
@@ -200,6 +212,37 @@ async def reject(request: Request, auth: Auth, proposal_id: UUID) -> dict:
             detail=f"already {result.current_status} — someone else decided this one",
         )
     return {"settled": "rejected", "proposal": _public(result.proposal)}
+
+
+@router.post("/{proposal_id}/abandon")
+async def abandon(request: Request, auth: Auth, proposal_id: UUID) -> dict:
+    """Declare a stale claim dead (TD-028a).
+
+    The row said `executing` or `undoing` and nothing has moved it since, which
+    means the process holding the claim is gone. This is the only door out, and
+    it is deliberately a human's to open: nobody can know whether the handler
+    ran before it died, so `abandoned` records that the answer was lost rather
+    than asserting either half of it.
+
+    A claim younger than the threshold is refused — a 409, not a 404, because
+    the proposal is fine and the request was early.
+    """
+    result = await _settlement(request).abandon(
+        workspace_id=auth.workspace_id,
+        proposal_id=proposal_id,
+        decided_by=auth.user_id,
+    )
+    if result.outcome is Settlement.NOT_FOUND:
+        raise HTTPException(status_code=404, detail="no such proposal")
+    if result.outcome is Settlement.ALREADY_DECIDED:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"proposal is {result.current_status} with no claim outstanding for "
+                f"longer than {STALE_CLAIM_SECONDS}s — nothing to abandon"
+            ),
+        )
+    return {"settled": "abandoned", "proposal": _public(result.proposal)}
 
 
 @router.post("/{proposal_id}/approve")

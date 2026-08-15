@@ -49,6 +49,20 @@ from auspex.agent.permissions import PermissionOutcome, gate
 # set is a decision with a blast radius, so it is a code change and a review.
 EXECUTABLE_SYSTEMS = frozenset({"auspex"})
 
+# How long a claim may be outstanding before a human is allowed to call it dead
+# (TD-028a). Not a timeout on the action — nothing is cancelled when this
+# elapses, and a slow handler that finishes at minute nine still lands its own
+# terminal status. It is the age at which "still running" stops being the more
+# likely explanation than "the process died", which is what makes the row worth
+# a human's attention.
+#
+# Five minutes because every action that can run today is a single local
+# statement against our own Postgres (EXECUTABLE_SYSTEMS is {"auspex"}), so the
+# real distribution is milliseconds. The moment a network integration ships this
+# wants to come from the action's own declaration instead of a module constant —
+# a firewall rule change has a different honest ceiling than a note.
+STALE_CLAIM_SECONDS = 300
+
 
 class Settlement(StrEnum):
     """Why a settle attempt ended the way it did — distinguishable in code, so a
@@ -147,17 +161,85 @@ class ProposalSettlement:
         )
 
     async def pending(self, *, workspace_id: UUID | str, limit: int = 50) -> list[dict]:
+        """Everything in this workspace that needs a human — which is not the
+        same set as "everything pending approval" (TD-028a).
+
+        A row whose claim is older than `STALE_CLAIM_SECONDS` belongs here too.
+        The claim says a handler is running; if the process that took it died,
+        nothing will ever move that row, and every door out is shut — `execute`
+        refuses it as not_approved, `undo` as not_executed, `reject` as
+        already_decided. Before S21 it was also invisible, so an approver simply
+        watched the action disappear. It is a decision waiting on a human like
+        any other, so it comes back from the same query rather than from a
+        second endpoint nobody would call.
+
+        Deliberately NOT a reaper. A timer cannot know whether the handler ran
+        before the process died, so anything it decided would be a guess: back
+        to `approved` invites a second run of a half-run action, `failed` claims
+        nothing happened, `executed` claims it did. D-014 reserves that
+        judgement for the human, so the row is surfaced and `abandon` is theirs
+        to call.
+        """
         rows = await self._pool.fetch(
             """
             SELECT * FROM proposals
-            WHERE workspace_id = $1::uuid AND status = 'pending_approval'
+            WHERE workspace_id = $1::uuid
+              AND (status = 'pending_approval'
+                   OR (claimed_at IS NOT NULL
+                       AND claimed_at < now() - make_interval(secs => $3::double precision)))
             ORDER BY created_at DESC
             LIMIT $2
             """,
             str(workspace_id),
             limit,
+            float(STALE_CLAIM_SECONDS),
         )
         return [_as_dict(r) for r in rows]
+
+    async def abandon(
+        self,
+        *,
+        workspace_id: UUID | str,
+        proposal_id: UUID | str,
+        decided_by: UUID | str | None,
+    ) -> SettleResult:
+        """A human declares a stale claim dead. Terminal, and honestly named.
+
+        `abandoned` does not mean "it did not run" — nobody knows whether it
+        ran, and that is precisely what the state records. The alternative was a
+        status that asserts one of the two, which would be a lie half the time
+        on a row that exists *because* the truth was lost.
+
+        Guarded on age in the same statement that moves the row: a claim younger
+        than the threshold belongs to a handler that is very likely still
+        working, and killing it from under itself would manufacture the
+        half-executed row this state exists to describe. Same claim-first device
+        as `settle` — the WHERE clause is the whole guarantee.
+        """
+        row = await self._pool.fetchrow(
+            """
+            UPDATE proposals
+               SET status = 'abandoned', claimed_at = NULL,
+                   decided_at = now(), decided_by = $3::uuid
+             WHERE id = $1::uuid
+               AND workspace_id = $2::uuid
+               AND claimed_at IS NOT NULL
+               AND claimed_at < now() - make_interval(secs => $4::double precision)
+            RETURNING *
+            """,
+            str(proposal_id),
+            str(workspace_id),
+            str(decided_by) if decided_by is not None else None,
+            float(STALE_CLAIM_SECONDS),
+        )
+        if row is not None:
+            return SettleResult(Settlement.CLAIMED, _as_dict(row))
+        current = await self.get(workspace_id=workspace_id, proposal_id=proposal_id)
+        if current is None:
+            return SettleResult(Settlement.NOT_FOUND)
+        return SettleResult(
+            Settlement.ALREADY_DECIDED, current, current_status=current["status"]
+        )
 
     async def settle(
         self,
@@ -325,7 +407,7 @@ class ActionExecutor:
         # proposal is the same race as two approvers, and gets the same answer.
         claimed = await self._pool.fetchrow(
             """
-            UPDATE proposals SET status = 'executing'
+            UPDATE proposals SET status = 'executing', claimed_at = now()
              WHERE id = $1::uuid AND workspace_id = $2::uuid AND status = 'approved'
             RETURNING id
             """,
@@ -346,7 +428,8 @@ class ActionExecutor:
         except Exception as exc:
             await self._pool.execute(
                 """
-                UPDATE proposals SET status = 'failed', result = $2::jsonb
+                UPDATE proposals
+                    SET status = 'failed', result = $2::jsonb, claimed_at = NULL
                  WHERE id = $1::uuid
                 """,
                 str(proposal_id),
@@ -355,7 +438,8 @@ class ActionExecutor:
             raise
         await self._pool.execute(
             """
-            UPDATE proposals SET status = 'executed', result = $2::jsonb
+            UPDATE proposals
+                SET status = 'executed', result = $2::jsonb, claimed_at = NULL
              WHERE id = $1::uuid
             """,
             str(proposal_id),
@@ -388,7 +472,7 @@ class ActionExecutor:
             )
         claimed = await self._pool.fetchrow(
             """
-            UPDATE proposals SET status = 'undoing'
+            UPDATE proposals SET status = 'undoing', claimed_at = now()
              WHERE id = $1::uuid AND workspace_id = $2::uuid AND status = 'executed'
             RETURNING id
             """,
@@ -405,7 +489,8 @@ class ActionExecutor:
         except Exception as exc:
             await self._pool.execute(
                 """
-                UPDATE proposals SET status = 'executed', undo_result = $2::jsonb
+                UPDATE proposals
+                    SET status = 'executed', undo_result = $2::jsonb, claimed_at = NULL
                  WHERE id = $1::uuid
                 """,
                 str(proposal_id),
@@ -415,7 +500,8 @@ class ActionExecutor:
         await self._pool.execute(
             """
             UPDATE proposals
-               SET status = 'undone', undone_at = now(), undo_result = $2::jsonb
+               SET status = 'undone', undone_at = now(), undo_result = $2::jsonb,
+                   claimed_at = NULL
              WHERE id = $1::uuid
             """,
             str(proposal_id),
@@ -435,6 +521,7 @@ def _outcome_json(outcome: ActionOutcome) -> dict:
 
 __all__ = [
     "EXECUTABLE_SYSTEMS",
+    "STALE_CLAIM_SECONDS",
     "ActionExecutor",
     "ExecutionRefused",
     "ProposalSettlement",

@@ -465,6 +465,13 @@ SCHEMA_V0: list[str] = [
     # execution produces: the two in-flight claims ('executing', 'undoing' — the
     # same claim-first device as approval, so a second caller cannot start a
     # second run), one that ran and failed, and one that was put back.
+    #
+    # S21 adds 'abandoned' (TD-028a). A claim is a promise that a handler is
+    # running; a process that dies between the claim and the handler leaves a row
+    # that `execute` refuses as not_approved, `undo` refuses as not_executed and
+    # `reject` refuses as already_decided — wedged forever, and INVISIBLE,
+    # because the queue reads `status = 'pending_approval'`. A human watching
+    # the approvals list saw the action disappear.
     """
     DO $$
     BEGIN
@@ -472,8 +479,27 @@ SCHEMA_V0: list[str] = [
         ALTER TABLE proposals ADD CONSTRAINT proposals_status_check
             CHECK (status IN ('pending_approval', 'approved', 'rejected',
                               'executing', 'executed', 'failed',
-                              'undoing', 'undone'));
+                              'undoing', 'undone', 'abandoned'));
     END $$
+    """,
+    # S21 (TD-028a): when the claim was taken. Without it "this claim is stale"
+    # is unanswerable — `decided_at` records the approval, not the run, and a
+    # row approved on Monday and claimed on Friday looks four days stale the
+    # moment it is claimed.
+    #
+    # Set by the claim, cleared by every transition out of a claim, so a
+    # non-NULL claimed_at means "a claim is outstanding right now" and needs no
+    # join with status to be read.
+    """
+    ALTER TABLE proposals ADD COLUMN IF NOT EXISTS claimed_at timestamptz
+    """,
+    # The stale-claim scan: within a workspace, the claimed rows by age. Partial,
+    # because claims are the rare state — the index stays the size of the
+    # problem rather than the size of the table.
+    """
+    CREATE INDEX IF NOT EXISTS idx_proposals_ws_claimed
+        ON proposals (workspace_id, claimed_at)
+     WHERE claimed_at IS NOT NULL
     """,
     # The claim-first settlement reads exactly this: one row, by id, within a
     # workspace, still pending. D-008 tenancy is part of the key, not a filter

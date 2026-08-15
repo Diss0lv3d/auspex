@@ -1,7 +1,9 @@
 # NEXT-SESSION — paste everything below the line into a fresh Claude Code window opened in /home/burhan/auspex-new
 
-_(**S20 is done, and it was the last session the ROADMAP had written down.** Six
-commits are waiting to promote. S20 promoted S19 via PR #19 **and recorded the
+_(**S20 is done, and it was the last session the ROADMAP had written down.**
+**Nothing is waiting to promote — S20 is already on `main` as `fc7c921` via PR #20,
+the first promote merged on a check anyone can see.** S20 promoted S19 via PR #19
+**and recorded the
 promote at merge time**, then reviewed it and found the sharpest defect was not the
 one the brief predicted: the guard was refusing **4 of 6 legitimate SOC questions**
 — "write a Sigma rule that fires on 'ignore all previous instructions'" got a 400 —
@@ -34,14 +36,15 @@ container runs the built image, not the working tree** — a new migration needs
 
 Step 0 (carried follow-ups, do BEFORE new scope):
 
-- **`/promote` first.** S20's commits are on staging and not on `main` (last
-  promote was PR #19). Confirm the gh ACTIVE account is `bh3082336888-cell`
-  immediately before the call. **This is the first promote with a real CI check on
-  it** — `gh pr checks` now reports the `ci.sh` job instead of 0 checks, so wait for
-  it to go green before merging rather than treating a local run as the proof. Then
-  back-merge, assert the tree is unchanged, **and update STATE.md to say the promote
-  happened, at merge time, in its own commit** (S20 did this and it worked; S18 did
-  not and it cost S19 a correction).
+- **`/promote` is ALREADY DONE — do not repeat it.** S20 reached `main` as squash
+  `fc7c921` via **PR #20** (merged 2026-08-15 17:13 UTC), back-merged `a5c9c7f`,
+  tree verified unchanged, slate empty. It was the first promote in this repo
+  merged on a check anyone can see: `gh pr checks` reported the `ci.sh` job **pass
+  in 5m25s**, not the 0 checks every promote from #1 to #19 got.
+  **Verify this at session start rather than trusting it** —
+  `git fetch origin && git diff origin/main..staging --stat` must be EMPTY. If it
+  is not, something landed after this file was written; fix STATE.md first.
+  (The `--watch` flow works: `gh pr checks <n> --watch --interval 20`.)
 - **Fresh-eyes review of the S20 commits** — scope: `0c7c092` (the guard's fifth
   carve-out + `_normalize`), `d45e70b` (`_canonical_ipv6`), `bbf3fec`
   (`tests/test_docs.py`), and `scripts/demo.sh`. Angles S20 did NOT adversarially

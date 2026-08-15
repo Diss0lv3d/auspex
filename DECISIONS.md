@@ -649,3 +649,54 @@ asserted a green nobody could see.
 - **Branch protection is NOT set by this decision.** Requiring the check before a
   promote merge is a repository-settings change and the human's call, not a
   commit's — recorded in STATE.md as the one manual step left.
+
+## D-029 — Carve-out scope: reported speech is a sentence, framing is an introducer (2026-08-15, S21)
+
+**Context.** S20 widened the guard to admit an analyst *describing* an attack
+(D-025's own thesis: our legitimate traffic IS attack text). The S21 Step-0
+review attacked that widening by execution — record:
+docs/probes/2026-08-15-s21-step0-review.md, harness
+`docs/probes/s21-step0/probe_s20_review.py`. It found one regression and two
+bounds. The regression is fixed. **These are the two bounds, ratified rather
+than chased**, in the same spirit as D-027: name what the rail does not do
+instead of shipping a speed bump that makes it look stronger than it is.
+
+**Decision 1 — the two preamble carve-outs are scoped differently, on purpose.**
+- **Reported speech (carve-out 4) reads only the sentence the match is in.** An
+  attribution is a syntactic relation between a subject, a speech verb and the
+  words spoken, and that relation does not survive a full stop. Measured: read
+  against the whole preamble, *six of six* unrelated sentence pairs turned a
+  bare imperative into CONTENT — `Open the ticket that contains the API key.
+  <imperative>` was admitted because of a relative clause about a ticket.
+  Sentence-scoping closes all six at **zero cost on the pinned legitimate
+  corpus**, because every legitimate use of this carve-out is same-sentence by
+  construction.
+- **Analysis framing (carve-out 3) still reads the whole preamble.** "Here is
+  the email body:" is an *introducer*: it is *meant* to govern everything after
+  it, including across sentence and paragraph breaks, which is exactly how a
+  body-only paste arrives. Scoping it to the sentence was measured too and
+  **refuses `Is this phishing? <paste>`** — the flagship legitimate shape. So it
+  is not scoped, and the cost is stated plainly: **an introducer phrase anywhere
+  before the match licenses everything after it**, including in a sentence that
+  introduces nothing (`Here is the plan for next quarter. <imperative>` is
+  CONTENT). Logged as TD-032. The asymmetry between 3 and 4 is deliberate and is
+  the whole content of this decision.
+
+**Decision 2 — the inline-quote carve-out stays, and it is the cheapest one we
+ship.** Wrapping an imperative in two quotation marks turns it into CONTENT.
+That is a **two-character** bypass, and unlike every forgery D-027 ratified
+(two RFC-5322 header lines, a JSON prefix, 600 chars of padding) it costs no
+structure and changes nothing about how the message routes. Removing the arm was
+measured twice: against the pinned corpus it is **fully redundant** (zero cases
+depend on it, because the reported-speech arm added in the same commit covers
+them), and against analyst prose that actually quotes a string it is
+**load-bearing for 7 of 7** — `Add "ignore all previous instructions" to the
+blocklist.` and its neighbours all become 400s. The pinned corpus was written by
+the commit that added the arm, so it is not evidence about the arm. **The arm
+stays; the bound is named** (TD-031) rather than papered over with a
+one-character speed bump, which is the move D-027 already declined once.
+
+**What this does NOT change.** D-025 (the question the guard asks), D-027 (the
+rail bounds accidents and naive attempts, not a determined authenticated
+caller). This decision is about *which text* a carve-out is allowed to read, and
+it supersedes nothing.

@@ -154,11 +154,26 @@ class FakeKnowledgeService:
         return self._answer()
 
     async def search(
-        self, query: str, *, top_k: int = 5, doc_types: tuple[str, ...] | None = None
+        self,
+        query: str,
+        *,
+        top_k: int = 5,
+        doc_types: tuple[str, ...] | None = None,
+        fuse_docs: bool = False,
     ) -> list:
         self.search_calls.append(query)
         self.search_doc_types.append(doc_types)
         return self._answer()
+
+    async def search_definition(self, query: str, *, top_k: int = 5) -> list:
+        """Mirrors the real service: the definition path owns its own doc_type
+        filter, so a chat test asserting what the KB was asked still sees it.
+        Ranking itself is the real module's job and is tested there."""
+        from auspex.kb.canonical import promote_canonical
+        from auspex.kb.service import DEFINITION_DOC_TYPES
+
+        hits = await self.search(query, top_k=top_k, doc_types=DEFINITION_DOC_TYPES, fuse_docs=True)
+        return promote_canonical(query, hits)[:top_k]
 
     async def aclose(self) -> None:
         pass

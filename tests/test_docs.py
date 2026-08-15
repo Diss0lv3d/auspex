@@ -100,6 +100,17 @@ def test_the_demo_only_calls_routes_that_exist():
     # Shell variables stand in for path parameters: $PID -> {id}.
     known = {re.sub(r"\{[^}]+\}", "{id}", r).rstrip("/") or "/" for r in routes}
     called = set(re.findall(r"\$API(/[A-Za-z0-9/_${}-]*)", DEMO.read_text()))
+    # The assertion below passes trivially when `called` is empty, and `called`
+    # goes empty the moment the demo stops spelling its base URL `$API` — a
+    # rename, not a deliberate act. Mutation-tested in S21 Step 0: every other
+    # docs assertion here failed when its fact was broken; this one kept
+    # reporting green with its entire input removed. The floor is what makes it
+    # a test rather than a formality. Raise it when the demo grows, never lower
+    # it to make a change pass.
+    assert len(called) >= 8, (
+        f"only {len(called)} routes captured from demo.sh — the extraction has "
+        "drifted (did $API get renamed?) and this test is checking nothing"
+    )
     unknown = []
     for call in called:
         concrete = "/api" + re.sub(r"\$\{?\w+\}?", "{id}", call).rstrip("/")
