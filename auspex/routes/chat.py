@@ -60,6 +60,7 @@ from auspex.llm.client import LLMClient, LLMError, Usage
 from auspex.llm.registry import DevEndpoint
 from auspex.llm.scorecard import load_latest_scorecard
 from auspex.modes import Mode, contract_for, resolve_mode
+from auspex.outguard import LEAK_COPY, OutputScanner, instruction_index
 from auspex.phishing import decide_verdict, deterministic_phishing_block, parse_email
 
 logger = logging.getLogger("auspex.chat")
@@ -517,11 +518,27 @@ async def chat(
         await endpoint.client.aclose()
         raise HTTPException(status_code=429, detail=allowance.refusal_text)
 
+    # The output rail (TD-012). Indexed on the configuration WE issued this turn
+    # and nothing else: not the analyst's pasted artefact (their own email quoted
+    # back is a correct answer), not the deterministic verdict blocks (whose
+    # values the answer is pinned to echo), not the two-pass analysis (the answer
+    # is built from it). Listing the strings explicitly is the point — indexing
+    # "every system message" would fire on the turn's own data.
+    leak_index = instruction_index(
+        [
+            CHAT_SYSTEM_PROMPT,
+            HISTORY_FENCE_DIRECTIVE,
+            contract.system_directive(),
+            PASS1_DIRECTIVE,
+        ]
+    )
+
     async def event_stream():
         yield _sse({"session": str(session_id)})
         content_parts: list[str] = []
         finish_reason = None
         usage = None
+        scanner = OutputScanner(leak_index)
         try:
             if endpoint.native_reasoning:
                 # Native path: one call; reasoning + content stream on their own fields.
@@ -529,8 +546,12 @@ async def chat(
                     messages, max_tokens=CHAT_ANSWER_MAX_TOKENS, temperature=0
                 ):
                     if ev.kind == "reasoning":
+                        if scanner.feed(ev.text):
+                            break
                         yield _sse({"reasoning": ev.text})
                     elif ev.kind == "content":
+                        if scanner.feed(ev.text):
+                            break
                         content_parts.append(ev.text)
                         yield _sse({"content": ev.text})
                     elif ev.kind == "finish":
@@ -546,6 +567,8 @@ async def chat(
                     temperature=0,
                 ):
                     if ev.kind == "content":
+                        if scanner.feed(ev.text):
+                            break
                         analysis_parts.append(ev.text)
                         yield _sse({"reasoning": ev.text})
                 analysis = "".join(analysis_parts).strip()
@@ -556,6 +579,8 @@ async def chat(
                     temperature=0,
                 ):
                     if ev.kind == "content":
+                        if scanner.feed(ev.text):
+                            break
                         content_parts.append(ev.text)
                         yield _sse({"content": ev.text})
                     elif ev.kind == "finish":
@@ -570,6 +595,37 @@ async def chat(
             await endpoint.client.aclose()
 
         answer = "".join(content_parts)
+        leak = scanner.result()
+        if not leak.ok:
+            # The answer started reproducing our own configuration (TD-012). Two
+            # consequences, and the second is the one that matters most:
+            #
+            # 1. the stream is already cut off above — bounded, not prevented,
+            #    because a streamed answer cannot be un-sent (TD-012's own note).
+            #    The bound is SHINGLE_WORDS words past the start of the run;
+            # 2. it is NOT persisted. A stored assistant turn replays into every
+            #    later deep turn of the session (TD-009), so persisting a leak
+            #    would turn one bad turn into a permanent one.
+            #
+            # Logged with the matched run, which is OUR text — never `answer`,
+            # which carries model output derived from feed/tenant data.
+            logger.warning(
+                "output leak: mode=%s matched=%r", mode.value, leak.matched
+            )
+            yield _sse({"error": LEAK_COPY})
+            yield _sse(
+                {
+                    "done": {
+                        "finish_reason": "output_guard",
+                        "usage": usage,
+                        "path": "model",
+                        "mode": mode.value,
+                        "contract_valid": None,
+                        "output_valid": False,
+                    }
+                }
+            )
+            return
         if answer:
             await _insert_message(pool, auth, session_id, "assistant", answer)
         # Post-hoc contract validation (specs → validators): a streamed answer
@@ -592,6 +648,7 @@ async def chat(
                     "path": "model",
                     "mode": mode.value,
                     "contract_valid": (result.ok if result else None),
+                    "output_valid": True,
                 }
             }
         )

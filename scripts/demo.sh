@@ -211,10 +211,26 @@ say "no EDR, no ticketing. The contract, the gate, the fingerprint and the undo"
 say "rail are real; the reach is deliberately one system until a first customer."
 
 echo
+echo "${B}Two rails, and the second one watches what leaves${R}"
+run "grep -n 'SHINGLE_WORDS = ' auspex/outguard.py"
+grep -n "SHINGLE_WORDS = " auspex/outguard.py
+say "The input guard cannot promise nothing got through, so the deep path also"
+say "checks whether the platform's own configuration is coming back out. A turn"
+say "that starts reproducing its instructions is cut off mid-stream and is NOT"
+say "persisted — a stored answer replays into every later turn of that session."
+say "That threshold is calibrated on 34 real model answers, not chosen: the"
+say "legitimate ceiling measured 6 shared words, the one real leak was 60."
+say "It does NOT catch a paraphrase, and it does not judge whether an answer was"
+say "influenced — see D-030, which says so in writing."
+
+echo
 echo "${B}Known defects, reproduced and written down${R}"
 warn "TD-031 — two quotation marks around an imperative make it 'material'."
 say  "         Ratified, not accidental (D-029): removing the carve-out refused"
 say  "         7 of 7 real analyst sentences that quote a detection string."
+say  "         The answer it points at — output validation — shipped in S22."
+warn "TD-033 — 'e.g.' ends the sentence, so an attribution before it is lost and"
+say  "         legitimate analyst prose is refused. Fails CLOSED; ratified S22."
 warn "TD-028b — a handler that dies AFTER its write lands leaves a row saying"
 say  "          'failed' and a note really in the table. No idempotency key."
 say  "          (TD-028a — the wedged, invisible claim — was fixed in S21: it"

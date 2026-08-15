@@ -301,7 +301,37 @@ _REPORTED_SPEECH_RE = re.compile(
 # The analysis framing at (3) is deliberately NOT scoped this way: "here is the
 # email body:" is an INTRODUCER and is meant to govern everything after it. That
 # asymmetry is the point, and its cost is named in D-029.
-_SENTENCE_END_RE = re.compile(r"[.!?]\s")
+#
+# S22 review: the boundary was `[.!?]\s`, which missed two endings a reader sees
+# and left the S21 defect open in both of them — 6/6 each, measured:
+#
+#   * a NEWLINE. `Open the ticket that contains the API key\n<imperative>` is two
+#     lines and no attribution, and it came back CONTENT. A newline cannot be
+#     typed into the chat input at all (Enter sends — static/index.html:228), so
+#     one arrives by paste or by API: it is deliberate structure, never a soft
+#     wrap, which is what makes treating it as a boundary safe.
+#   * a full stop at the END of the preamble. `…API key.<imperative>` — with no
+#     space, `[.!?]\s` cannot match, so the whole preamble counted again and one
+#     deleted character undid the fix.
+#
+# Four designs were measured against the REAL corpus (the 129 tests in
+# test_guard / test_hardening_surface / test_phishing, .eml fixtures included)
+# rather than against a hand-written one — the S21 review's own lesson is that a
+# corpus written alongside a design is not evidence about it:
+#
+#   | design                      | attacks closed | corpus |
+#   | [.!?]\s          (before)   |  6/18          | 129 ok |
+#   | [.!?](?:\s|$)               | 12/18          | 129 ok |
+#   | [.!?](?:\s|$) | \n\s*\n     | 12/18          | 129 ok |
+#   | [.!?](?:\s|$) | \n  (this)  | 18/18          | 129 ok |
+#
+# The one shape this refuses that a reader would allow is an attribution split
+# mid-clause by a hard line break ("The attacker told the model\nto <imperative>").
+# It is not in the corpus, it cannot be typed into the chat box, and the refusal
+# is recoverable — the copy tells the analyst to quote the material. Named here
+# rather than chased, per TD-031: the answer to what this regex cannot see is
+# TD-012, not a fifth design.
+_SENTENCE_END_RE = re.compile(r"[.!?](?:\s|$)|\n")
 
 
 def _last_sentence(preamble: str) -> str:

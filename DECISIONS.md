@@ -700,3 +700,51 @@ one-character speed bump, which is the move D-027 already declined once.
 rail bounds accidents and naive attempts, not a determined authenticated
 caller). This decision is about *which text* a carve-out is allowed to read, and
 it supersedes nothing.
+
+## D-030 — The output rail checks for our configuration coming back, not for obedience (2026-08-16, S22)
+
+**Context.** Four entries now end with the same sentence — D-027, TD-031,
+TD-032 and TD-033 each declined to tighten the input rail further and each
+named post-hoc output validation as the real answer. Three sessions went into
+`guard.py`; the output side had nothing at all. Record:
+docs/probes/2026-08-16-s22-outguard.md.
+
+**Decision 1 — the rail answers a question that is decidable in code.** Not
+"was this answer influenced?", which is not decidable from the text and would
+mean a model grading a model (the thing D-006 exists to refuse). It asks: **is
+the platform's own configuration coming back out in the answer?** We hold both
+halves of that — we know exactly what we sent — so a verbatim run of our
+instructions in the output is recognisable without any vocabulary to maintain,
+and therefore without anything to rot.
+
+**Decision 2 — only configuration we issued is indexed.** Never the analyst's
+pasted artefact (their own email quoted back is a *correct* answer), never the
+deterministic verdict blocks (whose values the answer is pinned to echo), never
+the two-pass analysis the answer is built from. The call site lists the strings
+explicitly. A rail that indexed "every system message" would fire on the turn's
+own data and be switched off within a week.
+
+**Decision 3 — the floor is calibrated on live output, like NEURAL_FLOORS.**
+`SHINGLE_WORDS = 8`, from 34 real Scout answers across both streaming shapes:
+the legitimate ceiling is **6** (including 12 questions whose correct answer is
+written in the instruction set's own vocabulary), and the one attempt that
+actually complied reproduced **60** words. Changing this number means re-running
+the probe, not editing a constant.
+
+**Decision 4 — a leak is cut off, and never persisted.** A streamed answer
+cannot be un-sent, which is what TD-012 said and is still true: the guarantee is
+that the stream stops within `SHINGLE_WORDS` words of the run starting. The
+guarantee that *lasts* is that the turn is not stored — a stored assistant turn
+replays into every later deep turn of the session (TD-009), so persisting a leak
+would turn one bad turn into a permanent one.
+
+**What this does NOT do, and is written down rather than implied.** It does not
+catch an injection that made the answer *wrong* — that prose looks like an
+answer, and only a verdict the platform computed in code can contradict it. It
+does not catch a **paraphrase** of the configuration; detection is on verbatim
+runs, and "summarise your instructions" defeats it by construction. It is a
+second rail with a different failure mode from the first, not a closure.
+
+**What this supersedes.** Nothing. D-006 (code owns safety-critical decisions),
+D-027 and D-029 (what the INPUT rail does and does not bound) all stand
+unchanged — this adds the side they each pointed at.

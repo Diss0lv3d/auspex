@@ -890,6 +890,173 @@ async def test_a_failed_run_leaves_no_claim_behind(
     assert not [p for p in await settlement.pending(workspace_id=workspace_id) if p["id"] == pid]
 
 
+async def test_a_late_handler_cannot_overwrite_the_human_who_abandoned_it(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """S22 review, measured against live Postgres.
+
+    `abandon` guards on claim AGE, and an old claim is not the same fact as a
+    dead process — a handler that is merely slow gets abandoned and then
+    returns. The four completion statements were `WHERE id = $1` with no status
+    guard, so the late handler moved the row `abandoned` -> `executed` while
+    `decided_at`/`decided_by` still named the human who pressed abandon: an
+    audit trail asserting a human had decided something they never saw.
+
+    Raced with a real handler held open on an event, not simulated by writing
+    the row — the row shape is the easy half, the ordering is the finding.
+    """
+    release, ran = asyncio.Event(), asyncio.Event()
+
+    async def slow_execute(**kwargs):
+        ran.set()
+        await release.wait()
+        return await spec.execute(**kwargs)
+
+    slow = ActionRegistry()
+    slow.register(dataclasses.replace(spec, execute=slow_execute))
+
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await settlement.settle(
+        workspace_id=workspace_id, proposal_id=pid, decision="approved", decided_by=None
+    )
+    task = asyncio.create_task(
+        ActionExecutor(pool, slow).execute(workspace_id=workspace_id, proposal_id=pid)
+    )
+    try:
+        await asyncio.wait_for(ran.wait(), timeout=10)
+        # It has now been running longer than the threshold: from the row alone
+        # this is indistinguishable from a process that died holding the claim.
+        await pool.execute(
+            "UPDATE proposals SET claimed_at = now()"
+            " - make_interval(secs => $2::double precision) WHERE id = $1::uuid",
+            str(pid),
+            float(STALE_CLAIM_SECONDS + 60),
+        )
+        abandoned = await settlement.abandon(
+            workspace_id=workspace_id, proposal_id=pid, decided_by=None
+        )
+        assert abandoned.won
+        decided_at = abandoned.proposal["decided_at"]
+    finally:
+        release.set()
+        await asyncio.wait_for(task, timeout=10)
+
+    final = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert final["status"] == "abandoned", "the handler overwrote a human's decision"
+    assert final["decided_at"] == decided_at
+    # ...and the answer that arrived too late is recorded rather than dropped.
+    # `abandoned` records that the answer was LOST; this is it turning up.
+    assert final["result"], "the late handler's answer should be kept on the row"
+
+
+async def test_a_late_handler_that_fails_cannot_claim_nothing_happened(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """The failure half, and the sharper one. `failed` is exactly the "nothing
+    happened" assertion the no-reaper design refuses to let a timer make — a
+    late handler must not make it either, on a row a human already resolved."""
+    release, ran = asyncio.Event(), asyncio.Event()
+
+    async def slow_boom(**_):
+        ran.set()
+        await release.wait()
+        raise RuntimeError("handler died late")
+
+    exploding = ActionRegistry()
+    exploding.register(dataclasses.replace(spec, execute=slow_boom))
+
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await settlement.settle(
+        workspace_id=workspace_id, proposal_id=pid, decision="approved", decided_by=None
+    )
+    task = asyncio.create_task(
+        ActionExecutor(pool, exploding).execute(workspace_id=workspace_id, proposal_id=pid)
+    )
+    try:
+        await asyncio.wait_for(ran.wait(), timeout=10)
+        await _wedge(
+            pool, settlement, workspace_id, pid, age_seconds=STALE_CLAIM_SECONDS + 60
+        )
+        assert (
+            await settlement.abandon(
+                workspace_id=workspace_id, proposal_id=pid, decided_by=None
+            )
+        ).won
+    finally:
+        release.set()
+        with pytest.raises(RuntimeError):
+            await asyncio.wait_for(task, timeout=10)
+
+    final = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert final["status"] == "abandoned"
+    assert final["result"]["error"] == "RuntimeError"
+
+
+async def test_eight_concurrent_abandons_settle_one_dead_claim_exactly_once(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """`abandon` is a state transition a human can trigger, so it is raced the
+    way S18 raced approval. The age guard lives in the same UPDATE that moves
+    the row, which is the whole guarantee — proven, not asserted."""
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await settlement.settle(
+        workspace_id=workspace_id, proposal_id=pid, decision="approved", decided_by=None
+    )
+    await _wedge(pool, settlement, workspace_id, pid, age_seconds=STALE_CLAIM_SECONDS + 60)
+    results = await asyncio.gather(
+        *[
+            settlement.abandon(workspace_id=workspace_id, proposal_id=pid, decided_by=None)
+            for _ in range(8)
+        ]
+    )
+    assert sum(r.won for r in results) == 1
+    assert {r.outcome for r in results if not r.won} == {Settlement.ALREADY_DECIDED}
+
+
+async def test_the_stale_arm_is_tenant_scoped_like_the_pending_arm(
+    pool, registry, spec, workspace_id, other_workspace_id, an_observable
+):
+    """`pending()` grew a second way for a row to enter it (TD-028a). D-008 has
+    to hold on the NEW arm specifically, not only on the one it was written
+    against."""
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await settlement.settle(
+        workspace_id=workspace_id, proposal_id=pid, decision="approved", decided_by=None
+    )
+    await _wedge(pool, settlement, workspace_id, pid, age_seconds=STALE_CLAIM_SECONDS + 60)
+    assert [p for p in await settlement.pending(workspace_id=workspace_id) if p["id"] == pid]
+    assert not [
+        p for p in await settlement.pending(workspace_id=other_workspace_id)
+        if p["id"] == pid
+    ]
+
+
+async def test_a_stale_claim_cannot_be_settled_through_the_ordinary_buttons(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """The stale row appears beside pending ones, so the approve/reject buttons
+    are right there. Neither may move it — `abandon` exists precisely because
+    those two would assert something nobody knows."""
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await settlement.settle(
+        workspace_id=workspace_id, proposal_id=pid, decision="approved", decided_by=None
+    )
+    await _wedge(pool, settlement, workspace_id, pid, age_seconds=STALE_CLAIM_SECONDS + 60)
+    for decision in ("approved", "rejected"):
+        result = await settlement.settle(
+            workspace_id=workspace_id, proposal_id=pid, decision=decision, decided_by=None
+        )
+        assert result.outcome is Settlement.ALREADY_DECIDED
+    assert (await settlement.get(workspace_id=workspace_id, proposal_id=pid))["status"] == (
+        "executing"
+    )
+
+
 async def test_abandon_is_tenant_scoped_like_every_other_transition(
     pool, registry, spec, workspace_id, other_workspace_id, an_observable
 ):

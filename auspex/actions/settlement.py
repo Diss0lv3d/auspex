@@ -426,26 +426,94 @@ class ActionExecutor:
                 workspace_id=workspace_id, proposal_id=str(proposal_id), **args
             )
         except Exception as exc:
-            await self._pool.execute(
-                """
-                UPDATE proposals
-                    SET status = 'failed', result = $2::jsonb, claimed_at = NULL
-                 WHERE id = $1::uuid
-                """,
-                str(proposal_id),
-                json.dumps({"error": type(exc).__name__}),
+            await self._finish_claim(
+                proposal_id,
+                from_status="executing",
+                to_status="failed",
+                column="result",
+                payload={"error": type(exc).__name__},
             )
             raise
+        await self._finish_claim(
+            proposal_id,
+            from_status="executing",
+            to_status="executed",
+            column="result",
+            payload=_outcome_json(outcome),
+        )
+        return outcome
+
+    async def _finish_claim(
+        self,
+        proposal_id: UUID | str,
+        *,
+        from_status: str,
+        to_status: str,
+        column: str,
+        payload: dict,
+        stamp_undone_at: bool = False,
+    ) -> bool:
+        """Close out a claim — and only the claim this handler still holds.
+
+        S22 review, measured: these four statements were `WHERE id = $1` with no
+        status guard. That was harmless while the handler was the only writer,
+        and TD-028a added a second one. `abandon` moves a claim older than
+        `STALE_CLAIM_SECONDS`, and an old claim is not the same fact as a dead
+        process — a handler that is merely SLOW gets abandoned and then returns.
+        Probed: the row went `abandoned` -> `executed` while `decided_at` and
+        `decided_by` still named the human who pressed abandon, so the audit
+        trail asserted that a human had decided `executed`. On the failure path
+        it is worse: `failed` is precisely the "nothing happened" claim the
+        no-reaper design refuses to let a timer make, made here by a handler.
+
+        The claim is the right to write the answer. When it has been taken, the
+        answer is still recorded — on the row the human already owns, without
+        moving it. `abandoned` says the answer was lost; this is that answer
+        arriving late, which is strictly more than the human had before.
+
+        Returns True if the claim was still held.
+        """
+        if column not in ("result", "undo_result"):
+            raise ValueError(f"unknown result column {column!r}")
+        # Which column to write is a PARAMETER, not string construction: this
+        # module's contract is that no query in it is assembled from Python
+        # strings (see the note above `_as_dict`), and a helper shared by four
+        # call sites is exactly where that would otherwise start.
+        is_result = column == "result"
+        won = await self._pool.fetchrow(
+            """
+            UPDATE proposals
+               SET status = $3,
+                   result = CASE WHEN $5 THEN $2::jsonb ELSE result END,
+                   undo_result = CASE WHEN $5 THEN undo_result ELSE $2::jsonb END,
+                   undone_at = CASE WHEN $6 THEN now() ELSE undone_at END,
+                   claimed_at = NULL
+             WHERE id = $1::uuid AND status = $4
+            RETURNING id
+            """,
+            str(proposal_id),
+            json.dumps(payload),
+            to_status,
+            from_status,
+            is_result,
+            stamp_undone_at,
+        )
+        if won is not None:
+            return True
         await self._pool.execute(
             """
             UPDATE proposals
-                SET status = 'executed', result = $2::jsonb, claimed_at = NULL
+               SET result = CASE WHEN $3 THEN $2::jsonb ELSE result END,
+                   undo_result = CASE WHEN $3 THEN undo_result ELSE $2::jsonb END
              WHERE id = $1::uuid
+               AND status = 'abandoned'
+               AND (CASE WHEN $3 THEN result ELSE undo_result END) IS NULL
             """,
             str(proposal_id),
-            json.dumps(_outcome_json(outcome)),
+            json.dumps(payload),
+            is_result,
         )
-        return outcome
+        return False
 
     async def undo(self, *, workspace_id: UUID | str, proposal_id: UUID | str) -> ActionOutcome:
         """Put an executed action back.
@@ -487,25 +555,21 @@ class ActionExecutor:
                 workspace_id=workspace_id, proposal_id=str(proposal_id), **args
             )
         except Exception as exc:
-            await self._pool.execute(
-                """
-                UPDATE proposals
-                    SET status = 'executed', undo_result = $2::jsonb, claimed_at = NULL
-                 WHERE id = $1::uuid
-                """,
-                str(proposal_id),
-                json.dumps({"error": type(exc).__name__}),
+            await self._finish_claim(
+                proposal_id,
+                from_status="undoing",
+                to_status="executed",
+                column="undo_result",
+                payload={"error": type(exc).__name__},
             )
             raise
-        await self._pool.execute(
-            """
-            UPDATE proposals
-               SET status = 'undone', undone_at = now(), undo_result = $2::jsonb,
-                   claimed_at = NULL
-             WHERE id = $1::uuid
-            """,
-            str(proposal_id),
-            json.dumps(_outcome_json(outcome)),
+        await self._finish_claim(
+            proposal_id,
+            from_status="undoing",
+            to_status="undone",
+            column="undo_result",
+            payload=_outcome_json(outcome),
+            stamp_undone_at=True,
         )
         return outcome
 

@@ -8,7 +8,7 @@ LLM**. You bring an OpenAI-compatible endpoint; the platform adapts to whatever
 it can actually do. We never pay for inference, and neither does a pilot.
 
 > **Status: pre-beta.** Everything described below is built, tested and running
-> — 902 tests, `docker compose up` green. The [What Auspex does not do
+> — 1014 tests, `docker compose up` green. The [What Auspex does not do
 > yet](#what-auspex-does-not-do-yet) section is not a roadmap wish-list; it is
 > the honest boundary of what you get today, and it is worth reading before the
 > feature list.
@@ -89,6 +89,22 @@ sentence issued bare is refused with a 400 that names the rule and says how to
 re-send. See [D-025](DECISIONS.md) and [D-027](DECISIONS.md) — the second of
 which states, out loud, what the rail does **not** bound.
 
+### Output rail — did our own configuration come back out?
+
+The input guard bounds what arrives. It cannot promise that nothing got through,
+so the deep path also watches what leaves. It does not ask whether an answer was
+*influenced* — that is not decidable from the text, and asking a model to grade
+itself is what code-owned decisions exist to avoid. It asks the question we hold
+both halves of: **is the platform's own configuration being reproduced in the
+answer?**
+
+A turn that starts reproducing its own instructions is cut off mid-stream, told
+to the analyst plainly, and **not persisted** — a stored assistant turn replays
+into every later turn of that session, so a leak that was saved would become a
+permanent one. The threshold is calibrated on live model output, not chosen: 34
+real answers, a legitimate ceiling of 6 shared words, a floor of 8. See
+[D-030](DECISIONS.md) and the honesty section for what it does not cover.
+
 ### Capability-negotiated agent runtime
 
 The platform probes the endpoint you bring and compiles its agent loop to what
@@ -119,10 +135,15 @@ Read this part. A demo that only walks the happy path is a demo that lies.
   firewall, no EDR, no ticketing integration**. The contract, the approval gate,
   the fingerprint and the undo rail are all real; the blast radius is deliberately
   one system until a customer's first integration.
-- **The guard bounds input, not output.** It does not judge whether an answer was
-  influenced — that is post-hoc validation, deliberately not shipped
-  (TD-012) — and it does not defeat a determined authenticated caller, because
-  every carve-out is decided by text the sender controls (D-027).
+- **Two rails, two different failure modes — neither is a closure.** The input
+  guard does not defeat a determined authenticated caller, because every
+  carve-out is decided by text the sender controls (D-027, D-029). The output
+  rail (S22, D-030) catches the platform's own configuration coming back out of
+  a turn — calibrated on live output, cut off mid-stream, never persisted — but
+  it does **not** catch a *paraphrase* of that configuration, and it does **not**
+  judge whether an answer was influenced. An injection that produced a confident
+  wrong answer looks exactly like an answer; only a verdict the platform computed
+  in code can contradict one, which is what the 92/8 split is for.
 - **A failed action can leave effects it denies.** If a handler dies after its
   write lands, the row says `failed` and the write is really in the table; there
   is no idempotency key and no partial-effect reasoning (TD-028b). A claim whose
