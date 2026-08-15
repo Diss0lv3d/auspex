@@ -283,3 +283,92 @@ def test_bulk_ioc_paste_leaves_tiny_residual():
 
 def test_no_observables_in_plain_prose():
     assert extract_observables("how do I write a detection rule for beaconing") == []
+
+
+def test_ipv4_mapped_ipv6_identity_does_not_move_with_the_interpreter():
+    """S20 — found by the CI gate on its first run, green locally and red on a
+    different 3.12 patch release.
+
+    `observable_id` hashes the VALUE, so whatever text an address normalizes to
+    IS that observable's identity — and identity is what every verdict, decay
+    curve, watcher and retro-hunt match hangs off. The old code used
+    `ip.compressed`, which is a stdlib FORMATTING choice: CPython renders
+    IPv4-mapped addresses in mixed notation on newer patch releases. A silent
+    interpreter upgrade would have forked every IPv4-mapped observable into a
+    second identity and split its verdict history.
+
+    This asserts the value WITHOUT consulting the stdlib for the expectation,
+    which is the only way the test can fail when the stdlib changes.
+    """
+    result = extract_observables("hit from ::ffff:203.0.113.9 today")
+    values = [o.value for o in result if o.type is ObservableType.IPV6]
+    assert values == ["::ffff:cb00:7109"]
+    assert [o for o in result if o.type is ObservableType.IPV4] == []
+    # The identity that hangs off it, pinned verbatim.
+    assert observable_id(ObservableType.IPV6, values[0]) == observable_id(
+        ObservableType.IPV6, "::ffff:cb00:7109"
+    )
+
+
+def test_every_spelling_of_one_ipv4_mapped_address_is_one_observable():
+    """The property the canonical form exists to give: the same address written
+    three ways is one identity, not three."""
+    spellings = [
+        "::ffff:203.0.113.9",
+        "::ffff:cb00:7109",
+        "0:0:0:0:0:ffff:cb00:7109",
+    ]
+    ids = {
+        observable_id(ObservableType.IPV6, _one(f"see {s} now", ObservableType.IPV6).value)
+        for s in spellings
+    }
+    assert len(ids) == 1, ids
+
+
+def test_ordinary_ipv6_compression_is_untouched():
+    """The canonical form only overrides the IPv4-mapped case; everything else
+    still goes through the stdlib, which is stable for it."""
+    for text, expected in [
+        ("see 2001:0db8:0000:0000:0000:0000:0000:0001 now", "2001:db8::1"),
+        ("see fe80::1 now", "fe80::1"),
+        ("see 2001:db8:0:0:1:0:0:1 now", "2001:db8::1:0:0:1"),
+    ]:
+        assert _one(text, ObservableType.IPV6).value == expected, text
+
+
+def test_our_canonical_ipv6_agrees_with_the_stdlib():
+    """The measurement that justified taking IPv6 identity off `ip.compressed`,
+    kept running.
+
+    Two properties, and they pull in opposite directions on purpose. The form
+    must AGREE with the stdlib today — otherwise adopting it would silently
+    re-key every existing IPv6 observable — and it must not CONSULT the stdlib,
+    or it inherits a formatting policy that has already moved once.
+
+    Seeded, so a failure is reproducible rather than a flake.
+    """
+    import ipaddress
+    import random
+
+    from auspex.classify.observables import _canonical_ipv6
+
+    # Seeded and deterministic: this samples the address space, it does not
+    # generate anything a secret depends on.
+    rng = random.Random(20260815)  # noqa: S311
+    addresses = [rng.getrandbits(128) for _ in range(5000)]
+    addresses += [0, 1, (0xFFFF << 32) | 0xCB007109, 0x20010DB8 << 96]
+    # structured sweeps: zero-runs, IPv4-mapped, IPv4-compatible, leading group
+    for i in range(0, 65536, 997):
+        addresses += [(0xFFFF << 32) | i, i, i << 112, (0x20010DB8 << 96) | i]
+
+    differs, not_roundtrip = [], []
+    for n in addresses:
+        ip = ipaddress.IPv6Address(n)
+        ours = _canonical_ipv6(ip)
+        if ipaddress.IPv6Address(ours) != ip:
+            not_roundtrip.append((str(ip), ours))
+        if ip.ipv4_mapped is None and ours != ip.compressed:
+            differs.append((ip.compressed, ours))
+
+    assert not not_roundtrip, f"canonical form lost the address: {not_roundtrip[:5]}"
+    assert not differs, f"disagrees with the stdlib on unmapped addresses: {differs[:5]}"
