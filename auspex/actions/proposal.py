@@ -40,7 +40,7 @@ from auspex.actions.types import ActionOutcome, ActionSpec
 FINGERPRINT_VERSION = 1
 
 
-def canonical_spec(spec: ActionSpec) -> dict:
+def canonical_spec(spec: ActionSpec, *, version: int | None = None) -> dict:
     """The declared facts an approver's decision rests on.
 
     Ordered and explicit rather than `dataclasses.asdict`: a field added to
@@ -48,9 +48,22 @@ def canonical_spec(spec: ActionSpec) -> dict:
     folding it in would invalidate every stored fingerprint on deploy, and
     silently omitting a meaningful one would let a changed action pass as
     unchanged.
+
+    "On purpose" was a comment and nothing else until S19 — adding a declared
+    field left the fingerprint byte-identical, verified by execution
+    (docs/probes/2026-08-15-s19-step0-review.md §1). The key set is now asserted
+    against the dataclass field sets in `tests/test_action_settlement.py`, so a
+    new field fails the suite by name instead of silently leaving the identity.
+
+    `version` is a parameter so a caller can ask what a spec's identity WAS
+    under an older scheme — that is what lets a version bump be reported as a
+    version bump rather than as a changed action. It defaults to None and is
+    resolved HERE rather than in the signature: a default argument binds once at
+    import time, so `version: int = FINGERPRINT_VERSION` would keep serving the
+    value the module had when it was first loaded.
     """
     return {
-        "v": FINGERPRINT_VERSION,
+        "v": FINGERPRINT_VERSION if version is None else version,
         "name": spec.name,
         "description": spec.description,
         "risk": spec.risk.value,
@@ -79,12 +92,30 @@ def canonical_spec(spec: ActionSpec) -> dict:
     }
 
 
-def fingerprint(spec: ActionSpec) -> str:
+def fingerprint(spec: ActionSpec, *, version: int | None = None) -> str:
     """A stable id for one declaration. Same declared facts → same string, in
     any process; any change an approver would have wanted to know about → a
     different string."""
-    blob = json.dumps(canonical_spec(spec), sort_keys=True, separators=(",", ":"))
+    blob = json.dumps(canonical_spec(spec, version=version), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def matches_older_scheme(spec: ActionSpec, stored: str) -> int | None:
+    """The version under which `stored` was this spec's identity, or None.
+
+    A stored fingerprint that mismatches today tells us nothing about WHY on its
+    own — a hash is not a diff. But if it equals what this same, unchanged spec
+    hashed to under an earlier `FINGERPRINT_VERSION`, then the declaration did
+    not move and our scheme did. Distinguishing the two is the difference
+    between telling an analyst "this action changed" (which would be false) and
+    "we changed how we identify actions" (which is true and actionable).
+
+    Costs `FINGERPRINT_VERSION - 1` hashes, only on the refusal path.
+    """
+    for older in range(FINGERPRINT_VERSION - 1, 0, -1):
+        if stored == fingerprint(spec, version=older):
+            return older
+    return None
 
 
 def card(spec: ActionSpec, *, arguments: dict, dry_run: ActionOutcome) -> dict:
@@ -122,4 +153,10 @@ def card(spec: ActionSpec, *, arguments: dict, dry_run: ActionOutcome) -> dict:
     }
 
 
-__all__ = ["FINGERPRINT_VERSION", "canonical_spec", "card", "fingerprint"]
+__all__ = [
+    "FINGERPRINT_VERSION",
+    "canonical_spec",
+    "card",
+    "fingerprint",
+    "matches_older_scheme",
+]

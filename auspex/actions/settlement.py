@@ -38,7 +38,8 @@ from uuid import UUID
 
 import asyncpg
 
-from auspex.actions.proposal import card, fingerprint
+from auspex.actions import proposal as proposal_mod
+from auspex.actions.proposal import card, fingerprint, matches_older_scheme
 from auspex.actions.registry import ActionRegistry
 from auspex.actions.types import ActionOutcome, ActionSpec
 from auspex.agent.permissions import PermissionOutcome, gate
@@ -259,6 +260,21 @@ def check_executable(spec: ActionSpec, proposal: dict) -> None:
         )
     current = fingerprint(spec)
     if stored != current:
+        # A mismatch alone cannot say WHY, and the two reasons want different
+        # words. If this same unchanged spec hashed to `stored` under an older
+        # FINGERPRINT_VERSION, the declaration never moved — we changed how we
+        # identify declarations. Saying "the action changed" there would be
+        # false, and an analyst who re-reads the card looking for the change
+        # would find nothing (S19 Step-0 review, angle 2).
+        older = matches_older_scheme(spec, stored)
+        if older is not None:
+            raise ExecutionRefused(
+                "fingerprint_scheme_changed",
+                f"{spec.name} itself is unchanged, but Auspex changed how it "
+                f"identifies declarations (v{older} → v{proposal_mod.FINGERPRINT_VERSION}) "
+                "after this was approved — re-propose it so the approval carries an "
+                "identity this version can verify",
+            )
         raise ExecutionRefused(
             "spec_changed",
             f"{spec.name} has changed since it was approved "

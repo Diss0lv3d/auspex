@@ -179,7 +179,7 @@ async def main():
 
         # k-sensitivity for the unfiltered pool — the S8 note said the k=10
         # result is "a datum, not a license". The pool is 15x bigger now.
-        print(f"\n{'=' * 78}\nUNFILTERED k-SENSITIVITY (recall of the labeled positives)\n{'=' * 78}")
+        print(f"\n{'=' * 78}\nUNFILTERED k-SENSITIVITY (labeled positives)\n{'=' * 78}")
         ksens = {}
         for k in (10, 50, 100):
             hits_at_k = {}
@@ -203,9 +203,11 @@ async def main():
             "CVE (filtered)", cve_filtered, NEURAL_FLOORS["cve"]
         )
 
-        with open("docs/probes/s19-step0/battery_td005_result.json", "w") as fh:
-            json.dump(out, fh, indent=2)
-        print("\nwrote docs/probes/s19-step0/battery_td005_result.json")
+        return out
 
 
-asyncio.run(main())
+RESULT_PATH = "docs/probes/s19-step0/battery_td005_result.json"
+
+with open(RESULT_PATH, "w") as fh:
+    json.dump(asyncio.run(main()), fh, indent=2)
+print(f"\nwrote {RESULT_PATH}")

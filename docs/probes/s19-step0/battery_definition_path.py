@@ -75,11 +75,13 @@ async def main():
             print(f"  GOT   : {r['fused_top']} — {r['fused_top_title']}")
             print(f"  rank of wanted: {r['expected_rank']} (of {r['n_hits']} hits)")
             print(f"  renders as: {r['first_line']}")
-        with open("docs/probes/s19-step0/battery_definition_result.json", "w") as fh:
-            json.dump(rows, fh, indent=2)
-        print("\nwrote docs/probes/s19-step0/battery_definition_result.json")
+        return rows
     finally:
         await kb.aclose()
 
 
-asyncio.run(main())
+RESULT_PATH = "docs/probes/s19-step0/battery_definition_result.json"
+
+with open(RESULT_PATH, "w") as fh:
+    json.dump(asyncio.run(main()), fh, indent=2)
+print(f"\nwrote {RESULT_PATH}")

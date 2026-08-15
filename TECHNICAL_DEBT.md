@@ -1,5 +1,48 @@
 # Technical debt — logged the moment it's taken
 
+## TD-028 (S19) — the proposal status machine has no way back from three states
+**Where:** `auspex/actions/settlement.py` (`ActionExecutor.execute` / `.undo`),
+`auspex/routes/proposals.py` (`list_proposals`, pending-only).
+**All four items below were REPRODUCED BY EXECUTION** at S19 Step 0 —
+docs/probes/2026-08-15-s19-step0-review.md, harness
+`docs/probes/s19-step0/probe_s18_review.py`.
+
+**(a) `executing` and `undoing` are claims with no timeout, and nothing reaps them.**
+A process that dies between the claim and the handler wedges the row forever:
+`execute` refuses `not_approved`, `undo` refuses `not_executed`, `reject` gets
+`already_decided`. Measured. Worse than the S18 hand-off predicted — the row is
+also **invisible**, because the approvals list filters `status = 'pending_approval'`,
+so **a human watching the queue sees the action vanish** with nothing to click.
+*Fix wants:* a claim timestamp plus a reaper on the existing SKIP LOCKED job seam,
+and a decision about what a reaped row becomes (back to `approved` is wrong if the
+handler had already half-run — see (b)).
+
+**(b) A failed execute leaves effects it denies.** Forced a failure after the
+handler's INSERT landed: the note is really in the table and the row says `failed`
+with `{"error": "RuntimeError"}`. The surface reports that nothing happened while
+something did. No idempotency key, no partial-effect reasoning (TD-025 named this
+as unwritten; this is the measurement behind it).
+
+**(c) The cleanup path exists and is gated shut.** `undo` requires
+`status = 'executed'`, so a `failed` proposal cannot be undone through the API —
+even though `put_back` is keyed on `proposal_id` (`builtin.py:136-141`) and would
+delete exactly the orphaned row and nothing else. **Not the one-word change it
+looks like:** allowing undo from `failed` needs terminal-state semantics — what the
+row becomes, and whether a proposal whose write never landed should report `undone`.
+
+**(d) Two identical proposals in one turn are indistinguishable to the approver.**
+A model calling one action twice files two rows with identical fingerprints and
+arguments. **Deduping is deliberately NOT the fix** — a proposal is a request for a
+human decision, and collapsing two requests would have the platform decide that a
+second intent was a mistake, which is the judgement D-014 reserves for the human.
+The defect is that the card gives an approver no signal they are being asked the
+same question twice.
+**Why deferred:** (a) needs a durable job and a state decision; (b)/(c) need
+terminal-state semantics that belong with TD-025's idempotency gap; (d) is card
+rendering. None is Step-0-sized, and S19's scope is Hardening.
+**Risk if left:** (a) is the sharpest — an action can silently disappear from the
+queue after a restart, and the S18 demo's "something really executes" claim quietly
+depends on nothing crashing mid-run.
 ## TD-027 (S19) — the `doc_types` filter no longer restores recall for `cve`
 **Where:** `auspex/kb/service.py:518-524` (the `search()` docstring's recall
 argument), `NEURAL_FLOORS["cve"]` in `auspex/kb/fuse.py`.
