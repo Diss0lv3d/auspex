@@ -55,6 +55,7 @@ from auspex.auth import AuthContext, resolve_user
 from auspex.classify.classifier import _is_alert_paste, _is_email_paste
 from auspex.classify.observables import Observable, ObservableType, observable_id
 from auspex.enrich import EnrichmentService, persist_enrichment
+from auspex.limits import Meter, UsageLimiter
 from auspex.llm.client import LLMClient, LLMError
 from auspex.phishing import decide_verdict, parse_email
 from auspex.phishing.victims import filter_victim_iocs
@@ -456,6 +457,23 @@ async def render_summary(
         {"role": "system", "content": bundle.text},
         {"role": "user", "content": "Render the investigation summary now."},
     ]
+    # TD-018 (S19): this route is the OTHER inference spender, and the debt
+    # entry named it explicitly so S19 would not wire only the chat path. One
+    # call per request, claimed before it is made and shared with chat's
+    # counter — a workspace's ceiling is on inference, not on a route.
+    allowance = await UsageLimiter(request.app.state.pool).claim(
+        workspace_id=auth.workspace_id, meter=Meter.INFERENCE_CALLS, units=1
+    )
+    if not allowance.allowed:
+        logger.info(
+            "workspace %s refused a summary: %s at %d/%s",
+            auth.workspace_id,
+            allowance.meter.value,
+            allowance.used,
+            allowance.limit,
+        )
+        raise HTTPException(status_code=429, detail=allowance.refusal_text)
+
     llm: LLMClient = llm_factory()
     try:
         result = await llm.chat(messages, max_tokens=SUMMARY_MAX_TOKENS, temperature=0)

@@ -371,7 +371,21 @@ when that arrives; (c) assert the cycle path by driving `run_cycle` against a
 fake KEV feed whose catalogue contains an enriched CVE — hermetic, and it closes
 the gap without waiting on CISA.
 
-## TD-018 (S13) — inference-spending routes have no per-workspace bound
+## ~~TD-018 (S13) — inference-spending routes have no per-workspace bound~~ RESOLVED S19
+**Resolved 2026-08-15 (D-026):** `auspex/limits.py` + the `usage_counters`
+table. A per-workspace inference-CALL ceiling is claimed by a conditional UPSERT
+that enforces the limit in the same statement that reads the counter — raced with
+eight concurrent claims over one unit of headroom, exactly one wins. **Both routes
+this entry named are wired**, sharing one counter (the ceiling belongs to the
+workspace's inference, not to a route): `/api/chat` DEEP turns claim 1 or **2**
+(a two-pass endpoint really makes two requests — D-016/TD-002), and
+`POST /api/investigations/{id}/summary` claims 1. Refusal is a 429 naming the
+meter, the ceiling and the reset time, and the LLM-free paths keep working because
+the claim happens after the 92/8 gate. Plans live on the workspace, limits in
+code, unknown plan ⇒ most restrictive. Regressions in `tests/test_limits.py` and
+`tests/test_hardening_surface.py`. Original entry kept below for the record.
+
+## TD-018-original (S13) — inference-spending routes have no per-workspace bound
 **Where:** `POST /api/investigations/{id}/summary` (new in S13) and
 `/api/chat` DEEP turns both call the customer's LLM endpoint with no
 per-workspace rate/spend ceiling — any authenticated client can loop them.

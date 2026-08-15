@@ -501,6 +501,36 @@ SCHEMA_V0: list[str] = [
     CREATE INDEX IF NOT EXISTS idx_observable_notes_ws_obs
         ON observable_notes (workspace_id, observable_id, created_at DESC)
     """,
+    # S19 (Hardening): what a workspace may spend, and what it has spent.
+    #
+    # The plan lives on the workspace and the LIMITS live in code
+    # (auspex/limits.py), the same split as EXECUTABLE_SYSTEMS: which tier a
+    # customer is on is data, what a tier is allowed to do is a decision with a
+    # blast radius. A limits table would let a bad UPDATE hand someone unbounded
+    # inference.
+    """
+    ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS plan text NOT NULL DEFAULT 'free'
+    """,
+    # One row per (workspace, meter, window). `used` is incremented by a
+    # conditional UPSERT that refuses to go over the ceiling in the same
+    # statement that reads it — the S18 claim-first device, applied to spend:
+    # "check then increment" is a window two concurrent turns fit through.
+    """
+    CREATE TABLE IF NOT EXISTS usage_counters (
+        workspace_id uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        meter text NOT NULL,
+        window_start timestamptz NOT NULL,
+        used integer NOT NULL DEFAULT 0,
+        updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+        PRIMARY KEY (workspace_id, meter, window_start)
+    )
+    """,
+    # Sweeping closed windows is a range scan per workspace, and the PK's
+    # leading column already serves the hot read.
+    """
+    CREATE INDEX IF NOT EXISTS idx_usage_counters_window
+        ON usage_counters (window_start)
+    """,
 ]
 
 
