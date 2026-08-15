@@ -1,29 +1,30 @@
 # NEXT-SESSION — paste everything below the line into a fresh Claude Code window opened in /home/burhan/auspex-new
 
-_(**Four commits are waiting to promote** — `2bb20ad`, `e14a684`, `74adb7d`,
-`928705a` — plus this session-end commit. **`gh` did NOT flip to the work account
-at S19 start**, but it did at S18 and S16 — unpredictable is the pattern, so
-re-check anyway. S19 shipped: Step 0 found the S18 hand-off was **stale about its
-own promote** (PR #18 had already merged), then answered the **first-ever TD-005
-re-battery** — both floors verified sound at 9.3× the calibration corpus and
-nothing fabricates — while catching that the battery had been measuring the neural
-leg when users read the **fused** top hit (**3/7 definitions render the wrong ATT&CK
-page**, TD-026). The S18 review confirmed the fingerprint blind spot was real
-(a new declared field fingerprinted **byte-identically**) and fixed it plus a
-version-bump message that told the analyst a lie. Then Hardening: the guard asks
-whether an instruction is **ISSUED or ANALYSED**, and TD-018 finally closed with
-per-workspace inference ceilings claimed 8-way-race-proof. **A pasted phishing
-email containing "ignore all previous instructions" is still analysed; the same
-sentence issued bare is refused in code.** CI-green 883 tests, 116 modules.)_
+_(**S20 is done, and it was the last session the ROADMAP had written down.** Six
+commits are waiting to promote. S20 promoted S19 via PR #19 **and recorded the
+promote at merge time**, then reviewed it and found the sharpest defect was not the
+one the brief predicted: the guard was refusing **4 of 6 legitimate SOC questions**
+— "write a Sigma rule that fires on 'ignore all previous instructions'" got a 400 —
+because every S19 carve-out was justified against pasted artefacts and none against
+an analyst writing *about* an attack. Also fixed: invisible characters and homoglyphs
+returned **CLEAN**, and a 47-char subordinate clause walked through the `{0,40}` gap.
+Three more behaviours were forced, found correct, and **ratified rather than
+"fixed"** (D-027): the carve-outs are forgeable by construction, spend is charged for
+our own outage, and the fixed window is a real 2× burst. Then Beta: **CI now runs
+`./ci.sh` itself** (D-028) and caught two defects green-on-laptop/red-on-runner on
+its very first run — IPv6 observable identity was delegated to a stdlib formatting
+choice, and three tests depended on accumulated dev-DB state. The repo got the
+**README it never had**, and `./scripts/demo.sh` replaced demo turns scattered over
+nine STATE.md revisions. **912 tests, zero new env vars — seven sessions running.**)_
 
 ---
 
-SESSION S20 of Auspex. Working dir must be /home/burhan/auspex-new — run
-`/session-start S20` first (full ritual). Primary dev LLM is **Llama-4-Scout via
+SESSION S21 of Auspex. Working dir must be /home/burhan/auspex-new — run
+`/session-start S21` first (full ritual). Primary dev LLM is **Llama-4-Scout via
 Northflank (D-015)**; local Ollama `qwen3:14b` is the secondary/offline endpoint
 (D-013) and is what the session-start local-Ollama gate validates. Any mismatch →
 STOP and tell me. (D-011: `gh` flips to the work account between AND mid-session —
-it did at S18 and S16, did not at S17, S13–S15 or S19, so assume it has and
+it did at S18 and S16, did NOT at S17, S13–S15, S19 or S20, so assume it has and
 re-check before every `gh` call. `gh pr edit` fails on this repo with a
 Projects-classic GraphQL error — use `gh api -X PATCH repos/.../pulls/N`. Local
 `main` goes stale every promote — `git fetch` and read
@@ -33,97 +34,108 @@ container runs the built image, not the working tree** — a new migration needs
 
 Step 0 (carried follow-ups, do BEFORE new scope):
 
-- **`/promote` first.** `2bb20ad`, `e14a684`, `74adb7d`, `928705a` and the S19
-  session-end commit are on staging and not on `main` (real diff: 26 files,
-  +3565/-18). Confirm the gh ACTIVE account is `bh3082336888-cell` immediately
-  before the call, then back-merge and assert the tree is unchanged.
-  **Then update STATE.md to say the promote happened** — S18's session-end commit
-  was written before its promote and shipped a hand-off that was wrong about it,
-  which cost S19 Step 0 a correction. Do not repeat that.
-- **Fresh-eyes review of the S19 commits** — scope: `74adb7d` (the fingerprint
-  fixes) and `928705a` (`auspex/guard.py`, `auspex/limits.py`, the chat and
-  investigations wiring, the migration). Angles S19 did NOT adversarially test:
-  - **(strongest lead — the guard's regexes ARE the attack surface.)** The whole
-    rail is five regexes and four carve-outs, and S19 tested the cases it thought
-    of. Try to get an injection through: unicode homoglyphs and zero-width joiners
-    inside "ignore" (note `auspex/untrusted.py` already strips those — but the
-    guard inspects the RAW message, so does it?), base64/rot13 wrappers, a
-    600-char pad to buy the artefact-length carve-out (that threshold is a
-    *number*, and nothing stops an attacker padding to it), splitting the
-    imperative across the `[^.!?\n]{0,40}` gaps, or a fake RFC-5322 header block
-    to claim `_is_email_paste`. **The last one is the sharpest: two header-shaped
-    lines is a low bar to forge.** Decide honestly which of these the guard should
-    catch and which are out of scope — a rail that claims more than it does is
-    worse than a narrow one (D-025 already says the guard bounds input, not output).
-  - **(the plan fallback is a security control nobody has attacked)** `plan_for`
-    resolves unknown → most restrictive. Verify there is no path where a NULL,
-    an empty string, whitespace, or a case variant (`'Enterprise'`) reaches it and
-    lands somewhere other than `free`. And: what happens to a workspace whose plan
-    is set to a tier a FUTURE build removes?
-  - **(metering honesty under failure)** A claim is made BEFORE the call. If the
-    endpoint then 502s, the workspace was charged for inference it never received.
-    Is that right (it protects against retry-storms) or wrong (it charges for our
-    outage)? Force it and decide — and check whether a client that disconnects
-    mid-stream is charged.
-  - **(the window boundary)** `window_start` truncates to the hour, so a workspace
-    can spend its full ceiling at 13:59 and again at 14:01. Measure it, then decide
-    whether a fixed window is the right shape or whether it needs to be said out
-    loud in the refusal copy.
-  - **(the migration)** `ALTER TABLE workspaces ADD COLUMN ... DEFAULT 'free'` ran
-    against a live table. Confirm it is genuinely idempotent on re-run and that a
-    workspace created by every route (dev-login, OAuth stub) gets a plan.
+- **`/promote` first.** S20's commits are on staging and not on `main` (last
+  promote was PR #19). Confirm the gh ACTIVE account is `bh3082336888-cell`
+  immediately before the call. **This is the first promote with a real CI check on
+  it** — `gh pr checks` now reports the `ci.sh` job instead of 0 checks, so wait for
+  it to go green before merging rather than treating a local run as the proof. Then
+  back-merge, assert the tree is unchanged, **and update STATE.md to say the promote
+  happened, at merge time, in its own commit** (S20 did this and it worked; S18 did
+  not and it cost S19 a correction).
+- **Fresh-eyes review of the S20 commits** — scope: `0c7c092` (the guard's fifth
+  carve-out + `_normalize`), `d45e70b` (`_canonical_ipv6`), `bbf3fec`
+  (`tests/test_docs.py`), and `scripts/demo.sh`. Angles S20 did NOT adversarially
+  test:
+  - **(strongest lead — the new carve-out is a new attack surface.)**
+    `_REPORTED_SPEECH_RE` admits anything whose PREAMBLE names a third party and a
+    speech verb. "The attacker told the model to " is now a **prefix that turns any
+    imperative into content** — exactly the off-switch shape D-025 warned about,
+    admitted deliberately on the argument that it is the same class as "here is the
+    email body:". Decide honestly whether that argument holds, and check the
+    `\b(?:that|which|like|such\s+as|for|about|on)\s+(?:say|says|…)\b` arm, which is
+    much broader than the others and was not measured against real analyst prose.
+  - **(the inline-quote carve-out)** `"[^"\n]{1,300}"` has no letter-adjacency
+    guard the way the apostrophe arm does. Two unrelated double quotes in one
+    message bracket everything between them — try prose with a quoted product name
+    early and an imperative later. Also: nothing stops an attacker simply wrapping
+    their whole injection in quotes, which is now a carve-out.
+  - **(the fold could HIDE a match rather than reveal one)** `_normalize` deletes
+    characters and maps confusables. Verify no input exists where folding *creates*
+    a false negative or an index-map error — e.g. a message that is entirely
+    invisible characters, a match starting at index 0, a match at the very end, or
+    text where `index_map[end-1]+1` walks past a carve-out boundary and flips a
+    verdict. The span-mapping test covers one case; it is not a proof.
+  - **(`_canonical_ipv6` is now on the identity path for EVERY IPv6 observable)**
+    The 200,268-address equivalence was measured on THIS interpreter. Check the
+    zero-run compression against RFC 5952 §4.2.2 explicitly (the "longest run wins,
+    leftmost on a tie, never compress a single group" rules) rather than against
+    the stdlib alone, since agreeing with a buggy stdlib is not correctness.
+  - **(the docs tests could be vacuous)** `test_the_demo_only_calls_routes_that_exist`
+    passes if its `called` set is empty. Confirm each docs test FAILS when it should
+    — break the README deliberately, break the workflow deliberately, and watch.
   Verify findings BY EXECUTION before fixing; fix with regressions.
 
-Goal (scope-locked, from ROADMAP.md S20 — Beta, **the last roadmap session**):
+Goal — **THIS IS THE FIRST SESSION WITH NO ROADMAP ENTRY. Do not improvise one.**
 
-1. **Deploy pipeline.** How Auspex ships. Today `./ci.sh` locally IS the gate
-   (this repo has NO GitHub Actions — `gh pr checks` reports 0 checks). Decide
-   whether that changes for beta and build whatever is decided. Nothing may
-   weaken the always-demoable invariant: `main` passes `docker compose up` +
-   `pytest`.
-2. **Docs pass.** The repo is the memory (CLAUDE.md), and a beta means someone
-   other than Burhan reads it. README, `docs/ENV_VARS.md`, and an honest account
-   of what Auspex does and does NOT do today — the deep path is still
-   conversational-only, the guard bounds input not output, `EXECUTABLE_SYSTEMS`
-   is `{"auspex"}`.
-3. **Demo script.** The demo turns are scattered across nine STATE.md revisions.
-   Consolidate into one runnable, ordered script that shows the differentiators:
-   the 92/8 split, Living Verdicts + decay, the approval flow that really executes
-   and really undoes, and S19's guard telling issued-from-analysed.
+The ROADMAP through S20 is complete. Before any implementation, put the choice to
+me and get an answer. The three honest candidates, in the order the repo's own
+evidence argues for:
+
+1. **Pay down what beta exposed (recommended).** TD-026 — the definition path
+   renders the wrong ATT&CK page 3 times in 7 — is the only defect a beta user hits
+   in the first ten minutes, and it is now advertised in the README, which makes
+   fixing it a promise rather than a preference. TD-028 — `executing`/`undoing` with
+   no reaper, invisible to the approver — is the one that loses a human's work.
+   **Both already have measurements and reproductions written down; TD-026 also has
+   two failed fix attempts and their numbers, and two of its seven battery labels
+   are corpus-stale and must be re-examined FIRST.**
+2. **Wire AgentLoop into `/api/chat`.** The largest gap between what the platform is
+   and what its own README says: the loop is built, capability-negotiated and
+   tested, and the deep path still does not use it. Carries TD-012 (post-hoc
+   validation) as a prerequisite worth arguing about, and would change what the
+   guard and the ceilings are protecting.
+3. **Phase 5 / Herd Immunity groundwork.** Needs multi-workspace and a privacy
+   review before any code — a design session, not an implementation one.
 
 Constraints:
 - Tests ship with each step (CLAUDE.md rule 8); CI hermetic.
-- **Do not let the docs pass become a rewrite of history.** DECISIONS.md entries
-  are immutable once ratified; if beta needs a decision overturned, that is a NEW
-  numbered decision that says which one it supersedes.
-- **The demo script must be honest about what is a bound.** TD-025 and TD-028 mean
-  the approval flow has states with no way back; a demo that only ever walks the
-  happy path is a demo that lies. Show at least one honest refusal.
+- **The CI gate is real now (D-028) and must stay honest.** `.github/workflows/ci.yml`
+  runs `./ci.sh` and nothing else — if a step needs adding, add it to `ci.sh`.
+  `tests/test_docs.py::test_ci_runs_the_same_gate_a_developer_runs` fails loudly if
+  the workflow grows its own `ruff`/`pytest`/`pip install`. Do not work around it.
+- **The README is now a promise.** Its "What Auspex does not do yet" section is
+  pinned by `tests/test_docs.py`. If a bound stops being true, the test sends you
+  there to change it deliberately — that is the point, not an obstacle.
+- **`./scripts/demo.sh` must keep running end to end.** It is the beta demo and it
+  is tested against the live route table. Any route rename breaks it in CI, which is
+  the intended behaviour.
+- DECISIONS.md entries are immutable once ratified; overturning one is a NEW
+  numbered decision naming which it supersedes. D-027 and D-028 were added in S20.
 - Brand is locked (CLAUDE.md Brand, D-002) — Night `#0A0D12`, Aurora `#4FF2C0`,
   Signal `#FFB454`, Ember `#FF5D5D`, Slate `#8B93A7`; Space Grotesk / Inter /
   JetBrains Mono. **Never leak the underlying model or provider name into
-  user-visible strings** — a docs pass is exactly where that leaks.
-- Every new env var → `.env.example` + `docs/ENV_VARS.md` at birth. S14–S19 each
-  added **zero**; a deploy pipeline will probably break that streak — fine, just do
-  it at birth.
+  user-visible strings** — now enforced on the docs too, not just app strings.
+- Every new env var → `.env.example` + `docs/ENV_VARS.md` at birth (a test enforces
+  the second half). **S14–S20 each added zero.**
 - New package directory? → `pyproject.toml [tool.setuptools] packages` AND the
   Dockerfile skeleton. `tests/test_packaging.py` fails loudly if you forget — do
   not work around it. (116 modules now.)
 - **Tests that touch `usage_counters` must clean up** — all dev-login users share
-  the `default` workspace, and S19 lost real time to a live reading that disagreed
-  with the code because the suite had leaked a row into it.
+  the `default` workspace. (`./scripts/demo.sh` deliberately does spend there; that
+  is a demo, not a test.)
+- **Branch protection on `main` is still OFF** — the check exists and is green but
+  nothing requires it before a merge. It is a repo-settings change and my call; the
+  exact command is in STATE.md in-flight item 2. Ask me once, do not enable it
+  unprompted.
 - Deferred and waiting (do NOT pick up unless explicitly re-scoped): KB-doc
-  citability / ioc_check→KB-CVE-context (parked 13× now); TD-012 (post-hoc
-  validation); TD-014; TD-015; TD-016; TD-017; TD-019; TD-020; TD-021; TD-022;
-  TD-023 (remaining: grant-checked scope, array params); **TD-024 (the decay-read
-  crossover — a costed, measured fix is written down and deliberately not taken)**;
-  TD-025; **TD-026 (the wrong-definition defect — two of its seven battery labels
-  are corpus-stale and must be re-examined FIRST)**; **TD-027 (HARD GATE: re-run
-  the CVE battery before any free-text-over-CVEs surface ships)**; **TD-028 (the
-  un-reaped `executing` row)**; model-PROPOSED hypotheses/evidence and
-  model-PROPOSED falsifiers (D-019-later, D-021).
+  citability / ioc_check→KB-CVE-context (parked 14× now); TD-012; TD-014; TD-015;
+  TD-016; TD-017; TD-019; TD-020; TD-021; TD-022; TD-023 (remaining: grant-checked
+  scope, array params); **TD-024 (the decay-read crossover — costed, measured,
+  deliberately not taken)**; TD-025; **TD-027 (HARD GATE: re-run the CVE battery
+  before any free-text-over-CVEs surface ships)**; **TD-029 (no CHECK constraint on
+  `workspaces.plan` — fails safe, fails quiet)**; **TD-030 (a failed turn is charged
+  in full — ratified in D-027, logged with a costed fix)**; model-PROPOSED
+  hypotheses/evidence and model-PROPOSED falsifiers (D-019-later, D-021).
 - Thrash brake: two failed approaches on one problem → STATE.md Blockers, move on.
   Tired human = short session; rituals anyway.
-- End with `/session-end`; S20 done = someone who is not Burhan can clone the repo,
-  read the docs, run the demo script end to end, and ship a change through the
-  deploy pipeline without asking a question that the repo should have answered.
+- End with `/session-end`.
