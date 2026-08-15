@@ -1,126 +1,146 @@
 # NEXT-SESSION — paste everything below the line into a fresh Claude Code window opened in /home/burhan/auspex-new
 
-_(**One commit is waiting to promote:** `839d574`, the S17 Actions SDK — it is the
-only thing in `origin/main..staging`. The Step-0 review fixes already went up as
-PR #16 (squash `ed0443b`) and were back-merged. Two operational facts re-probed at
-S17 and worth trusting: `gh pr merge` works (Claude merged #16 first try), and
-**this repo has no GitHub Actions at all** — `gh pr checks` reports 0, so `./ci.sh`
-locally IS the gate; do not wait on remote CI. S17 shipped: Step 0 found the
-digest's decay read was reading a workspace's whole verdict history and spilling
-its sort to disk — 143 ms → **4.6 ms** — plus a crash-looping app that reported a
-trustworthy digest forever and a truncated digest that announced its page size as
-the total. Then the Actions SDK contract (D-023): a destructive action with no undo
-cannot be constructed, `dry_run` is required of everything, and the planner
-manifest reuses the S13 capability decision. CI-green 772 tests, 110 modules.)_
+_(**Three commits are waiting to promote:** `a3b431b` (S18 Step-0 fixes),
+`b536f1e` (the review record + TD-024) and `c21beb8` (the approval flow) — plus
+this session-end commit. **`gh` DID flip to the work account at S18 start**, so
+assume it has again. **One thing changed under us this session: the KB corpus
+crossed 30 000 docs (27,475 → 31,819) because ingest ran — the TD-005 re-battery
+trigger has fired for the first time.** S18 shipped: Step 0 refuted its own
+strongest lead by measurement (2000 half-life families cost 12 ms), verified two
+suspicions sound, and found three defects nobody had listed — an undo could be
+another action's EXECUTE, parameter names were unvalidated, and an action could
+silently shadow a tool the loop dispatches. Then the approval flow: a proposal is
+claimed exactly once (proven against eight racing Postgres backends), its card is
+compiled from the spec and frozen, and an approved action re-checks both the D-014
+gate and a spec fingerprint before it runs. **Something really executes now, and
+its undo really runs.** CI-green 801 tests, 114 modules.)_
 
 ---
 
-SESSION S18 of Auspex. Working dir must be /home/burhan/auspex-new — run
-`/session-start S18` first (full ritual). Primary dev LLM is **Llama-4-Scout via
+SESSION S19 of Auspex. Working dir must be /home/burhan/auspex-new — run
+`/session-start S19` first (full ritual). Primary dev LLM is **Llama-4-Scout via
 Northflank (D-015)**; local Ollama `qwen3:14b` is the secondary/offline endpoint
 (D-013) and is what the session-start local-Ollama gate validates. Any mismatch →
 STOP and tell me. (D-011: `gh` flips to the work account between AND mid-session —
-it did NOT flip at S17 but DID at S16, so assume it has and re-check before every
-`gh` call. `gh pr edit` fails on this repo with a Projects-classic GraphQL error —
-use `gh api -X PATCH repos/.../pulls/N`. Local `main` goes stale every promote —
-`git fetch` and read `git diff origin/main..staging --stat`, never the commit list.)
+it DID at S18 and S16, did not at S17 or S13–S15, so assume it has and re-check
+before every `gh` call. `gh pr edit` fails on this repo with a Projects-classic
+GraphQL error — use `gh api -X PATCH repos/.../pulls/N`. Local `main` goes stale
+every promote — `git fetch` and read `git diff origin/main..staging --stat`, never
+the commit list. And: **the app container runs the built image, not the working
+tree** — a new migration needs `docker compose up -d --build app`, not `restart`.)
 
 Step 0 (carried follow-ups, do BEFORE new scope):
 
-- **`/promote` FIRST this time** — `839d574` (the Actions SDK) is on staging and
-  not on `main`. It is reviewed by nobody yet, which is fine: the review below is
-  what Step 0 is for, and holding an unreviewed commit off `main` for a whole
-  session is worse than promoting a green one. Confirm the gh ACTIVE account is
+- **`/promote` first.** `a3b431b`, `b536f1e`, `c21beb8` and the S18 session-end
+  commit are on staging and not on `main`. Confirm the gh ACTIVE account is
   `bh3082336888-cell` immediately before the call, then back-merge and assert the
   tree is unchanged.
-- **Check the TD-005 re-battery trigger.** Corpus was **27,475** docs in
-  `auspex-knowledge` at S17 end, ~2,525 short of 30k. Over 30k → re-run the
-  labeled retrieval battery before trusting any RAG-backed answer.
+- **TD-005 IS TRIPPED — this is the real work of Step 0, not a checkbox.** The
+  corpus was 27,475 docs at S17 end and is **31,819** now: ingest added ~4.3k
+  during S18 and crossed the 30k line for the first time. Mix at S18 end: cve
+  30,553 · technique 1,248 · tactic 15 · concept 3 — **no new doc_type, no
+  embedding-model change**, so this is the size trigger alone.
+  **Re-run the labeled retrieval battery before trusting any RAG-backed answer**,
+  and re-check the per-doc_type neural floors that were calibrated at S8 on a much
+  smaller corpus (`fix(kb): TD-005 resolved — per-doc_type neural floors
+  calibrated on the live grown corpus`, 114b5e2). What matters is whether recall
+  and the honest-miss behaviour still hold at 1.16× the corpus the floors were
+  fitted to — a floor that was right at 27k and lets noise through at 32k is
+  exactly the failure TD-005 exists to catch. Record the result either way;
+  "still good" measured is a finding, "still good" assumed is not.
   (`curl -s "localhost:9200/_cat/indices/auspex-knowledge?v"`.)
-- **Fresh-eyes review of the S17 commits** — scope: `e57ab0c` (the Step-0 review
-  fixes: the rewritten `_DECAYED_SQL`, `reader_now`, the checker-liveness rule,
-  digest truncation) and `839d574` (`auspex/actions/` + the loop integration), plus
-  `dc6dd6a` for what was claimed. Angles S17 did NOT test:
-  - **(the rewrite's blind spot — strongest lead) the new `_DECAYED_SQL` enumerates
-    a workspace's half-lives with a recursive loose-index-scan, and it was measured
-    on a workspace with exactly THREE.** The bounds set is `edges × half-lives`, so
-    every extra distinct `half_life_days` value adds three more LATERAL descents.
-    Seed a workspace with many distinct half-lives (S7 floors, a future per-source
-    curve — 20-50 values) and EXPLAIN. Related and explicitly unfinished: the
-    365-day window is ~9% SLOWER than the old query and the crossover was never
-    bounded — find it, and decide whether `MAX_SINCE_DAYS` should move.
-  - **(the invisible fence) `OFFSET 0` in `_DECAYED_SQL` is load-bearing and looks
-    like dead syntax.** Delete it and the query still returns the RIGHT rows, 15×
-    slower. Verify the plan test actually FAILS with it removed — if it passes, the
-    fence is unprotected and the test is decoration.
-  - **(the new trustworthy rule) four clauses now decide whether a quiet digest may
-    be believed.** Execute the matrix, especially: does a healthy `ingest-cycle`
-    counter MASK a degraded consumer? What does a workspace with ingest DISABLED
-    report now (empty roster vs a roster of never-run counters)? And does the
-    "failed but never succeeded" clause fire on a first-cycle transient that then
-    heals, i.e. is it too eager in practice?
-  - **(the contract's own rails) every refusal in `validate_spec` is a claim that
-    something cannot be built.** Try to break each: reach `planner_description` on
-    a destructive action with no undo, get a `wire_spec` whose `required` disagrees
-    with its properties, register an action whose name collides on the wire with an
-    existing TOOL (`isolate_host` vs a tool of the same name — the loop resolves
-    names in the ToolRegistry, so what happens?). The `object.__setattr__` forge in
-    the tests proves one door is shut; look for the others.
+- **Fresh-eyes review of the S18 commits** — scope: `a3b431b` (the Step-0 contract
+  fixes), `c21beb8` (`auspex/actions/{proposal,settlement,builtin}.py`,
+  `auspex/routes/proposals.py`, the loop round-trip), plus `b536f1e` for what was
+  claimed. Angles S18 did NOT test:
+  - **(the fingerprint's blind spot — strongest lead) `canonical_spec` is a
+    hand-written field list.** Its own comment says a new `ActionSpec` field "must
+    be considered here on purpose" — and NOTHING enforces that. Add a field to
+    `ActionSpec`, confirm the fingerprint does not change, and decide whether a
+    structural check (dataclass field set vs canonical key set, asserted in a
+    test) belongs here. Related: `FINGERPRINT_VERSION` exists and has never been
+    bumped — work out what actually happens to approved-but-unexecuted proposals
+    when it is, because today the answer is "they all refuse with spec_changed",
+    which may be right but is undocumented and untested.
+  - **(the status machine has no reaper) `executing` and `undoing` are claims with
+    no timeout.** A process that dies between the claim and the handler leaves a
+    row stuck forever: it can never be executed, undone or rejected, and nothing
+    reaps it. Kill the app mid-execution and see exactly what the approvals
+    surface then says about that proposal.
+  - **(partial effects) `execute` marks `failed` and re-raises**, but whether the
+    note was written depends on WHERE it raised. TD-025 names idempotency and
+    partial effects as unwritten. Force a failure after the INSERT and establish
+    what state the world is in — and whether `undo` can still clean up (it is
+    keyed on `proposal_id`, so it might; verify rather than assume).
+  - **(the stream) tenancy and the reconnect path.** `stream()` closes over
+    `auth.workspace_id` at connect time — prove a second workspace's proposals can
+    never appear in it. And nothing in the repo consumes this stream yet, so the
+    `{"reconnect": ...}` frame at `STREAM_MAX_TICKS` has never been driven by a
+    real client.
+  - **(the round-trip's honesty) a model that calls one action twice in a turn**
+    files two proposals for the same thing, and nothing dedupes. Decide whether
+    that is correct (two intents) or a defect (one intent, double-charged to a
+    human's attention).
   Verify findings BY EXECUTION before fixing; fix with regressions.
 
-Goal (scope-locked, from ROADMAP.md S18 — Approval flow, **Phase 4**):
+Goal (scope-locked, from ROADMAP.md S19 — Hardening, **Phase 4**):
 
-S17 made an action declarable. S18 is where the declaration stops being a
-document: a human sees a proposal, decides, and something actually happens — which
-makes this the session where every S17 bound comes due (TD-023).
+S18 made the platform able to act. S19 makes it safe to point at the internet:
+everything an untrusted string can do, and everything a workspace can spend.
 
-1. **Approval cards over SSE.** A proposal reaches the analyst as a card carrying
-   what the action WOULD do — the `dry_run` outcome, the systems touched, and
-   whether it can be undone (including what the undo cannot restore). The card is
-   rendered from the spec, not from model prose (D-023, D-007).
-2. **Atomic claim-first settlement.** Two approvers, one proposal, exactly one
-   execution. `UPDATE ... WHERE status='pending_approval' RETURNING` — the claim
-   wins the row before anything runs, which is the D-001 reason Postgres holds
-   truth. A double-approve must be provably impossible, not unlikely.
-3. **Permission re-check at execute time**, extended per TD-023 to the SPEC: an
-   action approved an hour ago must not execute against a changed declaration.
-   Carry a spec fingerprint on the proposal row and re-validate before running.
+1. **Input guard — injection patterns with security-content carve-outs.** The hard
+   part is not the patterns, it is that Auspex's legitimate traffic IS attack text:
+   an analyst pastes a phishing email containing "ignore previous instructions"
+   because that is the artefact under analysis. A guard that cannot tell "content
+   being analysed" from "instruction being issued" will either block the product's
+   core use case or do nothing. Code-owned, per D-006 — not a prompt asking the
+   model to be careful. The S13 paste boundary and `auspex/untrusted.py` are the
+   existing seams; extend them rather than adding a second vocabulary.
+2. **Rate limits.** Per-workspace, and the one that actually matters is **TD-018:
+   there is no bound on the NUMBER of inference calls a workspace can cause** —
+   the roadmap has said S19 owns this since S14. A loop that fans out is a bill.
+3. **Usage-based plan gating skeleton.** Skeleton, not billing: the seam where a
+   workspace's plan decides what it may spend, with the counters that make it
+   enforceable later. Do NOT build billing (explicitly deferred).
 
 Constraints:
 - Tests ship with each step (CLAUDE.md rule 8); CI hermetic.
-- **This is the first session where something REALLY executes.** An action that
-  touches a real external system needs a real credential and a real blast radius —
-  so S18's executor runs only actions whose scope is a system we control (start
-  with an internal one: a verdict annotation, a workspace note), and anything
-  reaching a third party stays proposal-only until there is a sandbox to point it
-  at. If a step needs a live third-party side effect to be meaningful, that is the
-  signal it belongs later.
-- **Undo must be exercised, not just declared** (TD-023): if an execution path
-  ships, its undo ships with a test that runs it.
+- **The guard's carve-outs need real fixtures, not invented ones.** Use the
+  phishing corpora already in the repo (S11 fixtures) and the ACH/alert paste
+  paths — a carve-out justified by a hand-written example is a carve-out nobody
+  has tested against the actual product.
+- Rate limits must degrade honestly: a workspace at its ceiling gets a clear,
+  analyst-calm refusal that says what limit was hit and when it resets. Never a
+  silent truncation, and never a generic 500 (the S16/S17 lesson about surfaces
+  that cannot tell absence from failure).
 - The dark-first brand palette is locked (CLAUDE.md Brand, D-002) — Night
   `#0A0D12`, Aurora `#4FF2C0`, Signal `#FFB454`, Ember `#FF5D5D`, Slate `#8B93A7`.
   Space Grotesk / Inter / JetBrains Mono. Never leak the underlying model or
   provider name into user-visible strings.
-- Every new env var → `.env.example` + `docs/ENV_VARS.md` at birth. (S14–S17 each
-  added zero — hold that line.)
+- Every new env var → `.env.example` + `docs/ENV_VARS.md` at birth. (S14–S18 each
+  added zero; rate limits and plan gating will probably break that streak — that
+  is fine, just do it at birth.)
 - New package directory? → `pyproject.toml [tool.setuptools] packages` AND the
   Dockerfile skeleton. `tests/test_packaging.py` fails loudly if you forget — do
-  not work around it. (S17 added `auspex.actions` to both; 110 modules now.)
+  not work around it. (114 modules now.)
 - Plan assertions must VACUUM first, and only at sizes where a scan would cost
-  something. **Delete seeded probe workspaces before running the suite** — a 100k
-  row leftover made the timeline plan tests take 150 s instead of 21 s (S17).
+  something. **Delete seeded probe workspaces before running the suite.**
 - Deferred and waiting (do NOT pick up unless explicitly re-scoped): KB-doc
-  citability / ioc_check→KB-CVE-context (parked 11× now); TD-012 (post-hoc
+  citability / ioc_check→KB-CVE-context (parked 12× now); TD-012 (post-hoc
   validation); TD-014 (unbounded history); TD-015 (brand/confusable coverage);
-  TD-016 (ACH surface bounds); TD-017 (chat-side NUL hardening); TD-018
-  (per-workspace inference-call bound — S19 owns it); TD-019 (retro-hunt v1
-  bounds); TD-020 (watcher v1 bounds); TD-021 (timeline v1 bounds — two items
-  resolved at S17); TD-022 (durable checker heartbeat); TD-023 (Actions SDK v1
-  bounds — items (a) and (c) are IN scope this session); model-PROPOSED
-  hypotheses/evidence and model-PROPOSED falsifiers (D-019-later, D-021).
+  TD-016 (ACH surface bounds); TD-017 (chat-side NUL hardening); TD-019
+  (retro-hunt v1 bounds); TD-020 (watcher v1 bounds); TD-021 (timeline v1 bounds);
+  TD-022 (durable checker heartbeat); TD-023 (remaining items: grant-checked
+  scope, array params); **TD-024 (the decay-read crossover — a costed, measured
+  fix is written down and deliberately not taken; do not pick it up casually, and
+  if you do, it needs the mis-ordering test described there)**; TD-025 (approval
+  flow v1 bounds — the proposal TTL is the cheapest and most misleading one);
+  model-PROPOSED hypotheses/evidence and model-PROPOSED falsifiers (D-019-later,
+  D-021).
 - Thrash brake: two failed approaches on one problem → STATE.md Blockers, move on.
   Tired human = short session; rituals anyway.
-- End with `/session-end`; S18 done = a proposal can be approved exactly once, the
-  approval renders what the action would do from its spec, an approved action
-  re-checks both permission AND spec before running, and an executed action can be
-  undone by a test that actually runs the undo.
+- End with `/session-end`; S19 done = a pasted phishing email containing
+  instruction-shaped text is still analysed correctly while an actual injection
+  attempt against the platform is refused in CODE, a workspace cannot cause
+  unbounded inference calls, and a plan ceiling is enforceable rather than merely
+  recorded.

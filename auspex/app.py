@@ -9,6 +9,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from auspex import __version__
+from auspex.actions import ActionRegistry
+from auspex.actions.builtin import build_builtin_actions
+from auspex.actions.settlement import action_proposer
 from auspex.config import Settings, get_settings
 from auspex.db import create_pool
 from auspex.enrich import EnrichmentService
@@ -21,6 +24,7 @@ from auspex.routes import (
     chat,
     health,
     investigations,
+    proposals,
     retrohunt,
     timeline,
     ui,
@@ -51,6 +55,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # try/finally covers migrations too: a failure there must still close the pool.
         try:
             await run_migrations(app.state.pool)
+            # Actions (S17 contract, S18 execution). Registered after migrations
+            # because the only executable action writes to a table they create,
+            # and built from a single place so the loop's manifest and the
+            # approval surface's executor can never hold different registries —
+            # which would let a model propose an action the executor cannot find.
+            app.state.action_registry = ActionRegistry()
+            app.state.action_registry.register_all(build_builtin_actions(app.state.pool))
+            app.state.action_proposer = action_proposer(app.state.pool)
             # Feed ingestion (S7): one background task owns KB bootstrap +
             # watermark catch-up + the hourly cycle. Inert (bootstrap-only)
             # when INGEST_ENABLED=false or the KB is off.
@@ -80,6 +92,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth.router)
     app.include_router(chat.router)
     app.include_router(investigations.router)
+    app.include_router(proposals.router)
     app.include_router(retrohunt.router)
     app.include_router(watchers.router)
     app.include_router(timeline.router)

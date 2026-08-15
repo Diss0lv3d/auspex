@@ -4,6 +4,7 @@ LLM, no DB. Includes the D-014 pinned regression (step 3)."""
 import json
 from pathlib import Path
 
+import pytest
 from _fakes import FakeLLMClient, InMemoryProposalStore
 
 from auspex.agent.loop import AgentLoop
@@ -278,10 +279,17 @@ def _manifest(mode="native_tools"):
     )
 
     async def would(**kw):
-        return None
+        # S18: a dry run has to return a real outcome now — the card is built
+        # from it. S17 could get away with None because nothing consumed it.
+        from auspex.actions import ActionOutcome
+
+        return ActionOutcome(
+            would=f"Isolate host {kw.get('host_id')} at the EDR.",
+            affects=(str(kw.get("host_id")),),
+        )
 
     async def never(**kw):
-        raise AssertionError("the loop must not execute an action in S17")
+        raise AssertionError("the loop must never execute an action")
 
     @action(
         name="isolate_host",
@@ -333,9 +341,15 @@ async def test_actions_are_described_but_never_offered_as_callable_tools():
 
 
 async def test_a_model_that_calls_an_action_anyway_is_told_it_did_not_run():
-    """The rough edge, made explicit rather than left to chance: an action name
-    is not in the ToolRegistry, so it dispatches as an unknown tool — an error,
-    never a silent success and never an execution."""
+    """The rough edge, made explicit rather than left to chance: a model that
+    calls an action this runtime cannot propose gets an error, never a silent
+    success and never an execution.
+
+    S17 asserted "unknown tool" here, because an action name was not in the
+    ToolRegistry and fell through to that branch. S18 resolves action names
+    before the registry, so the message is now the true one — the action is
+    perfectly well known, it just cannot be proposed from a runtime with no
+    proposer wired in. The invariant the test exists for is unchanged."""
     registry, executed = _make_registry()
     client = FakeLLMClient(
         [
@@ -349,7 +363,7 @@ async def test_a_model_that_calls_an_action_anyway_is_told_it_did_not_run():
     result = await loop.run(client, "isolate host h-1")
 
     assert [i.status for i in result.invocations] == ["error"]
-    assert "unknown tool" in result.invocations[0].feedback["error"]
+    assert "cannot be proposed" in result.invocations[0].feedback["error"]
     assert executed == []
 
 
@@ -358,3 +372,131 @@ async def test_no_action_surface_adds_nothing_to_the_prompt():
     client = FakeLLMClient([ChatResult(content="hi")])
     await _loop(registry, InMemoryProposalStore()).run(client, "hello")
     assert "propose" not in client.calls[0]["messages"][0]["content"].lower()
+
+
+async def test_an_action_may_not_shadow_a_tool_the_loop_can_dispatch():
+    """S18 Step 0, executed. `ActionRegistry` and `ToolRegistry` never consulted
+    each other, and the model sees ONE namespace: it is told `isolate_host` is
+    destructive and needs approval, emits that name, and `_dispatch` resolves it
+    in the ToolRegistry. The D-014 gate then reads the TOOL's level — so a read
+    tool of the same name auto-executes and the action's declared risk is
+    bypassed by nothing more than a naming coincidence.
+
+    Refused where the two namespaces meet, before a token is sent."""
+    registry, _ = _make_registry()
+    registry.add(
+        name="isolate_host",  # same name as the action in _manifest()
+        description="A read-only lookup that happens to share the name",
+        level=ToolLevel.READ,
+        parameters={"host_id": {"type": "string", "description": "host"}},
+        required=["host_id"],
+        handler=lambda **kw: {"ok": True},
+    )
+    with pytest.raises(ValueError, match="collide with tool names: isolate_host"):
+        _loop(registry, InMemoryProposalStore(), actions=_manifest())
+
+
+async def test_the_ordinary_case_still_builds_a_loop():
+    """The rail must not have eaten a normal action surface: `isolate_host` is
+    not a tool in the plain registry, so this constructs."""
+    registry, _ = _make_registry()
+    loop = _loop(registry, InMemoryProposalStore(), actions=_manifest())
+    assert "isolate_host" not in registry
+    assert loop.actions is not None
+
+
+# ── S18: the proposal round-trip an action call produces ────────────────────
+
+
+def _proposer(filed: list):
+    """A proposer double that records what it was asked to file and answers with
+    the row shape the real one returns."""
+
+    async def propose(*, spec, arguments, workspace_id, session_id=None):
+        outcome = await spec.dry_run(workspace_id=workspace_id, **arguments)
+        from auspex.actions import card
+
+        rendered = card(spec, arguments=arguments, dry_run=outcome)
+        filed.append({"spec": spec, "arguments": arguments})
+        return {"id": f"proposal-{len(filed)}", "card": rendered}
+
+    return propose
+
+
+async def test_calling_an_action_files_a_proposal_and_executes_nothing():
+    """S17 kept actions off the wire because a callable name resolving to
+    "unknown tool" invites the model to believe it acted. S18 makes calling one
+    meaningful and still not an execution: it files a request for a human.
+
+    The action's handlers raise if they are ever called — the only thing that may
+    run is its dry_run."""
+    registry, executed_writes = _make_registry()
+    filed = []
+    loop = _loop(
+        registry,
+        InMemoryProposalStore(),
+        actions=_manifest(),
+        action_proposer=_proposer(filed),
+    )
+    client = FakeLLMClient([
+        _tool_call_result("isolate_host", {"host_id": "h-1"}),
+        ChatResult(content="I have proposed isolating h-1.", finish_reason="stop"),
+    ])
+    result = await loop.run(client, "isolate h-1")
+
+    assert len(filed) == 1 and filed[0]["arguments"] == {"host_id": "h-1"}
+    call = result.invocations[0]
+    assert call.status == "proposed"  # never "executed"
+    assert call.proposal_id == "proposal-1"
+    assert call.level == "destructive"
+    # the card travelled with the invocation, compiled from the spec
+    assert call.card["action"] == "isolate_host"
+    assert call.card["risk"] == "destructive"
+    assert call.card["reversible"] is True
+    # and the model was told, unambiguously, that nothing happened
+    assert "NOT been performed" in call.feedback["note"]
+    assert executed_writes == []
+
+
+async def test_actions_reach_the_wire_only_when_something_can_file_a_proposal():
+    """A callable name with no proposer behind it is the exact failure S17
+    refused to ship, so the wire array and the directive both depend on it."""
+    registry, _ = _make_registry()
+    with_proposer = _loop(
+        registry, InMemoryProposalStore(), actions=_manifest(), action_proposer=_proposer([])
+    )
+    without = _loop(registry, InMemoryProposalStore(), actions=_manifest())
+
+    client = FakeLLMClient([ChatResult(content="ok", finish_reason="stop")])
+    await with_proposer.run(client, "hi")
+    offered = [t["function"]["name"] for t in client.calls[0]["kwargs"]["tools"]]
+    assert "isolate_host" in offered
+    assert "You may PROPOSE these actions" in client.calls[0]["messages"][0]["content"]
+    assert "FILES A PROPOSAL" in client.calls[0]["messages"][0]["content"]
+
+    client2 = FakeLLMClient([ChatResult(content="ok", finish_reason="stop")])
+    await without.run(client2, "hi")
+    offered2 = [t["function"]["name"] for t in client2.calls[0]["kwargs"].get("tools", [])]
+    assert "isolate_host" not in offered2
+    assert "cannot invoke these yourself" in client2.calls[0]["messages"][0]["content"]
+
+
+async def test_an_action_called_with_missing_arguments_files_nothing():
+    """A model that calls an action wrong finds out in the turn, rather than
+    spending a human's decision on a proposal that cannot run."""
+    registry, _ = _make_registry()
+    filed = []
+    loop = _loop(
+        registry,
+        InMemoryProposalStore(),
+        actions=_manifest(),
+        action_proposer=_proposer(filed),
+    )
+    client = FakeLLMClient([
+        _tool_call_result("isolate_host", {"wrong": "arg"}),
+        ChatResult(content="I could not propose that.", finish_reason="stop"),
+    ])
+    result = await loop.run(client, "isolate something")
+    assert result.invocations[0].status == "error"
+    assert "missing required parameter" in result.invocations[0].feedback["error"]
+    assert filed == []

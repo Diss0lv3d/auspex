@@ -1,5 +1,75 @@
 # Technical debt — logged the moment it's taken
 
+## TD-025 (S18) — approval flow v1 bounds: one executable system, a polled stream, no expiry
+**Where:** `auspex/actions/settlement.py`, `auspex/actions/builtin.py`,
+`auspex/routes/proposals.py`.
+**Risk:** each is a bound rather than a bug, and each becomes real at a different
+moment:
+- **A proposal never expires.** `pending_approval` is forever. An action proposed
+  during an incident can be approved a week later; the spec fingerprint stops it
+  running against a CHANGED declaration, and stops nothing if the declaration is
+  the same but the world is not (the host was already reimaged). Wants a TTL and
+  an explicit "stale, re-propose" state — the D-022 staleness posture applied to
+  decisions rather than verdicts.
+- **`scope` still is not a permission (carried from TD-023).** The executor
+  allow-lists SYSTEMS in code, so today no third-party action can run at all. The
+  moment one can, "this workspace granted us `edr`" has to be a checked grant and
+  not a declaration the action makes about itself.
+- **One executable system, and it is us.** `EXECUTABLE_SYSTEMS = {"auspex"}` is
+  deliberate (D-024) and means the executor has never been exercised against a
+  network, a credential, a timeout, or a partial failure. Everything about
+  retries, idempotency keys and half-applied effects is unwritten because nothing
+  yet can half-apply.
+- **The card stream is polled, once a second, per connected client.** Fine at
+  current scale (one indexed query on `idx_proposals_ws_status`), and it is a
+  per-client cost that grows with connections rather than with proposals. A
+  LISTEN/NOTIFY channel would fix it and needs its own probe of delivery
+  guarantees before it is trusted with an approval queue.
+- **The stream has a lifetime, so clients must reconnect.** `STREAM_MAX_TICKS`
+  (600 ticks ≈ 10 minutes) exists because `is_disconnected()` does not reliably
+  fire; SSE reconnect is native, but nothing in the repo yet CONSUMES this stream,
+  so the reconnect path is untested against a real client.
+- **`decided_by` is recorded and never enforced.** Any authenticated member of a
+  workspace can approve anything in it. Roles, four-eyes on destructive actions,
+  and "the proposer may not be the approver" are all absent — and all of them are
+  approval-flow features that only mean something once more than one human uses
+  one workspace.
+**Path to fix:** TTL + `stale` state first (cheapest, and the one that silently
+misleads); grant-checked scope before the first third-party action; roles when
+multi-user workspaces are real.
+
+## TD-024 (S18) — the digest's decay read is slower than the defect it replaced at the widest legal window
+**Where:** `auspex/timeline/store.py` `_DECAYED_SQL`; `MAX_SINCE_DAYS = 365` in
+`auspex/routes/timeline.py:46`.
+**Measured (S18 Step 0, docs/probes/2026-08-15-s18-step0-review.md):** the S17
+rewrite wins overwhelmingly on the windows analysts actually open and loses on
+the tail. At **100k verdicts / 12 half-life families**: 7 d = 5.4 ms vs the old
+query's 150.9 ms (0.04×), 90 d = 37 ms (0.26×), but **365 d = 161.4 ms vs 133.8 ms
+(1.21×)**. The crossover is **~300 days** there and **~185 days** at 25k/50
+families — it moves IN as a workspace accumulates half-life families.
+**Risk:** low but real and reachable — `days` is a user-supplied query parameter
+capped at 365, so any analyst can request the slow shape, and 161 ms is slower
+than the 143 ms defect the S17 rewrite existed to fix. It scales with the table:
+at 200k rows the 365-day case would be ~320 ms.
+**Why not fixed in S18 Step 0:** a variant WAS built and measured — sort the
+candidates by decay first (a key each row carries alone) and let the `LIMIT` stop
+the "is this still current?" probe early. It is **2.2–2.9× faster at every
+window** with byte-identical output at limits 50/200/1000 (probe count 59 instead
+of ~30 000), and it beats the old query everywhere, removing the crossover. It is
+not shipped because the early stop depends on the candidate ordering surviving
+into the outer query, which Postgres does not guarantee — a non-recursive CTE
+referenced once may be inlined and its `ORDER BY` dropped. That is a second
+load-bearing invisible construct and a worse one than the `OFFSET 0` fence:
+losing the fence makes the query slow, losing this ordering makes the digest
+render **the wrong rows first** while returning the right set. Not a trade to
+make mid-review, in a session whose goal is the approval flow.
+**Path to fix:** ship the variant WITH a test that fails on mis-ordering at a size
+where the planner has a real choice (not just the row set — assert
+`half_lives_elapsed` is descending at 100k), or get the same early stop from a
+shape Postgres guarantees. `MAX_SINCE_DAYS` should NOT move: narrowing the API to
+protect a 161 ms tail would cost a real capability to save an explicit,
+rarely-asked whole-year request.
+
 ## TD-023 (S17) — Actions SDK v1 bounds: scope is declared but not enforced, and an undo is never exercised
 **Where:** `auspex/actions/types.py` (`ActionScope`, `UndoSpec`, `ParamType`),
 `auspex/actions/registry.py` (in-process registry).
@@ -10,10 +80,11 @@ item becomes real the moment S18 wires the proposal round-trip:
   approval card will name the system, so a human is the only enforcement — which
   is the S18 design anyway, but it means scope is currently documentation with a
   type.
-- **An undo is declared and never exercised.** The contract proves an undo
-  EXISTS and says what it restores; it cannot know whether it works. An undo
-  discovered to be broken at undo time is the worst moment to find out, and it is
-  the moment this design currently chooses.
+- **~~An undo is declared and never exercised.~~ RESOLVED (S18).** The first
+  executable action ships with an undo a test actually RUNS, and the live probe
+  runs it too (docs/probes/2026-08-15-s18-approval-flow-live.md). Still true for
+  any action that cannot execute here — a third-party undo remains unexercised
+  because its action is proposal-only by design (D-024).
 - **Parameters are primitives only** (string/integer/number/boolean). Deliberate
   — the S2 harness measured every model mangling long/structured arguments — but
   an action needing a list of host ids has no way to say so today.
@@ -21,19 +92,20 @@ item becomes real the moment S18 wires the proposal round-trip:
   app, populated by code. There is no per-workspace action surface and nothing
   persisted, so "which actions does this tenant have?" has no answer yet — and
   the future customer Python SDK is exactly that question.
-- **No spec identity across time.** A proposal filed against an action, approved
-  an hour later, is executed against whatever that action's code says THEN.
-  Nothing pins the spec a human approved to the spec that runs.
+- **~~No spec identity across time.~~ RESOLVED (S18, D-024).** A canonical
+  fingerprint of the declared facts is stamped on the proposal and re-checked
+  before execution, alongside a re-run of the D-014 gate on today's risk. What it
+  still cannot see is a changed handler BODY behind identical declared facts —
+  named in D-024 rather than left implied.
 **Why accepted:** S17's scope was the contract, and every item above is either
 S18's subject (approval, execution, re-check at execute time) or needs a real
 customer action to design against. Logging them now so S18 does not rediscover
 them as surprises.
-**Path to fix:** (a) S18 — carry a spec fingerprint on the proposal row and
-re-validate at execute time (the "permission re-check at execute time" the S18
-roadmap line already promises, extended to the spec); (b) grant scopes per
-workspace and check them in the gate, not just render them; (c) require an undo
-DRY RUN so the reversal path is exercised whenever the action is; (d) array
-params once a real action needs one, with a measured bound per the S2 finding.
+**Path to fix:** ~~(a) spec fingerprint~~ and ~~(c) exercise the undo~~ DONE in
+S18 (D-024). Remaining: (b) grant scopes per workspace and check them in the gate
+rather than only rendering them — now tracked in TD-025, which owns the live
+approval flow's bounds; (d) array params once a real action needs one, with a
+measured bound per the S2 finding.
 
 ## TD-022 (S17) — a checker that dies AFTER succeeding once still reads as healthy
 **Where:** `auspex/checks.py` (`FailureCounter`, `CheckerStatus`),
