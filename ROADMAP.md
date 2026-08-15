@@ -224,7 +224,14 @@ may not grow mid-session (IDEAS.md exists for that).
   the workspace + limits in code + `/api/usage`; no billing (deferred).
   Step 0 also re-ran the TD-005 battery (>30k trigger, first fire) and reviewed
   the S18 commits — TD-026/027/028 opened.
-- [ ] **S20 — Beta.** Deploy pipeline, docs pass, demo script.
+- [x] **S20 — Beta.** Deploy pipeline, docs pass, demo script. CI runs `./ci.sh`
+  itself (D-028) and caught two defects green-on-laptop/red-on-runner on its first
+  run — IPv6 observable identity delegated to a stdlib formatting choice, and three
+  tests depending on accumulated dev-DB state. README written (the repo had none),
+  with an honest "what Auspex does not do yet". `scripts/demo.sh` consolidates the
+  demo turns from nine STATE.md revisions into one runnable script that ends on
+  real refusals. Step 0 promoted S19 (PR #19) and reviewed it: the guard was
+  refusing 4 of 6 legitimate SOC questions (D-027).
 
 ## Later / explicitly deferred
 Herd Immunity federation (needs k≥3 workspaces + privacy review) · billing ·

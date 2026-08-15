@@ -605,3 +605,47 @@ found correct.
   averages to the ceiling), and the refusal copy already names the exact reset
   time so an analyst is never guessing. A sliding window would trade that
   coordination-free property for a smoother curve nobody asked for.
+
+## D-028 — CI runs `./ci.sh`, and nothing else (2026-08-15, S20)
+The beta deploy pipeline. `.github/workflows/ci.yml`, ratified as built and
+verified by running it.
+
+Until S20 the gate was "Burhan runs `./ci.sh` locally and Claude reports green."
+That is a real gate for one human who has agreed to a protocol, and it does not
+survive a second contributor. It was also unprovable from outside: `gh pr checks`
+reported **0 checks** on every promote PR from #1 to #19, so the promote ritual
+asserted a green nobody could see.
+
+- **The workflow calls `./ci.sh` and re-implements none of it.** A workflow that
+  re-listed the steps would be a second definition of "green", and the first time
+  someone edited one and not the other the gate would start lying. Same rule as
+  the guard importing the classifier's detectors (D-025) and the tier list living
+  in code beside `EXECUTABLE_SYSTEMS` (D-026): one source of truth per decision.
+  `test_ci_runs_the_same_gate_a_developer_runs` fails if the workflow grows its
+  own `ruff check`, `pytest` or `pip install`.
+- **No secrets, and none referenced.** `auspex/devhost.py` already pins
+  `KB_ENABLED` / `INGEST_ENABLED` / `ENRICHMENT_ENABLED` to false for host runs,
+  so the suite reaches no feed, no provider, no LLM and no OpenSearch ML. A fork
+  PR runs the identical gate. **S20 added zero env vars — seven sessions now.**
+- **It is the gate on `main` and `staging`, both push and PR.** The
+  always-demoable invariant is unchanged and now enforced by something other
+  than a promise.
+- **It paid for itself on the first run**, which is the reason this entry is
+  ratified rather than proposed. Two defects that were green on the developer's
+  laptop and red on a clean runner:
+  1. **IPv6 identity was delegated to a stdlib formatting choice.**
+     `observable_id` hashes the value, and the value came from `ip.compressed` —
+     which CPython renders in mixed notation for IPv4-mapped addresses on newer
+     patch releases. A silent interpreter upgrade would have forked every
+     IPv4-mapped observable into a second identity and split its verdict history,
+     which is precisely what Living Verdicts cannot survive. Now canonicalised in
+     our own code, measured equal to the stdlib across **200,268 addresses** with
+     every output re-parsing to its input.
+  2. **Three tests depended on accumulated developer state** — a fixture SELECTed
+     the `default` workspace and asserted it existed, which was only ever true
+     because a laptop's long-lived dev database had one from an earlier login.
+  Neither was findable locally. That is the argument for the pipeline, and it is
+  evidence rather than assertion.
+- **Branch protection is NOT set by this decision.** Requiring the check before a
+  promote merge is a repository-settings change and the human's call, not a
+  commit's — recorded in STATE.md as the one manual step left.

@@ -1,0 +1,124 @@
+"""The docs are a shipped surface, so they get regressions like any other.
+
+S20 added a README, a CI workflow and a demo script — the first artefacts in
+this repo aimed at someone who is not Burhan. Three things about them can rot
+silently, and each one has bitten a real project:
+
+1. **The engine name leaks.** CLAUDE.md's brand rule is that the underlying
+   model and provider never appear in anything customer-facing, and a docs pass
+   is exactly where that slips in ("powered by …"). The app's own strings are
+   already pinned against `FORBIDDEN_ENGINE_NAMES`; the docs were not.
+2. **An env var is born without documentation.** The rule is that every
+   variable exists in `.env.example` AND `docs/ENV_VARS.md` the moment it is
+   born. Nothing enforced it.
+3. **The demo drifts from the API.** A demo script that calls a route which no
+   longer exists is worse than no demo, because it fails in front of someone.
+"""
+
+import re
+from pathlib import Path
+
+import pytest
+from _fakes import FORBIDDEN_ENGINE_NAMES
+
+ROOT = Path(__file__).resolve().parent.parent
+README = ROOT / "README.md"
+DEMO = ROOT / "scripts" / "demo.sh"
+ENV_EXAMPLE = ROOT / ".env.example"
+ENV_DOCS = ROOT / "docs" / "ENV_VARS.md"
+WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+
+# Two permitted occurrences, and only in these exact shapes.
+#
+# "OpenAI-compatible" is the wire protocol a customer's endpoint speaks, not a
+# claim about what powers Auspex — the whole product position is that the
+# customer brings their own.
+#
+# "CLAUDE.md" is a filename in this repository. The brand rule is about the
+# ENGINE leaking into customer-facing copy, not about being unable to link to a
+# file. Scoped to the literal filename so "Claude" in prose still fails.
+_ALLOWED = re.compile(r"openai-compatible|CLAUDE\.md", re.IGNORECASE)
+
+
+def _reader_facing(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("path", [README, DEMO], ids=lambda p: p.name)
+def test_no_engine_or_provider_name_leaks_into_reader_facing_docs(path):
+    """The brand rule (CLAUDE.md), enforced on the docs the way it is already
+    enforced on the app's strings."""
+    text = _ALLOWED.sub("", _reader_facing(path)).lower()
+    leaked = [name for name in FORBIDDEN_ENGINE_NAMES if re.search(rf"\b{name}\b", text)]
+    assert not leaked, f"{path.name} names the engine/provider: {leaked}"
+
+
+def test_every_env_var_in_the_example_is_documented():
+    """Born in `.env.example` and `docs/ENV_VARS.md` at the same moment, or the
+    next person has to read config.py to find out what a variable does."""
+    declared = {
+        m.group(1)
+        for m in re.finditer(r"^([A-Z][A-Z0-9_]*)=", ENV_EXAMPLE.read_text(), re.MULTILINE)
+    }
+    documented = ENV_DOCS.read_text()
+    missing = sorted(v for v in declared if v not in documented)
+    assert not missing, f"in .env.example but not docs/ENV_VARS.md: {missing}"
+
+
+def test_the_readme_does_not_promise_what_the_code_does_not_do():
+    """The honesty section is load-bearing: it is what a beta reader is asked to
+    trust. These are the specific claims that would age into lies first, so they
+    are pinned to the code that makes them true."""
+    readme = README.read_text()
+    settlement = (ROOT / "auspex" / "actions" / "settlement.py").read_text()
+
+    # The blast radius the README states, read from the code that enforces it.
+    assert 'EXECUTABLE_SYSTEMS = frozenset({"auspex"})' in settlement
+    assert "`EXECUTABLE_SYSTEMS` is `{\"auspex\"}`" in readme
+
+    # The README must keep saying the deep path is not wired to the agent loop
+    # for as long as that is true. If someone wires it, this fails and they are
+    # sent here to update the honesty section deliberately.
+    chat = (ROOT / "auspex" / "routes" / "chat.py").read_text()
+    if "AgentLoop" not in chat:
+        assert "conversational-only" in readme, (
+            "the deep path is still conversational-only but the README stopped saying so"
+        )
+
+
+def test_the_demo_only_calls_routes_that_exist():
+    """A demo that 404s in front of a stranger is worse than no demo."""
+    routes = set()
+    for path in (ROOT / "auspex" / "routes").glob("*.py"):
+        source = path.read_text()
+        prefix = re.search(r'APIRouter\([^)]*prefix="([^"]*)"', source, re.DOTALL)
+        base = prefix.group(1) if prefix else ""
+        for m in re.finditer(r'@router\.\w+\("([^"]*)"', source):
+            routes.add(f"{base}{m.group(1)}")
+
+    # $API already carries the /api prefix, so a captured call is relative to it.
+    # Shell variables stand in for path parameters: $PID -> {id}.
+    known = {re.sub(r"\{[^}]+\}", "{id}", r).rstrip("/") or "/" for r in routes}
+    called = set(re.findall(r"\$API(/[A-Za-z0-9/_${}-]*)", DEMO.read_text()))
+    unknown = []
+    for call in called:
+        concrete = "/api" + re.sub(r"\$\{?\w+\}?", "{id}", call).rstrip("/")
+        if concrete not in known:
+            unknown.append(call)
+    assert not unknown, (
+        f"demo.sh calls routes that do not exist: {sorted(unknown)}\n"
+        f"known: {sorted(known)}"
+    )
+
+
+def test_ci_runs_the_same_gate_a_developer_runs():
+    """The one rule the workflow exists to keep (D-028). A workflow that
+    re-listed ci.sh's steps would be a second definition of 'green', and the
+    first edit to one and not the other makes the gate lie."""
+    workflow = WORKFLOW.read_text()
+    assert "./ci.sh" in workflow
+    # None of ci.sh's actual work may be duplicated in the workflow.
+    for duplicated in ("ruff check", "pytest -q", "pip install -q -e"):
+        assert duplicated not in workflow, (
+            f"the workflow re-implements `{duplicated}` instead of calling ci.sh"
+        )
