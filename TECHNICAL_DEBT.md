@@ -105,6 +105,7 @@ not softer, because `abandoned` joins `failed` as a state whose effects are
 unknown and whose `undo` is gated shut. (d) is card rendering.
 **Risk if left:** (b) is now the sharpest: a failed execute reports that nothing
 happened while its INSERT is really in the table.
+
 ## TD-027 (S19) — the `doc_types` filter no longer restores recall for `cve`
 **Where:** `auspex/kb/service.py:518-524` (the `search()` docstring's recall
 argument), `NEURAL_FLOORS["cve"]` in `auspex/kb/fuse.py`.
