@@ -1,0 +1,300 @@
+{
+  "corpus": {
+    "total": 31819,
+    "mix": {
+      "cve": 30553,
+      "technique": 1248,
+      "tactic": 15,
+      "concept": 3
+    }
+  },
+  "model_id": "lRDKb58BLkxc-445Y20z",
+  "curated": [
+    {
+      "query": "what is lateral movement",
+      "expected": "CONCEPT-LATERAL-MOVEMENT",
+      "top_doc": "CONCEPT-LATERAL-MOVEMENT",
+      "top_title": "Lateral movement",
+      "top_type": "concept",
+      "top_score": 0.8403,
+      "expected_rank": 0,
+      "expected_score": 0.8403
+    },
+    {
+      "query": "how do adversaries abuse command line interpreters",
+      "expected": "T1059",
+      "top_doc": "T1202",
+      "top_title": "T1202: Indirect Command Execution",
+      "top_type": "technique",
+      "top_score": 0.8816,
+      "expected_rank": 1,
+      "expected_score": 0.8652
+    },
+    {
+      "query": "what is credential access",
+      "expected": "TA0006",
+      "top_doc": "TA0006",
+      "top_title": "TA0006: Credential Access",
+      "top_type": "tactic",
+      "top_score": 0.8639,
+      "expected_rank": 0,
+      "expected_score": 0.8639
+    },
+    {
+      "query": "what is process injection",
+      "expected": "T1055",
+      "top_doc": "T1055",
+      "top_title": "T1055: Process Injection",
+      "top_type": "technique",
+      "top_score": 0.8582,
+      "expected_rank": 0,
+      "expected_score": 0.8582
+    },
+    {
+      "query": "what is phishing",
+      "expected": "T1566",
+      "top_doc": "T1598",
+      "top_title": "T1598: Phishing for Information",
+      "top_type": "technique",
+      "top_score": 0.8413,
+      "expected_rank": 2,
+      "expected_score": 0.8143
+    },
+    {
+      "query": "what is credential dumping",
+      "expected": "T1003",
+      "top_doc": "TA0006",
+      "top_title": "TA0006: Credential Access",
+      "top_type": "tactic",
+      "top_score": 0.8398,
+      "expected_rank": 1,
+      "expected_score": 0.7948
+    },
+    {
+      "query": "living off the land binaries",
+      "expected": "CONCEPT-LOLBIN",
+      "top_doc": "T1543",
+      "top_title": "T1543: Create or Modify System Process",
+      "top_type": "technique",
+      "top_score": 0.7034,
+      "expected_rank": 1,
+      "expected_score": 0.6905
+    },
+    {
+      "query": "employee vacation policy template",
+      "expected": null,
+      "top_doc": "T1556.009",
+      "top_title": "T1556.009: Conditional Access Policies",
+      "top_type": "technique",
+      "top_score": 0.6184,
+      "expected_rank": null,
+      "expected_score": null
+    },
+    {
+      "query": "what is quantum entanglement",
+      "expected": null,
+      "top_doc": "T1090.002",
+      "top_title": "T1090.002: External Proxy",
+      "top_type": "technique",
+      "top_score": 0.6169,
+      "expected_rank": null,
+      "expected_score": null
+    },
+    {
+      "query": "best hiking trails in the alps",
+      "expected": null,
+      "top_doc": "T1596.005",
+      "top_title": "T1596.005: Scan Databases",
+      "top_type": "technique",
+      "top_score": 0.5825,
+      "expected_rank": null,
+      "expected_score": null
+    },
+    {
+      "query": "how do I bake sourdough bread",
+      "expected": null,
+      "top_doc": "T1059.004",
+      "top_title": "T1059.004: Unix Shell",
+      "top_type": "technique",
+      "top_score": 0.5548,
+      "expected_rank": null,
+      "expected_score": null
+    }
+  ],
+  "cve_unfiltered_k10": [
+    {
+      "query": "Log4j JNDI lookup remote code execution",
+      "expected": "CVE-2021-44228",
+      "top_doc": "CVE-2021-44228",
+      "top_title": "CVE-2021-44228",
+      "top_type": "cve",
+      "top_score": 0.8413,
+      "expected_rank": 0,
+      "expected_score": 0.8413
+    },
+    {
+      "query": "kubernetes ingress controller configuration",
+      "expected": "CVE-2026-55723",
+      "top_doc": "CVE-2026-55723",
+      "top_title": "CVE-2026-55723",
+      "top_type": "cve",
+      "top_score": 0.7929,
+      "expected_rank": 0,
+      "expected_score": 0.7929
+    },
+    {
+      "query": "SharePoint deserialization remote code execution",
+      "expected": "CVE-2026-58644",
+      "top_doc": "CVE-2023-3519",
+      "top_title": "CVE-2023-3519",
+      "top_type": "cve",
+      "top_score": 0.8126,
+      "expected_rank": null,
+      "expected_score": null
+    },
+    {
+      "query": "employee vacation policy template",
+      "expected": null,
+      "top_doc": "CVE-2026-72908",
+      "top_title": "CVE-2026-72908",
+      "top_type": "cve",
+      "top_score": 0.6563,
+      "expected_rank": null,
+      "expected_score": null
+    },
+    {
+      "query": "best hiking trails in the alps",
+      "expected": null,
+      "top_doc": "CVE-2026-54468",
+      "top_title": "CVE-2026-54468",
+      "top_type": "cve",
+      "top_score": 0.6093,
+      "expected_rank": null,
+      "expected_score": null
+    },
+    {
+      "query": "how do I bake sourdough bread",
+      "expected": null,
+      "top_doc": "CVE-2021-47126",
+      "top_title": "CVE-2021-47126",
+      "top_type": "cve",
+      "top_score": 0.6321,
+      "expected_rank": null,
+      "expected_score": null
+    }
+  ],
+  "summary": {
+    "curated": {
+      "weakest_positive": [
+        0.6905,
+        "living off the land binaries"
+      ],
+      "noise_ceiling": [
+        0.6184,
+        "employee vacation policy template"
+      ],
+      "floor": 0.65
+    },
+    "cve": {
+      "weakest_positive": [
+        0.7929,
+        "kubernetes ingress controller configuration"
+      ],
+      "noise_ceiling": [
+        0.6563,
+        "employee vacation policy template"
+      ],
+      "floor": 0.7
+    },
+    "cve_filtered": {
+      "weakest_positive": [
+        0.7929,
+        "kubernetes ingress controller configuration"
+      ],
+      "noise_ceiling": [
+        0.6563,
+        "employee vacation policy template"
+      ],
+      "floor": 0.7
+    }
+  },
+  "k_sensitivity": {
+    "10": {
+      "Log4j JNDI lookup remote code execution": 0,
+      "kubernetes ingress controller configuration": 0,
+      "SharePoint deserialization remote code execution": null
+    },
+    "50": {
+      "Log4j JNDI lookup remote code execution": 0,
+      "kubernetes ingress controller configuration": 1,
+      "SharePoint deserialization remote code execution": 22
+    },
+    "100": {
+      "Log4j JNDI lookup remote code execution": 0,
+      "kubernetes ingress controller configuration": 1,
+      "SharePoint deserialization remote code execution": 22
+    }
+  },
+  "cve_filtered_k10": [
+    {
+      "query": "Log4j JNDI lookup remote code execution",
+      "expected": "CVE-2021-44228",
+      "top_doc": "CVE-2021-44228",
+      "top_title": "CVE-2021-44228",
+      "top_type": "cve",
+      "top_score": 0.8413,
+      "expected_rank": 0,
+      "expected_score": 0.8413
+    },
+    {
+      "query": "kubernetes ingress controller configuration",
+      "expected": "CVE-2026-55723",
+      "top_doc": "CVE-2026-55723",
+      "top_title": "CVE-2026-55723",
+      "top_type": "cve",
+      "top_score": 0.7929,
+      "expected_rank": 0,
+      "expected_score": 0.7929
+    },
+    {
+      "query": "SharePoint deserialization remote code execution",
+      "expected": "CVE-2026-58644",
+      "top_doc": "CVE-2023-3519",
+      "top_title": "CVE-2023-3519",
+      "top_type": "cve",
+      "top_score": 0.8126,
+      "expected_rank": null,
+      "expected_score": null
+    },
+    {
+      "query": "employee vacation policy template",
+      "expected": null,
+      "top_doc": "CVE-2026-72908",
+      "top_title": "CVE-2026-72908",
+      "top_type": "cve",
+      "top_score": 0.6563,
+      "expected_rank": null,
+      "expected_score": null
+    },
+    {
+      "query": "best hiking trails in the alps",
+      "expected": null,
+      "top_doc": "CVE-2026-54468",
+      "top_title": "CVE-2026-54468",
+      "top_type": "cve",
+      "top_score": 0.6093,
+      "expected_rank": null,
+      "expected_score": null
+    },
+    {
+      "query": "how do I bake sourdough bread",
+      "expected": null,
+      "top_doc": "CVE-2021-47126",
+      "top_title": "CVE-2021-47126",
+      "top_type": "cve",
+      "top_score": 0.6321,
+      "expected_rank": null,
+      "expected_score": null
+    }
+  ]
+}

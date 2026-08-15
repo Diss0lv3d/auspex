@@ -475,3 +475,76 @@ one is worth, and for how long.
   failing the re-check returns 200 with `executed: false` and the machine reason.
   The decision stands; the action did not run; an error status there would read as
   "your approval failed" and invite a retry that must not happen.
+
+## D-025 — The guard asks whether an instruction is being ISSUED, not whether one is present (2026-08-15, S19)
+The first Hardening decision, and the one that shapes every input rail after it:
+`auspex/guard.py`, ratified as built.
+
+Auspex has a problem most products with a prompt-injection filter do not: **our
+legitimate traffic IS attack text.** An analyst pastes a phishing email whose
+body says "ignore all previous instructions" *because that sentence is the
+artefact under analysis*. A guard that matches injection strings and refuses
+would block the core use case; one that does nothing leaves the platform open to
+anyone who can get text in front of it. So the question the guard answers is not
+"does this contain an injection?" but **"is this instruction being ISSUED to the
+platform, or ANALYSED by it?"**
+
+- **Format beats keywords — the classifier's rule, not a second one.** The
+  carve-outs import `_is_email_paste` / `_is_alert_paste` / `_is_analytical`
+  from `classify/classifier.py` rather than re-deriving them. A guard with its
+  own opinion about what counts as a paste would mean the guard and the router
+  see two different messages, which is the drift D-006 and the S16 staleness work
+  exist to prevent. A pasted email is an email whatever its body says.
+- **Position is the signal, not vocabulary.** Material is CONTENT when it is
+  introduced for analysis — the framing must appear BEFORE the match. Otherwise
+  the guard is bypassed by appending "is this phishing?" to any injection, and a
+  carve-out that reads keywords anywhere is not a carve-out, it is an off switch.
+- **Four ways to be content, all structural:** a recognized artefact format, a
+  quoted or fenced block, an analysis framing that precedes the text, or a body
+  long enough (≥600 chars) to be plainly a document. Every one is decidable from
+  the text alone — a rail that depended on a model's judgement would be a
+  suggestion (D-006).
+- **Carve-outs are justified against the REAL corpora.** Every S11 `.eml` fixture
+  is tested with the injection sentence spliced into its body, and the unmodified
+  fixtures are asserted clean so the test measures the splice rather than a false
+  positive we shipped. A carve-out justified by a hand-written example is one
+  nobody has tested against the product.
+- **It refuses before anything else looks at the text** — ahead of the 92/8 gate
+  and of session creation, so a refused turn reaches no model, no KB and no
+  transcript. 400 with copy naming the rule that fired and how to re-send.
+- **What it explicitly does NOT do:** judge whether an answer was influenced.
+  That is post-hoc validation (TD-012), and asking a model to police itself is
+  what D-006 says not to rely on. The guard bounds the input; it does not certify
+  the output.
+
+## D-026 — A workspace's plan is data, its limits are code, and spend is claimed not checked (2026-08-15, S19)
+The second Hardening decision: `auspex/limits.py` + the `usage_counters` table,
+ratified as built. Closes TD-018, open since S14.
+
+- **The ceiling is enforced in the statement that reads the counter.** A
+  conditional UPSERT (`DO UPDATE SET used = used + n WHERE used + n <= limit
+  RETURNING used`) either claims the spend or matches zero rows. This is D-024's
+  settlement device applied to metering: "read the count, decide, then increment"
+  is a window two concurrent turns fit through, and its failure mode is serving
+  free inference. Raced with eight concurrent claims over one unit of headroom —
+  exactly one wins.
+- **The plan is a column; the tier list is code.** A limits table would make
+  "unbounded inference" reachable by a bad UPDATE. Same posture as
+  `EXECUTABLE_SYSTEMS`: which tier a customer is on is data, what a tier may do
+  is a decision with a blast radius. **An unknown plan name resolves to the most
+  restrictive plan, never to unmetered** — a typo must not be a way to buy
+  unlimited inference (the D-014 default-to-gated instinct, applied to spend).
+- **Calls, not turns and not tokens.** The call is what the customer's endpoint
+  serves and what a runaway loop multiplies, so a two-pass turn claims 2 — metering
+  it as 1 would under-count exactly the configuration that costs the most
+  (D-016/TD-002). Tokens are the natural second meter and are deliberately absent:
+  counting them honestly needs `usage` back from every endpoint, and an endpoint
+  that omits it would silently meter zero.
+- **A ceiling is not an outage.** The refusal is a 429 naming the meter, the
+  ceiling and the reset time, and it says what still works — the LLM-free paths
+  (IOC checks, CVE lookups, definitions) are unaffected because the claim happens
+  after the 92/8 gate. Never a silent truncation, never a generic 500.
+- **Unmetered still counts.** `enterprise` has no ceiling and is still measured;
+  a plan that stopped counting could not answer "what did this workspace spend?",
+  which is the whole point of a gating skeleton. This is NOT billing — nothing
+  here prices anything (explicitly deferred).

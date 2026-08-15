@@ -16,7 +16,9 @@ and everything else stays proposal-only.
 """
 
 import asyncio
+import dataclasses
 import json
+from unittest import mock
 
 import pytest
 
@@ -33,10 +35,12 @@ from auspex.actions import (
     ProposalSettlement,
     Settlement,
     UndoSpec,
+    canonical_spec,
     card,
     check_executable,
     fingerprint,
 )
+from auspex.actions import proposal as proposal_mod
 from auspex.actions.builtin import NOTE_SOURCE, build_builtin_actions
 from auspex.classify.observables import ObservableType, observable_id
 from auspex.db import create_pool
@@ -319,6 +323,75 @@ async def test_an_action_approved_under_a_different_declaration_refuses_to_run(
     assert 0 == await pool.fetchval(
         "SELECT count(*) FROM observable_notes WHERE workspace_id = $1", workspace_id
     )
+
+
+# ── S19 Step-0 review: the fingerprint's two blind spots ─────────────────────
+
+
+def test_canonical_spec_covers_every_declared_field(spec):
+    """The identity's field list is hand-written, and until S19 nothing enforced
+    that. Verified by execution then: adding a field to `ActionSpec` left the
+    fingerprint BYTE-IDENTICAL, so an approver could be shown a changed
+    declaration while the execute-time re-check called it unchanged
+    (docs/probes/2026-08-15-s19-step0-review.md §1).
+
+    The comment said a new field "must be considered here on purpose". This is
+    what makes that true: every declared field must appear in the canonical form
+    or be named here as deliberately excluded. Adding a field now fails this test
+    by name, which is the whole point — the decision still gets made by a human,
+    it just cannot be made by forgetting.
+    """
+    canon = canonical_spec(spec)
+
+    # Handlers are excluded on purpose: we cannot detect that someone changed
+    # what a function BODY does, and pretending otherwise would make the check
+    # look stronger than it is (proposal.py module docstring).
+    assert {f.name for f in dataclasses.fields(ActionSpec)} - {"dry_run", "execute"} == (
+        set(canon) - {"v"}
+    )
+    assert {f.name for f in dataclasses.fields(ActionParam)} == set(canon["params"][0])
+    assert {f.name for f in dataclasses.fields(ActionScope)} == set(canon["scope"][0])
+    assert {f.name for f in dataclasses.fields(UndoSpec)} - {"handler"} == set(canon["undo"])
+
+
+def test_a_version_bump_is_reported_as_a_version_bump_not_a_changed_action(spec):
+    """`FINGERPRINT_VERSION` has never been bumped, and S19 established what
+    happens when it is: every approved-but-unexecuted proposal refuses, and the
+    copy told the analyst the ACTION had changed when only our hashing had.
+
+    Recoverable either way — re-propose — but a false reason sends someone
+    diffing an action that never moved. The declaration is unchanged here; only
+    the scheme is, and the refusal must say so.
+    """
+    stored_under_v1 = fingerprint(spec, version=1)
+    with mock.patch.object(proposal_mod, "FINGERPRINT_VERSION", 2):
+        assert fingerprint(spec) != stored_under_v1
+        assert proposal_mod.matches_older_scheme(spec, stored_under_v1) == 1
+        with pytest.raises(ExecutionRefused) as err:
+            check_executable(spec, {"status": "approved", "spec_fingerprint": stored_under_v1})
+
+    assert err.value.reason == "fingerprint_scheme_changed"
+    assert "itself is unchanged" in err.value.detail
+    assert "v1 → v2" in err.value.detail
+
+
+def test_a_genuinely_changed_spec_is_still_reported_as_changed(spec):
+    """The version-aware branch must not swallow the case it sits in front of:
+    a spec that really did change, under the SAME version, still says so."""
+    changed = ActionSpec(
+        name=spec.name,
+        description="a different declaration entirely",
+        risk=spec.risk,
+        scope=spec.scope,
+        params=spec.params,
+        dry_run=spec.dry_run,
+        execute=spec.execute,
+        undo=spec.undo,
+    )
+    with pytest.raises(ExecutionRefused) as err:
+        check_executable(changed, {"status": "approved", "spec_fingerprint": fingerprint(spec)})
+    assert err.value.reason == "spec_changed"
+    assert proposal_mod.matches_older_scheme(changed, fingerprint(spec)) is None
 
 
 def test_an_action_the_gate_would_auto_execute_is_refused_at_run_time():

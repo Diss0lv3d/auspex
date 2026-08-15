@@ -211,8 +211,19 @@ may not grow mid-session (IDEAS.md exists for that).
   round-trip, resolved. Also this session: Step-0 review of S17 fixed 3 contract
   defects (the unguarded undo slot, unvalidated parameter names, action/tool name
   shadowing) and bounded the S17 decay-read crossover (TD-024)._
-- [ ] **S19 — Hardening.** Input guard (injection patterns + security-content
-  carve-outs), rate limits, usage-based plan gating skeleton.
+- [x] **S19 — Hardening.** Input guard (injection patterns + security-content
+  carve-outs), rate limits, usage-based plan gating skeleton. **Done (D-025,
+  D-026):** the guard asks whether an instruction is being ISSUED or ANALYSED —
+  carve-outs reuse the classifier's own format detectors and are justified
+  against the real S11 `.eml` corpus, so a pasted phishing body containing
+  "ignore all previous instructions" is still analysed while the same sentence
+  issued bare is refused in code (400) before the model, the KB or the
+  transcript. **TD-018 closed:** per-workspace inference-call ceilings claimed by
+  a conditional UPSERT (raced, 8-way), a two-pass turn charged 2, a 429 naming
+  meter/ceiling/reset, LLM-free paths unaffected. Plan gating skeleton = plan on
+  the workspace + limits in code + `/api/usage`; no billing (deferred).
+  Step 0 also re-ran the TD-005 battery (>30k trigger, first fire) and reviewed
+  the S18 commits — TD-026/027/028 opened.
 - [ ] **S20 — Beta.** Deploy pipeline, docs pass, demo script.
 
 ## Later / explicitly deferred

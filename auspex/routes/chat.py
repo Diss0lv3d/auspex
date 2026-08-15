@@ -38,6 +38,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from auspex import guard
 from auspex.alerts import normalize, score_alert
 from auspex.alerts.render import deterministic_triage_block
 from auspex.auth import AuthContext, resolve_user
@@ -54,6 +55,7 @@ from auspex.kb import (
     render_cve_answer,
     render_definition_answer,
 )
+from auspex.limits import Meter, UsageLimiter
 from auspex.llm.client import LLMClient, LLMError, Usage
 from auspex.llm.registry import DevEndpoint
 from auspex.llm.scorecard import load_latest_scorecard
@@ -306,6 +308,18 @@ async def _history(pool: asyncpg.Pool, auth: AuthContext, session_id: UUID) -> l
     return messages
 
 
+@router.get("/usage")
+async def usage(request: Request, auth: Auth) -> dict:
+    """What this workspace may spend and what it has spent (S19, TD-018).
+
+    Served whether or not anything has been spent, and with the plan named — a
+    ceiling an analyst cannot see is one they can only discover by hitting it.
+    The plan NAME is safe to return; the tier list itself is code, and nothing
+    here exposes another workspace's numbers (the query is workspace-scoped).
+    """
+    return await UsageLimiter(request.app.state.pool).snapshot(workspace_id=auth.workspace_id)
+
+
 @router.get("/models")
 async def list_models(request: Request, auth: Auth) -> dict:
     """Dev-only: list selectable endpoints for the internal switcher. Returns
@@ -339,6 +353,17 @@ async def chat(
     resolver: Annotated[ChatEndpointResolver, Depends(get_endpoint_resolver)],
 ) -> StreamingResponse:
     pool: asyncpg.Pool = request.app.state.pool
+    # Input guard (S19, D-006): refuse an instruction AIMED at the platform
+    # before anything else looks at the text. Deliberately ahead of the 92/8
+    # gate and of session creation — a refused turn must not reach the model,
+    # the KB, or the transcript. Text that merely CONTAINS injection strings
+    # (a pasted phishing body, an alert's message field) is content and passes;
+    # that distinction is the whole module.
+    verdict = guard.inspect(body.message)
+    if not verdict.allowed:
+        logger.warning("input guard refused a turn: %s", guard.log_line(verdict, body.message))
+        raise HTTPException(status_code=400, detail=verdict.refusal_text)
+
     # 92/8 gate (S4): code picks the path before the model is ever touched.
     classification = classify(body.message)
     shortcut = shortcut_answer(classification)
@@ -468,6 +493,28 @@ async def chat(
     # Build the client as late as possible: everything that can 404/fail above
     # has already run, so the only closer needed is event_stream's finally.
     endpoint = await resolver.resolve()
+
+    # TD-018 (S19): bound the NUMBER of inference calls a workspace can cause.
+    # Claimed HERE — after the endpoint resolves, before a single call is made —
+    # and for the calls this turn will actually make: the two-pass fallback is
+    # two requests the customer's endpoint serves, so metering it as one would
+    # under-count the exact configuration that costs the most (D-016/TD-002).
+    # Shortcut turns never reach this line, which is the point: an IOC check, a
+    # CVE lookup and a definition stay working for a workspace at its ceiling.
+    calls_this_turn = 1 if endpoint.native_reasoning else 2
+    allowance = await UsageLimiter(pool).claim(
+        workspace_id=auth.workspace_id, meter=Meter.INFERENCE_CALLS, units=calls_this_turn
+    )
+    if not allowance.allowed:
+        logger.info(
+            "workspace %s refused: %s at %d/%s",
+            auth.workspace_id,
+            allowance.meter.value,
+            allowance.used,
+            allowance.limit,
+        )
+        await endpoint.client.aclose()
+        raise HTTPException(status_code=429, detail=allowance.refusal_text)
 
     async def event_stream():
         yield _sse({"session": str(session_id)})
