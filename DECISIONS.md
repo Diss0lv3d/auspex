@@ -426,3 +426,52 @@ real system. `auspex/actions/`, ratified as built.
 - **An empty action surface says so.** The same rule as an empty digest (D-022):
   "no actions are available" is a claim, and it is stated rather than left as
   silence the model fills in.
+
+## D-024 — An approval is a decision about one declaration, claimed once (2026-08-15, S18)
+The second Phase 4 decision, and the one that makes S17's contract load-bearing:
+`auspex/actions/{proposal,settlement,builtin}.py` + `auspex/routes/proposals.py`,
+ratified as built. D-023 said what an action IS; this says what a decision about
+one is worth, and for how long.
+
+- **Settlement is a claim, not a check.** One
+  `UPDATE ... WHERE status='pending_approval' RETURNING` moves the row out of
+  pending in the same statement that reads it, so a second approver's UPDATE
+  matches zero rows and is told so. A read-then-write, an advisory lock, or a
+  `SELECT ... FOR UPDATE` would all "work"; every one of them is a wider window,
+  and D-001 put truth in Postgres precisely so this could be one statement. The
+  same device claims the execution and the undo — "ran twice" is impossible for
+  the reason "approved twice" is. Verified by racing eight distinct backends at a
+  barrier, asserting the backend count as well as the winner count.
+- **The card is compiled from the spec and then FROZEN.** Every field an approver
+  reads comes from the declaration (D-007) or from the action's own `dry_run`
+  against the real arguments — never from model prose. It is stored on the
+  proposal row rather than re-rendered on read: re-deriving it later would show
+  today's declaration for yesterday's decision, and an audit trail that silently
+  updates itself is worse than not having one.
+- **An approval does not survive a change to what was approved.** A spec
+  fingerprint — a canonical hash of the declared facts a decision rests on: name,
+  description, risk, scope, params, and what the undo does and does not restore —
+  is stamped on the proposal and re-checked before execution, alongside a re-run
+  of the D-014 gate on today's risk. An action approved an hour ago must not run
+  against a declaration that changed under it. Handler identity is deliberately
+  NOT part of it: function objects differ across processes, so hashing them would
+  make the check fail for the wrong reason and mean nothing when it passed.
+- **What the fingerprint cannot see is stated, not implied.** It cannot detect a
+  changed handler BODY behind identical declared facts. That is deploy integrity,
+  a different problem with a different solution, and claiming otherwise would make
+  the rail look stronger than it is.
+- **The platform executes only systems it owns.** `EXECUTABLE_SYSTEMS` is a code
+  allow-list (today: `auspex`). A third-party action may be declared, proposed,
+  approved and rendered, and will refuse to run — because a real external side
+  effect needs a real credential and a real blast radius, which is not something
+  to acquire as a side effect of the session that builds the approval flow.
+  Widening the set is a code change and a review, never config.
+- **Calling an action files a proposal — this is D-023's deferred half, resolved.**
+  Actions are now on the wire, and only when a proposer is wired in: a callable
+  name with nothing behind it is the failure S17 refused to ship. The result the
+  model gets back is a proposal id, never an outcome, and it is told plainly that
+  nothing was performed.
+- **A refused execution is not a failed approval.** Winning the claim and then
+  failing the re-check returns 200 with `executed: false` and the machine reason.
+  The decision stands; the action did not run; an error status there would read as
+  "your approval failed" and invite a retry that must not happen.

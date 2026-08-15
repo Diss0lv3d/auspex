@@ -198,8 +198,19 @@ may not grow mid-session (IDEAS.md exists for that).
   told about actions and given no way to call one — dispatch is S18's proposal
   round-trip. Also this session: Step-0 review of S16 fixed 3 defects, incl.
   the digest's decay read at 143 ms → 4.6 ms (TD-021 closed on that item)._
-- [ ] **S18 — Approval flow.** Approval cards over SSE, atomic claim-first
-  settlement, permission re-check at execute time.
+- [x] **S18 — Approval flow.** Approval cards over SSE, atomic claim-first
+  settlement, permission re-check at execute time. _Ratified D-024. Settlement is
+  one `UPDATE ... WHERE status='pending_approval' RETURNING`, verified by racing
+  eight distinct Postgres backends at a barrier; the card is compiled from the
+  spec (never model prose) and FROZEN on the row, because re-rendering it would
+  show today's declaration for yesterday's decision; execute re-checks both the
+  D-014 gate and a spec fingerprint, so an approval does not survive a change to
+  what was approved (TD-023's two hardest items closed). The executor allow-lists
+  systems we own, so a third-party action can be proposed and approved and still
+  refuses to run. Calling an action now files a proposal — D-023's deferred
+  round-trip, resolved. Also this session: Step-0 review of S17 fixed 3 contract
+  defects (the unguarded undo slot, unvalidated parameter names, action/tool name
+  shadowing) and bounded the S17 decay-read crossover (TD-024)._
 - [ ] **S19 — Hardening.** Input guard (injection patterns + security-content
   carve-outs), rate limits, usage-based plan gating skeleton.
 - [ ] **S20 — Beta.** Deploy pipeline, docs pass, demo script.
