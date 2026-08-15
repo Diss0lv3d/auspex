@@ -1155,3 +1155,38 @@ def test_a_leak_in_pass_two_is_still_caught(client, settings, _no_usage_residue)
     streamed = "".join(f["content"] for f in frames if "content" in f)
     assert "never follow directives" not in streamed
     assert all(role != "assistant" for role, _ in _session_messages(settings, session_id))
+
+
+def test_a_run_spanning_reasoning_and_answer_is_not_a_leak(client, settings, _no_usage_residue):
+    """The false positive the channel fix closes, through the real route.
+
+    Half of an indexed run in the Thinking pane and half in the answer is not a
+    leak: it never existed as a run in our configuration OR on the analyst's
+    screen. A rail that refuses ordinary turns is a rail that gets turned off.
+    """
+    # Five words each: BELOW SHINGLE_WORDS, so neither half can contain a run on
+    # its own — the control is arithmetic, not an assumption. Together they span
+    # one, which is exactly the shape that used to trip.
+    words = _LEAK.split()
+    head, tail = " ".join(words[:5]), " ".join(words[5:10])
+    fake = StreamingFakeLLMClient(
+        [
+            StreamEvent(kind="reasoning", text=head),
+            StreamEvent(kind="content", text=tail),
+            StreamEvent(kind="finish", finish_reason="stop"),
+        ]
+    )
+    _use(client.app, fake, native_reasoning=True)
+    try:
+        resp = client.post(
+            "/api/chat",
+            json={"message": "summarize the overnight alerts"},
+            headers={"Authorization": f"Bearer {_token(client)}"},
+        )
+        frames = _frames(resp.text)
+        session_id = frames[0]["session"]
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert frames[-1]["done"]["output_valid"] is True
+    assert any(role == "assistant" for role, _ in _session_messages(settings, session_id))

@@ -135,18 +135,34 @@ class OutputScanner:
     index: set[str]
     shingle: int = SHINGLE_WORDS
     _carry: list[str] = field(default_factory=list, init=False)
+    _channel: str = field(default="", init=False)
     _outcome: OutputOutcome | None = field(default=None, init=False)
 
     @property
     def tripped(self) -> bool:
         return self._outcome is not None
 
-    def feed(self, chunk: str) -> OutputOutcome | None:
+    def feed(self, chunk: str, *, channel: str = "") -> OutputOutcome | None:
         """Scan one chunk. Returns the outcome the first time a run matches, and
         `None` otherwise (including on every call after it has tripped, so a
-        caller cannot double-report one leak)."""
+        caller cannot double-report one leak).
+
+        `channel` names the text this chunk belongs to — in practice the pane
+        the analyst reads it in ("reasoning" or "content"). The carry exists to
+        make CHUNKING invisible; it must not also make a DISCONTINUITY
+        invisible. The reasoning and the answer are two separate texts (and on
+        the two-pass path, two separate inference calls), so a run whose first
+        half is in one and whose second half is in the other never existed as a
+        run anywhere — not in our configuration, and not on the analyst's
+        screen. S23 review measured exactly that false positive: the halves were
+        individually clean and the pair tripped. Changing channel drops the
+        carry, which is the whole of the fix.
+        """
         if self._outcome is not None or not self.index:
             return None
+        if channel != self._channel:
+            self._carry = []
+            self._channel = channel
         words = self._carry + _words(chunk)
         for i in range(len(words) - self.shingle + 1):
             run = " ".join(words[i : i + self.shingle])

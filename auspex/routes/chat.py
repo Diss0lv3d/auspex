@@ -546,11 +546,11 @@ async def chat(
                     messages, max_tokens=CHAT_ANSWER_MAX_TOKENS, temperature=0
                 ):
                     if ev.kind == "reasoning":
-                        if scanner.feed(ev.text):
+                        if scanner.feed(ev.text, channel="reasoning"):
                             break
                         yield _sse({"reasoning": ev.text})
                     elif ev.kind == "content":
-                        if scanner.feed(ev.text):
+                        if scanner.feed(ev.text, channel="content"):
                             break
                         content_parts.append(ev.text)
                         yield _sse({"content": ev.text})
@@ -567,7 +567,7 @@ async def chat(
                     temperature=0,
                 ):
                     if ev.kind == "content":
-                        if scanner.feed(ev.text):
+                        if scanner.feed(ev.text, channel="reasoning"):
                             break
                         analysis_parts.append(ev.text)
                         yield _sse({"reasoning": ev.text})
@@ -587,7 +587,7 @@ async def chat(
                         temperature=0,
                     ):
                         if ev.kind == "content":
-                            if scanner.feed(ev.text):
+                            if scanner.feed(ev.text, channel="content"):
                                 break
                             content_parts.append(ev.text)
                             yield _sse({"content": ev.text})
