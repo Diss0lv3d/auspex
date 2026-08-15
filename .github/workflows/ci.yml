@@ -1,0 +1,65 @@
+# Auspex CI — the beta gate (D-028).
+#
+# Until S20 the gate was "Burhan runs ./ci.sh locally and Claude reports green."
+# That works for one human who has agreed to a protocol; it does not survive a
+# second contributor, and `gh pr checks` reported 0 checks on every promote PR
+# from #1 to #19 — the promote ritual was asserting a green it could not prove.
+#
+# The one rule this file exists to keep: **it runs ./ci.sh and nothing else.**
+# A workflow that re-listed the steps would be a second definition of "green",
+# and the first time someone edited one and not the other the gate would start
+# lying. Same reason the guard imports the classifier's detectors rather than
+# re-deriving them (D-025), and the same reason limits live in code next to
+# EXECUTABLE_SYSTEMS (D-026): one source of truth per decision.
+#
+# Everything the suite needs is already hermetic — auspex/devhost.py pins
+# KB_ENABLED / INGEST_ENABLED / ENRICHMENT_ENABLED to false for host runs, so no
+# test reaches OpenSearch ML, a live feed, an enrichment provider or an LLM. No
+# secrets are needed and none are referenced: a fork PR runs the identical gate.
+name: CI
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main, staging]
+  workflow_dispatch:
+
+# A second push to the same branch makes the first run's answer irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: ci.sh (lint + tests + container build + installed-dist)
+    runs-on: ubuntu-latest
+    # Locally the gate is ~4 min; a cold runner pulls two images and builds the
+    # app layer. 30 leaves room without letting a wedged run burn an hour.
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"   # pyproject: requires-python = ">=3.12"
+
+      # OpenSearch maps a lot of small files. The runner default (65530) is
+      # below what the JVM asks for; single-node skips the hard bootstrap check
+      # but still logs and degrades, so set it rather than hope.
+      - name: Raise vm.max_map_count for OpenSearch
+        run: sudo sysctl -w vm.max_map_count=262144
+
+      - name: Run the gate
+        run: ./ci.sh
+
+      # A red gate is only useful if it says why. compose logs are where an
+      # OpenSearch that never went healthy, or an app container that died on
+      # import, actually explains itself.
+      - name: Container logs (on failure)
+        if: failure()
+        run: docker compose logs --tail=200 --no-color
