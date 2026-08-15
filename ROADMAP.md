@@ -254,6 +254,27 @@ may not grow mid-session (IDEAS.md exists for that).
   entire input removed. Two bounds ratified rather than chased (**D-029**,
   TD-031/032) — the real answer to both is TD-012. 964 tests; 117 modules; zero new
   env vars.
+- [x] **S22 — the output side.** _Also unplanned: scoped by a decision, recorded
+  after the fact._ **TD-012(a) SHIPPED (D-030)** — `auspex/outguard.py`, the rail
+  the repo had pointed at four times (D-027, TD-031, TD-032, TD-033 each ended
+  "the real answer is TD-012") and never built. It does not ask whether an answer
+  was *influenced* — undecidable from text, and a model grading itself is what
+  D-006 refuses — but whether **the platform's own configuration is coming back
+  out**, which is decidable because we hold both halves. Verbatim-run detection
+  over only the configuration we issued (never the analyst's paste, never the
+  pinned verdict blocks, never the two-pass analysis). `SHINGLE_WORDS = 8`
+  **calibrated on 34 live Scout answers** like NEURAL_FLOORS: legitimate ceiling
+  6, the one extraction attempt that complied reproduced 60 — and the model
+  refused 3 of 5, which is exactly why a rail is needed rather than trust. A leak
+  is cut off mid-stream and **not persisted** (a stored turn replays forever,
+  TD-009). Live-verified through the rebuilt container. Step 0 reviewed S21 and
+  found **the S21 sentence-scoping fix closed only one of three spellings**: a
+  newline and an end-of-input full stop both left the defect open, 6/6 each, and
+  deleting one space undid it — four designs measured against the real 129-test
+  corpus, not a hand-written one. Also fixed: **a late handler overwrote the human
+  who abandoned it** (`abandoned` → `executed`, with `decided_by` still naming the
+  abandoning human), raced with a real handler rather than simulated. TD-033
+  ratified. 1014 tests; 118 modules; zero new env vars — nine sessions running.
 
 ## Later / explicitly deferred
 Herd Immunity federation (needs k≥3 workspaces + privacy review) · billing ·

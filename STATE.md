@@ -1,243 +1,217 @@
 # STATE — Auspex
 
-_Last updated: 2026-08-16 (**S21 COMPLETE — the first session with no roadmap entry,
-scoped by decision instead.** Chose "pay down what beta exposed" and closed both:
-**TD-026 went 3/7 → 7/7** and **TD-028a** — a dead claim is now visible and only a
-human resolves it, deliberately **without** the reaper S19 asked for. Step 0 first
-found that **S20 fixed one invisible-character hole by opening its inverse**, and
-that the probe measuring it repeated, verbatim, a mistake this repo had already
-written down once. **964 tests.**)_
+_Last updated: 2026-08-16 (**S22 COMPLETE — the output side finally exists.**
+Scoped by decision again, and the decision was the one the repo had already
+written down four times: **TD-012(a) shipped as `auspex/outguard.py` (D-030)**,
+calibrated on 34 live answers rather than a chosen number. Step 0 found that
+**S21's sentence fix closed only one of three spellings** (6/6 open on each of the
+other two) and that **a late handler was overwriting the human who abandoned it**.
+**1014 tests.**)_
 
 ## Where we are
 
 **Phase 4 is contract (S17) + decision loop (S18) + hardened input and spend (S19)
-+ a pipeline, docs and a demo anyone can run (S20) + the beta debt paid down (S21).
-The ROADMAP through S20 is complete; S21 was scoped by a decision, not a plan, and
-S22 needs the same.**
++ a pipeline, docs and a demo anyone can run (S20) + the beta debt paid down (S21)
++ an output rail (S22). The ROADMAP through S20 is complete; S21 and S22 were both
+scoped by a decision rather than a plan. S23 has a clear candidate for the first
+time in three sessions — see "Next session should".**
 
-- **S21 Step 0 — `/promote` was already done, and the standing claim was wrong in a
-  new way.** S20 reached `main` as squash `fc7c921` via **PR #20**, back-merged
-  `a5c9c7f`, recorded at merge time (`02318b5`) — the S20 fix working as designed.
-  But the slate was **not empty**: it held the two docs commits that recorded the
-  promote. **The commit recording a promote lands after the promote, so the steady
-  state between sessions is docs-only, never empty** (`c1d8194`, `f6495b8`).
-- **S21 Step 0 — fresh-eyes review of the S20 commits (DONE, 3 fixed, 2 ratified,
-  3 sound).** Record: docs/probes/2026-08-15-s21-step0-review.md; harnesses in
-  docs/probes/s21-step0/ (`probe_s20_review.py` pure; `probe_docs_tests_bite.sh`
-  mutates 5 files and restores every one on an EXIT trap, 0 dirty verified).
-  13 new regressions, all proven to fail on the pre-fix code.
-  - **(FIXED — a regression S20 introduced) S20 fixed one invisible-character hole
-    by opening its inverse.** S19 matched the raw message, so `ig<ZWSP>nore`
-    returned CLEAN; S20 fixed that by matching the folded copy **instead**. Folding
-    *deletes* invisibles, and deletion welds: `previous<ZWSP>instructions` folds to
-    `previousinstructions` and destroys the boundary `\binstructions\b` needs.
-    **18 escapes measured** (9 invisible characters × 3 weld positions), all
-    returning CLEAN — invisible to the rail, the exact failure S20 was fixing.
-    Matching now **unions the folded and raw passes**; folding is lossy in both
-    directions and neither copy is sufficient alone. The S20 cases are pinned
-    alongside so the union cannot become a quiet revert.
-  - **(FIXED) an attribution two sentences back attributed nothing.** Reported
-    speech was checked against the whole preamble, so **6 of 6** unrelated sentence
-    pairs turned a bare imperative into CONTENT (`Open the ticket that contains the
-    API key. <imperative>`). **Two designs measured, one shipped** (the thrash brake
-    used as intended): scoping *both* carve-outs closes 4/4 but refuses `Is this
-    phishing? <paste>`; scoping *only* reported speech closes 6/6 at zero corpus
-    cost. **D-029** ratifies the asymmetry — reported speech is a relation that dies
-    at a full stop, framing is an introducer that is *meant* to govern what follows.
-  - **(FIXED) a stray quotation mark opened a covering span.** Only the apostrophe
-    arm had letter-adjacency lookarounds, so an inch mark (`The rack is 42" deep.`)
-    paired with the next real quote and covered everything between. Applied to all
-    four pairs; zero corpus cost (every real opening quote follows a space).
-  - **(RATIFIED — D-029, TD-031) two quotation marks still disarm the rail**, and
-    it is the cheapest bypass we ship — no structure, no re-routing, unlike every
-    forgery D-027 ratified. **Removing the arm was measured, not argued**: fully
-    redundant against the pinned corpus (which the same commit wrote, so it is not
-    evidence), and **load-bearing 7/7** against analyst prose that quotes a
-    detection string. **Two designs tried, both cost more than they bought —
-    TD-031 says do not spend a third session on this regex.**
-  - **(RATIFIED — D-029, TD-032) the framing arm still licenses across sentences.**
-    `Here is the plan for next quarter. <imperative>` is CONTENT, 2/2. Scoping it is
-    what refused the paste shape above. Needs a framing detector that reports a
-    *position*, which a bool-over-a-whole-string cannot. ~1 session, deferred.
-  - **(SOUND) `_canonical_ipv6` is RFC 5952 §4-correct** — checked against an
-    **independently written renderer coded from the RFC text**, not the stdlib:
-    38,228 addresses, **0 mismatches**, every output re-parsing to its input,
-    including §4.2.2 (never shorten a single group) and a genuine §4.2.3 tie.
-  - **(SOUND) the fold's index map** — all-invisible, empty, match at index 0,
-    match at end, and the fullwidth range edges all map back intact.
-  - **(FIXED) a docs test passed with its entire input removed.** 7 of 8 deliberate
-    mutations failed correctly; renaming `$API` → `$BASE` in `demo.sh` made
-    `test_the_demo_only_calls_routes_that_exist` **pass**, because the extractor
-    captured nothing and "no route is unknown" was trivially true. Floored at
-    `len(called) >= 8` (currently 9).
-  - **The measurement error is in the record, not quietly corrected.** The first
-    draft called the fold SOUND using a payload that trips **two** patterns, so
-    breaking one still printed a pass — **verbatim the mistake the S20 review wrote
-    down about its own first pass. Reading that sentence did not prevent repeating
-    it.** The probe now asserts each payload is single-pattern before using it. The
-    same draft also accused `_canonical_ipv6` of an RFC violation it does not have.
-    **A hand-written expectation is not an oracle.**
-- **S21 — TD-026 CLOSED: the definition path renders the page the question is
-  about.** Record: docs/probes/2026-08-15-s21-td026.md. **7/7 positives, 4/4 honest
-  misses, live-verified through the rebuilt container.** Third attempt overall (S19
-  measured two designs and shipped neither: 3/7 → 3/7, then 4/7).
-  - **The labels were re-examined first, as the brief demanded — and the brief was
-    wrong.** Only *one* of the two "corpus-stale" labels is in this battery
-    (`what is lateral movement`, where TA0008 is titled exactly that and defines the
-    term; the battery now accepts either page). The second stale label belongs to
-    the **CVE** battery. STATE.md and NEXT-SESSION.md had both carried the pair here.
-  - **Two mechanisms, both confirmed by execution first.** (1) RRF fused *chunks*
-    while the answer is a *page* — T1566's three chunks scored separately at neural
-    ranks 2/4/5 while single-chunk T1598 accumulated across both legs; `rrf_fuse_docs`
-    gives one rank per document per leg. Deliberately **not** by summing a page's
-    chunks, which inverts the bias. (2) Neither leg had a signal for "this page IS
-    the term" — `auspex/kb/canonical.py` asks whether title and question are *about
-    each other*, as the **harmonic mean of both directions**. The one-sided version
-    reached 6/7 and then answered `what is credential dumping` with a page titled
-    simply **Credentials**; each measure alone was observed picking a wrong page.
-  - **Depth mattered as much as ranking** — T1003 sat above its floor at fused rank
-    **9**, outside any top-5 cut. The path now fuses 12 and truncates **after**
-    promotion. One wider fetch, no extra round trip.
-  - **It cannot fabricate:** promotion re-orders a list that has already cleared the
-    neural floor and never adds to it; the off-corpus half is unchanged at 4/4 and
-    `test_promotion_cannot_resurrect_an_off_corpus_miss` pins the property.
-  - **Found while live-verifying: only 5 of the 7 positives reach this path in
-    production.** The classifier routes the other two deep — correct D-006 behaviour,
-    but it means the battery is an acceptance test **for the retrieval function**,
-    not a measurement of end-user answers. Said out loud, because the README now
-    cites these numbers.
-- **S21 — TD-028a CLOSED: a dead claim is visible, and only a human resolves it.**
-  A process dying between the claim and the handler wedged a proposal forever
-  (`execute` → `not_approved`, `undo` → `not_executed`, `reject` → `already_decided`)
-  **and invisibly**, because the queue filtered `status = 'pending_approval'` — the
-  half of TD-028 that loses someone's work.
-  - `claimed_at` + `STALE_CLAIM_SECONDS` (300) + an `abandoned` state.
-    `pending()` returns claims older than the threshold **beside** the pending rows,
-    with their real status, so the row surfaces where the human already looks; a
-    fresh claim stays hidden or every execution would flicker through the queue.
-  - **`POST /api/proposals/{id}/abandon` is the door out**, guarded on claim age in
-    the same UPDATE that moves the row (the D-024 claim-first device), so it cannot
-    kill a handler that is still working. **409, not 404**, when the claim is too
-    young: the proposal is fine and the request was early.
-  - **NO REAPER — this reverses what the S19 note asked for.** A timer cannot know
-    whether the handler ran before the process died, so every status it could pick
-    asserts something nobody knows: `approved` invites a second run of a half-run
-    action, `failed` claims nothing happened, `executed` claims it did. `abandoned`
-    records that the answer was **lost**, and D-014 reserves that call for the human.
-  - `claimed_at` is cleared by every exit from a claim, so a finished action never
-    drifts into the queue five minutes later. Live-verified through the rebuilt
-    container; probe row deleted, residue asserted 0. **TD-028b is now the sharpest.**
-- **CI-green: 964 tests** (912 at S20 end → **+24** Step-0 guard/docs, of which 13
-  are the review's regressions; **+20** TD-026; **+8** TD-028a). `./ci.sh` green
-  including the
-  installed-dist gate (**117 modules**, was 116 — `auspex/kb/canonical.py`);
-  `/api/health/ready` 200. **Zero new env vars — eight sessions running**
-  (`STALE_CLAIM_SECONDS` is a code constant, deliberately, per D-026's "limits are
-  code" precedent).
+- **S22 Step 0 — `/promote` done first, and the slate behaved exactly as S21
+  predicted.** The docs-only slate reached `main` as squash `4056070` via **PR #22**
+  (merged 2026-08-15 19:22 UTC), back-merged `7700d07`, tree verified unchanged.
+  Real diff **4 files, +376/-376**. PR #22's commit LIST still showed every commit
+  back to S2 — **read the diff, never the list.**
+- **S22 Step 0 — fresh-eyes review of the S21 commits (DONE, 2 fixed, 1 ratified,
+  5 sound).** Record: docs/probes/2026-08-16-s22-step0-review.md; harnesses in
+  docs/probes/s22-step0/ (`probe_designs_against_corpus.sh` mutates `guard.py` and
+  restores it on an EXIT trap; `probe_abandon_race.py` deletes its two workspaces
+  and asserts 0 residue). **36 new assertions, 20 proven to fail pre-fix**; the
+  other 16 pin already-sound areas, so they pass both ways by design.
+  - **(FIXED — S21's own fix was one third of a fix) a sentence ends at a newline
+    and at the end of the input, not only at `[.!?]\s`.** The exact six pairs S21
+    closed came straight back as CONTENT written across two lines (**6/6**), and
+    **deleting the single space** after the full stop put all six back (**6/6**) —
+    `[.!?]\s` needs a character that is no longer there. Four designs measured
+    against the **real 129-test corpus** rather than one written alongside them:
+    the shipped design looked expensive on my own 10-message corpus and **costs
+    nothing** on the repo's. Treating every newline as a boundary is safe because
+    **Enter sends** in the chat input (`static/index.html:228`), so a newline
+    arrives by paste or API — deliberate structure, never a soft wrap.
+  - **(FIXED — a defect TD-028a opened) a late handler overwrote the human who
+    abandoned it.** `abandon` guards on claim AGE, and an old claim is not the same
+    fact as a dead process: a merely *slow* handler passes `STALE_CLAIM_SECONDS`,
+    gets abandoned, and then returns. All four completion statements were
+    `WHERE id = $1` with **no status guard**. Raced with a real handler held open on
+    an event: `abandoned` → `executed` with `decided_at`/`decided_by` still naming
+    the abandoning human, so the row asserted a human had decided `executed`. On the
+    failure path it is worse — `failed` is precisely the "nothing happened" claim
+    the no-reaper design refuses to let a *timer* make. Now each completion is
+    guarded on the status it claimed, and a late answer is recorded on the abandoned
+    row **without moving it**.
+  - **(RATIFIED — TD-033) an abbreviation ends the sentence early**, discarding the
+    attribution and refusing legitimate prose (`e.g.`, `i.e.`, `Dr.` — 3/3 against
+    controls that are CONTENT *for the reported-speech reason*). It fails **closed**,
+    and closing it needs a rot-prone abbreviation list. Structural periods are
+    unaffected (`T1566.001`, `192.168.1.1`, `3.5` do not split).
+  - **(SOUND) the folded ∪ raw union** — the brief's strongest lead, attacked and
+    not broken: quoted and fenced artefacts containing a ZWSP stay CONTENT, the five
+    pinned legitimate shapes are still allowed, the index map is monotonic, and no
+    boundary computed on one copy is applied to the other.
+  - **(SOUND) `title_score` / `promote_canonical`** — degenerate titles and queries
+    return 0.0 and promote nothing; the 0.3 floor stops a lone coincidental word.
+    **Measured bound, not a defect:** prefix equivalence at 4 chars treats
+    `port`/`portal` and `host`/`hostile` as one word. No wrong promotion observed.
+  - **(SOUND) `abandon` as a state transition** — raced 8-way, exactly one wins;
+    never-claimed → refused; cross-tenant → NOT_FOUND (not a 409 that would confirm
+    existence); the `pending()` **stale arm** is tenant-scoped like the pending arm;
+    a stale claim cannot be approved or rejected through the ordinary buttons.
+  - **The measurement discipline caught a live error in this probe's own first
+    draft.** The abbreviation cases were first measured with a payload carve-out
+    **(3)** matched — an introducer, not reported speech — so the probe was reading
+    the wrong arm and would have called the abbreviation harmless. Asserting the
+    **reason**, not just the verdict, is what turned that into a finding. *A verdict
+    is not evidence about which rule produced it.*
+- **S22 — TD-012(a) SHIPPED: `auspex/outguard.py`, ratified as D-030.** Record:
+  docs/probes/2026-08-16-s22-outguard.md.
+  - **The question it answers is narrow on purpose.** Not "was this answer
+    influenced?" — not decidable from text, and a model grading itself is what D-006
+    refuses. It asks **"is the platform's own configuration coming back out?"**,
+    which is decidable because we hold both halves: we know exactly what we sent.
+  - **What is indexed is a decision.** Only configuration we issued
+    (`CHAT_SYSTEM_PROMPT`, `HISTORY_FENCE_DIRECTIVE`, `contract.system_directive()`,
+    `PASS1_DIRECTIVE`). **Never** the analyst's paste (their own email quoted back is
+    a *correct* answer), **never** the deterministic verdict blocks (the answer is
+    *pinned* to echo their values), **never** `_pass2_directive` (it embeds the
+    model's analysis the answer is built from).
+  - **`SHINGLE_WORDS = 8` is calibrated on live Scout output, like NEURAL_FLOORS.**
+    34 real answers across both streaming shapes: **legitimate ceiling 6** (including
+    12 questions whose *correct* answer is written in the instruction set's own
+    vocabulary — prompt injection, DATA blocks, fencing), and the one extraction
+    attempt that complied reproduced **60** words. **The model refused 3 of 5
+    attempts** — which is exactly why the rail exists rather than being unnecessary:
+    refusal is a property of the model, and we run on whatever endpoint the customer
+    brings (D-005). The 7-word partial sits in the gap and is **not** caught, named
+    rather than tuned away.
+  - **A leak is cut off mid-stream and NOT persisted.** Bounded, not prevented — a
+    streamed answer cannot be un-sent, exactly as TD-012 said. The guarantee that
+    *lasts* is non-persistence: a stored assistant turn replays into every later deep
+    turn of the session (TD-009), so a saved leak becomes a permanent one.
+  - **Live-verified through the rebuilt container against real Scout.** The attack
+    returned `finish_reason: output_guard`, `output_valid: false`, and left **no
+    assistant row** in Postgres; the hardest legitimate turn returned
+    `output_valid: true` and persisted normally. Probe rows deleted, residue 0.
+  - **TD-012 is HALF resolved and the entry now says so.** The number covered two
+    different pieces of work: (a) output-side injection detection shipped; **(b)
+    contract-conformance repair — the original S9 text — is untouched.**
+- **CI-green: 1014 tests** (964 at S21 end → **+36** Step-0, **+14** outguard).
+  `./ci.sh` green including the installed-dist gate (**118 modules**, was 117 —
+  `auspex/outguard.py`); `/api/health/ready` 200. **Zero new env vars — nine
+  sessions running.**
 
-- **S20 (kept for context) — Beta, D-028.** CI runs **`./ci.sh` and nothing else**
-  (`test_ci_runs_the_same_gate_a_developer_runs` enforces it), and it paid for
-  itself on run #1 with two defects green-on-laptop/red-on-runner: **IPv6 observable
-  identity delegated to a stdlib formatting choice** (now our own code, and S21
-  re-verified it against the RFC rather than the stdlib) and **three tests depending
-  on accumulated dev-DB state**. The repo got the **README it never had**, honest
-  bounds first; `scripts/demo.sh` replaced demo turns scattered over nine STATE.md
-  revisions; `tests/test_docs.py` made docs a surface with regressions. Earlier
-  sessions are in git history and in DECISIONS.md — this file no longer restates them.
+- **S20/S21 (kept for context).** S20 made CI a check anyone can see (D-028, runs
+  `./ci.sh` and nothing else) and gave the repo its README and `scripts/demo.sh`.
+  S21 closed TD-026 (definition path 3/7 → 7/7) and TD-028a (a dead claim is
+  visible; deliberately no reaper). Earlier sessions are in git history and
+  DECISIONS.md — this file no longer restates them.
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: EMPTY at this instant — the S21 session-end record reached
-   `main` as squash `4056070` via PR #22** (merged 2026-08-15 19:22 UTC),
-   back-merged `7700d07`, tree verified unchanged (`git diff <pre> HEAD --stat`
-   empty), `git diff origin/main..staging --stat` now **zero files**. Real diff
-   promoted: **4 files, +376/-376, docs-only** — NEXT-SESSION, ROADMAP, STATE,
-   TECHNICAL_DEBT. Exactly the steady state S21 predicted, promoted rather than
-   skipped. This S22 promote-record commit re-opens the slate immediately, which
-   is the point: **the slate is docs-only between sessions, never empty for long.**
+1. **Promote slate: this session's four commits + this session-end commit.**
+   `e8a5607` (guard sentence boundary), `4957b5e` (the late-handler overwrite),
+   `711e85f` (Step-0 record + TD-033), `6ae733a` (the output rail). **This is a
+   real slate, not the docs-only steady state — `/promote` first next session.**
    - **Read the diff at promote time. Never trust a quoted number or the commit
-     LIST** — after a squash the list is meaningless. PR #22's list still showed
-     **every commit back to S2**; the real change was 4 files.
-   - PR #22 is the third promote merged on a visible check, and the second with
-     **two** green runs (push-triggered 5m26s, PR-triggered 5m40s);
-     `mergeStateStatus` **CLEAN** before the merge, 964 tests, 117 modules,
-     `/api/health/ready` 200 after.
-2. **Branch protection on `main` is the ONE manual step left** — the CI check exists
-   and is green, but nothing yet REQUIRES it before a promote merge. Repository
-   settings, Burhan's call, not a commit's (D-028). One command when wanted:
+     LIST** — after a squash the list is meaningless (PR #22's still showed every
+     commit back to S2; the real change was 4 files).
+2. **Branch protection on `main` is STILL the one manual step left** — the CI check
+   exists and is green, but nothing yet REQUIRES it before a promote merge.
+   Repository settings, Burhan's call, not a commit's (D-028). One command:
    `gh api -X PUT repos/bh3082336888-cell/auspex/branches/main/protection -f 'required_status_checks[strict]=true' -f 'required_status_checks[contexts][]=ci.sh (lint + tests + container build + installed-dist)' -F 'enforce_admins=false' -F 'required_pull_request_reviews=null' -F 'restrictions=null'`
-3. **TD-028b is now the sharpest open half of TD-028** — a failed execute leaves
-   effects it denies (the handler's INSERT is really in the table while the row says
-   `failed`). (c) is *sharper* after S21, not softer: `abandoned` joins `failed` as
-   a state whose effects are unknown and whose `undo` is gated shut. Both need
-   terminal-state semantics that belong with TD-025's idempotency gap. (d) is card
+3. **TD-028b is the sharpest open half of TD-028** — a failed execute leaves effects
+   it denies (the handler's INSERT is really in the table while the row says
+   `failed`). (c) is sharper after S21: `abandoned` joins `failed` as a state whose
+   effects are unknown and whose `undo` is gated shut. **S22 fixed the adjacent
+   defect in the same four statements**, so the code is freshly mapped. (d) is card
    rendering.
 4. **The card stream still emits only new cards, never status changes** — opened by
    the TD-028a fix. A client watching `/stream` is not told when a claim goes stale;
    the polled list is where it surfaces today.
-5. **TD-031/TD-032 are ratified bounds, not a backlog.** Do **not** re-open the
-   guard regex: S19, S20 and S21 have each spent a session there, and the last two
-   ratifications both name **TD-012 (post-hoc output validation)** as the real
-   answer — an injection that got in *however* it got in.
+5. **TD-031 / TD-032 / TD-033 are ratified bounds, not a backlog.** Do **not**
+   re-open the guard regex — S19, S20 and S21 each spent a session there, and S22
+   touched only the sentence *boundary* because it was a defect in S21's own fix.
+   All three name **TD-012** as the real answer, and **TD-012(a) now exists**.
 6. **TD-005 trigger, still armed:** cve pool > 300k chunks, curated pool > 5k, any
    new doc_type, any embedding-model change, **or before any free-text-over-CVEs
-   surface ships** (TD-027 is a HARD GATE on that). Corpus today: **31,828** —
-   cve 30,562, technique 1,248, tactic 15, concept 3. Not tripped.
-   TD-026's battery labels belong on this trigger list too — one of seven was
-   already stale when S21 started.
+   surface ships** (TD-027 is a HARD GATE). Corpus at S21: **31,828** — cve 30,562,
+   technique 1,248, tactic 15, concept 3. Not tripped. TD-026's battery labels
+   belong on this trigger list too.
+7. **`SHINGLE_WORDS` is a calibrated number, not a constant to edit.** It was
+   measured against a **specific model** (Scout). A customer endpoint that is more
+   verbose, or a materially longer instruction set, changes the legitimate ceiling —
+   re-run `docs/probes/s22-outguard/probe_calibrate2.py` before moving it. Same rule
+   NEURAL_FLOORS has.
 
 ## Blockers / open risks
 1. **TD-001 (OAuth identity keyed on email)** — hard gate before any
    GOOGLE_CLIENT_ID is configured.
 2. **Deep path is conversational-only (v1)** — AgentLoop still not wired into
-   `/api/chat`. Open: TD-012, TD-014, TD-015, TD-016, TD-017, TD-019, TD-020,
-   TD-021, TD-022, TD-023, TD-024, TD-025, TD-027, **TD-028b/c/d**, TD-029, TD-030,
-   **TD-031/032 (new, ratified)**. **TD-018, TD-026 and TD-028a are CLOSED.**
+   `/api/chat`. **Its stated prerequisite (TD-012) is now half-shipped**, which is
+   what makes it the S23 candidate. Open: TD-012**(b)**, TD-014, TD-015, TD-016,
+   TD-017, TD-019, TD-020, TD-021, TD-022, TD-023, TD-024, TD-025, TD-027,
+   **TD-028b/c/d**, TD-029, TD-030, TD-031/032/033. **TD-018, TD-026, TD-028a and
+   TD-012(a) are CLOSED.**
 3. **KB bootstrap needs outbound HTTPS once per fresh volume**; ingest needs
    NVD/CISA/FIRST/GitHub reachability — failures degrade honestly.
 4. **Corpus 31,828 docs and growing while the container runs.** TD-011 tracks the
    index rollover trigger.
-5. **The guard bounds INPUT only, and only against accidents.** It does not certify
-   output (TD-012), and **it does not defeat a determined authenticated caller** —
-   D-027 named the forgeries, and D-029 added the two cheapest: **two quotation
-   marks** (TD-031) and an introducer phrase anywhere in the preamble (TD-032). The
-   rail is stated honestly rather than made to look stronger than it is.
-6. **There is still no next deliverable written down.** S21 was scoped by a decision
-   rather than a plan, and S22 needs the same conversation before any code. A
-   planning state, not a blocker on the code.
+5. **Two rails now, and neither is a closure.** The INPUT guard bounds accidents and
+   naive attempts and does not defeat a determined authenticated caller (D-027,
+   D-029 — quotation marks, an introducer, an abbreviation). The OUTPUT rail (D-030)
+   catches our configuration coming back out, **but not a paraphrase of it, and not
+   an injection that merely made the answer wrong** — that prose looks like an
+   answer, and only a code-computed verdict can contradict it. Both bounds are
+   written down rather than implied.
+6. **An intermittent, unattributed test failure was observed once.** One `./ci.sh`
+   run reported `1 failed` with pytest's "multiple unraisable exception warnings"
+   ExceptionGroup and **did not name a test**. It has not reproduced in **five**
+   subsequent full-suite runs (1000 then 1014 tests). Recorded rather than
+   dismissed: if it returns it is an async-teardown flake, not the settlement change,
+   which was green in every run.
 
 ## Host notes (reality snapshot)
 - Postgres 55432; app 8000; OpenSearch 9200. Host runs pin via `auspex.devhost`.
 - Ollama 0.32.5 on :11434; models qwen3:14b / llama3.1:8b / mistral:latest.
-- **S21 session-end (2026-08-16):** staging, tree clean, identity
-  `bh3082336888-cell`. All three containers healthy; `./ci.sh` **green, 964 tests,
-  117 modules**; `/api/health/ready` **200** (postgres reachable, opensearch 2.19.4).
-- **`gh` did NOT flip to the work account at S22 start or across the promote**
-  (checked three times: ritual, before `gh pr create`, before `gh pr merge`).
-  It DID at S18 and S16; did not at S17, S13–S15, S19–S22.
-  **Unpredictable is the pattern** — re-check before EVERY `gh` call.
+  **Primary dev LLM is Northflank Scout (D-015)** — reachable, HTTP 200, and it is
+  what S22's calibration was measured against.
+- **S22 session-end (2026-08-16):** staging, tree clean, identity
+  `bh3082336888-cell`. All three containers healthy; `./ci.sh` **green, 1014 tests,
+  118 modules**; `/api/health/ready` **200**.
+- **`gh` did NOT flip to the work account at S22** (checked three times: ritual,
+  before `gh pr create`, before `gh pr merge`). It DID at S18 and S16; did not at
+  S17, S13–S15, S19–S22. **Unpredictable is the pattern** — re-check before EVERY
+  `gh` call.
 - **`gh pr merge` works.** `gh pr edit` still fails with a Projects-classic GraphQL
   deprecation — use `gh api -X PATCH repos/.../pulls/N`.
+- **Run the suite the way `ci.sh` does.** `./ci.sh` uses `.venv`, where the package
+  is installed editable. A bare `python3 -m pytest` uses the **system** interpreter,
+  where `auspex` is NOT installed, and
+  `test_the_package_imports_before_enrichment_does` fails for that reason alone —
+  it cost time this session before being spotted.
 - **This repo HAS GitHub Actions** (S20, D-028) — `.github/workflows/ci.yml` runs
-  `./ci.sh` on push and PR to `main`/`staging`. Cold run ~5m30s (local ~1m45s for
-  tests, ~4m for the whole gate). `gh run list` / `gh run view <id> --log-failed`.
-  **A clean runner is a different environment from this laptop and finds things it
-  cannot** — not a theory, it happened on run #1.
+  `./ci.sh` on push and PR to `main`/`staging`. Cold run ~5m30s. **A clean runner is
+  a different environment from this laptop and finds things it cannot.**
 - **Local `main` ref goes stale every promote.** `git fetch origin` and read
   `git diff origin/main..staging --stat`, never the commit list.
-- **The app container runs the BUILT IMAGE, not the working tree.** Both S21
-  live-verifications needed `docker compose up -d --build app`, not `restart`.
-- **All dev-login users share the `default` workspace**, so any test or probe that
-  spends/claims in it is visible to every other one. Tests touching `usage_counters`
-  must clean up; S21's proposal probe deleted its row and asserted 0 residue.
+- **The app container runs the BUILT IMAGE, not the working tree.** S22's live
+  verification needed `docker compose up -d --build app`, not `restart`.
+- **All dev-login users share the `default` workspace.** Tests touching
+  `usage_counters` must clean up. S22's live verification spent real inference and
+  deleted its two chat sessions afterwards, asserting 0 residue.
 - **Probe residue is expensive** (S18: a 100k-row seeded workspace made plan tests
   take 150 s instead of 21 s). Plan assertions must VACUUM first.
-- **THE DEMO IS ONE COMMAND: `./scripts/demo.sh`** (~3 min, end to end). Stack
-  health, the 92/8 split proven by a meter that does not move, the guard on all
-  three cases, decay/watchers/retro-hunt, propose → approve → 409 → undo, then the
-  honest bounds. **Stop hand-assembling demo curls; edit the script instead.**
-  `--no-llm` skips the endpoint-dependent turns. It deliberately spends real
-  inference and leaves `usage_counters` rows in `default` — correct for a demo.
-  S21 updated its honesty section twice (TD-026 closed, TD-028a closed).
+- **THE DEMO IS ONE COMMAND: `./scripts/demo.sh`** (~3 min, end to end). S22 added
+  the output rail to its honest section — a real `grep` of the calibrated constant,
+  no LLM dependency, because the rail's firing against a live model is not
+  deterministic (the model refused 3 of 5 extraction attempts).
 
 ## Reference intelligence (from the SARA Open architecture study)
 Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
@@ -249,26 +223,27 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 - RRF retrieval + ID bypass: 2026-07-17-sara-rrf-retriever-pattern.md
 
 ## Next session should
-**Start with `/promote`** — the slate is docs-only (`a306106` + this session-end
-commit) and that is the normal state, not a reason to skip it. Read the real diff.
+**Start with `/promote`** — the slate is a REAL one this time (four commits plus
+this session-end commit), not the docs-only steady state.
 
-Then **S22 needs a scoping decision before it needs code**, the same as S21 did.
-Do not improvise one. The candidates, in the order the repo's own evidence argues:
+Then, for the first time in three sessions, **there is a clear candidate rather
+than an open question: wire AgentLoop into `/api/chat`.** It is the largest
+remaining gap between what the platform is and what its own README says, and the
+reason it kept losing to other work was that TD-012 read as its prerequisite —
+**that prerequisite now half-exists.** Ask before implementing anyway; the
+alternatives, in order:
 
-1. **TD-012 — post-hoc output validation. Recommended, and the repo has now said so
-   three times.** D-027 declined to chase forgeries and pointed here; TD-031 and
-   TD-032 were both ratified this session with "the real answer is TD-012" written
-   into them. It is also the prerequisite the AgentLoop wiring carries. Three
-   sessions have now been spent hardening the input rail; the output side has none.
-2. **Wire AgentLoop into `/api/chat`.** Still the largest gap between what the
-   platform is and what its own README says: the loop is built, capability-negotiated
-   and tested, and the deep path does not use it. Changes what the guard and the
-   ceilings are protecting, which is why (1) reads as its prerequisite.
-3. **Finish TD-028 (b/c/d) with TD-025's terminal-state semantics.** (b) is the
-   sharpest measured defect left: a failed execute reports that nothing happened
-   while its INSERT is really in the table. Smaller than (1) or (2), and fully
-   specified already.
+1. **Wire AgentLoop into `/api/chat`.** The loop is built, capability-negotiated and
+   tested, and the deep path does not use it. Now unblocked. Note what it changes:
+   the output rail currently indexes four fixed strings, and a tool-calling loop
+   makes the instruction set dynamic — the rail's index must follow it, or it
+   silently protects less than it looks like it does.
+2. **Finish TD-028 (b/c/d) with TD-025's terminal-state semantics.** (b) is the
+   sharpest measured defect left, and S22 just fixed the adjacent defect in the same
+   four statements — smaller than (1) and fully specified.
+3. **TD-012(b) — contract-conformance repair**, the original S9 entry: re-ask once
+   on a non-conforming answer. Smallest of the three.
 4. **Phase 5 / Herd Immunity groundwork** — needs multi-workspace and a privacy
-   review before any code; a design session, not an implementation one.
+   review; a design session, not an implementation one.
 
 NEXT-SESSION.md has the full prompt.
