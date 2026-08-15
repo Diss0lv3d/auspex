@@ -90,9 +90,12 @@ run.**)_
 - **Zero new env vars** this session (and none across S14–S18).
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: `a3b431b`, `b536f1e`, `c21beb8` + the session-end commit are
-   on staging and NOT on `main`.** PR #17 merged this session; the next `/promote`
-   carries S18.
+1. **Promote slate: EMPTY (corrected at S19 start).** S18's commits reached `main`
+   as squash `7813e43` via **PR #18**, back-merged as `295c5bb` — this happened
+   *after* the S18 session-end commit `005cc01` was written, so STATE.md and
+   NEXT-SESSION.md both shipped stale ("three commits waiting to promote").
+   Verified at S19 start: `git diff origin/main..staging --stat` is **empty**.
+   S19 Step 0 therefore skips `/promote`.
 2. **TD-005 re-battery trigger: TRIPPED (2026-08-15).** Corpus is **31,819 docs**
    in `auspex-knowledge` (27,475 at S17 end, 27,460 at S17 start — it grew ~4.3k
    THIS session because ingest ran). The 30k line is crossed for the first time.
@@ -196,8 +199,9 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 - RRF retrieval + ID bypass: 2026-07-17-sara-rrf-retriever-pattern.md
 
 ## Next session should
-Start with `/promote` — S18 is three commits deep on staging and `main` has
-nothing since PR #17. **Then TD-005: the corpus crossed 30k this session
+~~Start with `/promote`~~ — **already done: PR #18 merged S18 to `main` and
+`origin/main..staging` is empty (corrected at S19 start).** **Start instead with
+TD-005: the corpus crossed 30k during S18
 (31,819), so re-run the labeled retrieval battery and re-check the S8 neural
 floors before trusting any RAG-backed answer** — this is the first time that
 trigger has fired. Then S19 Step 0: fresh-eyes review of the S18 commits (see
