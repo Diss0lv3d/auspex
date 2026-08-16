@@ -21,7 +21,7 @@ SARA pattern reference (reused, not copied): sara/core/agent_loop.py:59-.
 import json
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     # Type-only: auspex.actions imports auspex.agent.permissions for the gate, so
     # importing it here at runtime would close a cycle. The loop only ever reads
     # the manifest's rendered text and calls the proposer it was handed.
-    from collections.abc import Awaitable, Callable
+    from collections.abc import AsyncIterator, Awaitable, Callable
 
     from auspex.actions import ActionManifest
 
@@ -42,7 +42,13 @@ if TYPE_CHECKING:
     # the same reason `ProposalStore` is a Protocol.
     ActionProposer = Callable[..., Awaitable[dict]]
 from auspex.llm.capability import PROBE_MAX_TOKENS
-from auspex.llm.client import ChatResult, ToolCall
+from auspex.llm.client import (
+    ChatResult,
+    ToolCall,
+    Usage,
+    fold_stream_event,
+    seal_stream_result,
+)
 
 # Loop step cap — chosen consciously, not copied from the harness (which capped
 # per-task at 8 for scoring). The S2 task battery's deepest real chains need 4
@@ -105,6 +111,38 @@ class AgentResult:
         """D-014: a tool counts as PERFORMED only if a real call executed it.
         A model sentence like 'the ticket was created' never makes this true."""
         return any(i.name == tool_name and i.status == "executed" for i in self.invocations)
+
+
+@dataclass
+class AgentStreamEvent:
+    """One event from a streaming agent turn (`AgentLoop.run_stream`).
+
+    Deliberately transport-agnostic: the loop does not know about SSE, and the
+    route decides how each kind is rendered and which OUTPUT-RAIL CHANNEL it
+    belongs to. D-031 decision 5 makes that a real distinction rather than
+    tidiness — a tool result is data on its own channel, so a shingle spanning a
+    tool result and the answer is not a leak.
+
+    kind:
+      'reasoning' — a thinking-pane delta.
+      'content'   — an answer delta, streamed as it arrives.
+      'tool'      — one tool step RESOLVED; carries the ToolInvocation, which is
+                    what the route narrates. Emitted after the handler ran, so
+                    it reports what happened rather than what was requested.
+      'usage'     — one model call's usage, per call rather than per turn.
+      'done'      — the turn ended; `text` is the final answer, `stop_reason`
+                    says why it ended.
+    """
+
+    kind: str
+    text: str = ""
+    invocation: ToolInvocation | None = None
+    usage: Usage | None = None
+    finish_reason: str | None = None
+    # "final_answer" | "step_cap" | "usage_refused"
+    stop_reason: str = ""
+    step: int = 0
+    invocations: list[ToolInvocation] = field(default_factory=list)
 
 
 # --- Tool channels: the per-mode seam ---------------------------------------
@@ -290,6 +328,38 @@ class AgentLoop:
         self.max_tokens = max_tokens
         self.temperature = temperature
 
+    def wire_specs(self, tool_names: Sequence[str] | None = None) -> list[dict]:
+        """The tool envelopes this turn will actually offer the endpoint."""
+        specs = [] if not self.channel.offers_tools else self.registry.specs(tool_names)
+        # S18: actions join the wire array only when this runtime can actually
+        # file a proposal for one. Offering a callable name with no proposer
+        # behind it is the failure S17 refused to ship — the model would call it,
+        # get an error, and be tempted to narrate success anyway.
+        if self.channel.offers_tools and self.actions is not None and self.action_proposer:
+            specs = [*specs, *self.actions.wire_specs()]
+        return specs
+
+    def system_message(self, specs: list[dict]) -> str:
+        """The system message this turn composes, exactly as it goes on the wire.
+
+        Public because the OUTPUT RAIL needs it. D-030 decision 2 indexes only
+        configuration WE issued; D-031 decision 5 observes that with a loop that
+        set is composed at runtime rather than being four fixed strings, so the
+        route builds its leak index from THIS string. A route that re-assembled
+        the pieces itself would index something the endpoint never saw.
+        """
+        return (
+            self.system_prompt + self.channel.system_prefix(specs) + self._actions_prefix()
+        )
+
+    def _initial_messages(
+        self, specs: list[dict], user_message: str, history: Sequence[dict] | None
+    ) -> list[dict]:
+        messages: list[dict] = [{"role": "system", "content": self.system_message(specs)}]
+        messages.extend(history or [])
+        messages.append({"role": "user", "content": user_message})
+        return messages
+
     async def run(
         self,
         client: Any,
@@ -298,23 +368,8 @@ class AgentLoop:
         history: Sequence[dict] | None = None,
         tool_names: Sequence[str] | None = None,
     ) -> AgentResult:
-        specs = [] if not self.channel.offers_tools else self.registry.specs(tool_names)
-        # S18: actions join the wire array only when this runtime can actually
-        # file a proposal for one. Offering a callable name with no proposer
-        # behind it is the failure S17 refused to ship — the model would call it,
-        # get an error, and be tempted to narrate success anyway.
-        if self.channel.offers_tools and self.actions is not None and self.action_proposer:
-            specs = [*specs, *self.actions.wire_specs()]
-        messages: list[dict] = [
-            {
-                "role": "system",
-                "content": self.system_prompt
-                + self.channel.system_prefix(specs)
-                + self._actions_prefix(),
-            }
-        ]
-        messages.extend(history or [])
-        messages.append({"role": "user", "content": user_message})
+        specs = self.wire_specs(tool_names)
+        messages = self._initial_messages(specs, user_message, history)
 
         invocations: list[ToolInvocation] = []
         for step in range(1, self.max_steps + 1):
@@ -347,6 +402,130 @@ class AgentLoop:
             temperature=self.temperature,
         )
         return AgentResult(final.content, self.max_steps, invocations, "step_cap", self.mode)
+
+    async def run_stream(
+        self,
+        client: Any,
+        user_message: str,
+        *,
+        history: Sequence[dict] | None = None,
+        tool_names: Sequence[str] | None = None,
+        claim: "Callable[[], Awaitable[bool]] | None" = None,
+    ) -> "AsyncIterator[AgentStreamEvent]":
+        """The same loop as `run`, emitting events as they happen (D-031).
+
+        Same messages, same channel, same `_dispatch` — `run` and this share
+        `wire_specs`/`_initial_messages` precisely so the streaming turn and the
+        blocking turn cannot answer differently. What differs is only WHEN the
+        caller learns things.
+
+        **The answer streams after the tool steps, and the tool steps are
+        narrated.** Measured on real Scout (D-031 decision 1, re-confirmed S25):
+        a tool-calling turn emits its tool-call deltas with `content chars: 0`
+        before them, so streaming content on arrival cannot put prose in front of
+        a result that contradicts it. That is a property of the ENDPOINT, not a
+        guarantee of ours — see TD-036 for what an endpoint that interleaves
+        prose with tool calls would do here.
+
+        **Arguments are never parsed mid-stream** (decision 2). Folding is
+        `fold_stream_event`, the same code `accumulate_stream` uses; one IP was
+        measured arriving as nine fragments split mid-token.
+
+        **`finish_reason` is not the step signal — the presence of tool calls
+        is** (decision 3, in its spirit). The channel decides what counts as a
+        call, so prompted-mode's tag parsing and native mode's `tool_calls`
+        array are read the same way here as in `run`.
+
+        **The usage claim is per model call** (decision 4). `claim` is called
+        before EVERY call including the synthesis pass, so a loop cannot make
+        nine calls against a claim of one. It is a callable rather than a
+        limiter because metering policy belongs to the route; the loop only
+        needs to know whether it may make one more call. A refusal ends the turn
+        with `stop_reason="usage_refused"` and whatever was gathered so far —
+        the tool results already streamed as `tool` events, so the analyst sees
+        the evidence even when the answer cannot be written.
+        """
+        specs = self.wire_specs(tool_names)
+        messages = self._initial_messages(specs, user_message, history)
+        chat_kwargs = self.channel.chat_kwargs(specs)
+        invocations: list[ToolInvocation] = []
+
+        async def _stream_call(
+            call_messages: list[dict], sealed: list[ChatResult], at_step: int, **extra
+        ):
+            """One model call: yields each delta AS IT ARRIVES, folds alongside.
+
+            An async generator rather than a coroutine returning the result,
+            because a coroutine would have to buffer the deltas until the call
+            finished — which is not streaming at all. The sealed ChatResult is
+            handed back through `sealed` once the stream ends, since that is the
+            first moment `arguments` may be parsed.
+            """
+            result = ChatResult()
+            by_index: dict[int, ToolCall] = {}
+            async for ev in client.chat_stream(
+                call_messages,
+                max_tokens=self.max_tokens,
+                temperature=self.temperature,
+                **extra,
+            ):
+                fold_stream_event(result, by_index, ev)
+                if ev.kind in ("content", "reasoning") and ev.text:
+                    yield AgentStreamEvent(kind=ev.kind, text=ev.text, step=at_step)
+                elif ev.kind == "usage" and ev.usage:
+                    yield AgentStreamEvent(kind="usage", usage=ev.usage, step=at_step)
+            sealed.append(seal_stream_result(result, by_index))
+
+        for step in range(1, self.max_steps + 1):
+            if claim is not None and not await claim():
+                yield AgentStreamEvent(
+                    kind="done", stop_reason="usage_refused", step=step - 1,
+                    invocations=list(invocations),
+                )
+                return
+            sealed: list[ChatResult] = []
+            async for out in _stream_call(messages, sealed, step, **chat_kwargs):
+                yield out
+            result = sealed[0]
+
+            calls = self.channel.extract_calls(result)
+            if not calls:
+                yield AgentStreamEvent(
+                    kind="done", text=result.content, stop_reason="final_answer",
+                    finish_reason=result.finish_reason, step=step,
+                    invocations=list(invocations),
+                )
+                return
+
+            for idx, call in enumerate(calls):
+                if not call.id:
+                    call.id = f"call_{step}_{idx}"
+            messages.append(self.channel.assistant_message(result, calls))
+            for call in calls:
+                invocation = await self._dispatch(call)
+                invocations.append(invocation)
+                yield AgentStreamEvent(kind="tool", invocation=invocation, step=step)
+                messages.append(self.channel.tool_result_message(call, invocation.feedback))
+
+        # Step cap: one final tool-free pass, and it is a model call like any
+        # other, so it is claimed like any other.
+        if claim is not None and not await claim():
+            yield AgentStreamEvent(
+                kind="done", stop_reason="usage_refused", step=self.max_steps,
+                invocations=list(invocations),
+            )
+            return
+        sealed = []
+        async for out in _stream_call(
+            [*messages, {"role": "user", "content": _SYNTHESIS_NUDGE}], sealed, self.max_steps
+        ):
+            yield out
+        final = sealed[0]
+        yield AgentStreamEvent(
+            kind="done", text=final.content, stop_reason="step_cap",
+            finish_reason=final.finish_reason, step=self.max_steps,
+            invocations=list(invocations),
+        )
 
     def _actions_prefix(self) -> str:
         """The action surface, described to the planner.

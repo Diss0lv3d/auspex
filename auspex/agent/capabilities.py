@@ -53,9 +53,13 @@ logger = logging.getLogger("auspex.agent.capabilities")
 # reports each over-cap observable as a `CAP_SKIP` skip reason; how many CVE ids
 # one lookup may carry is `MAX_IDS_PER_LOOKUP`, sized to OpenSearch's
 # bool-clause limit. Re-declaring either here would be a second opinion about a
-# calibrated number — the drift this module exists to avoid. This bounds only
-# how many strings we will attempt to PARSE out of one tool argument, so a model
-# emitting a thousand-element array costs a thousand regex passes and no more.
+# calibrated number — the drift this module exists to avoid.
+#
+# This bounds what ONE tool argument may turn into: both the strings we will
+# attempt to parse, and the observables those strings yield. One boundary, one
+# concern — a model emitting a thousand-element array, or twenty-five strings
+# each packed with indicators, costs a bounded number of regex passes and hands
+# the enrichment service a bounded list either way.
 MAX_TOOL_ARG_ITEMS = 25
 
 # Enough of a chunk for the model to reason from, short enough that nine tool
@@ -102,7 +106,9 @@ def _hit_payload(hit) -> dict:
     return payload
 
 
-def _resolve(values: list[str], known: dict[str, Observable]) -> tuple[list[Observable], list[str]]:
+def _resolve(
+    values: list[str], known: dict[str, Observable], *, cap: int = MAX_TOOL_ARG_ITEMS
+) -> tuple[list[Observable], list[str], int]:
     """Turn model-supplied strings into observables, by id or by value.
 
     Both forms are accepted for one measured reason. The S2 harness found that
@@ -116,24 +122,41 @@ def _resolve(values: list[str], known: dict[str, Observable]) -> tuple[list[Obse
     Unresolvable strings are returned separately and reported, never dropped —
     a model that mangled a hash must see that it did, not receive a confident
     answer about something it did not ask for.
+
+    **Every observable a string yields is kept, not just the first (S25 review).**
+    The original took `parsed[0]`, so one argument item holding three indicators
+    was answered about ONE, with `unresolved` empty and nothing in the payload
+    saying so — the analyst's "check these three" came back reading as complete
+    while two were never looked up. That is the precise failure this module's own
+    docstring calls the whole of the DEFERRED rail: not-checked must never render
+    as no-signals. It was reachable through the exact shape `_as_list` exists to
+    accommodate — a bare comma-separated string arrives as ONE item.
+
+    Over-cap observables are counted and returned so the caller can NAME them
+    (the S21 lesson), rather than quietly answering about a subset.
     """
     resolved: list[Observable] = []
     unresolved: list[str] = []
     seen: set[str] = set()
+    over_cap = 0
     for raw in values:
         candidate = (raw or "").strip()
         if not candidate:
             continue
-        found = known.get(candidate)
-        if found is None:
-            parsed = extract(candidate).observables
-            found = parsed[0] if parsed else None
-        if found is None:
+        hit = known.get(candidate)
+        parsed = [hit] if hit is not None else list(extract(candidate).observables)
+        if not parsed:
             unresolved.append(candidate)
-        elif found.obs_id not in seen:
-            seen.add(found.obs_id)
-            resolved.append(found)
-    return resolved, unresolved
+            continue
+        for obs in parsed:
+            if obs.obs_id in seen:
+                continue
+            if len(resolved) >= cap:
+                over_cap += 1
+                continue
+            seen.add(obs.obs_id)
+            resolved.append(obs)
+    return resolved, unresolved, over_cap
 
 
 def _as_list(raw, *, cap: int) -> tuple[list[str], int]:
@@ -144,10 +167,23 @@ def _as_list(raw, *, cap: int) -> tuple[list[str], int]:
     choice. Returns the omitted count so the payload can NAME the cap rather
     than silently answering about a subset (the S21 lesson: an assertion — or an
     answer — over a truncated set must say it was truncated).
+
+    A bare NUMBER or boolean is the same class of formatting choice and is
+    treated the same way (S25 review). `list(5)` raises, and the loop's blanket
+    handler turns that into `tool raised TypeError` — which tells the model
+    nothing it can act on and burns a step. Coerced here instead, it flows to
+    the honest "none of these parsed as a supported indicator", echoing the
+    value back so the model can see what it sent.
     """
     if raw is None:
         return [], 0
-    items = [raw] if isinstance(raw, str) else list(raw)
+    if isinstance(raw, str):
+        items = [raw]
+    else:
+        try:
+            items = list(raw)
+        except TypeError:
+            items = [raw]
     flat = [str(i).strip() for i in items if str(i).strip()]
     deduped = list(dict.fromkeys(flat))
     return deduped[:cap], max(0, len(deduped) - cap)
@@ -182,7 +218,7 @@ def build_capability_registry(
                 "error": "enrichment_inactive",
                 "detail": "no enrichment providers are configured in this deployment",
             }
-        resolved, unresolved = _resolve(requested, known)
+        resolved, unresolved, over_cap = _resolve(requested, known)
         if not resolved:
             return {
                 "error": "unparsable",
@@ -221,6 +257,13 @@ def build_capability_registry(
             result["unresolved"] = unresolved
         if omitted:
             result["omitted"] = omitted
+        if over_cap:
+            # A different truth from `omitted`, which counts argument items
+            # dropped before parsing. This counts indicators the arguments
+            # actually yielded and we would not carry — kept separate, because
+            # "you sent too many strings" and "your strings held more
+            # indicators than we will check" are not the same sentence.
+            result["omitted_observables"] = over_cap
         return result
 
     async def lookup_cve(args: dict) -> dict:

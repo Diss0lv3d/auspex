@@ -180,6 +180,82 @@ async def test_an_indicator_that_does_not_parse_is_reported_not_dropped():
     assert len(service.enrich_calls[0]) == 1  # the good one still went through
 
 
+async def test_one_argument_holding_three_indicators_checks_all_three():
+    """S25 review. The original kept `parsed[0]` per argument item, so an
+    analyst's "check these three" came back answered about ONE — with
+    `unresolved` empty and nothing in the payload saying two were never looked
+    up. That is not-checked rendering as no-signals, the exact collapse this
+    module exists to prevent, and the enrichment service never even saw them.
+
+    Arithmetic control: the shared extractor finds three in this string, so a
+    result of one cannot be blamed on the input.
+    """
+    packed = "185.220.101.5 and 45.83.64.1 and 91.219.236.166"
+    assert len(_obs(packed)) == 3, "control broken: the input does not hold three"
+    service = FakeEnrichmentService(EnrichmentOutcome(items=()))
+    registry = _build(enrichment=service, observables=())
+
+    result = await registry.get("enrich_observable").handler({"observables": [packed]})
+
+    assert len(service.enrich_calls[0]) == 3, "the service was asked about a subset"
+    assert {o.value for o in service.enrich_calls[0]} == {
+        "185.220.101.5",
+        "45.83.64.1",
+        "91.219.236.166",
+    }
+    assert "unresolved" not in result
+
+
+async def test_a_bare_comma_separated_string_is_not_answered_about_its_first_indicator():
+    """The shape `_as_list` explicitly exists to accommodate is the shape most
+    likely to carry several indicators: a bare string arrives as ONE item.
+    Measured on the live endpoint at S25, Scout sends separate array items — so
+    this is latent there, and the platform's premise is whatever endpoint the
+    customer brings (the same argument that ratified the S24 carry fix)."""
+    csv = "8.8.8.8, 1.1.1.1, 9.9.9.9"
+    assert len(_obs(csv)) == 3, "control broken: the input does not hold three"
+    service = FakeEnrichmentService(EnrichmentOutcome(items=()))
+    registry = _build(enrichment=service, observables=())
+
+    # Not a list — the bare-string branch, exactly as a model would send it.
+    result = await registry.get("enrich_observable").handler({"observables": csv})
+
+    assert len(service.enrich_calls[0]) == 3
+    assert "unresolved" not in result
+
+
+async def test_more_indicators_than_the_boundary_carries_says_how_many_it_dropped():
+    """An answer over a truncated set must say it was truncated (the S21
+    lesson). Over-cap indicators are a different truth from over-cap argument
+    ITEMS, so they get their own key rather than being folded into `omitted`."""
+    packed = " ".join(f"10.0.0.{i}" for i in range(1, MAX_TOOL_ARG_ITEMS + 6))
+    assert len(_obs(packed)) == MAX_TOOL_ARG_ITEMS + 5, "control broken"
+    service = FakeEnrichmentService(EnrichmentOutcome(items=()))
+    registry = _build(enrichment=service, observables=())
+
+    result = await registry.get("enrich_observable").handler({"observables": [packed]})
+
+    assert len(service.enrich_calls[0]) == MAX_TOOL_ARG_ITEMS
+    assert result["omitted_observables"] == 5
+    assert "omitted" not in result  # one argument item went in; none was dropped
+
+
+@pytest.mark.parametrize("scalar", [5, 3.5, True])
+async def test_a_bare_number_is_an_honest_miss_rather_than_a_crash(scalar):
+    """S25 review. `list(5)` raises, and the loop turns any handler exception
+    into `tool raised TypeError` — which tells the model nothing it can act on
+    and costs it a step. A formatting choice deserves the same honest answer a
+    mangled hash gets, with the value echoed back."""
+    service = FakeEnrichmentService(EnrichmentOutcome(items=()))
+    registry = _build(enrichment=service, observables=())
+
+    result = await registry.get("enrich_observable").handler({"observables": scalar})
+
+    assert result["error"] == "unparsable"
+    assert result["unresolved"] == [str(scalar)]
+    assert service.enrich_calls == []  # nothing was looked up
+
+
 async def test_an_observable_that_was_not_checked_never_reads_as_no_signals():
     """The distinction the DEFERRED rail exists for. An observable with a
     `skip_reason` was never sent to a provider; reporting it as an empty signal
