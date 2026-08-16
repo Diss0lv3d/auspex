@@ -1015,3 +1015,19 @@ does it.
 **Trigger:** the first customer endpoint that emits content before a tool call,
 or any endpoint whose probe records non-zero content chars on a tool-calling
 turn. Until then this is a named assumption, not an outage.
+
+**S26 Step 0 — a SECOND consequence, measured, that this entry did not name.**
+Driving the shape directly (`docs/probes/s26-step0/probe_misbehaving_stream.py`,
+case `prose_before_tool_call`) shows the ordering hazard is only half of it. The
+turn also ends with a `done.text` holding **only the last call's content**,
+while the analyst read every step's content concatenated:
+
+    analyst READ:   'This IP looks benign to me. Actually it is MALICIOUS (score 88).'
+    route PERSISTS: 'Actually it is MALICIOUS (score 88).'
+
+So the conversation as reloaded from Postgres is not the conversation the
+analyst was shown — and the half that disappears is precisely the half the tool
+result contradicted. Recorded, deliberately NOT fixed: the fix is the same
+buffer this entry already costs, and inventing a second one (concatenating every
+step's content into `done.text`) would persist prose the tool results refuted,
+which is worse than dropping it. Same trigger, same measurement still owed.
