@@ -103,6 +103,12 @@ class SequencedStreamingFakeLLMClient:
     async def aclose(self) -> None:
         self.closed = True
 
+    @property
+    def turns(self) -> int:
+        """How many calls the endpoint actually served — same name and meaning
+        as StreamingFakeLLMClient.turns, so a test reads the same either way."""
+        return len(self.stream_calls)
+
 
 class FakeEnrichmentService:
     """Duck-typed EnrichmentService for the chat route (S5): scripted outcome,

@@ -980,3 +980,38 @@ reads the gap between them and names an outage when `used - settled` is large. O
 column, one UPDATE in the stream's `finally`, one branch in `refusal_text`. Do it
 when the platform runs against an endpoint whose uptime we do not control — i.e. the
 first real customer deployment.
+
+---
+
+## TD-036 (S25) — the streaming turn trusts a measurement about the endpoint
+
+**Where:** `auspex/agent/loop.py` — `run_stream`, the `content`/`reasoning`
+deltas passed through as they arrive.
+**Risk:** LOW today, and it is a bound rather than a bug. Not a shortcut taken to
+save time — it is D-031 decision 1 implemented as ratified, with its assumption
+named.
+
+`run_stream` streams content deltas the moment they arrive. That is safe if and
+only if no prose precedes a turn's tool calls: otherwise the analyst reads a
+sentence, and then a tool result that may contradict it. Measured true on the
+primary dev endpoint — Scout emits `tool_call → finish → usage` with **content
+chars: 0** (D-031, re-confirmed independently at S25 across 5 tool-calling
+prompts) — and the alternative costs the whole feature, because buffering until
+`finish_reason` means the answer arrives in one blob and nothing streams at all.
+
+**Why it is debt anyway.** The premise of the platform is whatever endpoint the
+customer brings, and S24 and S25 each fixed a defect whose entire argument was
+that an endpoint-shaped measurement must not become an invariant (the scanner's
+carry, the `parsed[0]` collapse). This is the same shape of assumption, held
+deliberately this time and written down rather than left in a comment.
+
+**What would fix it.** Hold content deltas until the step's first `tool_call`
+delta would have arrived, and release them once the step is known to be
+tool-free — a small buffer, not a full one, so streaming survives. That needs a
+measurement of where such an endpoint puts its first tool-call delta relative to
+its first content delta, which no probe has taken because no endpoint we have
+does it.
+
+**Trigger:** the first customer endpoint that emits content before a tool call,
+or any endpoint whose probe records non-zero content chars on a tool-calling
+turn. Until then this is a named assumption, not an outage.

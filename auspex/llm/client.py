@@ -297,33 +297,53 @@ def parse_sse_line(line: str) -> list[StreamEvent]:
     return events
 
 
-async def accumulate_stream(events: AsyncIterator[StreamEvent]) -> ChatResult:
-    """Fold a StreamEvent stream into a ChatResult.
+def fold_stream_event(
+    result: ChatResult, calls: dict[int, ToolCall], event: StreamEvent
+) -> None:
+    """Fold ONE StreamEvent into an in-progress ChatResult, in place.
 
     Tool-call deltas accumulate BY INDEX: id/name are set when present,
     `arguments` fragments are APPENDED — this handles both complete-per-chunk
-    (Ollama, finding 8) and fragmented-arguments (vLLM/OpenAI) styles.
+    (Ollama, finding 8) and fragmented-arguments (vLLM/OpenAI) styles. One IP
+    address was measured arriving as NINE fragments split mid-token (D-031
+    decision 2), so nothing may parse `arguments` until the stream ends.
+
+    Split out so a caller that must act on deltas AS THEY ARRIVE (the streaming
+    agent turn, which narrates tool steps and streams the answer) folds them
+    with exactly this code rather than a second opinion about fragment
+    assembly. `result.tool_calls` is only meaningful once the stream is done —
+    call `seal_stream_result` then.
     """
+    if event.kind == "content":
+        result.content += event.text
+    elif event.kind == "reasoning":
+        result.reasoning += event.text
+    elif event.kind == "tool_call":
+        tc_delta = event.tool_delta or {}
+        call = calls.setdefault(event.tool_index, ToolCall())
+        if tc_delta.get("id"):
+            call.id = tc_delta["id"]
+        fn = tc_delta.get("function") or {}
+        if fn.get("name"):
+            call.name = fn["name"]
+        if fn.get("arguments"):
+            call.arguments += fn["arguments"]
+    elif event.kind == "finish":
+        result.finish_reason = event.finish_reason
+    elif event.kind == "usage":
+        result.usage = event.usage
+
+
+def seal_stream_result(result: ChatResult, calls: dict[int, ToolCall]) -> ChatResult:
+    """Attach the accumulated tool calls, in wire order, once the stream ends."""
+    result.tool_calls = [calls[i] for i in sorted(calls)]
+    return result
+
+
+async def accumulate_stream(events: AsyncIterator[StreamEvent]) -> ChatResult:
+    """Fold a StreamEvent stream into a ChatResult."""
     result = ChatResult()
     calls: dict[int, ToolCall] = {}
     async for event in events:
-        if event.kind == "content":
-            result.content += event.text
-        elif event.kind == "reasoning":
-            result.reasoning += event.text
-        elif event.kind == "tool_call":
-            tc_delta = event.tool_delta or {}
-            call = calls.setdefault(event.tool_index, ToolCall())
-            if tc_delta.get("id"):
-                call.id = tc_delta["id"]
-            fn = tc_delta.get("function") or {}
-            if fn.get("name"):
-                call.name = fn["name"]
-            if fn.get("arguments"):
-                call.arguments += fn["arguments"]
-        elif event.kind == "finish":
-            result.finish_reason = event.finish_reason
-        elif event.kind == "usage":
-            result.usage = event.usage
-    result.tool_calls = [calls[i] for i in sorted(calls)]
-    return result
+        fold_stream_event(result, calls, event)
+    return seal_stream_result(result, calls)
