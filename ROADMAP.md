@@ -301,6 +301,39 @@ may not grow mid-session (IDEAS.md exists for that).
   must move inside the loop or TD-018 breaks, and the rail's index must follow the
   composed system message. 1021 tests; 118 modules; zero new env vars — ten
   sessions running.
+- [x] **S24 — the S23 review, and the agent finally has something to do.** _Step 0
+  again the session's substance; the goal's first half landed in full and its
+  second half was deliberately not started._ Promote #24 merged the S23 slate (the
+  commit list showed **281 commits**; the real change was 16 files — read the
+  diff). The fresh-eyes review found **three defects in day-old code**, each
+  confirmed by execution first. **S23's fix was itself defective**: dropping the
+  scanner's carry on a change of channel stopped a false positive, and a drop
+  loses things — the carry was one shared slot, so any delta of the other kind
+  evicted it, and a leak split across two chunks of the **same** pane, separated by
+  one interleaved delta, walked through the rail in **both** directions. Fixed with
+  a carry **per channel**, so the boundary guarantee and the chunking guarantee
+  hold at once instead of being traded, and shipped with the over-correction
+  control that proves it. **The TD-034 pin guarded the wrong statement** — it
+  asserts the racy pre-check while its docstring credits the atomic claim, and
+  loosening that claim left **all 34 settlement tests green**; the new pin drives a
+  stale read and fails with `DID NOT RAISE` when the claim goes. **The usage refund
+  was opt-in and did not hold** — measured, the 30 tests that never asked for it
+  left **29 unrefunded units** against a ceiling of 100, and the file looked clean
+  only because the fixture DELETEs the row and the 3 that use it run last; now
+  `autouse`, residue 29 → 0. **TD-035** accepted: a pass-1 leak is charged for the
+  call it prevented — it over-charges, TD-030 already covers it, and it dissolves
+  when the claim moves inside the loop rather than being patched first. Then the
+  goal: **enrichment, CVE lookup and KB retrieval are agent READ tools** (D-014),
+  wrapping the same services and the same fetch sizing rather than re-implementing
+  them, returning **data rather than the renderers' prose**, keeping the DEFERRED
+  rail's three truths distinct, and reusing the existing caps instead of declaring
+  new ones. **Live-verified against the real services**, not just fakes — real NVD
+  Log4Shell record with fabricated ids in `not_found` in the same call, real ATT&CK
+  TA0008, live enrichment with 5 sources answered, and a private address returning
+  `not_checked` with its reason. **The "agent has no tools" blocker, open since
+  S23, is closed.** Wiring the loop into `/api/chat` was **not started** — Step 0
+  ate the session and a half-wired route is worse than none. 1052 tests; 119
+  modules; zero new env vars — eleven sessions running.
 
 ## Later / explicitly deferred
 Herd Immunity federation (needs k≥3 workspaces + privacy review) · billing ·
