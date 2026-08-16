@@ -801,3 +801,45 @@ second rail with a different failure mode from the first, not a closure.
 **What this supersedes.** Nothing. D-006 (code owns safety-critical decisions),
 D-027 and D-029 (what the INPUT rail does and does not bound) all stand
 unchanged — this adds the side they each pointed at.
+
+---
+
+## D-032 — `main`'s protection is procedural, and that is the decision (2026-08-16, S25)
+
+**Context.** Since S20 the promote flow has assumed that branch protection on
+`main` was a settings toggle nobody had got round to. S24 tested that assumption
+and it was false: Burhan authorised enabling protection, and it **cannot be
+enabled on this repository**. Classic branch protection and rulesets both return
+`403 "Upgrade to GitHub Pro or make this repository public"` — both probed, record
+docs/probes/2026-08-16-s24-branch-protection.md. The repo is private on a free
+plan, so the item was never a task; it was a plan-and-visibility question wearing
+a task's clothes, and it sat in "in-flight follow-ups" for five sessions looking
+like something that would eventually get done.
+
+**Decision.** `main` is protected **procedurally**, not by GitHub. The guarantee
+is `/promote`'s: it refuses to merge on anything but a CLEAN check, and every
+promote so far has waited for green (#18 through #25). Three options were put to
+Burhan at the start of S25 — make the repo public, pay for Pro, or ratify the
+procedural protection — and the third was chosen.
+
+**Why not the other two.** Making the repo public would publish STATE.md,
+DECISIONS.md and `docs/probes/` — candid working documents written for two
+readers, including live probe records of external services. That is a real cost
+paid for a guarantee this project's actual failure modes do not need: there is one
+human and one agent, no third party pushes, and the risk protection addresses
+(someone merging red, or pushing straight to `main`) is already prevented by the
+ritual and the CI gate (D-028) that makes red visible to anyone.
+
+**What this obliges.** The procedure is now the guarantee, so it must not be
+softened casually. `/promote` may not merge on a non-CLEAN check, and `main` may
+not be pushed to directly. If either becomes untrue, this decision needs revisiting
+rather than quietly eroding — that is the whole difference between a procedural
+guarantee and no guarantee.
+
+**Status change.** This item leaves "in-flight follow-ups" permanently. It is not
+blocked, not pending, and not a shortcut logged in TECHNICAL_DEBT.md — it is a
+ratified decision.
+
+**What this supersedes.** Nothing. D-010 (work lands on `staging`; `main` moves
+only through `/promote`) and D-028 (CI runs `./ci.sh` and nothing else) both stand
+unchanged — this names what enforces them.
