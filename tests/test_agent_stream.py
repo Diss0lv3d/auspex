@@ -59,13 +59,18 @@ def _loop(registry, **over) -> AgentLoop:
     )
 
 
-def _tool_call_script(name="lookup_ip", args='{"ip": "203.0.113.99"}', *, chunks=1):
+def _tool_call_script(name="lookup_ip", args='{"ip": "203.0.113.99"}', *, chunks=1,
+                      call_id="call_a"):
     """A tool-calling turn: tool_call deltas, then finish. No content, which is
-    what the endpoint was measured to do (D-031)."""
+    what the endpoint was measured to do (D-031).
+
+    `call_id` is settable because a turn with two STEPS gets two distinct ids
+    from a real endpoint, and a script that reuses one id compares unequal
+    against any other path's replay for a reason that is the script's fault."""
     events = [
         StreamEvent(
             kind="tool_call", tool_index=0,
-            tool_delta={"id": "call_a", "function": {"name": name, "arguments": ""}},
+            tool_delta={"id": call_id, "function": {"name": name, "arguments": ""}},
         )
     ]
     size = max(1, len(args) // chunks)
@@ -380,19 +385,57 @@ async def test_whitespace_is_not_an_answer():
 async def test_run_and_run_stream_compose_the_same_messages():
     """They answer the same question two ways. If their system message or their
     tool specs differ, the streaming answer and the blocking answer differ — the
-    exact drift `wire_specs`/`_initial_messages` were extracted to prevent."""
+    exact drift `wire_specs`/`_initial_messages` were extracted to prevent.
+
+    Compares EVERY call, not just the first. Only `wire_specs`/`_initial_messages`
+    are shared: the two step loops are duplicated code, so they can agree on the
+    opening message and still diverge where the divergence would matter most —
+    on the replayed assistant/tool messages of a second step, or on the synthesis
+    pass, which is the one call whose kwargs deliberately differ from the rest.
+
+    Arithmetic first (S26 Step 0): the call COUNTS are asserted before the
+    messages are compared, because a zipped comparison passes vacuously when one
+    side made fewer calls."""
     from _fakes import FakeLLMClient
 
-    from auspex.llm.client import ChatResult
+    from auspex.llm.client import ChatResult, ToolCall
+
+    args = '{"ip": "203.0.113.99"}'
+
+    def blocking_tool_step(call_id):
+        return ChatResult(
+            content="", finish_reason="tool_calls",
+            tool_calls=[ToolCall(id=call_id, name="lookup_ip", arguments=args)],
+        )
 
     registry, _ = _registry()
-    streaming = SequencedStreamingFakeLLMClient([_answer_script(("hello.",))])
-    blocking = FakeLLMClient([ChatResult(content="hello.", finish_reason="stop")])
+    # Two tool steps then the step-cap synthesis pass: 3 model calls each.
+    streaming = SequencedStreamingFakeLLMClient([
+        _tool_call_script(args=args, call_id="call_a"),
+        _tool_call_script(args=args, call_id="call_b"),
+        _answer_script(("summary.",)),
+    ])
+    blocking = FakeLLMClient([
+        blocking_tool_step("call_a"), blocking_tool_step("call_b"),
+        ChatResult(content="summary.", finish_reason="stop"),
+    ])
 
-    await _drain(_loop(registry), streaming, "check 203.0.113.99")
-    await _loop(registry).run(blocking, "check 203.0.113.99")
+    await _drain(_loop(registry, max_steps=2), streaming, "check 203.0.113.99")
+    await _loop(registry, max_steps=2).run(blocking, "check 203.0.113.99")
 
-    assert streaming.stream_calls[0]["messages"] == blocking.calls[0]["messages"]
+    assert len(streaming.stream_calls) == len(blocking.calls) == 3, (
+        "the two paths did not make three calls each, so comparing them pairwise "
+        f"would compare different turns: {len(streaming.stream_calls)} vs {len(blocking.calls)}"
+    )
+    for i, (s, b) in enumerate(zip(streaming.stream_calls, blocking.calls, strict=True)):
+        assert s["messages"] == b["messages"], f"call {i} diverged"
+        # The synthesis pass offers no tools on either path; the steps offer them
+        # on both. Compared because "same messages, different tools" is drift too.
+        assert ("tools" in s["kwargs"]) == ("tools" in b["kwargs"]), f"call {i} tools differ"
+    assert "tools" not in streaming.stream_calls[-1]["kwargs"], (
+        "the synthesis pass offered tools — the control that makes call 2 "
+        "distinguishable from calls 0 and 1 is gone"
+    )
 
 
 async def test_the_wire_specs_offered_are_the_registrys_tools():
