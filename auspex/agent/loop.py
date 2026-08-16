@@ -96,7 +96,8 @@ class AgentResult:
     content: str
     steps: int
     invocations: list[ToolInvocation]
-    stopped_reason: str  # "final_answer" | "step_cap"
+    # "final_answer" | "step_cap" | "empty_answer" (see `_terminal_reason`)
+    stopped_reason: str
     mode: str = ""
 
     @property
@@ -131,7 +132,8 @@ class AgentStreamEvent:
                     it reports what happened rather than what was requested.
       'usage'     — one model call's usage, per call rather than per turn.
       'done'      — the turn ended; `text` is the final answer, `stop_reason`
-                    says why it ended.
+                    says why it ended. `empty_answer` means there is no answer
+                    to render or persist — see `_terminal_reason`.
     """
 
     kind: str
@@ -139,7 +141,7 @@ class AgentStreamEvent:
     invocation: ToolInvocation | None = None
     usage: Usage | None = None
     finish_reason: str | None = None
-    # "final_answer" | "step_cap" | "usage_refused"
+    # "final_answer" | "step_cap" | "empty_answer" | "usage_refused"
     stop_reason: str = ""
     step: int = 0
     invocations: list[ToolInvocation] = field(default_factory=list)
@@ -258,6 +260,32 @@ def channel_for(mode: str) -> ToolChannel:
 
 
 # --- The loop ----------------------------------------------------------------
+
+
+def _terminal_reason(content: str, *, at_step_cap: bool = False) -> str:
+    """Which terminal state a finished turn is actually in.
+
+    Shared by `run` and `run_stream` so the two cannot hold two opinions about
+    what counts as an answer — the same reason `fold_stream_event` exists.
+
+    **A turn that ends with blank text did not answer**, and calling that
+    `final_answer` is *nothing happened* rendering as *the answer is nothing*:
+    the route persists the final text as the assistant turn, so an empty string
+    becomes a stored, rendered reply, and the terminal state gives the route
+    nothing to notice it by. Measured (S26 Step 0, docs/probes/s26-step0/): a
+    thinking model that spends its whole `max_tokens` budget on reasoning emits
+    reasoning deltas, `finish_reason="length"` and no content at all — and the
+    terminal state was byte-identical to a complete answer's.
+
+    Emptiness outranks `step_cap` because both `final_answer` and `step_cap`
+    claim *here is the answer*. Nothing is lost by saying so: `step` still
+    carries whether the cap was reached, and the invocations still carry what
+    was gathered. `usage_refused` is untouched — it is the more specific fact
+    (we never asked the endpoint at all).
+    """
+    if not (content or "").strip():
+        return "empty_answer"
+    return "step_cap" if at_step_cap else "final_answer"
 
 
 def _refuse_shadowed_actions(
@@ -381,7 +409,9 @@ class AgentLoop:
             )
             calls = self.channel.extract_calls(result)
             if not calls:
-                return AgentResult(result.content, step, invocations, "final_answer", self.mode)
+                return AgentResult(
+                    result.content, step, invocations, _terminal_reason(result.content), self.mode
+                )
 
             # Pair assistant tool_calls with their tool results by id; synthesise
             # ids the endpoint omitted so the replay stays well-formed.
@@ -401,7 +431,10 @@ class AgentLoop:
             max_tokens=self.max_tokens,
             temperature=self.temperature,
         )
-        return AgentResult(final.content, self.max_steps, invocations, "step_cap", self.mode)
+        return AgentResult(
+            final.content, self.max_steps, invocations,
+            _terminal_reason(final.content, at_step_cap=True), self.mode,
+        )
 
     async def run_stream(
         self,
@@ -491,7 +524,8 @@ class AgentLoop:
             calls = self.channel.extract_calls(result)
             if not calls:
                 yield AgentStreamEvent(
-                    kind="done", text=result.content, stop_reason="final_answer",
+                    kind="done", text=result.content,
+                    stop_reason=_terminal_reason(result.content),
                     finish_reason=result.finish_reason, step=step,
                     invocations=list(invocations),
                 )
@@ -522,7 +556,8 @@ class AgentLoop:
             yield out
         final = sealed[0]
         yield AgentStreamEvent(
-            kind="done", text=final.content, stop_reason="step_cap",
+            kind="done", text=final.content,
+            stop_reason=_terminal_reason(final.content, at_step_cap=True),
             finish_reason=final.finish_reason, step=self.max_steps,
             invocations=list(invocations),
         )

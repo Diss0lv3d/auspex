@@ -297,6 +297,83 @@ async def test_the_tool_result_is_a_message_the_answer_can_be_built_from():
     assert "malicious" in tool_messages[0]["content"]
 
 
+# -- a turn that produced no answer must not claim it answered ----------------
+
+
+async def test_a_turn_the_endpoint_never_answered_says_so():
+    """S26 Step 0, measured. `run_stream` ended a turn `final_answer` whenever no
+    tool calls came back — without asking whether an ANSWER came back.
+
+    The realistic path is a THINKING MODEL: reasoning tokens count against
+    `max_tokens`, so a model that thinks past its budget emits reasoning deltas,
+    `finish_reason="length"`, and no content at all. The terminal state was then
+    byte-identical to a complete answer's, and the route persists `done.text` as
+    the assistant turn — so *nothing happened* would be stored and rendered as
+    *the answer is nothing*.
+
+    The control is the same script with ONE content delta added, so a passing
+    subject cannot be explained by the harness."""
+    registry, _ = _registry()
+    thinking = [
+        StreamEvent(kind="reasoning", text="Let me consider the indicators, and "),
+        StreamEvent(kind="reasoning", text="whether enrichment would help here, and "),
+        StreamEvent(kind="finish", finish_reason="length"),
+    ]
+
+    events = await _drain(_loop(registry), SequencedStreamingFakeLLMClient([thinking]))
+    done = events[-1]
+    assert [e.kind for e in events if e.kind == "content"] == [], "the control assumes no content"
+    assert done.kind == "done"
+    assert done.stop_reason == "empty_answer", (
+        f"a turn with no answer reported {done.stop_reason!r}"
+    )
+    assert done.text == ""
+    assert done.finish_reason == "length"  # why it stopped is still carried
+
+    answered = [*thinking[:-1],
+                StreamEvent(kind="content", text="203.0.113.99 is malicious."),
+                StreamEvent(kind="finish", finish_reason="stop")]
+    control = await _drain(_loop(registry), SequencedStreamingFakeLLMClient([answered]))
+    assert control[-1].stop_reason == "final_answer", (
+        "the control did not answer either — the subject proves nothing"
+    )
+    assert control[-1].text == "203.0.113.99 is malicious."
+
+
+async def test_an_empty_synthesis_pass_does_not_claim_an_answer():
+    """The step-cap pass can come back empty too, and `step_cap` also claims
+    'here is the answer'. `step` still carries that the cap was reached, so
+    naming the emptiness loses nothing."""
+    registry, _ = _registry()
+    scripts = [_tool_call_script() for _ in range(2)] + [[StreamEvent(kind="finish",
+                                                                     finish_reason="length")]]
+    client = SequencedStreamingFakeLLMClient(scripts)
+
+    events = await _drain(_loop(registry, max_steps=2), client)
+
+    done = events[-1]
+    assert client.turns == 3, "the synthesis pass did not run"
+    assert done.stop_reason == "empty_answer"
+    assert done.step == 2, "the cap is still legible in `step`"
+    assert len(done.invocations) == 2, "the evidence gathered is still carried out"
+
+
+async def test_whitespace_is_not_an_answer():
+    """A model that emits a newline and stops has answered nothing. Separate from
+    the case above because `content` here is truthy — `if not text` would pass."""
+    registry, _ = _registry()
+    script = [StreamEvent(kind="content", text="  \n "),
+              StreamEvent(kind="finish", finish_reason="stop")]
+    client = SequencedStreamingFakeLLMClient([script])
+
+    events = await _drain(_loop(registry), client)
+
+    assert [e.kind for e in events if e.kind == "content"] == ["content"], (
+        "the delta must still stream — this is about the TERMINAL STATE, not suppression"
+    )
+    assert events[-1].stop_reason == "empty_answer"
+
+
 # -- anti-drift: the two turns are the same turn ------------------------------
 
 
