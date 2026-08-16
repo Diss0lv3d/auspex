@@ -1154,3 +1154,58 @@ async def test_an_undo_cannot_start_on_a_row_abandoned_during_execute(
     row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
     assert row["status"] == "abandoned"
     assert row["undo_result"] is None
+
+
+async def test_the_undo_claim_itself_refuses_an_abandoned_row(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """S24 review — the test above names the wrong statement, so this one pins
+    the right one.
+
+    `test_an_undo_cannot_start_on_a_row_abandoned_during_execute` asserts
+    `not_executed`, which is the READ-then-check at settlement.py:530. Its
+    docstring, though, credits the guarantee to the atomic claim at :544 and
+    promises that loosening that claim makes it fail. Measured in S24: it does
+    not. Loosening the claim to `status IN ('executed','abandoned')` leaves all
+    34 settlement tests green, because the pre-check refuses first — the pin
+    guards the racy statement and leaves the atomic one bare.
+
+    The claim exists precisely for what the pre-check cannot see: the row
+    changing between the read and the write. So that is the shape tested here —
+    a stale read says `executed` while the row is already `abandoned`. Nothing
+    but the claim's own `AND status = 'executed'` stands between that and an
+    `undo_result` stamped onto a row a human abandoned (TD-034).
+    """
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await settlement.settle(
+        workspace_id=workspace_id, proposal_id=pid, decision="approved", decided_by=None
+    )
+    await pool.execute(
+        "UPDATE proposals SET status = 'executing', claimed_at = now() - interval '1 hour'"
+        " WHERE id = $1::uuid",
+        str(pid),
+    )
+    abandoned = await settlement.abandon(
+        workspace_id=workspace_id, proposal_id=pid, decided_by=None
+    )
+    assert abandoned.won and abandoned.proposal["status"] == "abandoned"
+
+    executor = ActionExecutor(pool, registry)
+    fresh = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert fresh["status"] == "abandoned"  # control: the row really is abandoned
+
+    # The stale read the claim is the backstop for. Only `get` is faked; the
+    # claim runs against the real row.
+    async def _stale_read(**_kwargs):
+        return {**dict(fresh), "status": "executed"}
+
+    executor._settlement.get = _stale_read
+
+    with pytest.raises(ExecutionRefused) as caught:
+        await executor.undo(workspace_id=workspace_id, proposal_id=pid)
+    assert caught.value.reason == "already_undone"
+
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert row["status"] == "abandoned"  # not dragged into 'undoing'
+    assert row["undo_result"] is None  # TD-034's late-write never gets a row
