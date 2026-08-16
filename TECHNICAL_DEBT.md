@@ -1,5 +1,30 @@
 # Technical debt — logged the moment it's taken
 
+## TD-035 (S24) — a pass-1 leak is charged for the call it prevented
+**Where:** `auspex/routes/chat.py` — the TD-018 usage claim, taken before the
+first inference call.
+**Risk:** LOW, and it fails in the safe direction. Accepted, not fixed.
+
+The claim is `1 if endpoint.native_reasoning else 2`, taken up front for the
+calls the turn *intends* to make. S23's pass-1 guard changed what a turn can
+actually cost: when the output rail trips during pass 1 the turn now ends
+without making pass 2, so the workspace is charged 2 for 1 call served.
+
+Left as-is, deliberately, for three reasons. It over-charges rather than
+under-charges, so no workspace exceeds its plan by exploiting it. TD-030 already
+ratifies that a failed turn is charged in full, and this is that rule meeting a
+new way for a turn to fail. And `UsageLimiter` has no refund path at all — the
+only mutation is `claim`, which counts up — so reconciling this means new API
+surface on the exact code the agent-loop work is about to restructure: D-031
+requires the claim to move *inside* the loop, because a loop makes up to 9 calls
+against a claim of 1–2, which breaks TD-018 outright.
+
+**Path to fix:** it dissolves rather than gets fixed. Once the claim moves inside
+the loop and each call is claimed as it is made, a turn that stops early is
+charged for exactly what it spent, and this entry closes with TD-018's reopening.
+The trap to avoid meanwhile is "reconciling" it with a one-off refund, which
+would add a second place that knows how to count calls.
+
 ## TD-034 (S23) — the late-write knows the row was abandoned, not which operation was
 **Where:** `auspex/actions/settlement.py` — `_finish_claim`, the second
 statement (the late-write onto a terminal row).
@@ -17,9 +42,22 @@ never began.
 of this statement: `undo` claims `WHERE status = 'executed'`, so an undo handler
 can only be in flight on a row that was executed, and abandon then moves that row
 out of `undoing` — never out of `executing`. Measured in the same probe (a real
-`undo()` on an execute-abandoned row raises `ExecutionRefused: not_executed`) and
-pinned by `test_an_undo_cannot_start_on_a_row_abandoned_during_execute`, which
-fails loudly if the undo claim is ever loosened.
+`undo()` on an execute-abandoned row raises `ExecutionRefused: not_executed`).
+
+**Corrected in S24 — the pin did not guard the statement this entry names.**
+The sentence that stood here claimed
+`test_an_undo_cannot_start_on_a_row_abandoned_during_execute` "fails loudly if
+the undo claim is ever loosened". It does not. Loosening that claim to
+`status IN ('executed','abandoned')` left **all 34 settlement tests green**,
+because the test asserts `not_executed` — the read-then-check at
+settlement.py:530 — while the guarantee belongs to the atomic claim at :544.
+The pin guarded the racy statement and left the load-bearing one bare.
+`test_the_undo_claim_itself_refuses_an_abandoned_row` (S24) now pins the claim
+by the shape it exists for — a stale read saying `executed` while the row is
+already `abandoned` — and with the claim loosened it fails with
+`DID NOT RAISE ExecutionRefused`, i.e. the undo proceeds onto the abandoned row
+and TD-034 becomes reachable. Both statements are pinned now, which is what the
+original entry believed was already true.
 
 Two things that ARE sound, measured in the same probe: two late handlers race and
 exactly one answer lands (the `IS NULL` guard holds), and neither moves the row or
