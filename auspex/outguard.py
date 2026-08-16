@@ -134,8 +134,14 @@ class OutputScanner:
 
     index: set[str]
     shingle: int = SHINGLE_WORDS
-    _carry: list[str] = field(default_factory=list, init=False)
-    _channel: str = field(default="", init=False)
+    # One carry PER channel, not one shared slot. S24 review measured why: a
+    # single slot is evicted by any delta of the other kind, so on an endpoint
+    # that interleaves the two panes, a leak split across two chunks of the SAME
+    # pane walked straight through. Keyed by channel, both properties hold at
+    # once — a run still cannot span two channels (each carry is separate), and
+    # chunking stays invisible within a channel however the kinds interleave.
+    # The key space is closed: call sites pass literals, never model output.
+    _carries: dict[str, list[str]] = field(default_factory=dict, init=False)
     _outcome: OutputOutcome | None = field(default=None, init=False)
 
     @property
@@ -155,22 +161,32 @@ class OutputScanner:
         half is in one and whose second half is in the other never existed as a
         run anywhere — not in our configuration, and not on the analyst's
         screen. S23 review measured exactly that false positive: the halves were
-        individually clean and the pair tripped. Changing channel drops the
-        carry, which is the whole of the fix.
+        individually clean and the pair tripped.
+
+        S23 fixed it by DROPPING the carry on a change of channel, and S24's
+        review measured what a drop costs. A single shared slot is evicted by
+        any delta of the other kind, so on an endpoint that interleaves the
+        panes, `content | reasoning | content` lost the carry the first content
+        chunk had just set — and a leak split across those two content chunks
+        was missed, in both directions. Neither endpoint we have interleaves
+        today (measured: qwen3 emits 361 reasoning deltas then 32 content, one
+        switch), but that is a property of the endpoint, and the platform's
+        premise is whatever endpoint the customer brings.
+
+        Carrying PER CHANNEL keeps both guarantees without trading one for the
+        other: a run cannot span two channels, and chunking stays invisible
+        within a channel however the kinds interleave.
         """
         if self._outcome is not None or not self.index:
             return None
-        if channel != self._channel:
-            self._carry = []
-            self._channel = channel
-        words = self._carry + _words(chunk)
+        words = self._carries.get(channel, []) + _words(chunk)
         for i in range(len(words) - self.shingle + 1):
             run = " ".join(words[i : i + self.shingle])
             if run in self.index:
                 self._outcome = OutputOutcome(OutputVerdict.LEAKED, run)
-                self._carry = []
+                self._carries.clear()
                 return self._outcome
-        self._carry = words[-(self.shingle - 1) :] if self.shingle > 1 else []
+        self._carries[channel] = words[-(self.shingle - 1) :] if self.shingle > 1 else []
         return None
 
     def result(self) -> OutputOutcome:

@@ -1049,18 +1049,30 @@ _LEAK = (
 )
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def _no_usage_residue(settings):
     """Put back the INFERENCE_CALLS units these tests spend.
 
     Every dev-login user shares the `default` workspace and the ceiling is
     hourly (plan 'free', 100 calls/hour), so units left behind accumulate across
-    runs. The suite's only protection today is incidental — `test_hardening_
-    surface` clears the same workspace's counter when it happens to run first.
-    Adding five unrefunded units was enough to make the full suite 429 in one
-    run and pass in the next, which is how a suite starts failing at one hour
-    and passing at the next. STATE.md's rule, applied: a test that touches
+    runs. Adding five unrefunded units was enough to make the full suite 429 in
+    one run and pass in the next, which is how a suite starts failing at one
+    hour and passing at the next. STATE.md's rule, applied: a test that touches
     `usage_counters` cleans up after itself.
+
+    **autouse since S24, because opt-in did not hold.** S23 added this fixture
+    and three tests asked for it; the other thirty did not. Measured: with those
+    three deselected, one run of this file left **29 unrefunded units** against a
+    ceiling of 100. The file looked clean only because the three tests that do
+    ask happen to sit near the end and this DELETES the row rather than
+    decrementing it — the same incidental ordering S23 recorded as a risk, moved
+    rather than removed. autouse is what makes it a property of the file instead
+    of something each new test has to remember.
+
+    Safe at function scope: nothing in this file asserts a limit or a usage
+    count (the limit assertions live in test_hardening_surface.py, which sets up
+    its own state via `clean_usage` and never inherits any), so clearing after
+    every test cannot mask one.
     """
     yield
 
@@ -1083,7 +1095,7 @@ def _no_usage_residue(settings):
 
 
 def test_a_leak_in_pass_one_ends_the_turn_without_a_second_call(
-    client, settings, _no_usage_residue
+    client, settings
 ):
     """S23 review, measured on the TWO-PASS path — the one a customer endpoint
     without native reasoning actually takes, and the one S22's two leak tests
@@ -1127,7 +1139,7 @@ def test_a_leak_in_pass_one_ends_the_turn_without_a_second_call(
     assert all(role != "assistant" for role, _ in _session_messages(settings, session_id))
 
 
-def test_a_leak_in_pass_two_is_still_caught(client, settings, _no_usage_residue):
+def test_a_leak_in_pass_two_is_still_caught(client, settings):
     """The guard above must not have bought pass-1 safety by skipping the scan
     on the path that produces the actual answer."""
     pass1 = [StreamEvent(kind="content", text="Thinking about the alerts.")]
@@ -1157,7 +1169,7 @@ def test_a_leak_in_pass_two_is_still_caught(client, settings, _no_usage_residue)
     assert all(role != "assistant" for role, _ in _session_messages(settings, session_id))
 
 
-def test_a_run_spanning_reasoning_and_answer_is_not_a_leak(client, settings, _no_usage_residue):
+def test_a_run_spanning_reasoning_and_answer_is_not_a_leak(client, settings):
     """The false positive the channel fix closes, through the real route.
 
     Half of an indexed run in the Thinking pane and half in the answer is not a
