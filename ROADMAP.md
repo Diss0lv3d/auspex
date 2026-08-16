@@ -334,6 +334,39 @@ may not grow mid-session (IDEAS.md exists for that).
   S23, is closed.** Wiring the loop into `/api/chat` was **not started** — Step 0
   ate the session and a half-wired route is worse than none. 1052 tests; 119
   modules; zero new env vars — eleven sessions running.
+- [x] **S25 — the review found two more, and the loop learned to stream.** Promote
+  #25 merged the S24 slate (17 files, +1921/-300; the commit list again showed
+  ~280 — read the diff). The fresh-eyes review found **two defects in the
+  day-old capability tools**, both in the same boundary: model-controlled tool
+  arguments. **`_resolve` kept only the first observable per argument item**, so
+  an analyst's "check these three" came back answered about ONE, with `unresolved`
+  empty and nothing saying so — *not-checked* rendering as *no-signals*, which is
+  the collapse that module's own docstring exists to prevent, and its own promise
+  ("never dropped") inverted. Measured **latent** on Scout (which sends separate
+  array items) but reachable by construction through the bare-string shape
+  `_as_list` exists to accept. **A bare number raised `TypeError`**, which the loop
+  degraded to an unactionable "tool raised TypeError". Both fixed with arithmetic
+  controls and proven to fail pre-fix. **Four suspicions were checked and CLEARED**
+  and recorded as such — autouse is sound (no test in the file asserts a limit;
+  pytest runs serially), the stale-read pin cannot leak, provider failures are
+  fixed literals so no configuration reaches a tool result, and the "unbounded
+  model string" lead dissolves against `max_tokens=2000` plus term-not-query-string
+  clauses. **D-032 ratified**: `main`'s protection is procedural — it *cannot* be
+  enabled (private repo, free plan) and the item leaves in-flight follow-ups
+  permanently. Then goal item 2, which nothing had ever measured: **the tool
+  descriptions work as PROMPTS** — live, 8 of 8, right tool and right arguments,
+  and the control earned its keep by revealing that **Scout REFUSES a question no
+  tool answers** rather than replying in prose. Finally the goal's mechanism half:
+  **`AgentLoop.run_stream`** implements all five D-031 decisions — tool steps
+  narrated before the answer streams, arguments folded through the same code
+  `accumulate_stream` uses, the usage claim **per model call** including the
+  synthesis pass, and `system_message()` made public so the rail indexes the
+  composed message. Proven by three neutralisations, each hitting exactly its own
+  tests. **Live-verified end to end** against Scout and the real services: 1 tool
+  step, 79 content deltas, 2 claims for 2 calls, ordering held. **The route was
+  deliberately NOT touched** — Burhan's call, so `/api/chat` is unchanged and main
+  stays deployable. TD-036 logged. 1073 tests; 119 modules; zero new env vars —
+  twelve sessions running.
 
 ## Later / explicitly deferred
 Herd Immunity federation (needs k≥3 workspaces + privacy review) · billing ·
