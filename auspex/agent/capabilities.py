@@ -168,10 +168,22 @@ def _as_list(raw, *, cap: int) -> tuple[list[str], int]:
     than silently answering about a subset (the S21 lesson: an assertion — or an
     answer — over a truncated set must say it was truncated).
 
+    A bare NUMBER or boolean is the same class of formatting choice and is
+    treated the same way (S25 review). `list(5)` raises, and the loop's blanket
+    handler turns that into `tool raised TypeError` — which tells the model
+    nothing it can act on and burns a step. Coerced here instead, it flows to
+    the honest "none of these parsed as a supported indicator", echoing the
+    value back so the model can see what it sent.
     """
     if raw is None:
         return [], 0
-    items = [raw] if isinstance(raw, str) else list(raw)
+    if isinstance(raw, str):
+        items = [raw]
+    else:
+        try:
+            items = list(raw)
+        except TypeError:
+            items = [raw]
     flat = [str(i).strip() for i in items if str(i).strip()]
     deduped = list(dict.fromkeys(flat))
     return deduped[:cap], max(0, len(deduped) - cap)

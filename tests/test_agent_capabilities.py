@@ -240,6 +240,22 @@ async def test_more_indicators_than_the_boundary_carries_says_how_many_it_droppe
     assert "omitted" not in result  # one argument item went in; none was dropped
 
 
+@pytest.mark.parametrize("scalar", [5, 3.5, True])
+async def test_a_bare_number_is_an_honest_miss_rather_than_a_crash(scalar):
+    """S25 review. `list(5)` raises, and the loop turns any handler exception
+    into `tool raised TypeError` — which tells the model nothing it can act on
+    and costs it a step. A formatting choice deserves the same honest answer a
+    mangled hash gets, with the value echoed back."""
+    service = FakeEnrichmentService(EnrichmentOutcome(items=()))
+    registry = _build(enrichment=service, observables=())
+
+    result = await registry.get("enrich_observable").handler({"observables": scalar})
+
+    assert result["error"] == "unparsable"
+    assert result["unresolved"] == [str(scalar)]
+    assert service.enrich_calls == []  # nothing was looked up
+
+
 async def test_an_observable_that_was_not_checked_never_reads_as_no_signals():
     """The distinction the DEFERRED rail exists for. An observable with a
     `skip_reason` was never sent to a provider; reporting it as an empty signal
