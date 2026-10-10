@@ -50,6 +50,20 @@ now be re-measured on the new model.**)_
   - 1175 tests, **120 modules** (new: auspex/llm/autoprobe.py); `./ci.sh` green, demo exit 0. Next: `/session-end`, or go on to goal item 4 (TD-028 b/c/d +
     TD-034).
 
+- **Goal item 4 DONE (2026-10-10) → D-041, "what a proposal's terminal states
+  say":**
+  - TD-034 `f263c1d`: `abandoned_from`, so a late answer lands only for its own
+    operation.
+  - TD-028b `203cccc`: a failed run looks at what it left (`ActionSpec.observe`).
+    `failed` is checked; anything else is the new `incomplete`, queued.
+  - TD-028c `1c6c9bd`: undo from `incomplete`/`abandoned`, returning to where it
+    started on failure; `failed` → `nothing_to_undo`.
+  - TD-028d `6811d45`: each pending card names its `identical_pending` twins.
+  - 19 new tests, 11/11 mutants caught. Live through the API: twins, a crashed
+    run abandoned and put back, a checked failure refused
+    (docs/probes/2026-10-10-s26-terminal-states.md).
+  - Bound stated: a merely-slow handler on an abandoned run can land after the
+    put-back. No idempotency key yet (TD-025).
 - **Step 0 (2026-08-16):** promote #26 merged; fresh-eyes review fixed `f931c98`
   (a turn the endpoint never answered reported that it answered), strengthened
   the anti-drift test (`e684671`), gave TD-036 a second consequence. Record:
