@@ -9,19 +9,21 @@ containment-vs-inertness distinction applied here:
 - The DISPOSITION is code-owned. `decide_verdict` computes the floor from parsed
   headers alone; body prose never enters that computation, and BENIGN requires
   positive authentication evidence. This is structural (ADR 0006).
-- The RENDERED verdict is CHECKED, not prevented. chat.py passes
-  `pinned={"Verdict": allowed}`, so a launder below the floor always fails the
-  contract — but validation is post-hoc (TD-012): the offending answer has
-  already streamed to the user and been persisted, with `contract_valid:false`
-  on the done frame as the record. Do not read the pin as making a laundered
-  verdict impossible; read it as making one always detectable. Pinned by
-  tests/test_chat_sse.py::test_phishing_verdict_cannot_be_laundered_below_the_floor.
+- The RENDERED verdict is CHECKED before it is shown (D-043). chat.py passes
+  `pinned={"Verdict": allowed}`, so a launder below the floor fails the
+  contract; since S27 the answer is held until it passes, re-asked once, and
+  otherwise replaced by `deterministic_phishing_answer`. Until S27 the check was
+  post-hoc (TD-012): a laundered answer had already streamed and been persisted,
+  with `contract_valid:false` as the only record. The model can still be
+  steered — what changed is that the analyst is never shown the result. Pinned
+  by tests/test_chat_sse.py::test_phishing_verdict_cannot_be_laundered_below_the_floor.
 
 Every envelope field embedded here is attacker-authored and goes through
 `auspex.untrusted.flatten` first — including the indicator values (S12 review C)."""
 
 from __future__ import annotations
 
+from auspex.modes.contract import CODE_RENDERED_NOTE
 from auspex.phishing.envelope import EmailEnvelope
 from auspex.phishing.verdict import PhishingVerdict
 from auspex.phishing.victims import filter_victim_iocs, sender_forges_recipient_domain
@@ -135,3 +137,31 @@ def deterministic_phishing_block(env: EmailEnvelope, verdict: PhishingVerdict) -
         "or internal IPs; use the recommended next step in ## Recommendation."
     )
     return "\n".join(lines)
+
+
+def deterministic_phishing_answer(verdict: PhishingVerdict) -> str:
+    """The phishing_analysis answer rendered by CODE from the verdict alone
+    (D-043) — the floor, the named findings and the recommendation. It passes
+    the contract and the floor pin by construction (pinned by test). Findings
+    are flattened for the same reason the directive flattens them: their detail
+    quotes attacker-authored headers."""
+    head = (
+        f"score {verdict.score}/100"
+        if verdict.score is not None
+        else "no score (insufficient signal)"
+    )
+    indicators = [CODE_RENDERED_NOTE, f"Deterministic verdict: {verdict.verdict}, {head}."]
+    indicators += [
+        f"- {_clean(f.detail, cap=160)} [{f.type.value}, {f.confidence}]"
+        for f in verdict.findings
+    ] or ["- None of the deterministic header checks fired."]
+    if verdict.deferred_reason:
+        indicators.append(
+            f"Why the verdict is DEFERRED: {_clean(verdict.deferred_reason, cap=400)}."
+        )
+    return "\n".join([
+        "## Verdict", verdict.verdict, "",
+        "## Indicators", *indicators, "",
+        "## Recommendation", _clean(verdict.recommendation, cap=2000),
+    ])
+

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from auspex.alerts.envelope import AlertEnvelope
 from auspex.alerts.scorer import RiskScore
+from auspex.modes.contract import CODE_RENDERED_NOTE
 from auspex.untrusted import flatten as _clean
 
 
@@ -70,3 +71,25 @@ def deterministic_triage_block(env: AlertEnvelope, risk: RiskScore) -> str:
         "in ## Recommendation."
     )
     return "\n".join(lines)
+
+
+def deterministic_triage_answer(risk: RiskScore) -> str:
+    """The alert_triage answer rendered by CODE from the verdict alone (D-043):
+    what the analyst reads when the written answer failed its contract, and its
+    re-ask failed too. Every value comes from the scorer, so it passes the
+    contract and the Risk pin by construction (pinned by test). Each signal's
+    detail is flattened: it can carry parsed alert text, and a newline in it
+    must not open a section of its own in an answer the code vouches for."""
+    head = (
+        f"score {risk.score}/100" if risk.score is not None else "no score (insufficient signal)"
+    )
+    reasoning = [CODE_RENDERED_NOTE, f"Deterministic triage: {risk.risk_level}, {head}."]
+    reasoning += [f"- {_clean(c.detail)} (+{c.points})" for c in risk.contributions]
+    if risk.deferred_reason:
+        reasoning.append(f"Deferred because: {_clean(risk.deferred_reason, cap=400)}.")
+    return "\n".join([
+        "## Risk", risk.risk_level, "",
+        "## Reasoning", *reasoning, "",
+        "## Recommendation", _clean(risk.recommendation, cap=2000),
+    ])
+

@@ -293,3 +293,36 @@ def test_duplicate_header_keeps_the_first_section():
         "## Risk\nthis late duplicate must not win\n"
     )
     assert c.validate(answer).ok
+
+
+# -- D-043: the repair directive is compiled, never quoted --------------------
+
+
+def test_the_repair_directive_names_fields_and_code_values_never_the_draft():
+    """D-043: the re-ask after a failed held answer is compiled from the spec and
+    the code's pins. The draft's own tokens are model output, possibly steered by
+    the paste, and must never be lifted into a system message."""
+    from auspex.modes.contract import ContractResult
+
+    contract = contract_for(Mode.ALERT_TRIAGE)
+    failed = ContractResult(
+        mode="alert_triage",
+        missing=("Recommendation",),
+        bad_enum=("Risk=IGNOREPREVIOUS",),
+        pinned_mismatch=("Risk=IGNOREPREVIOUS≠DEFERRED",),
+    )
+
+    directive = contract.repair_directive(failed, pinned={"Risk": "DEFERRED"})
+
+    assert "IGNOREPREVIOUS" not in directive
+    assert "## Recommendation" in directive and "## Risk" in directive
+    assert 'The ## Risk section must begin with exactly "DEFERRED".' in directive
+
+
+def test_the_repair_directive_says_an_empty_draft_was_empty_and_lists_a_pinned_set():
+    contract = contract_for(Mode.PHISHING_ANALYSIS)
+
+    directive = contract.repair_directive(None, pinned={"Verdict": ("SUSPICIOUS", "MALICIOUS")})
+
+    assert "it was empty" in directive
+    assert "The ## Verdict section must begin with one of: SUSPICIOUS, MALICIOUS." in directive

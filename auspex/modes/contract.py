@@ -9,8 +9,9 @@ Contracts describe named sections of the analyst answer (plain text, `## Name`
 headers — the chat UI renders verbatim). A field may be an enum (a closed set of
 allowed values, e.g. a risk level); the validator checks membership in code
 (post-hoc, never by trusting the model — ADR 0006 spirit) and REPORTS
-non-conformance. It observes correctness; it does not block a streamed answer
-(the repair loop is TD-012).
+non-conformance. It observes correctness; it does not block a streamed answer.
+For the code-decided modes the route holds the answer, validates it before it is
+sent, and re-asks once with `repair_directive` (D-043, TD-012(b)).
 """
 
 from __future__ import annotations
@@ -113,6 +114,56 @@ class ModeContract:
             bad_enum=tuple(bad_enum),
             pinned_mismatch=tuple(pin_broken),
         )
+
+    def repair_directive(
+        self,
+        result: ContractResult | None,
+        pinned: dict[str, str | tuple[str, ...]] | None = None,
+    ) -> str:
+        """The re-ask's instruction after a held answer failed (D-043): which
+        sections were missing or off, and what the code requires of them.
+
+        Compiled from the spec and the code's pins — field NAMES and CODE values
+        only. A `ContractResult` also carries the draft's tokens ("Risk=LOW"),
+        which are model output that a paste may have steered; they stay out of
+        the system role. `result` None means the draft was empty."""
+        problems: list[str] = []
+        if result is None:
+            problems.append("it was empty")
+        else:
+            if result.missing:
+                problems.append("it was missing " + ", ".join(f"## {n}" for n in result.missing))
+            off = [
+                f.name
+                for f in self.fields
+                if any(e.split("=", 1)[0] == f.name
+                       for e in (*result.bad_enum, *result.pinned_mismatch))
+            ]
+            if off:
+                problems.append(
+                    "its " + ", ".join(f"## {n}" for n in off)
+                    + (" value was" if len(off) == 1 else " values were") + " not allowed"
+                )
+        lines = [
+            "Your previous draft of this answer was withheld from the analyst because "
+            + "; ".join(problems or ["it did not follow the required structure"]) + ".",
+            "Write the complete answer again: every required section, each opened by "
+            'its "## <Name>" header, in the order given above.',
+        ]
+        for name, value in (pinned or {}).items():
+            if isinstance(value, str):
+                lines.append(f'The ## {name} section must begin with exactly "{value}".')
+            else:
+                lines.append(f"The ## {name} section must begin with one of: {', '.join(value)}.")
+        return "\n".join(lines)
+
+
+# D-043: the analyst-facing sentence that opens a code-rendered answer — the
+# written analysis was held back, and what follows is the code's verdict alone.
+CODE_RENDERED_NOTE = (
+    "The written analysis did not pass the platform's checks, so it was withheld. "
+    "This is the deterministic result on its own."
+)
 
 
 @dataclass(frozen=True)
