@@ -1,5 +1,31 @@
 # Technical debt — logged the moment it's taken
 
+## TD-037 (S26) — the deployment's scorecard has only a dev writer
+
+**Where:** `auspex/llm/scorecard.py` `save_deployment_scorecard` — its one
+caller is `scripts/llm_harness.py`.
+**Risk:** MEDIUM for any deployment whose endpoint thinks natively. D-035 made
+the writer and the reader agree on scope, but only a developer running the
+harness ever writes. A customer deployment reads "unknown", takes the two-pass
+fallback, and on a thinking model that fallback is measured broken: pass 1's
+256 tokens are consumed by the model's own thinking, the Thinking pane is empty,
+and every deep turn pays for a second call (docs/probes/2026-10-10-zai-endpoint.md,
+"Through the running app": 0 chars, 2 calls; native: 4916 chars from 3.0 s, 1 call).
+
+**Why not fixed with D-035.** The fix spends the customer's inference without a
+turn asking for it — the capability battery is ~15 requests. Whether the
+platform may do that at startup, on configuration change, or only on an explicit
+"probe my endpoint" action is a D-005 question, not a bug fix.
+
+**What would fix it.** Probe the configured endpoint once per fingerprint (not
+per start) and `save_deployment_scorecard` the result — `native_reasoning`
+alone needs only the basic probe, one request. **Or** make two-pass survive a
+thinking model: pass 1 keeps only `content`, so it could forward the endpoint's
+own `reasoning` events instead of discarding them.
+
+**Trigger:** the first non-dev deployment, or the first dev endpoint change made
+without re-running the harness (the dev deployment's row is per fingerprint).
+
 ## TD-035 (S24) — a pass-1 leak is charged for the call it prevented
 **Where:** `auspex/routes/chat.py` — the TD-018 usage claim, taken before the
 first inference call.

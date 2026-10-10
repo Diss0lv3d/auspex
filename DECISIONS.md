@@ -929,3 +929,43 @@ posted (qwen3 87.5 %, Scout 77.5 %).
   chat route only takes the native-reasoning path if the analyst's workspace has
   a scorecard** (STATE follow-up 9; a hand-seeded dev row covers it for now).
   Both are owed before the agent path is wired to `/api/chat` against it.
+
+## D-035 — The default endpoint's scorecard is the deployment's (2026-10-10, S26)
+
+**Context.** `LLM_BASE_URL` / `LLM_MODEL` configure ONE endpoint for the whole
+deployment, but its scorecard was stored per workspace: the only writer
+(`scripts/llm_harness.py`) saved to a workspace named `dev`, the only reader
+(`_default_native_reasoning`, chat.py) read the analyst's. They never met. The
+default endpoint therefore always read as "not a thinking model", and on a
+thinking model the two-pass fallback it chose was measured broken through the
+running app: the model's own thinking consumed pass 1's 256 tokens, the Thinking
+pane stayed empty, and every deep turn paid for a second call that bought
+nothing (docs/probes/2026-10-10-zai-endpoint.md). STATE follow-up 9 had carried
+the symptom since S21 as a note. Burhan: "let's fix the bug".
+
+**Decision.** A deployment-configured endpoint has a deployment-scoped scorecard.
+It lives in one reserved system workspace, `__deployment__`
+(`DEPLOYMENT_WORKSPACE`, auspex/llm/scorecard.py — the name's one home). The
+harness writes there (`save_deployment_scorecard`); the chat route reads there
+(`load_deployment_scorecard`). Unknown still reads as False — the safe two-pass
+default (D-016) is unchanged for an endpoint nobody has probed.
+
+**Why a reserved workspace and not a nullable `workspace_id`.** D-008 puts
+`workspace_id` on every row of every table, and the schema test enforces it.
+**Why not "look the fingerprint up in any workspace".** That is a cross-tenant
+read: the first time a tenant configures or probes its own endpoint, its row
+would decide another tenant's turn. The reserved workspace is read by every
+analyst request but written by no tenant — `get_or_create_user` refuses the
+name, so no user can ever be provisioned into it.
+
+**What it does not do.** Nothing in a production deployment writes this
+scorecard yet: the harness is a dev script. A fresh deployment still reads
+"unknown" and takes two-pass until someone probes it — and two-pass is broken on
+thinking models. Logged as TD-037 rather than solved here, because the fix
+(probing the customer's endpoint at startup or on configuration) spends the
+customer's inference without a turn asking for it, which is D-005's to decide.
+
+**What this supersedes.** Nothing ratified. D-008 stands (the row keeps its
+workspace); D-016's safe default stands. Pre-existing rows in workspace `dev`
+are left as history: they are probes of endpoints, not of tenants, and nothing
+reads them.
