@@ -67,6 +67,12 @@ charged for exactly what it spent, and this entry closes with TD-018's reopening
 The trap to avoid meanwhile is "reconciling" it with a one-off refund, which
 would add a second place that knows how to count calls.
 
+**S26 (2026-10-10) — dissolved on the agent path, still open on two-pass.** The
+agent path claims each call as it is made (`1b86070`), and live it claimed
+exactly what it made: 2, 3, 1 units for 2, 3, 1 calls. The conversational
+two-pass path still claims 2 up front, so a pass-1 leak there is still charged
+for the call it prevented. Unchanged: LOW, safe direction, no refund path.
+
 ## TD-034 (S23) — the late-write knows the row was abandoned, not which operation was
 **Where:** `auspex/actions/settlement.py` — `_finish_claim`, the second
 statement (the late-write onto a terminal row).
@@ -1093,3 +1099,20 @@ GLM-5.2's parallel case ("I'll run both requests at the same time…") shows it 
 not confined to one model or one prompt shape. **Risk is no longer LOW once the
 agent path is wired to `/api/chat` against this endpoint**; the fix belongs to
 that wiring, not to this detour.
+
+**S26 (2026-10-10) — FIXED, with a bound stated (`39f1afc`).** While tools are
+on the wire, `run_stream` holds a step's content. A tool call turns the held
+text into a `narration` event, which the route shows in the Thinking pane. The
+end of the stream, or passing `NARRATION_HOLD_CHARS = 400` (about twice the
+longest of the 1–201 chars measured on 9 tool-calling steps), releases it as
+answer, and from then on it streams delta by delta. Both consequences are closed
+inside the bound: no narration reached `content` in the live turns, and the
+stored turn equalled the streamed one 4/4 (probe record
+2026-10-10-s26-routing-glm, "Through the running app").
+**The bound, which is what remains of this entry:** narration longer than 400
+chars before a tool call still streams as answer ahead of the result, and the
+stored turn then holds only the last call's content. The route logs it
+("agent answer differs from the streamed content"). Risk **LOW**: nothing
+measured comes within half of it. **Trigger:** that log line appearing, or any
+probe measuring narration over 200 chars. Then re-measure and move the number,
+the way SHINGLE_WORDS is moved.
