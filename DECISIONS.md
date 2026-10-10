@@ -941,7 +941,7 @@ thinking model the two-pass fallback it chose was measured broken through the
 running app: the model's own thinking consumed pass 1's 256 tokens, the Thinking
 pane stayed empty, and every deep turn paid for a second call that bought
 nothing (docs/probes/2026-10-10-zai-endpoint.md). STATE follow-up 9 had carried
-the symptom since S21 as a note. Burhan: "let's fix the bug".
+the symptom since S24 as a note. Burhan: "let's fix the bug".
 
 **Decision.** A deployment-configured endpoint has a deployment-scoped scorecard.
 It lives in one reserved system workspace, `__deployment__`
