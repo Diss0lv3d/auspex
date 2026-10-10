@@ -57,8 +57,16 @@ class ToolCall:
     arguments: str = ""  # raw JSON string, per OpenAI convention (probe finding 3)
 
     def parse_arguments(self) -> dict[str, Any]:
-        """Raises ValueError on malformed JSON — callers decide how to score it."""
-        parsed = json.loads(self.arguments or "{}")
+        """Raises ValueError on malformed JSON — callers decide how to score it.
+
+        Including JSON nested past the parser's depth, which raises
+        RecursionError: every caller catches ValueError, so a model that nested
+        its arguments ~10k deep killed the whole turn instead of one step
+        (review of 1b86070)."""
+        try:
+            parsed = json.loads(self.arguments or "{}")
+        except RecursionError as err:
+            raise ValueError("tool arguments nested too deeply") from err
         if not isinstance(parsed, dict):
             raise ValueError(f"tool arguments not an object: {type(parsed).__name__}")
         return parsed

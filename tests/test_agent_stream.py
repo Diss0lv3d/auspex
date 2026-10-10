@@ -591,3 +591,21 @@ async def test_closing_the_turn_early_closes_the_endpoints_stream_at_once():
     await turn.aclose()
 
     assert client.finalized == [0], "the endpoint stream outlived the turn that opened it"
+
+
+async def test_arguments_nested_past_the_parsers_depth_are_bad_arguments_not_a_dead_turn():
+    """Review of 1b86070. `json.loads` raises RecursionError, not ValueError, on
+    arguments nested deeply enough, and the loop caught only ValueError, so the
+    whole turn died with no `done` and no error frame — on the model's say-so."""
+    registry, seen = _registry()
+    deep = '{"ip": ' + "[" * 50_000 + "]" * 50_000 + "}"
+    client = SequencedStreamingFakeLLMClient([_tool_call_script(args=deep), _answer_script()])
+
+    events = await _drain(_loop(registry), client)
+
+    tool = [e.invocation for e in events if e.kind == "tool"]
+    assert [(t.status, t.feedback) for t in tool] == [
+        ("error", {"error": "tool arguments were not valid JSON"})
+    ]
+    assert seen == []
+    assert events[-1].kind == "done" and events[-1].stop_reason == "final_answer"
