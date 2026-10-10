@@ -70,8 +70,43 @@ _EMAIL_HEADER_RE = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 
+# S28 (D-047): the identity shortcut caught 3 of 45 independently written ways
+# of asking who made the assistant or what model it runs on. The rest went to
+# the model, which answered — live, 4 of 4 — that it was a different vendor's
+# product. Widened by the SAME rule as before: the whole message must be the
+# question, and it must point at the assistant itself ("you", "this
+# assistant"), never at a work object ("this scheduled task", "the firewall").
+# Errors still bias DEEP. Judged on a held-out battery:
+# docs/probes/2026-10-11-s28-identity-shortcut.md.
+_SELF = r"(?:you|u|ya|yourself|this\s+(?:assistant|co-?analyst|bot|chatbot|chat|ai|platform))"
+# A model's own name is unambiguous after "is this"; a company's is not ("is
+# this google?" is as likely about an IP range), so a maker needs a connective
+# ("is this powered by …", "are you from …").
+_MODEL_NAME = (
+    r"(?:chat-?gpt|gpt[\w.-]*|claude|gemini|bard|llama[\w.-]*|mistral|mixtral|deepseek|"
+    r"grok|qwen[\w.-]*|glm[\w.-]*)"
+)
+_VENDOR = r"(?:" + _MODEL_NAME + r"|openai|anthropic|google|meta|cohere|copilot)"
+# What the assistant IS may be asked of a bare "this" ("which AI is this?"); who
+# MAKES it may not ("which company is behind this?" is a follow-up about a
+# domain as often as about us), so an organisation needs "you" or "this
+# assistant".
+_KIND_AI = (
+    r"(?:ai(?:\s+model)?|llm|model(?:\s+version)?|engine|(?:large\s+)?language\s+model|"
+    r"vendor's\s+ai)"
+)
+_KIND_ORG = r"(?:company|vendor|provider)"
+_ASKS = (
+    r"(?:\s+(?:are|r|is|do|does|did|powers|made|built|trained|is\s+behind|behind|"
+    r"is\s+answering))*"
+)
+_TAIL = r"(?:\s+(?:running\s+on|using|use|are|exactly|right\s+now|under\s+the\s+hood))?"
+_LEAD_IN = (
+    r"(?:(?:hey|hi|so|ok|okay|btw|quick\s+question|just\s+curious|out\s+of\s+curiosity|"
+    r"curious|sorry\s+if\s+this\s+is\s+random)\s*[,:\-–—]*\s*(?:but\s+)?)*"
+)
 _IDENTITY_RE = re.compile(
-    r"""^\s*(?:
+    r"^\s*" + _LEAD_IN + r"""(?:
         who\s+(?:are|r)\s+(?:you|u) |
         who\s+is\s+this |
         what\s+are\s+you |
@@ -79,9 +114,35 @@ _IDENTITY_RE = re.compile(
         are\s+you\s+(?:an?\s+)?(?:ai|bot|human|real|llm|model|chatbot|gpt\S*|chatgpt) |
         what\s+(?:model|llm|ai|engine)\s+(?:are\s+you|is\s+this|powers\s+(?:you|this)) |
         which\s+(?:model|llm)\s+(?:are\s+you|is\s+this) |
-        who\s+(?:made|built|created)\s+you |
         introduce\s+yourself |
-        tell\s+me\s+about\s+yourself
+        tell\s+me\s+about\s+yourself |
+
+        # who made / trained / owns the assistant
+        who(?:'s|\s+is)?\s+(?:made|built|created|developed|trained|programmed|designed|
+            owns|makes|behind)\s+""" + _SELF + r"""
+            (?:\s+and\s+on\s+what\s+data)? |
+
+        # what / which model, LLM, company ... the assistant
+        (?:tell\s+me\s+)?(?:what|which|wat)(?:'s|s|\s+is)?\s+(?:the\s+|your\s+|ur\s+)?
+            (?:kind\s+of\s+)?(?:
+                """ + _KIND_AI + _ASKS + r"""\s+(?:""" + _SELF + r"""|this|me) |
+                """ + _KIND_ORG + _ASKS + r"""\s+""" + _SELF + r"""
+            )""" + _TAIL + r""" |
+        what(?:'s|\s+is)\s+(?:your|ur)\s+(?:underlying\s+|base\s+)?(?:model|llm|engine|ai) |
+
+        # are you / is this <a known model or vendor>
+        (?:are|r)\s+(?:you|u)\s+(?:an?\s+)?(?:fine-tuned\s+)?
+            (?:(?:built\s+on|based\s+on|made\s+by|from|powered\s+by|running\s+on|trained\s+by)\s+)?
+            """ + _VENDOR + r"""(?:\s+or\s+\w+)*(?:\s+under\s+the\s+hood)? |
+        (?:are|r)\s+(?:you|u)\s+(?:an?\s+)?open[- ]source\s+(?:model|llm|ai) |
+        is\s+this(?:\s+thing)?\s+""" + _MODEL_NAME + r"""(?:\s+or\s+(?:something\s+else|\w+))? |
+        is\s+this(?:\s+thing)?\s+(?:powered\s+by|built\s+on|made\s+by|based\s+on)
+            \s+""" + _VENDOR + r""" |
+        did\s+""" + _VENDOR + r"""\s+(?:make|build|train|create|develop)\s+(?:you|u) |
+
+        # what is it built on
+        what(?:'s|\s+is)\s+under\s+the\s+hood(?:\s+of\s+""" + _SELF + r""")? |
+        what\s+are\s+(?:you|u)\s+(?:built|based|running|powered)\s+on
     )\s*[?!.\s]*$""",
     re.IGNORECASE | re.VERBOSE,
 )

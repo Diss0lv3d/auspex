@@ -22,7 +22,8 @@ GREETING_COPY = (
 )
 
 IDENTITY_COPY = (
-    "I'm Auspex — a security intelligence co-analyst. I read the signals: "
+    "I'm Auspex — a security intelligence co-analyst, running on the platform's "
+    "engine. I read the signals: "
     "indicators, vulnerabilities, and the context around them, and I flag "
     "what matters before it lands. Ask me to check an observable, or walk me "
     "through what you're seeing. The flock sees first."

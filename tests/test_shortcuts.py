@@ -156,3 +156,13 @@ def test_definition_defers_to_deep_path():
     assert answer.category is Category.DEFINITION
     assert "deferred" in answer.text.lower()
     assert "deep path" in answer.text.lower()
+
+
+def test_the_identity_answer_says_what_it_runs_on_without_naming_it():
+    """D-047 widened the identity shortcut to "what model are you running on?"
+    and "who trained you". An answer that never mentions what it runs on dodges
+    the question; one that names the engine breaks D-002 (kept, S28). It is the
+    platform's engine — the brand test above keeps every vendor name out."""
+    answer = shortcut_answer(classify("what model are you running on?"))
+    assert answer.category is Category.IDENTITY
+    assert "the platform's engine" in answer.text
