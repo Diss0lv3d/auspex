@@ -23,8 +23,17 @@ now be re-measured on the new model.**)_
     claims, rail on the composed message, `tool` frame on one channel);
     `44a040e` UI tool steps; `54d3858` README honesty section pinned. Live through
     the app: 4/4 turns right path, units == calls (2/3/1/1).
-  - Next: fold in the review findings, then `/session-end`, or go on to goal
-    item 4 (TD-028 b/c/d + TD-034).
+  - Review (2 adversarial reviewers): **8 fixed** (`771cc49` `6a9b67d` `4bd65a9`
+    `df761a1` `76be482` `4693329` `ef66c7a` `96ce09e`, each with a test that
+    failed first), **3 recorded** (TD-038 rail misses the tool descriptions;
+    TD-039 clause 1 covers only recognised modes, Burhan's call; TD-040 provider
+    error text reaches the analyst). Record: docs/probes/2026-10-10-s26-wiring-review.md.
+    Live re-run after the fixes: 4/4, units == calls.
+  - **TD-037 now gates the agent path:** nothing outside dev writes the
+    deployment scorecard, so the agent path is unreachable in any non-dev
+    deployment.
+  - 1140 tests. Next: `/session-end`, or go on to goal item 4 (TD-028 b/c/d +
+    TD-034).
 
 - **Step 0 (2026-08-16):** promote #26 merged; fresh-eyes review fixed `f931c98`
   (a turn the endpoint never answered reported that it answered), strengthened
