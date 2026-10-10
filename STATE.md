@@ -1,11 +1,53 @@
 # STATE — Auspex
 
-_Last updated: 2026-08-16 (**S25 — two more defects in day-old code, the tool
-descriptions validated as prompts, and the loop learned to stream.** Promote #25
-landed the S24 slate. The review found both S24 defects in one place: the
-model-controlled tool-argument boundary. Then the goal's mechanism half shipped —
-`AgentLoop.run_stream`, all five D-031 decisions, live-verified end to end.
-**The route was deliberately NOT touched — Burhan's call.** 1073 tests.)_
+_Last updated: 2026-10-10 (**S26 IN PROGRESS — not closed; no session-end ritual
+has run.** Step 0 done on 2026-08-16 (promote #26, review: 1 defect fixed). The
+session then stopped mid goal-item-1 for eight weeks. Resumed 2026-10-10 to find
+**the dev LLM gone** (Scout's Northflank host is NXDOMAIN); the day went to
+replacing it: **D-033** (base URL = the provider's documented root; thinking
+read under either spelling) and **D-034** (dev LLM = glm-4.5-air on Z.ai's
+general pay-as-you-go API). `./ci.sh` green, **1094 tests**, 119 modules.
+**Goal item 1 — the routing decision — is untouched since 2026-08-16 and must
+now be re-measured on the new model.**)_
+
+## S26 so far (read this first)
+
+- **Step 0 (2026-08-16):** promote #26 merged; fresh-eyes review fixed `f931c98`
+  (a turn the endpoint never answered reported that it answered), strengthened
+  the anti-drift test (`e684671`), gave TD-036 a second consequence. Record:
+  docs/probes/2026-08-16-s26-step0-review.md.
+- **Goal item 1 (2026-08-16, unfinished, UNCOMMITTED):** three probes in
+  `docs/probes/s26-step0/` — `probe_refusal_cause.py` (got **0 refusals in 12**
+  through `run_stream` with the loop's own system message — S25's "Scout
+  refuses" may not hold on the route's real conditions), `probe_s25_refusal_replay.py`
+  (S25's exact cell ×6 — never confirmed run), `probe_routing.py` (the proposed
+  rule: agent path iff mode is not ALERT_TRIAGE/PHISHING_ANALYSIS **and** the
+  classifier found an actionable observable; plus the first multi-step
+  measurement). **All three measured SCOUT. Scout no longer exists — re-run them
+  against glm-4.5-air before deciding anything.**
+- **The LLM replacement (2026-10-10), 11 commits `7f07676`…`56213c1`:**
+  - Docs read first (6 agents, ~30 pages + openapi.json), then the wire:
+    docs/probes/2026-10-10-zai-endpoint.md. Four doc claims failed on the wire.
+  - **D-033** — `LLM_BASE_URL` is the provider's documented API root, the client
+    appends only `/chat/completions` and `/models` (`e09e6f9`); thinking is read
+    as `reasoning` OR `reasoning_content`, never configured (`9431e03`);
+    `LLM_EXTRA_BODY` admissible only on measurement — **not born**, the native
+    path made it unnecessary. Every Ollama root is now spelled `…:11434/v1`.
+  - **D-034** — four models through the platform's own harness: glm-4.5-air
+    **95 % completion, 348 s, $0.20/$1.10** (best any dev endpoint has posted);
+    glm-5.3-flash 95 % but 2.9× slower; glm-5.2 92.5 % at 7×/4× the price;
+    glm-4.7-flashx 87.5 % and 1.6 tok/s. **General endpoint + pay-as-you-go
+    only** (Coding Plan terms forbid app use); **dev only** (Singapore — never
+    KSA-tenant data).
+  - Adversarial review (12 agents) of the two client commits: 2 real gaps fixed
+    (`fd07cd0` two missed Ollama roots, `e9c55b2` three test boundaries pinned
+    by mutants), 42 suspicions cleared, and **one pre-existing defect made
+    load-bearing** — see follow-up 9.
+  - `GLM_API_KEY` (Burhan's) born in `.env.example` + ENV_VARS.md — the
+    zero-new-env-vars run ends at twelve sessions, deliberately.
+  - **Live through the app:** as configured, deep turns run TWO-PASS and the
+    Thinking pane is **empty** (the model's thinking eats pass 1's 256 tokens);
+    on the native path it streams thinking from ~3 s, one call instead of two.
 
 ## Where we are
 
@@ -131,14 +173,25 @@ complete; S21–S25 were each scoped by a decision rather than a plan.**
    dev-login users share the `default` workspace against an **hourly** ceiling of
    100, and nothing resets it at session start. **test_agent_stream.py is fakes
    only and spends nothing.**
-9. **The persisted scorecards have no `native_reasoning` key.** All four rows
+9. **(NOW A DECISION, S26) The scorecard's writer and reader disagree on scope.**
+   The only writer (`scripts/llm_harness.py`) saves to workspace `dev`; the only
+   reader (`_default_native_reasoning`, chat.py) reads the ANALYST's workspace
+   (`default`). So the configured default endpoint never finds its scorecard,
+   and on a thinking model the two-pass path it falls back to is **measured
+   broken** (empty Thinking pane, a wasted call per turn — probe record
+   2026-10-10 §"Through the running app"). **Dev workaround in place:** the
+   glm-4.5-air row was copied into `default` by hand (row `b747b841…`). The real
+   fix needs Burhan's call — the default endpoint is configured per DEPLOYMENT,
+   so either its scorecard is looked up deployment-wide by fingerprint, or the
+   app probes it at startup into a deployment-scoped row. Original note follows.
+   **The persisted scorecards have no `native_reasoning` key.** All four rows
    predate the field (probed 2026-07-15), so `_default_native_reasoning` resolves
    **False** and the default endpoint takes the **two-pass** path. The native path
    is therefore **unexercised in the running app** — and D-031's measurements, plus
    S25's live `run_stream` probe, were both taken on the native one. **This is now
    directly load-bearing:** the route wiring must not assume the path it wires is
    the path that runs.
-10. **NEW — offering tools changes what the model does with questions the tools do
+10. **(S26: measured on SCOUT only — re-measure on glm-4.5-air.)** **NEW — offering tools changes what the model does with questions the tools do
     not cover.** Scout refused a general question rather than answering it, with
     an instruction telling it to answer. The route wiring must decide this
     deliberately: either the 92/8 classifier keeps such turns off the agent path,
@@ -180,9 +233,15 @@ complete; S21–S25 were each scoped by a decision rather than a plan.**
 
 ## Host notes (reality snapshot)
 - Postgres 55432; app 8000; OpenSearch 9200. Host runs pin via `auspex.devhost`.
-- Ollama 0.32.5 on :11434; models qwen3:14b / llama3.1:8b / mistral:latest.
-  **Primary dev LLM is Northflank Scout (D-015)** — reachable; model id
-  `nvidia/Llama-4-Scout-17B-16E-Instruct-FP8`.
+- Ollama 0.32.5 on :11434 (root `http://localhost:11434/v1`, D-033); models
+  qwen3:14b / llama3.1:8b / mistral:latest.
+- **Primary dev LLM is glm-4.5-air on Z.ai (D-034)** — `https://api.z.ai/api/paas/v4`,
+  pay-as-you-go key in `.env` as both `GLM_API_KEY` and `LLM_API_KEY`. **Never the
+  Coding Plan endpoint.** Thinking is on by default and billed inside
+  `completion_tokens`; **prose precedes tool calls** (TD-036 triggered);
+  `json_schema` is silently ignored. glm-4.7-flash (free) answered 429
+  "overloaded"; glm-4.7-flashx hung once past 180 s. Rate limits are console-only.
+- **Scout on Northflank is GONE** — `p01--new-llm--…code.run` is NXDOMAIN (2026-10-10).
 - **S25 session-end (2026-08-16):** staging, tree clean, identity
   `bh3082336888-cell`. All three containers healthy; `./ci.sh` **green, 1073
   tests, 119 modules**; `/api/health/ready` **200**; `./scripts/demo.sh` **exit 0**.
