@@ -1039,7 +1039,7 @@ something:
   conformed to the mode contract 3/3, in comparable time.
 
 **Why clause 1 stays.** In those two modes the code has already computed the
-verdict (D-018-era scorers, S10/S11), and validation pins the rendered answer to
+verdict (the S10 alert scorer, the S11 phishing verdict), and validation pins the rendered answer to
 it. The pasted alert or email is attacker-controlled, so on the agent path the
 model would be drawing **tool arguments** from it. That combination has not been
 measured, and it is not needed for those modes to work.
