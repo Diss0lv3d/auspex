@@ -29,6 +29,7 @@ org policy that multi-LLM / BYO-LLM stays internal infrastructure.
 
 import json
 import logging
+from contextlib import aclosing
 from dataclasses import dataclass
 from typing import Annotated
 from uuid import UUID
@@ -545,38 +546,73 @@ async def chat(
         finish_reason = None
         usage = None
         scanner = OutputScanner(leak_index)
-        try:
-            if endpoint.native_reasoning:
-                # Native path: one call; reasoning + content stream on their own fields.
-                async for ev in endpoint.client.chat_stream(
+
+        async def native_answer():
+            """One call; the model's own reasoning and its answer stream on their
+            own fields, both through the rail. The native path, and the path a
+            two-pass turn switches to when its endpoint turns out to think (D-036)."""
+            nonlocal finish_reason, usage
+            async with aclosing(
+                endpoint.client.chat_stream(
                     messages, max_tokens=CHAT_ANSWER_MAX_TOKENS, temperature=0
-                ):
+                )
+            ) as events:
+                async for ev in events:
                     if ev.kind == "reasoning":
                         if scanner.feed(ev.text, channel="reasoning"):
-                            break
+                            return
                         yield _sse({"reasoning": ev.text})
                     elif ev.kind == "content":
                         if scanner.feed(ev.text, channel="content"):
-                            break
+                            return
                         content_parts.append(ev.text)
                         yield _sse({"content": ev.text})
                     elif ev.kind == "finish":
                         finish_reason = ev.finish_reason
                     elif ev.kind == "usage" and ev.usage:
                         usage = _usage_dict(ev.usage)
+
+        try:
+            if endpoint.native_reasoning:
+                async with aclosing(native_answer()) as frames:
+                    async for frame in frames:
+                        yield frame
             else:
                 # Two-pass fallback: pass 1 = brief analyst reasoning → Thinking pane.
                 analysis_parts: list[str] = []
-                async for ev in endpoint.client.chat_stream(
-                    [*messages, {"role": "system", "content": PASS1_DIRECTIVE}],
-                    max_tokens=CHAT_REASONING_MAX_TOKENS,
-                    temperature=0,
-                ):
-                    if ev.kind == "content":
-                        if scanner.feed(ev.text, channel="reasoning"):
+                thinks_natively = False
+                async with aclosing(
+                    endpoint.client.chat_stream(
+                        [*messages, {"role": "system", "content": PASS1_DIRECTIVE}],
+                        max_tokens=CHAT_REASONING_MAX_TOKENS,
+                        temperature=0,
+                    )
+                ) as events:
+                    async for ev in events:
+                        if ev.kind == "reasoning" and ev.text and not analysis_parts:
+                            # D-036: the endpoint's FIRST text is its own thinking,
+                            # so it is a thinking model the scorecard did not know
+                            # about (TD-037). Measured on one: its thinking fills
+                            # pass 1's small budget, the analysis comes back empty
+                            # or cut off, and the pane shows nothing of what it
+                            # thought. Stop here — `aclosing` drops the connection
+                            # so the endpoint stops generating — and spend the
+                            # turn's second claimed call on the native answer.
+                            thinks_natively = True
                             break
-                        analysis_parts.append(ev.text)
-                        yield _sse({"reasoning": ev.text})
+                        if ev.kind == "content":
+                            if scanner.feed(ev.text, channel="reasoning"):
+                                break
+                            analysis_parts.append(ev.text)
+                            yield _sse({"reasoning": ev.text})
+                if thinks_natively:
+                    logger.info(
+                        "two-pass endpoint thinks natively; turn switched to native"
+                        " (probe it to skip pass 1: TD-037)"
+                    )
+                    async with aclosing(native_answer()) as frames:
+                        async for frame in frames:
+                            yield frame
                 analysis = "".join(analysis_parts).strip()
                 # A leak in pass 1 ENDS the turn. `break` leaves only its own
                 # loop, and a tripped scanner returns None from every later
@@ -585,7 +621,7 @@ async def chat(
                 # S23 review measured both halves: a second inference call on
                 # the customer's endpoint, and the full pass-2 answer reaching
                 # the analyst after the rail had already fired.
-                if not scanner.tripped:
+                if not scanner.tripped and not thinks_natively:
                     # pass 2 = the answer, grounded in the private analysis → content.
                     async for ev in endpoint.client.chat_stream(
                         [*messages, {"role": "system", "content": _pass2_directive(analysis)}],

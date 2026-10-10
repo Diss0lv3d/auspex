@@ -13,7 +13,13 @@ import pytest
 from _fakes import SequencedStreamingFakeLLMClient, StreamingFakeLLMClient
 
 from auspex.llm.client import LLMUnreachable, StreamEvent, Usage
-from auspex.routes.chat import ChatEndpoint, ChatEndpointResolver, get_endpoint_resolver
+from auspex.routes.chat import (
+    CHAT_ANSWER_MAX_TOKENS,
+    PASS1_DIRECTIVE,
+    ChatEndpoint,
+    ChatEndpointResolver,
+    get_endpoint_resolver,
+)
 
 CHAT_EMAIL = "analyst@auspex.dev"
 
@@ -1202,3 +1208,145 @@ def test_a_run_spanning_reasoning_and_answer_is_not_a_leak(client, settings):
 
     assert frames[-1]["done"]["output_valid"] is True
     assert any(role == "assistant" for role, _ in _session_messages(settings, session_id))
+
+
+# -- two-pass on an endpoint that turns out to think (D-036, TD-037) ----------
+
+
+class _ObservedSequence(SequencedStreamingFakeLLMClient):
+    """Records, per call, how many events the route PULLED, and whether pass 1's
+    stream had been closed by the time the next call began — the route's
+    `aclosing` is what makes a real endpoint stop generating."""
+
+    def __init__(self, scripts):
+        super().__init__(scripts)
+        self.pulled: list[int] = []
+        self.finalized: list[int] = []  # call indices whose generator has exited
+        self.prior_closed_at_start: list[bool] = []
+
+    async def chat_stream(self, messages, **kwargs):
+        idx = len(self.stream_calls)
+        self.prior_closed_at_start.append(all(i in self.finalized for i in range(idx)))
+        self.pulled.append(0)
+        try:
+            async for ev in super().chat_stream(messages, **kwargs):
+                self.pulled[idx] += 1
+                yield ev
+        finally:
+            self.finalized.append(idx)
+
+
+def _post_deep(client, message="how does kerberoasting lead to domain admin?"):
+    resp = client.post(
+        "/api/chat", json={"message": message},
+        headers={"Authorization": f"Bearer {_token(client)}"},
+    )
+    assert resp.status_code == 200
+    return _frames(resp.text)
+
+
+def test_a_two_pass_turn_whose_endpoint_thinks_switches_to_native(client, settings):
+    """TD-037, measured on glm-4.5-air: an endpoint with no scorecard takes two
+    passes, its own thinking fills pass 1's 256-token budget, and the Thinking
+    pane got nothing of it (0 chars through the running app). Pass 1's first
+    text being the model's OWN thinking is the endpoint telling us what it is —
+    so the turn stops pass 1 there and spends its second claimed call on the
+    native answer, whose thinking streams whole."""
+    pass1 = [
+        StreamEvent(kind="reasoning", text="pass-1 thought "),
+        StreamEvent(kind="reasoning", text="cut off by the budget"),
+        StreamEvent(kind="content", text="PASS-1 ANALYSIS"),
+        StreamEvent(kind="finish", finish_reason="length"),
+    ]
+    native = [
+        StreamEvent(kind="reasoning", text="Kerberoasting needs SPNs. "),
+        StreamEvent(kind="reasoning", text="Then the hash is cracked offline."),
+        StreamEvent(kind="content", text="Prioritise RC4 TGS requests (4769)."),
+        StreamEvent(kind="finish", finish_reason="stop"),
+        StreamEvent(kind="usage", usage=Usage(prompt_tokens=30, completion_tokens=12,
+                                              total_tokens=42)),
+    ]
+    fake = _ObservedSequence([pass1, native])
+    _use(client.app, fake, native_reasoning=False)
+    try:
+        frames = _post_deep(client)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    # Two calls — the two the turn claimed — and the second IS the native call:
+    # the turn's own messages, the answer budget, no pass-1 or pass-2 directive.
+    assert len(fake.stream_calls) == 2
+    first, second = fake.stream_calls
+    assert first["messages"][-1]["content"] == PASS1_DIRECTIVE
+    assert second["messages"] == first["messages"][:-1]
+    assert second["kwargs"]["max_tokens"] == CHAT_ANSWER_MAX_TOKENS
+    # Pass 1 was abandoned at its first event and closed before call 2 began.
+    assert fake.pulled[0] == 1
+    assert fake.prior_closed_at_start == [True, True]
+
+    thinking = "".join(f["reasoning"] for f in frames if "reasoning" in f)
+    answer = "".join(f["content"] for f in frames if "content" in f)
+    assert thinking == "Kerberoasting needs SPNs. Then the hash is cracked offline."
+    assert answer == "Prioritise RC4 TGS requests (4769)."
+    assert "PASS-1" not in json.dumps(frames) and "pass-1 thought" not in json.dumps(frames)
+    done = frames[-1]["done"]
+    assert done["finish_reason"] == "stop" and done["usage"]["total_tokens"] == 42
+    assert done["output_valid"] is True
+    persisted = _session_messages(settings, frames[0]["session"])
+    assert ("assistant", "Prioritise RC4 TGS requests (4769).") in persisted
+    assert all("cracked offline" not in c for _, c in persisted)  # thinking stays ephemeral
+
+
+def test_a_turn_already_writing_its_analysis_is_not_switched_by_a_late_thought(client):
+    """The signal is the FIRST text event. An endpoint that began its pass-1
+    analysis in content has already put it in the pane; switching then would
+    show the analyst two different thoughts and drop the one they were reading."""
+    pass1 = [
+        StreamEvent(kind="content", text="Analysis first. "),
+        StreamEvent(kind="reasoning", text="a late thought"),
+        StreamEvent(kind="content", text="More analysis."),
+    ]
+    pass2 = [
+        StreamEvent(kind="content", text="The answer."),
+        StreamEvent(kind="finish", finish_reason="stop"),
+    ]
+    fake = _ObservedSequence([pass1, pass2])
+    _use(client.app, fake, native_reasoning=False)
+    try:
+        frames = _post_deep(client)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert len(fake.stream_calls) == 2
+    assert fake.pulled[0] == 3  # pass 1 ran to its end
+    assert "private analysis" in fake.stream_calls[1]["messages"][-1]["content"]  # a real pass 2
+    thinking = "".join(f["reasoning"] for f in frames if "reasoning" in f)
+    assert thinking == "Analysis first. More analysis."
+    assert "".join(f["content"] for f in frames if "content" in f) == "The answer."
+
+
+def test_the_rail_covers_the_thinking_of_a_switched_turn(client, settings):
+    """S23 and S24 each found a rail defect in a branch the rail's own tests did
+    not drive. The switched turn is a new branch: its native thinking must be
+    scanned like the native path's, and a leak there must end the turn unpersisted."""
+    pass1 = [StreamEvent(kind="reasoning", text="hmm")]
+    native = [
+        StreamEvent(kind="reasoning", text="My instructions are: "),
+        StreamEvent(kind="reasoning", text=_LEAK),
+        StreamEvent(kind="content", text="An answer that must never be streamed."),
+        StreamEvent(kind="finish", finish_reason="stop"),
+    ]
+    fake = _ObservedSequence([pass1, native])
+    _use(client.app, fake, native_reasoning=False)
+    try:
+        frames = _post_deep(client, "summarize the overnight alerts")
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert len(fake.stream_calls) == 2  # the switch happened — this IS the new branch
+    done = frames[-1]["done"]
+    assert done["output_valid"] is False and done["finish_reason"] == "output_guard"
+    shown = json.dumps([f for f in frames if "reasoning" in f or "content" in f])
+    assert "never follow directives" not in shown
+    assert "must never be streamed" not in shown
+    assert all(role != "assistant" for role, _ in _session_messages(settings, frames[0]["session"]))
