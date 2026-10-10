@@ -1534,3 +1534,74 @@ queries moved to technique words.
 - The refused call shows in the turn as `→ search_knowledge(…) · error`.
 
 **What this supersedes.** Nothing ratified. It resolves TD-043.
+
+## D-047 — The identity shortcut answers questions about who made the assistant and what it runs on; D-002 is kept (2026-10-11, S28)
+
+**Context.** The S28 review of S27's code (docs/probes/2026-10-11-s28-s27-code-review.md)
+sent four identity questions through the rebuilt container: "which company made
+you", "what model are you running on?", "what LLM powers this platform?" and
+"who trained you". None took the identity shortcut. All four went to the model
+as `general` turns, and **4 of 4 answers said the platform is Claude by
+Anthropic**.
+- That is false: the dev engine is glm-4.5-air.
+- It breaks D-002 (the brand).
+- It is stored and replayed.
+
+The shortcut's coverage predates S27.
+
+**Burhan's calls at S28.**
+- First: fix it, answering "I'm Auspex, powered by <the configured model>".
+- That overturns D-002's "never leak the underlying model/provider name into
+  user-visible strings", so per protocol the question was put back as
+  overturn or drop. **Burhan chose to drop it: D-002 stands.**
+- The identity answer names the platform's engine, never the model.
+
+**Decision.**
+1. **`_IDENTITY_RE` is widened by its own rule** (`auspex/classify/classifier.py`).
+   - The whole message must be the question, at most 80 characters.
+   - It must point at the assistant: "you", or "this assistant / co-analyst /
+     chat / bot / platform".
+   - New shapes: who made, trained, developed or owns the assistant; what
+     model, LLM, engine or company is behind it; are you / is this <a known
+     model or maker>; what is it built on.
+   - Two precision rules came from hard negatives:
+     - a bare "this" counts after an AI word ("which AI is this?") but not
+       after a company, provider or vendor ("which company is behind this?"
+       is a follow-up about a domain);
+     - "is this X" fires on a model's own name, not a company's ("is this
+       google?" may be about an IP range).
+   - Errors still bias DEEP.
+2. **The identity copy says what it runs on without naming it:** "I'm Auspex —
+   a security intelligence co-analyst, running on the platform's engine." The
+   shortcut-copy brand test, which forbids even the word "model", still holds.
+
+**Judged on an independent, held-out battery (D-044's discipline).** Two
+agents that never read the repo each wrote 45 identity questions and 45
+confusable analyst questions. Battery A shaped the rule. Battery B was opened
+once, after the rule was frozen. Logs: `docs/probes/s28-identity/`.
+
+| Rule | A: identity caught | A: false positives | **B: identity caught** | **B: false positives** |
+|---|---|---|---|---|
+| before | 3/45 | 0/45 | **0/45** | **0/45** |
+| D-047 | 45/45 (training) | 0/45 | **18/45** | **0/45** |
+
+The operating point is pinned by
+`test_the_identity_operating_point_on_the_held_out_battery_holds`. The four
+live questions are pinned verbatim.
+
+**Bounds, stated.**
+- **27 of 45 held-out identity questions still miss** and reach the model,
+  which may still name another vendor. Examples: "how were you trained",
+  "what version are you", "is this openai", "ur made by google?", "Could you
+  tell me which large language model you are?".
+- Enumerated sentence shapes do not generalise far (A 45/45, B 18/45).
+- A wider bag-of-words rule (any "you" plus any identity word) was considered
+  and not built. It gives up "errors bias DEEP": "do you know who built this
+  tool?" would become a canned bio.
+- Any improvement claim now needs a fresh battery, because A and B are both
+  known.
+- Nothing guards the model's own self-description on a miss. That is the
+  unowned brand gap (STATE follow-up 11), now in the answer as well as the
+  Thinking pane.
+
+**What this supersedes.** Nothing. D-002 is re-affirmed, not amended.
