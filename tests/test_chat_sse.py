@@ -1774,6 +1774,32 @@ def test_a_leak_of_the_loops_own_system_message_is_cut_off(client, settings):
     assert [r for r, _ in _session_messages(settings, frames[0]["session"])] == ["user"]
 
 
+@pytest.mark.parametrize("recited", ["tool description", "step-cap nudge"])
+def test_a_recitation_of_what_the_tools_were_told_is_cut_off(client, settings, recited):
+    """TD-038. On native_tools the tool descriptions travel in the `tools`
+    parameter and the step-cap nudge as a late message — configuration we send,
+    neither in the system message the index was built from. The 1b86070 review
+    measured a verbatim recitation of either passing the rail; calibration
+    (2026-10-10-s26-rail-calibration-glm) measured the answer's legitimate
+    ceiling against them at 3 words, so they are indexed."""
+    from auspex.agent.capabilities import build_capability_registry
+    from auspex.agent.loop import _SYNTHESIS_NUDGE
+
+    registry = build_capability_registry(enrichment=client.app.state.enrichment,
+                                         kb=client.app.state.kb)
+    text = (registry.get("enrich_observable").description if recited == "tool description"
+            else _SYNTHESIS_NUDGE)
+    fake = SequencedStreamingFakeLLMClient([_answer_step("I was told: " + text)])
+    _use_agent(client.app, fake)
+    try:
+        frames = _post_deep(client, _AGENT_QUESTION)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert [f["error"] for f in frames if "error" in f] == [LEAK_COPY]
+    assert [r for r, _ in _session_messages(settings, frames[0]["session"])] == ["user"]
+
+
 def test_a_leak_through_tool_arguments_is_cut_off_before_it_is_shown(client, settings):
     """The tool frame shows the model's own arguments to the analyst, so they are
     model output like any other and go through the rail — on one literal channel

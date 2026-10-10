@@ -682,10 +682,12 @@ async def chat(
         agent_history = _agent_history(
             _turns(rows, exclude=user_row), contract.system_directive()
         )
-        # D-031 decision 5: on this path the configuration we issued is the
-        # loop's COMPOSED system message, plus the two directives in its history.
+        # D-031 decision 5: on this path the configuration we issued is what the
+        # loop composes — its system message, the tool and parameter
+        # descriptions, the step-cap nudge (TD-038) — plus the two directives
+        # in its history.
         issued = [
-            loop.system_message(loop.wire_specs()),
+            *loop.issued_instructions(loop.wire_specs()),
             HISTORY_FENCE_DIRECTIVE,
             contract.system_directive(),
         ]

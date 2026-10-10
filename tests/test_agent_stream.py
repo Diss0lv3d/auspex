@@ -609,3 +609,21 @@ async def test_arguments_nested_past_the_parsers_depth_are_bad_arguments_not_a_d
     ]
     assert seen == []
     assert events[-1].kind == "done" and events[-1].stop_reason == "final_answer"
+
+
+async def test_everything_the_loop_may_issue_is_offered_for_indexing():
+    """D-031 decision 5 indexes what the turn ISSUED. On native_tools that is
+    more than the system message: every tool and parameter description goes in
+    the `tools` parameter, and the step-cap nudge arrives as a late message
+    (TD-038). The list the rail indexes must hold all three."""
+    from auspex.agent.loop import _SYNTHESIS_NUDGE
+
+    registry, _ = _registry()
+    loop = _loop(registry)
+    specs = loop.wire_specs()
+
+    issued = loop.issued_instructions(specs)
+
+    assert issued[0] == loop.system_message(specs)
+    assert "Look up an IP." in issued and "the IP" in issued  # function + parameter
+    assert _SYNTHESIS_NUDGE in issued

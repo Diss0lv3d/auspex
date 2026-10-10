@@ -397,6 +397,24 @@ class AgentLoop:
             self.system_prompt + self.channel.system_prefix(specs) + self._actions_prefix()
         )
 
+    def issued_instructions(self, specs: list[dict]) -> list[str]:
+        """Everything this turn may send the endpoint as configuration, for the
+        output rail's index (D-031 decision 5): the composed system message,
+        every function and parameter description on the wire — which on
+        native_tools travel in the `tools` parameter, not the system message —
+        and the step-cap nudge (TD-038). Calibrated before it was indexed:
+        docs/probes/2026-10-10-s26-rail-calibration-glm.md."""
+        issued = [self.system_message(specs)]
+        for spec in specs:
+            fn = spec.get("function") or {}
+            if fn.get("description"):
+                issued.append(fn["description"])
+            for prop in ((fn.get("parameters") or {}).get("properties") or {}).values():
+                if isinstance(prop, dict) and prop.get("description"):
+                    issued.append(prop["description"])
+        issued.append(_SYNTHESIS_NUDGE)
+        return issued
+
     def _initial_messages(
         self, specs: list[dict], user_message: str, history: Sequence[dict] | None
     ) -> list[dict]:
