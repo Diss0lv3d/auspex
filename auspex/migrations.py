@@ -555,7 +555,11 @@ SCHEMA_V0: list[str] = [
     # queue each time (811 ms at 20k pending rows, measured). md5 of the
     # canonical jsonb text rather than the jsonb itself: a 2000-char note would
     # exceed btree's row size and make FILING a proposal fail. Partial, because
-    # only pending rows are ever twins.
+    # only pending rows are ever twins. One bound, probed at S27: jsonb `=` calls
+    # numbers that differ only in scale equal (1 = 1.0) while their text, and so
+    # their md5, differs — such twins are not named. Arguments are filed as the
+    # model sent them, so this is reachable the day an action declares an
+    # INTEGER or NUMBER parameter.
     """
     CREATE INDEX IF NOT EXISTS idx_proposals_pending_twins
         ON proposals (workspace_id, tool_name, md5(tool_input::text))
