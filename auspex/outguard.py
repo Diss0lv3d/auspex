@@ -70,6 +70,16 @@ from auspex.guard import _normalize
 # legitimately use those words in that order for a while.
 SHINGLE_WORDS = 8
 
+# A thinking model's OWN THINKING is held to a recitation floor, not a quotation
+# floor (S26, D-040). It reasons by quoting its instructions — measured on
+# glm-4.5-air: 19 and 20 words of our directives and tool descriptions on
+# legitimate questions, where SHINGLE_WORDS cut the turn — while a recitation
+# ran 58 (and S22's compliant leak 60). About twice the legitimate ceiling,
+# under the recitations. Calibrated, like SHINGLE_WORDS: re-run
+# docs/probes/s26-step0/probe_calibrate_agent.py to move it. Scout, on which
+# SHINGLE_WORDS was calibrated, had no native thinking to measure.
+THINKING_SHINGLE_WORDS = 40
+
 # Tokenisation deliberately discards punctuation, case and markdown: a leak
 # re-emitted as a bulleted list, or title-cased, or with the commas moved, is
 # the same leak. Matching normalised words is what makes that true without a
@@ -134,6 +144,9 @@ class OutputScanner:
 
     index: set[str]
     shingle: int = SHINGLE_WORDS
+    # Per-channel (index, shingle) overrides; any channel not named here uses
+    # `index` at `shingle`. The thinking channel is the one that needs it.
+    floors: dict[str, tuple[set[str], int]] = field(default_factory=dict)
     # One carry PER channel, not one shared slot. S24 review measured why: a
     # single slot is evicted by any delta of the other kind, so on an endpoint
     # that interleaves the two panes, a leak split across two chunks of the SAME
@@ -177,16 +190,17 @@ class OutputScanner:
         other: a run cannot span two channels, and chunking stays invisible
         within a channel however the kinds interleave.
         """
-        if self._outcome is not None or not self.index:
+        index, shingle = self.floors.get(channel, (self.index, self.shingle))
+        if self._outcome is not None or not index:
             return None
         words = self._carries.get(channel, []) + _words(chunk)
-        for i in range(len(words) - self.shingle + 1):
-            run = " ".join(words[i : i + self.shingle])
-            if run in self.index:
+        for i in range(len(words) - shingle + 1):
+            run = " ".join(words[i : i + shingle])
+            if run in index:
                 self._outcome = OutputOutcome(OutputVerdict.LEAKED, run)
                 self._carries.clear()
                 return self._outcome
-        self._carries[channel] = words[-(self.shingle - 1) :] if self.shingle > 1 else []
+        self._carries[channel] = words[-(shingle - 1) :] if shingle > 1 else []
         return None
 
     def result(self) -> OutputOutcome:
@@ -218,6 +232,7 @@ LEAK_COPY = (
 __all__ = [
     "LEAK_COPY",
     "SHINGLE_WORDS",
+    "THINKING_SHINGLE_WORDS",
     "OutputOutcome",
     "OutputScanner",
     "OutputVerdict",

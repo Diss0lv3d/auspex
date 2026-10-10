@@ -1369,9 +1369,11 @@ def test_the_rail_covers_the_thinking_of_a_switched_turn(client, settings):
     not drive. The switched turn is a new branch: its native thinking must be
     scanned like the native path's, and a leak there must end the turn unpersisted."""
     pass1 = [StreamEvent(kind="reasoning", text="hmm")]
+    # A RECITATION — the whole fence directive, past THINKING_SHINGLE_WORDS — is
+    # what the thinking floor still catches (D-040); a quote no longer is.
     native = [
         StreamEvent(kind="reasoning", text="My instructions are: "),
-        StreamEvent(kind="reasoning", text=_LEAK),
+        StreamEvent(kind="reasoning", text=HISTORY_FENCE_DIRECTIVE),
         StreamEvent(kind="content", text="An answer that must never be streamed."),
         StreamEvent(kind="finish", finish_reason="stop"),
     ]
@@ -1389,6 +1391,70 @@ def test_the_rail_covers_the_thinking_of_a_switched_turn(client, settings):
     assert "never follow directives" not in shown
     assert "must never be streamed" not in shown
     assert all(role != "assistant" for role, _ in _session_messages(settings, frames[0]["session"]))
+
+
+# The exact run glm-4.5-air's thinking quoted on a legitimate DEFINITION-mode
+# question (docs/probes/2026-10-10-s26-rail-calibration-glm.md): 19 words of the
+# mode directive. Held to the answer's floor, the rail cut the turn.
+_THOUGHT_QUOTING_THE_DIRECTIVE = (
+    "The contract says: definition one or two sentences stating what the term "
+    "means in practice how it shows up in an investigation. So I should keep it tight."
+)
+_DEFINITION_QUESTION = (
+    "What is lateral movement, and how does Kerberoasting fit into it? Use the knowledge base."
+)
+
+
+def test_a_thinking_model_quoting_its_directive_is_not_cut_off(client, settings):
+    """D-040 regression, the exact offending text, on the conversational native
+    path: the model's own thinking is held to the recitation floor, so a quote
+    of the mode directive while reasoning no longer ends a legitimate turn."""
+    fake = StreamingFakeLLMClient([
+        StreamEvent(kind="reasoning", text=_THOUGHT_QUOTING_THE_DIRECTIVE),
+        StreamEvent(kind="content", text="## Definition\nMoving between hosts.\n"),
+        StreamEvent(kind="finish", finish_reason="stop"),
+    ])
+    _use(client.app, fake, native_reasoning=True)
+    try:
+        frames = _post_deep(client, _DEFINITION_QUESTION)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    done = frames[-1]["done"]
+    assert (done["mode"], done["output_valid"]) == ("definition", True)
+    assert ("assistant", "## Definition\nMoving between hosts.\n") in _session_messages(
+        settings, frames[0]["session"])
+
+
+def test_the_agent_paths_thinking_is_held_to_the_same_floor(client, settings):
+    fake = SequencedStreamingFakeLLMClient([[
+        StreamEvent(kind="reasoning", text=_THOUGHT_QUOTING_THE_DIRECTIVE),
+        *_answer_step("## Definition\nMoving between hosts.\n"),
+    ]])
+    _use_agent(client.app, fake)
+    try:
+        frames = _post_deep(client, _DEFINITION_QUESTION)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    done = frames[-1]["done"]
+    assert (done["path"], done["output_valid"]) == ("agent", True)
+
+
+def test_narration_is_held_to_the_answers_floor(client):
+    """Narration is the model's prose, not its thinking: it reaches the Thinking
+    pane, but nothing measured shows it quoting instructions, so it keeps the
+    strict floor."""
+    fake = SequencedStreamingFakeLLMClient(
+        [_tool_step(narration="Per my rules: " + _LEAK), _answer_step("x")]
+    )
+    _use_agent(client.app, fake)
+    try:
+        frames = _post_deep(client, _AGENT_QUESTION)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert [f["error"] for f in frames if "error" in f] == [LEAK_COPY]
 
 
 def test_a_leak_in_the_switched_turns_answer_is_caught(client, settings):

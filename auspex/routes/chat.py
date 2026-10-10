@@ -72,7 +72,12 @@ from auspex.llm.client import LLMClient, LLMError, Usage
 from auspex.llm.registry import DevEndpoint
 from auspex.llm.scorecard import AgentMode, CapabilityScorecard, load_deployment_scorecard
 from auspex.modes import Mode, contract_for, resolve_mode
-from auspex.outguard import LEAK_COPY, OutputScanner, instruction_index
+from auspex.outguard import (
+    LEAK_COPY,
+    THINKING_SHINGLE_WORDS,
+    OutputScanner,
+    instruction_index,
+)
 from auspex.phishing import decide_verdict, deterministic_phishing_block, parse_email
 
 logger = logging.getLogger("auspex.chat")
@@ -679,29 +684,34 @@ async def chat(
         )
         # D-031 decision 5: on this path the configuration we issued is the
         # loop's COMPOSED system message, plus the two directives in its history.
-        leak_index = instruction_index(
-            [
-                loop.system_message(loop.wire_specs()),
-                HISTORY_FENCE_DIRECTIVE,
-                contract.system_directive(),
-            ]
-        )
+        issued = [
+            loop.system_message(loop.wire_specs()),
+            HISTORY_FENCE_DIRECTIVE,
+            contract.system_directive(),
+        ]
     else:
-        leak_index = instruction_index(
-            [
-                CHAT_SYSTEM_PROMPT,
-                HISTORY_FENCE_DIRECTIVE,
-                contract.system_directive(),
-                PASS1_DIRECTIVE,
-            ]
-        )
+        issued = [
+            CHAT_SYSTEM_PROMPT,
+            HISTORY_FENCE_DIRECTIVE,
+            contract.system_directive(),
+            PASS1_DIRECTIVE,
+        ]
+    leak_index = instruction_index(issued)
+    # D-040: the model's OWN thinking quotes its instructions while it reasons
+    # (measured: 19-20 words on legitimate questions), so on the "thinking"
+    # channel the rail waits for a recitation. Everything else — the answer, the
+    # tool lines, narration, a two-pass analysis — keeps the answer's floor.
+    thinking_floor = (
+        instruction_index(issued, shingle=THINKING_SHINGLE_WORDS),
+        THINKING_SHINGLE_WORDS,
+    )
 
     async def event_stream():
         yield _sse({"session": str(session_id)})
         content_parts: list[str] = []
         finish_reason = None
         usage = None
-        scanner = OutputScanner(leak_index)
+        scanner = OutputScanner(leak_index, floors={"thinking": thinking_floor})
         agent_done = None
         refused = None
         first_call_claimed = True
@@ -736,7 +746,10 @@ async def chat(
             ) as events:
                 async for ev in events:
                     if ev.kind in ("reasoning", "narration"):
-                        if scanner.feed(ev.text, channel="reasoning"):
+                        # Both show in the Thinking pane; only the model's own
+                        # thinking gets the recitation floor (D-040).
+                        channel = "thinking" if ev.kind == "reasoning" else "narration"
+                        if scanner.feed(ev.text, channel=channel):
                             return
                         yield _sse({"reasoning": ev.text})
                     elif ev.kind == "content":
@@ -767,7 +780,7 @@ async def chat(
             ) as events:
                 async for ev in events:
                     if ev.kind == "reasoning":
-                        if scanner.feed(ev.text, channel="reasoning"):
+                        if scanner.feed(ev.text, channel="thinking"):
                             return
                         yield _sse({"reasoning": ev.text})
                     elif ev.kind == "content":
