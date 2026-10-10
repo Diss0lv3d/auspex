@@ -8,7 +8,8 @@ Measures:
 - valid-call rate      = well-formed tool calls / all tool calls emitted
 - loop-completion rate = tasks where every required tool ran validly AND the
                          final answer contains the expected evidence
-Persists a scorecard row (workspace 'dev') and writes the raw run JSON next to
+Persists a DEPLOYMENT-scoped scorecard row (D-035 — the scope the chat route
+reads) and writes the raw run JSON next to
 the probe docs. Verdict comes from decide_agent_mode — code, not vibes.
 """
 
@@ -33,7 +34,7 @@ from auspex.config import get_settings  # noqa: E402
 from auspex.db import create_pool  # noqa: E402
 from auspex.llm.capability import PROBE_MAX_TOKENS, probe_capabilities  # noqa: E402
 from auspex.llm.client import LLMClient, LLMError, ToolCall  # noqa: E402
-from auspex.llm.scorecard import decide_agent_mode, save_scorecard  # noqa: E402
+from auspex.llm.scorecard import decide_agent_mode, save_deployment_scorecard  # noqa: E402
 from scripts.harness_tasks import SYSTEM_PROMPT, TASKS, TOOL_SPECS, Task, execute_tool  # noqa: E402
 
 
@@ -242,12 +243,10 @@ async def main() -> None:
         if not cli.no_db:
             pool = await create_pool(settings.database_url, retries=2, delay=0.5)
             try:
-                workspace_id = await pool.fetchval(
-                    "INSERT INTO workspaces (name) VALUES ('dev')"
-                    " ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id"
-                )
-                row_id = await save_scorecard(pool, workspace_id, sc)
-                print(f"scorecard row {row_id} saved (workspace 'dev', mode={mode})")
+                # Deployment-scoped (D-035): the chat route reads the scorecard of
+                # the endpoint the DEPLOYMENT configured, so that is where it goes.
+                row_id = await save_deployment_scorecard(pool, sc)
+                print(f"scorecard row {row_id} saved (deployment scope, mode={mode})")
             finally:
                 await pool.close()
 

@@ -22,6 +22,7 @@ import jwt
 from fastapi import HTTPException, Request
 
 from auspex.config import Settings
+from auspex.llm.scorecard import DEPLOYMENT_WORKSPACE
 
 API_KEY_PREFIX = "apx_"
 JWT_ALGORITHM = "HS256"
@@ -128,6 +129,11 @@ async def get_or_create_user(
     workspace_name: str = "default",
 ) -> tuple[UUID, UUID]:
     """Return (user_id, workspace_id), creating workspace/user rows as needed."""
+    if workspace_name == DEPLOYMENT_WORKSPACE:
+        # The deployment's system workspace holds what is configured per
+        # deployment (D-035). A user inside it could read, and a later writer
+        # could poison, what every tenant's turn is compiled from.
+        raise ValueError(f"{DEPLOYMENT_WORKSPACE!r} is reserved for the deployment")
     async with pool.acquire() as conn, conn.transaction():
         # Race-safe get-or-create: INSERT..ON CONFLICT DO NOTHING relies on the UNIQUE
         # index on workspaces.name; on conflict we re-SELECT the existing row.

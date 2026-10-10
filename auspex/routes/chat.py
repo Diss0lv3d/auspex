@@ -58,7 +58,7 @@ from auspex.kb import (
 from auspex.limits import Meter, UsageLimiter
 from auspex.llm.client import LLMClient, LLMError, Usage
 from auspex.llm.registry import DevEndpoint
-from auspex.llm.scorecard import load_latest_scorecard
+from auspex.llm.scorecard import load_deployment_scorecard
 from auspex.modes import Mode, contract_for, resolve_mode
 from auspex.outguard import LEAK_COPY, OutputScanner, instruction_index
 from auspex.phishing import decide_verdict, deterministic_phishing_block, parse_email
@@ -210,10 +210,16 @@ def select_dev_endpoint(
 
 async def _default_native_reasoning(request: Request, auth: AuthContext) -> bool:
     """Whether the configured default endpoint emits native reasoning, from its
-    persisted scorecard. Unknown ⇒ False (safe default = two-pass fallback)."""
+    persisted scorecard. Unknown ⇒ False (safe default = two-pass fallback).
+
+    The scorecard is the DEPLOYMENT's (D-035), because the endpoint is: reading
+    it from the analyst's workspace found nothing, ever, and every deep turn on a
+    thinking model paid for a two-pass whose first pass its own thinking emptied.
+    `auth` stays in the signature — the route resolves per request — but the
+    endpoint it describes is not per workspace."""
     settings = _settings(request)
-    loaded = await load_latest_scorecard(
-        request.app.state.pool, auth.workspace_id, settings.llm_base_url, settings.llm_model
+    loaded = await load_deployment_scorecard(
+        request.app.state.pool, settings.llm_base_url, settings.llm_model
     )
     return bool(loaded and loaded[0].native_reasoning)
 
