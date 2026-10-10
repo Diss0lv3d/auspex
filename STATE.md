@@ -145,11 +145,12 @@ complete; S21–S25 were each scoped by a decision rather than a plan.**
   DECISIONS.md.
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: this session's five commits + this session-end commit.**
-   `d47adea` (three indicators check three), `554623c` (a bare number is an honest
-   miss), `e1722b8` (Step-0 record + tool-choice probe + D-032), `7a82697`
-   (`run_stream`), `7fe35a7` (the live run_stream probe).
-   **A real slate — `/promote` first next session.**
+1. **Promote slate: EMPTY.** Promote **#27** merged 2026-10-10 as squash `8631307`
+   (S25 slate + S26 Step 0 + the LLM replacement + D-035 + D-036; real diff 82
+   files, +9847/−91), back-merged `856c1da`, staging tree **byte-identical** to
+   `origin/main`. Both PR checks SUCCESS; `gh pr merge --squash` again printed
+   nothing on success. **`gh` WAS on the work account at the start of the promote**
+   — switched back with `gh auth switch --user bh3082336888-cell`.
    - **Read the diff at promote time. Never trust the commit LIST.**
 2. ~~**Branch protection on `main`.**~~ **CLOSED at S25 — D-032 ratified.** It is
    procedural, by decision. Not a task, not a blocker. Do not re-open it.
@@ -292,29 +293,21 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 - RRF retrieval + ID bypass: 2026-07-17-sara-rrf-retriever-pattern.md
 
 ## Next session should
-**Start with `/promote`** — five commits plus this session-end commit.
+**Resume S26 in a fresh window (NEXT-SESSION.md has the full prompt).** Nothing to
+promote; Step 0 is done; the dev LLM is glm-4.5-air (D-034).
 
-Then **wire the agent path into `/api/chat` (D-031).** Everything it depends on
-now exists and is measured: the design (S23), the tools (S24), the tools proven
-as prompts (S25), and the streaming mechanism, live-verified (S25). **What is
-left is the route, and only the route.**
+Then the S26 goal, unchanged in substance: **wire the agent path into
+`/api/chat` (D-031).**
 
-1. **Decide the routing question FIRST, because it is not a detail.** Scout
-   refuses a question no tool answers. Either the 92/8 classifier keeps those
-   turns off the agent path, or the composed system message handles it — and the
-   obvious instruction was **measured not to be enough**. Whichever is chosen
-   needs its own probe.
-2. **The wiring itself:** consume `run_stream`, map its events to the SSE
-   protocol, narrate `tool` events, build the leak index from
-   `loop.system_message(loop.wire_specs())`, leave tool results **unindexed** and
-   scan them on **one literal** channel, pass a `claim` that calls `UsageLimiter`
-   per call (TD-018; **TD-035 dissolves the moment it moves**), and persist the
-   `done` event's `text` as the assistant turn.
-3. **Check which path actually runs.** All four persisted scorecards lack
-   `native_reasoning`, so the default endpoint takes the **two-pass** path while
-   every measurement was taken on the native one.
-4. **TD-028 (b/c/d) + TD-034 together** — all four want a terminal state that
-   records what actually happened.
-5. **TD-012(b)** — contract-conformance repair, the original S9 entry.
-
-NEXT-SESSION.md has the full prompt.
+1. **Re-measure the routing question on glm-4.5-air FIRST.** The three
+   uncommitted probes in `docs/probes/s26-step0/` all measured Scout, which no
+   longer exists; Scout's "refuses a question no tool answers" (S25) was already
+   0-for-12 under the route's real conditions. Re-run them, record, then decide.
+2. **The wiring itself** — as before, PLUS the TD-036 buffer, which is no longer
+   optional: on this endpoint prose precedes tool calls (one sentence of
+   narration, measured; probe record Finding 9).
+3. ~~Check which path actually runs~~ — **answered at S26**: on dev the default
+   endpoint has a deployment scorecard (D-035) and runs NATIVE; an unprobed
+   thinking endpoint switches to native from pass 1 (D-036).
+4. **TD-028 (b/c/d) + TD-034 together.**
+5. **TD-012(b)** — contract-conformance repair.
