@@ -472,13 +472,24 @@ SCHEMA_V0: list[str] = [
     # `reject` refuses as already_decided — wedged forever, and INVISIBLE,
     # because the queue reads `status = 'pending_approval'`. A human watching
     # the approvals list saw the action disappear.
+    #
+    # S26 adds 'incomplete' (TD-028b): the handler raised and some of this
+    # proposal's effects landed — or the action cannot look.
+    #
+    # THE ONLY BLOCK THAT MAY DEFINE THIS CONSTRAINT, AND IT HOLDS THE FULL
+    # CURRENT LIST. Every boot re-runs every statement, and re-adding the CHECK
+    # validates every existing row: a second, later block with a longer list
+    # still runs AFTER this one, so a row in a newer status fails this one and
+    # the whole migration rolls back — the app cannot start (S26 review, HIGH,
+    # pinned by test_startup_survives_every_status_a_proposal_can_be_in). New
+    # statuses are added HERE, in place, as S21 did to S18's list.
     """
     DO $$
     BEGIN
         ALTER TABLE proposals DROP CONSTRAINT IF EXISTS proposals_status_check;
         ALTER TABLE proposals ADD CONSTRAINT proposals_status_check
             CHECK (status IN ('pending_approval', 'approved', 'rejected',
-                              'executing', 'executed', 'failed',
+                              'executing', 'executed', 'failed', 'incomplete',
                               'undoing', 'undone', 'abandoned'));
     END $$
     """,
@@ -492,19 +503,6 @@ SCHEMA_V0: list[str] = [
     # join with status to be read.
     """
     ALTER TABLE proposals ADD COLUMN IF NOT EXISTS claimed_at timestamptz
-    """,
-    # S26 (TD-028b) adds 'incomplete': the handler raised and some of this
-    # proposal's effects landed — or the action cannot look. 'failed' now means
-    # it raised AND the action looked and found nothing of this proposal's.
-    """
-    DO $$
-    BEGIN
-        ALTER TABLE proposals DROP CONSTRAINT IF EXISTS proposals_status_check;
-        ALTER TABLE proposals ADD CONSTRAINT proposals_status_check
-            CHECK (status IN ('pending_approval', 'approved', 'rejected',
-                              'executing', 'executed', 'failed', 'incomplete',
-                              'undoing', 'undone', 'abandoned'));
-    END $$
     """,
     # S26 (TD-034): WHICH operation `abandon` gave up on. `abandoned` alone does
     # not say whether a run or a put-back was lost, so a late undo answer could
