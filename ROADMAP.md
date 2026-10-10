@@ -411,6 +411,43 @@ may not grow mid-session (IDEAS.md exists for that).
   - Every change was verified live through the running app. Goal item 5
     (TD-012b) was not started.
   - 1217 tests; 120 modules; two new env vars (GLM_API_KEY, LLM_AUTOPROBE_ENABLED).
+- [x] **S27 — the goal measured before it was built, and everything parked
+  done.** Burhan's call at the start ritual: "dont park anything, do everything"
+  — all three candidates joined the goal.
+  - **Step 0.** Promote #28 shipped the S26 slate (D-037…D-041). A fresh-eyes
+    review of the D-041 review's own seven fixes found three more defects, all
+    fixed with tests that failed first:
+    - the queue said "no twins" where nobody had looked;
+    - keep and abandon erased who approved a run;
+    - a lost undo claim said "already being undone" about a row nobody was
+      undoing.
+
+    It cleared four commits, stated one bound (twin index vs numeric scale), and
+    logged TD-042.
+  - **Goal, TD-012(b) → D-043, measured first.**
+    - Drift was 0/60 on security questions across both deep paths, and
+      laundering 0/6 on glm-4.5-air.
+    - So the repair guards the one field that matters: an alert or phishing
+      verdict is held until it passes, re-asked once, then rendered by code.
+      The analyst is never shown a verdict off the code's.
+    - Narrative modes keep streaming. The JSON pass was declined on
+      measurement.
+    - Live through the container.
+  - **TD-041 → D-042.** A deployment scorecard expires after a week, and the
+    running app re-measures. A changed endpoint is logged field by field.
+  - **Mode fallback → D-044.** A seventh mode, `general`, for deep questions
+    with no security signal.
+    - Judged on batteries written by independent agents: approach 1 failed
+      (15/40 misroutes); approach 2 holds at 9/50 misroutes and 24/30 to
+      general.
+    - Live, a misroute costs structure, not substance.
+  - **Actions on the chat agent path → D-045.** The agent may propose. A call
+    files a pending proposal shown in the turn, and a no-op dry run is not
+    filed. Live: one ask filed one sensible proposal, and no ask filed none.
+    Wiring it found a latent bug: a real proposal id (a UUID) killed the turn.
+  - Logged: TD-042 (an approved run that never started has no door), TD-043 (a
+    thinly covered topic spends the agent's whole step cap: 9 calls a turn).
+  - 1257 tests; 120 modules; no new env vars.
 
 ## Later / explicitly deferred
 Herd Immunity federation (needs k≥3 workspaces + privacy review) · billing ·
