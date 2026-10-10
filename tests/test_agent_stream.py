@@ -201,6 +201,25 @@ async def test_content_after_a_tool_call_in_the_same_step_is_narration_too():
     assert all(e.step == 2 for e in events if e.kind == "content")
 
 
+async def test_a_tool_call_after_the_hold_released_still_makes_later_prose_narration():
+    """Review of 39f1afc: once a long run of prose released the hold, a tool call
+    in the same step no longer marked the step as calling tools, so prose AFTER
+    the call streamed as answer too. The prose before the call is TD-036's stated
+    bound; what follows the call never is."""
+    registry, _ = _registry()
+    step1 = [StreamEvent(kind="content", text="a" * (NARRATION_HOLD_CHARS + 1)),
+             *_tool_call_script()[:-1],
+             StreamEvent(kind="content", text=" and now the lookup."),
+             StreamEvent(kind="finish", finish_reason="tool_calls")]
+    client = SequencedStreamingFakeLLMClient([step1, _answer_script()])
+
+    events = await _drain(_loop(registry), client)
+
+    assert [e.text for e in events if e.kind == "narration"] == [" and now the lookup."]
+    step1_content = [e.text for e in events if e.kind == "content" and e.step == 1]
+    assert step1_content == ["a" * (NARRATION_HOLD_CHARS + 1)]  # the bound, nothing more
+
+
 async def test_a_short_answer_is_held_and_then_released_whole():
     """A tool-free step shorter than the hold is not dropped: it is released as
     content when the step ends, before `done`."""

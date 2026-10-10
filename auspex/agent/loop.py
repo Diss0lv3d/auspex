@@ -516,8 +516,12 @@ class AgentLoop:
             # end of the stream or passing NARRATION_HOLD_CHARS releases it as
             # answer. With no tools on the wire no tool call can follow, so
             # nothing waits.
-            holding = "tools" in extra
+            tools_on_wire = "tools" in extra
+            holding = tools_on_wire
             held: list[str] = []
+            # Separate from `holding`: a step that released its hold and THEN
+            # called a tool still called one, so what follows the call is
+            # narration, not answer (review of 39f1afc).
             calls_tools = False
 
             def _text(kind: str, text: str) -> AgentStreamEvent:
@@ -536,8 +540,9 @@ class AgentLoop:
             ) as stream:
                 async for ev in stream:
                     fold_stream_event(result, by_index, ev)
-                    if ev.kind == "tool_call" and holding and not calls_tools:
+                    if ev.kind == "tool_call" and tools_on_wire and not calls_tools:
                         calls_tools = True
+                        holding = False
                         if "".join(held).strip():
                             yield _text("narration", "".join(held))
                         held.clear()
