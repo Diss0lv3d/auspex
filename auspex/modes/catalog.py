@@ -6,7 +6,9 @@ whose fields compile to the DEEP-path system directive and the output validator
 (contract.py). The seventh, `general`, was a scope decision (D-044), as any new
 mode is: the resolver's fallback for a deep question with no security signal at
 all, which before S27 defaulted to threat_intel and could never meet its
-contract. It declares no sections, so it has nothing to drift from.
+contract. It declares no sections, so it has nothing to drift from. The eighth,
+`action_request` (D-050), is a turn that only asks for a note on an indicator:
+it asks for a change, not an analysis, and no narrative mode's sections fit it.
 
 alert_triage ships with the DEFERRED rail from day one (SARA's
 sara/agents/alert_triage.py:1414-1554, snapshot
@@ -30,6 +32,7 @@ class Mode(StrEnum):
     PHISHING_ANALYSIS = "phishing_analysis"
     BRIEF = "brief"
     GENERAL = "general"
+    ACTION_REQUEST = "action_request"
 
 
 _RISK_LEVELS = ("DEFERRED", "LOW", "MEDIUM", "HIGH", "CRITICAL")
@@ -171,6 +174,18 @@ CONTRACTS: dict[Mode, ModeContract] = {
         rules=(
             "If the answer needs details only the analyst has, say which ones and "
             "what you would do with them, then help with what you can.",
+        ),
+    ),
+    Mode.ACTION_REQUEST: ModeContract(
+        name=Mode.ACTION_REQUEST.value,
+        purpose=(
+            "act on the analyst's request to record something on an indicator, "
+            "which the platform can only propose for a human to approve."
+        ),
+        fields=(),
+        rules=(
+            "Never say the change was made. Say what was proposed and that it "
+            "awaits approval, or why nothing could be proposed.",
         ),
     ),
 }

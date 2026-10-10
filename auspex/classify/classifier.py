@@ -210,6 +210,49 @@ def _is_email_paste(q: str) -> bool:
     return len(_EMAIL_HEADER_RE.findall(q)) >= 2
 
 
+# D-050 (S28): a request to put a note on an indicator — the one change the
+# platform can make, and only by proposing it. Measured on an independently
+# written battery: 10 of 30 such asks took the IOC-check shortcut (no model,
+# no proposal, and nothing said so), and the rest landed in narrative modes they
+# could not fill. `_NOTE_ASK` finds the ask anywhere, so it vetoes the shortcut
+# for a mixed "check X and add a note" too; `_NOTE_REQUEST` finds it LEADING the
+# message, which is what a note-only request looks like — a mixed one asks its
+# question first. Both bias the same way: a false ask costs a deep turn, or a
+# mode with no sections; never a wrong answer.
+_NOTE_NOUN = r"(?:notes?|comments?|remarks?|annotations?)"
+_NOTE_VERB = (
+    r"(?:add|attach|put|leave|log|pin|stick|write|append|record|place)\s+"
+    r"(?:(?:a|an|the|this|following|quick|short|new|another)\s+)*" + _NOTE_NOUN + r"\b"
+)
+_NOTE_ASK_RE = re.compile(
+    r"\b(?:" + _NOTE_VERB + r"|annotat(?:e|ed)\b|annotaet\b|"
+    r"(?:jot|mark)\s+(?:it\s+)?down\s+(?:on|against|for)\b|"
+    r"record\s+(?:on|against|for)\b|with\s+a\s+" + _NOTE_NOUN + r"\b|"
+    r"(?:pls|plz|please)\s+note\b|note\s+(?:on|against)\s+(?:it|that|this|them)\b|"
+    r"update\s+(?:the\s+)?" + _NOTE_NOUN + r"\s+(?:on|for)\b)",
+    re.IGNORECASE,
+)
+_NOTE_REQUEST_RE = re.compile(
+    r"^\s*(?:(?:hey|hi|ok|so|btw)\s*[,:]?\s*)?"
+    r"(?:(?:can|could|would)\s+(?:you|u)\s+|please\s+|pls\s+|plz\s+|kindly\s+)*"
+    r"(?:" + _NOTE_VERB + r"|annot\w+\b|(?:jot|mark)\s+(?:it\s+)?down\s+(?:on|against|for)\b|"
+    r"record\s+(?:on|against|for)\b|tag\b.{1,160}?\bwith\s+a\s+" + _NOTE_NOUN + r"\b|"
+    r"update\s+(?:the\s+)?" + _NOTE_NOUN + r"\s+(?:on|for)\b|"
+    r"note\s+(?!that\b|to\b|:)\S)",
+    re.IGNORECASE,
+)
+
+
+def asks_for_note(q: str) -> bool:
+    """Whether the message asks, anywhere, for a note on an indicator (D-050)."""
+    return bool(_NOTE_ASK_RE.search(q))
+
+
+def is_note_request(q: str) -> bool:
+    """Whether the message LEADS with that ask: a note-only request (D-050)."""
+    return bool(_NOTE_REQUEST_RE.search(q))
+
+
 def _is_analytical(q: str) -> bool:
     return bool(_ANALYTICAL_INITIAL_RE.search(q) or _ANALYTICAL_ANYWHERE_RE.search(q))
 
@@ -253,6 +296,9 @@ def classify(query: str) -> Classification:
         return result(Category.IDENTITY)
     if _GREETING_RE.match(q):
         return result(Category.GREETING)
+    if asks_for_note(q) or is_note_request(q):
+        # D-050: proposing the note needs the model; the shortcut has none.
+        return result(Category.DEEP)
 
     residual_words = len(extraction.residual.split())
     if not _is_analytical(q):

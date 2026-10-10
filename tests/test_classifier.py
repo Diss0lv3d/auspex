@@ -225,3 +225,23 @@ def test_plain_questions_and_followups_go_deep():
 
 def test_whitespace_only_goes_deep():
     assert _cat("   ") is Category.DEEP
+
+
+# -- D-050: a request to put a note on an indicator ------------------------------
+
+
+def test_a_note_request_never_takes_the_ioc_shortcut():
+    """S28, measured: 10 of 30 independently written "add a note to X" requests
+    took the IOC-check shortcut — zero LLM calls, an enrichment answer, and the
+    note silently never proposed. A note request is a deep turn, wherever the
+    ask sits in the message."""
+    for q in ["add a note to 198.51.100.23: seen in the payroll phish on Monday",
+              "pls note 203.0.113.77 = c2 for the qakbot wave",
+              "is 203.0.113.50 malicious? if it is, annotate it with 'seen on fin-ws-12'"]:
+        assert _cat(q) is Category.DEEP, q
+
+
+def test_a_question_about_notes_keeps_its_shortcut():
+    for q in ["what notes already exist on evil-cdn[.]net?",
+              "Who added the note on 198.51.100.4 and when?"]:
+        assert _cat(q) is Category.IOC_CHECK, q
