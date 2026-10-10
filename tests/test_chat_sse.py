@@ -1716,6 +1716,22 @@ def test_an_agent_turn_with_no_answer_persists_nothing(client, settings):
     assert [r for r, _ in _session_messages(settings, frames[0]["session"])] == ["user"]
 
 
+def test_a_whitespace_answer_is_no_answer_on_the_agent_path_either(client, settings):
+    """Review of 1b86070: the loop calls a blank answer `empty_answer`, but the
+    route read only the text, which was truthy, so it stored and validated a
+    turn of whitespace. The loop's verdict on what counts as an answer is the
+    one that holds."""
+    fake = SequencedStreamingFakeLLMClient([_tool_step(), _answer_step("  \n ")])
+    _use_agent(client.app, fake)
+    try:
+        frames = _post_deep(client, _AGENT_QUESTION)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert frames[-1]["done"]["contract_valid"] is None
+    assert [r for r, _ in _session_messages(settings, frames[0]["session"])] == ["user"]
+
+
 def test_an_agent_turn_carries_the_session_the_way_the_route_composes_it(client):
     """What goes on the wire: the loop's system message first, the fence
     directive, prior turns with every assistant turn fenced (TD-009), the mode

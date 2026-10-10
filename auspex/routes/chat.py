@@ -833,7 +833,9 @@ async def chat(
             # read as answer; the two differ only past the hold's bound.
             if agent_done.text != answer:
                 logger.info("agent answer differs from the streamed content (TD-036 bound)")
-            answer = agent_done.text
+            # The loop owns what counts as an answer (`_terminal_reason`): a
+            # blank one is no answer, so nothing is stored or validated.
+            answer = "" if agent_done.stop_reason == "empty_answer" else agent_done.text
             logger.info(
                 "agent turn: mode=%s steps=%d tools=%s stop=%s",
                 mode.value,
