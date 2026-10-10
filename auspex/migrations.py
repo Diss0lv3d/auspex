@@ -524,6 +524,17 @@ SCHEMA_V0: list[str] = [
         ADD COLUMN IF NOT EXISTS claim_token uuid,
         ADD COLUMN IF NOT EXISTS abandoned_token uuid
     """,
+    # S27 review of D-041: who resolved a run a human had to look at — kept what
+    # an incomplete run left, or abandoned a dead claim — and when. Their own
+    # columns because `decided_by`/`decided_at` are the APPROVAL, and `keep` and
+    # `abandon` used to overwrite them: the row stopped saying who had approved
+    # the action that partly ran. Rows resolved before S27 still carry the
+    # resolver in `decided_by`; which human approved them is not recoverable.
+    """
+    ALTER TABLE proposals
+        ADD COLUMN IF NOT EXISTS resolved_by uuid REFERENCES users(id) ON DELETE SET NULL,
+        ADD COLUMN IF NOT EXISTS resolved_at timestamptz
+    """,
     # The stale-claim scan: within a workspace, the claimed rows by age. Partial,
     # because claims are the rare state — the index stays the size of the
     # problem rather than the size of the table.
@@ -544,7 +555,11 @@ SCHEMA_V0: list[str] = [
     # queue each time (811 ms at 20k pending rows, measured). md5 of the
     # canonical jsonb text rather than the jsonb itself: a 2000-char note would
     # exceed btree's row size and make FILING a proposal fail. Partial, because
-    # only pending rows are ever twins.
+    # only pending rows are ever twins. One bound, probed at S27: jsonb `=` calls
+    # numbers that differ only in scale equal (1 = 1.0) while their text, and so
+    # their md5, differs — such twins are not named. Arguments are filed as the
+    # model sent them, so this is reachable the day an action declares an
+    # INTEGER or NUMBER parameter.
     """
     CREATE INDEX IF NOT EXISTS idx_proposals_pending_twins
         ON proposals (workspace_id, tool_name, md5(tool_input::text))

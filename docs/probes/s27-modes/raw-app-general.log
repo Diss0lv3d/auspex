@@ -1,0 +1,115 @@
+
+[non-security: the S26 control] path=agent mode=general contract_valid=True tools=[] errors=[]
+Q: Write me a status update for my manager about this week.
+A: 
+   I'd be happy to help you write a status update for your manager! However, I'll need some information about your work this week to create a meaningful update. Could you please share:
+   
+   - What projects you've been working on
+   - Key accomplishments or deliverables completed
+   - Any challenges or blockers you've encountered
+   - Goals or priorities for next week
+   - Any other relevant updates or information you'd like to highlight
+   
+   Once you provide these details, I can help you craft a professional status update that effectively communicates your progress and plans to your manager.
+
+[non-security] path=agent mode=general contract_valid=True tools=[] errors=[]
+Q: My Excel file with 200k rows takes forever to open and recalculates every time I type. How can I speed it up?
+A: 
+   Large Excel files with 200k rows can definitely become slow due to several factors. Here are several strategies to improve performance:
+   
+   **File Optimization:**
+   - **Convert to Excel Table:** Select your data and press Ctrl+T. This improves performance and makes formulas more efficient
+   - **Remove unused cells:** Excel tracks all cells in the used range, even if they're empty. Clear unused cells to reduce file size
+   - **Save as .xlsx instead of .xls:** The newer format is more efficient with large datasets
+   - **Compress images:** If you have embedded images, compress them or remove them if not needed
+   
+   **Calculation Settings:**
+   - **Set calculation to Manual:** Go to Formulas → Calculation Options → Manual. This prevents automatic recalculation as you type
+   - **Use volatile functions sparingly:** Functions like TODAY(), NOW(), OFFSET(), INDIRECT() cause frequent recalculations
+   - **Replace array formulas with regular formulas where possible**
+   
+   **Data Management:**
+   - **Use Power Query:** Import and transform large datasets using Power Query (Data → Get & Transform)
+   - **Split the file:** Consider breaking the data into multiple sheets or files
+   - **Use PivotTables instead of complex formulas:** PivotTables are optimized for large datasets
+   - **Remove unnecessary formatting:** Excessive formatting can slow down Excel
+   
+   **Hardware Considerations:**
+   - **Close other applications** to free up memory
+   - **Increase Excel's memory allocation** in Excel Options → Advanced
+   - **Use 64-bit Excel** if available for better memory handling
+   
+   Start with the calculation settings and file optimization steps, as these often provide the biggest performance improvements.
+
+[MISROUTED security] path=agent mode=general contract_valid=True tools=['search_knowledge(ransomware file encryption bitcoin demand)'] errors=[]
+Q: All the files on the marketing share suddenly have a weird extension and there's a text note in every folder asking for bitcoin.
+A: 
+   This sounds like a ransomware attack. Based on the knowledge base, this matches the MITRE ATT&CK technique T1486 "Data Encrypted for Impact" - where adversaries encrypt files to make them inaccessible and demand payment (usually cryptocurrency like bitcoin) in exchange for decryption keys.
+   
+   Key characteristics of what you're seeing:
+   - Files encrypted with unusual extensions
+   - Ransom notes in folders demanding bitcoin payment
+   - Targeting a shared marketing drive (common for ransomware as it affects business operations)
+   
+   This is a serious incident that requires immediate attention. You should:
+   1. Isolate the affected systems immediately to prevent spread
+   2. Contact your security team and incident response personnel
+   3. Do NOT pay the ransom - this doesn't guarantee file recovery and may encourage further attacks
+   4. Begin recovery from clean backups if available
+   
+   The attackers may have selectively excluded certain file types (like .exe, .dll files) to keep some system functionality operational, which is a common tactic described in the knowledge base as T1679 "Selective Exclusion".
+
+[MISROUTED security] path=agent mode=general contract_valid=True tools=[] errors=[]
+Q: Our printer in the HR office has been emailing scanned documents to an outside address. Nobody set that up as far as we know.
+A: 
+   This is definitely a security incident that needs immediate attention. Here's what I'd recommend investigating:
+   
+   **Immediate Actions:**
+   1. **Isolate the printer** - Disconnect it from the network to prevent further data exfiltration
+   2. **Preserve evidence** - Don't reset the printer yet; document its current configuration first
+   3. **Check logs** - Look for network logs showing the printer's email activity and the destination address
+   
+   **Key Information Needed:**
+   - The specific printer model and manufacturer
+   - The outside email address it's sending to
+   - When this behavior started
+   - Whether it's all scanned documents or specific ones
+   - Physical access to the printer's control panel
+   
+   **Potential Causes:**
+   - **Unauthorized configuration change** - Someone may have set up email forwarding
+   - **Malware infection** - The printer could be compromised with malware
+   - **Firmware vulnerability** - The printer's firmware might have a security flaw
+   - **Insider threat** - Someone with physical access to the printer may have configured it
+   
+   **Next Steps:**
+   1. Examine the printer's email settings directly
+   2. Check for any recent firmware updates
+   3. Review access logs to see who has been near the printer
+   4. Consider a full security assessment of your network
+   
+   Would you be able to provide the printer model and the destination email address? This would help determine if this is a known vulnerability or targeted attack.
+
+[MISROUTED security] path=agent mode=general contract_valid=True tools=[] errors=[]
+Q: Someone tailgated through the side door this morning and walked around the office floor for 20 minutes before anyone asked who they were.
+A: 
+   This is definitely concerning - tailgating is a common physical security breach that can allow unauthorized individuals access to sensitive areas. Here's what you should consider:
+   
+   **Immediate actions:**
+   - Review security camera footage from the side door and office areas to identify the individual
+   - Check if any sensitive areas or equipment were accessed during those 20 minutes
+   - Alert building security and management about the incident
+   
+   **Preventive measures:**
+   - Implement stricter access control at the side door (key cards, turnstiles, security personnel)
+   - Train staff to challenge unfamiliar individuals without badges
+   - Consider installing door alarms or delayed egress systems
+   - Review and update visitor policies and escort procedures
+   
+   **Documentation:**
+   - File an incident report with details of the time, location, and description
+   - Note any gaps in security procedures that may have contributed to this
+   
+   This is primarily a physical security issue rather than a cyber security matter. If you have concerns about potential data access or digital security implications from this incident, that would be where cyber security tools might be relevant, but the core issue here is physical access control.
+   
+   Would you like me to help with any cyber security aspects of this incident, or do you need guidance on physical security procedures?

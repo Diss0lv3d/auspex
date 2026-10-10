@@ -1,6 +1,77 @@
 # Technical debt — logged the moment it's taken
 
+## TD-044 (S27) — the rail's index grew and its legitimate ceiling was not re-measured
+
+**Where:** `auspex/routes/chat.py`. The rail now indexes D-043's repair
+directive (conversational path, code-decided modes) and D-045's action
+directive and descriptions (agent path, through `loop.issued_instructions`).
+**Risk:** LOW. A shortcut, logged as one. More indexed text means more chances
+that a legitimate answer shares an 8-word run with our configuration and is
+cut (the S26 D-040 defect had exactly this shape). Each addition has a recital
+test, and every live S27 turn read `output_valid: true` (about 20 turns, both
+paths). That is evidence, not a calibration.
+**Why taken:** the calibration battery is ~30 live turns, and S27's scope was
+already four items wide.
+**Path to fix:** re-run `docs/probes/s22-outguard/probe_calibrate2.py` and
+`docs/probes/s26-step0/probe_calibrate_agent.py` with the current index. That
+includes action-request turns, whose answers paraphrase the action directive
+("I've proposed…"). Record the new legitimate ceiling next to the floors.
+**Trigger:** any `output_guard` cut on a turn that looks legitimate, the next
+model change (D-042's WARNING), or the next addition to the index.
+
+## TD-043 (S27) — an agent turn on a thinly covered topic spends the whole step cap re-searching
+
+**Where:** `auspex/agent/loop.py` (`DEFAULT_MAX_STEPS = 8`) with the
+`search_knowledge` tool (`auspex/agent/capabilities.py`).
+**Measured (S27, docs/probes/2026-10-10-s27-contract-drift.md, Result 3):**
+4 of 6 `threat_intel` agent turns on topics the curated KB covers thinly
+(LockBit initial access, RMM abuse) made **8 `search_knowledge` calls and the
+synthesis pass, 9 inference calls for one turn**, in about 21 s. The model
+re-queried with new wording each time. The ATT&CK-shaped question stopped after
+2 searches. Every answer still conformed.
+**Risk:** LOW-MEDIUM, and it is about cost. Each call is the customer's
+inference (D-005). The `default` workspace's ceiling of 100 calls an hour is
+11 such turns. The step cap bounds the spend, but here the cap is the normal
+path, not the exception.
+**Path to fix (not chosen yet):** have a miss say that rewording will not help,
+or cap repeat calls to one tool per turn, or count distinct-result calls toward
+the cap. Measure with the same prompts before and after.
+**Trigger:** the next change to the agent's tools, or the first workspace that
+hits its ceiling on agent turns.
+
+## TD-042 (S27) — an approved run that never started has no door and no queue slot
+
+**Where:** `auspex/routes/proposals.py` `approve` → `ActionExecutor.execute`
+(`auspex/actions/settlement.py`). `settle` moves the row to `approved`; the run
+claims it (`approved` → `executing`) a few awaits later.
+**Risk:** LOW today, and the same shape as TD-028a. If the process dies between
+the two statements, the row is `approved` with no claim:
+- `pending()` does not list it (it lists pending, incomplete and stale claims);
+- `reject`, `abandon` and `keep` all return `already_decided`;
+- there is no execute route apart from approve, which needs `pending_approval`.
+
+Reproduced at S27: `docs/probes/s27-review/probe_approved_wedge.py`. The same
+state is the honest end of an execute-time refusal (spec or risk changed), and
+that response says so. The crash case is told to nobody.
+**Why not fixed at S27:** found by the review, outside the commits under review,
+and the door is a decision. Because no claim was ever taken, no handler ever
+started, so re-running is safe. But an approval given an hour ago may not be
+one a human would give now (TD-023's reasoning), so "re-run" vs "withdraw" is
+a call about what an approval means once time has passed.
+**Path to fix:** list unclaimed `approved` rows older than STALE_CLAIM_SECONDS in
+the queue, and give them a door: `POST /{id}/execute`, which re-runs every
+`check_executable` guarantee, and/or a withdraw to `rejected`. Record the
+choice as a decision.
+**Trigger:** the first action that reaches a network, or a second process
+writing proposals.
+
 ## TD-041 (S26) — the deployment scorecard never expires
+
+> **RESOLVED S27 — D-042.** The newest measurement expires after 7 days, and the
+> running app looks every 6 hours. A re-probe that measures nothing leaves the old
+> scorecard standing, and one that finds the endpoint changed logs each changed
+> field and says to re-measure D-040's floor. The behaviour-driven trigger was
+> deliberately not built (D-042, "Not done"). Entry kept as written.
 
 **Where:** `auspex/llm/autoprobe.py`. D-038 probes once per fingerprint
 (base URL + model).
@@ -880,9 +951,13 @@ them shipped in S22.** Whoever picks this up next needs the distinction:
   configuration we issued, cuts the turn off, and refuses to persist it.
   Calibrated on 34 live answers (`SHINGLE_WORDS = 8`, legitimate ceiling 6);
   record: docs/probes/2026-08-16-s22-outguard.md.
-- **(b) Contract-conformance repair — STILL OPEN**, and it is what the original
-  S9 entry below actually describes. A non-conforming answer (missing `## Risk`,
-  out-of-enum value) is still reported and not repaired. Unchanged by S22.
+- **(b) Contract-conformance repair — RESOLVED S27, D-043**, measured first
+  (docs/probes/2026-10-10-s27-contract-drift.md: drift 0/60 on security
+  questions across both deep paths, laundering 0/6). For the two code-decided
+  modes the answer is held, validated, re-asked once, and otherwise rendered by
+  code: the analyst is never shown a verdict off its pin. The narrative modes
+  stay streamed and reported, deliberately; the "contract drift" log line is the
+  trigger to revisit them. The structured JSON pass was declined, on measurement.
 
 **The two bounds (a) deliberately does not cover**, both named in D-030: a
 paraphrase of the configuration rather than a verbatim run, and an injection

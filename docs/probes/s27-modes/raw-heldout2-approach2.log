@@ -1,0 +1,88 @@
+
+security questions (should never lose their structure)
+  threat_intel       My laptop fan keeps running at full speed even when I'm not doing anything, and 
+  threat_intel       Someone in finance got an email from our CEO asking them to buy gift cards urgen
+  threat_intel       A user says her phone keeps popping up approval requests to log in to her work a
+  threat_intel       Our vendor emailed saying their bank details changed and asked us to send this m
+  threat_intel       One of our engineers who resigned last week still seems to be pulling files from
+  general            All the files on the marketing share suddenly have a weird extension and there's
+  threat_intel       I found a USB stick in the car park labelled 'Payroll 2026'. Someone already plu
+  threat_intel       Our cloud bill jumped from 2k to 40k overnight, mostly from big GPU machines in 
+  general            A customer called saying they got a text from 'us' asking them to confirm their 
+  general            Someone tailgated through the side door this morning and walked around the offic
+  threat_intel       A staff member's mailbox has a rule that moves every email containing 'invoice' 
+  threat_intel       An account in our admin group was created at 3am on Sunday and nobody on the tea
+  threat_intel       We need to tell the regulator about the customer records that got exposed. What'
+  threat_intel       Our payment team noticed dozens of small card transactions of 1 dollar each from
+  general            A user says her browser homepage changed to a search site she's never heard of a
+  threat_intel       Someone keeps trying to sign in to the CFO's account from another country every 
+  general            An employee posted a screenshot on LinkedIn that shows our internal dashboard wi
+  threat_intel       Our storage bucket with customer exports was set to public for about three weeks
+  threat_intel       Several people got a calendar invite from an outside address with a link to 'rev
+  threat_intel       Our helpdesk got a call from someone claiming to be the sales director, asking t
+  general            I think a colleague is copying client lists onto a personal Dropbox before leavi
+  general            Our website suddenly redirects some visitors on mobile to a betting site, but on
+  threat_intel       A third-party payroll provider we use just emailed saying they had 'a cyber even
+  threat_intel       The auditors want evidence that we review who has access to the finance system e
+  threat_intel       Someone's work phone was stolen on the train. It has email and the company chat 
+  threat_intel       Our domain admin account logged in to a receptionist's PC at 2am. Is that normal
+  threat_intel       A PowerShell window flashes up for a second every time I log in to my laptop. IT
+  threat_intel       Accounts payable paid a fake invoice for 85,000 yesterday. The bank says the mon
+  threat_intel       Customers are complaining about loyalty points disappearing from their accounts,
+  general            Our printer in the HR office has been emailing scanned documents to an outside a
+  threat_intel       One of our developers accidentally pushed the production database login to a pub
+  threat_intel       The CISO wants a monthly one-pager showing how quickly we deal with alerts. Whic
+  threat_intel       Our badge system shows the same access card was used at the London and Mancheste
+  threat_intel       Someone has been logging in to our shared social media account and posting crypt
+  threat_intel       A finance clerk's login was used to approve 14 refunds to the same bank account 
+  threat_intel       Our Microsoft 365 tenant shows a new app was granted permission to read every us
+  threat_intel       Do we need to tell customers if an ex-employee took a spreadsheet of their phone
+  general            We're onboarding a new SaaS vendor that will hold our HR data. What should be in
+  threat_intel       Several laptops started showing a fake Windows update screen that won't close an
+  threat_intel       Hotel wifi login page asked our sales rep to install a 'certificate' to get onli
+  brief              Can you help me write a one-page summary for the board about last month's ransom
+  definition         What's the difference between a vulnerability scan and a penetration test, and w
+  threat_intel       Triage this: EDR flagged a malicious PowerShell download cradle on a finance wor
+  threat_intel       Draft a phishing awareness email for staff ahead of the holiday season, focused 
+  threat_intel       We had a breach of our CRM via a reused password. Help me write the root cause s
+  threat_intel       How should we prioritise patching when we have 400 critical vulnerabilities open
+  threat_intel       Is it worth enforcing phishing-resistant MFA for everyone, or just admins? Need 
+  threat_intel       Map the lateral movement we saw (pass-the-hash, then RDP to the file server) to 
+  threat_intel       A threat intel feed says a group targeting mid-size retailers is using fake IT s
+  threat_intel       Write a tabletop exercise scenario for our execs: a supplier is compromised and 
+
+non-security questions
+  general            Can you tighten this paragraph for our quarterly newsletter? It feels too long a
+  general            My Excel file with 200k rows takes forever to open and recalculates every time I
+  general            Write a Python function that takes a list of dates as strings and returns them s
+  general            The office printer on the 3rd floor keeps saying paper jam but there's no paper 
+  definition         What's 17.5% of 46,300, and what would it be after a 3% increase?
+  general            Help me find a time for a 45-minute meeting with people in Riyadh, London and Ne
+  general            I'm flying to Dubai for a conference in March. What's the best way to get from t
+  general            How many days of annual leave do I have left if I started with 25, took 9, and c
+  general            Write a polite email declining a meeting invite because I'm double-booked, and s
+  definition         What's the VLOOKUP formula to pull a price from Sheet2 based on the product code
+  general            Give me tips for a performance review conversation with a team member who is und
+  general            I'm thinking of moving from a team lead role to a product manager role. What ski
+  general            Explain the difference between a median and a mean like I'm explaining it to my 
+  general            Convert 72 degrees Fahrenheit to Celsius.
+  brief              Summarise the main points of this meeting transcript into five bullet points wit
+  general            My Python script throws 'KeyError: date' when reading a CSV with pandas. The col
+  general            Suggest a name for our team's Friday lunch-and-learn sessions.
+  general            How do I make a pivot table that shows monthly totals by region in Google Sheets
+  general            Write a job description for a junior data analyst at a mid-size company, hybrid,
+  definition         What's a good structure for a 10-minute presentation on our team's achievements 
+  general            Outlook keeps crashing when I open a calendar shared by my colleague. Is there a
+  general            Rewrite this message to the whole office about the kitchen fridge being cleaned 
+  definition         What's the capital of Australia, and why isn't it Sydney?
+  general            How do I write a SQL query to get the top 5 customers by total order value last 
+  general            My Teams video freezes during calls on home wifi but not in the office. What can
+  general            Help me plan a two-day offsite agenda for 12 people with a mix of workshops and 
+  general            What should I include in a resignation letter to keep things on good terms?
+  general            Can you check the grammar in this sentence: 'Neither the manager nor the employe
+  general            How do I calculate compound annual growth rate if revenue went from 2.1M to 3.4M
+  definition         What's a reasonable per diem for a business trip to Singapore, and how do I file
+
+summary (heldout2-battery.json)
+  security deep turns: 50; resolved to general: 9; threat_intel: 39
+  non-security deep turns: 30; resolved to general: 24; threat_intel: 0

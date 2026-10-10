@@ -786,14 +786,25 @@ class AgentLoop:
                 session_id=self.session_id,
             )
         except Exception as err:
+            # A proposer may DECLINE with a sentence written for the model (D-045:
+            # a dry run that would change nothing is not filed). Only that
+            # deliberate attribute crosses over; an arbitrary exception's message
+            # can carry anything, so it is reported by class alone.
+            declined = getattr(err, "model_feedback", None)
             return ToolInvocation(
                 call.name, args, "error",
-                {"error": f"proposing raised {type(err).__name__}"},
+                {"error": declined if isinstance(declined, str)
+                 else f"proposing raised {type(err).__name__}"},
                 level=spec.risk.value,
             )
+        # The stored row's id is a UUID object; everything fed back to the model
+        # is JSON on the wire, and the loop's own test doubles returned strings,
+        # so this went unexercised until the chat path used the real proposer
+        # (D-045).
+        proposal_id = str(proposal["id"])
         feedback = {
             "status": "pending_approval",
-            "proposal_id": proposal["id"],
+            "proposal_id": proposal_id,
             "would": proposal["card"]["summary"],
             "note": (
                 f"'{call.name}' was PROPOSED and requires human approval. It has NOT "
@@ -803,5 +814,5 @@ class AgentLoop:
         }
         return ToolInvocation(
             call.name, args, "proposed", feedback,
-            level=spec.risk.value, proposal_id=proposal["id"], card=proposal["card"],
+            level=spec.risk.value, proposal_id=proposal_id, card=proposal["card"],
         )

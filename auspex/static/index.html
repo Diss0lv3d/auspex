@@ -61,6 +61,7 @@
     details.think .step { color: var(--steel); margin: 4px 0; }
     details.think .step.proposed { color: var(--signal); }
     details.think .step.error { color: var(--ember); }
+    .proposal { color: var(--signal); font-size: 13px; margin: 6px 0; border-left: 2px solid var(--signal); padding-left: 10px; }
     footer { border-top: 1px solid #1c2431; padding: 14px 20px; }
     .composer { display: flex; gap: 10px; max-width: 860px; margin: 0 auto; }
     .composer input { flex: 1; }
@@ -179,6 +180,16 @@
         line.className = "step " + ev.tool.status;
         line.textContent = "→ " + ev.tool.call + " · " + ev.tool.status;
         ensureThink(wrap).appendChild(line);
+        if (ev.tool.proposal) {
+          // D-045: a proposal is a decision waiting on a human, so it is shown
+          // where the answer is — not folded away with the thinking. The
+          // summary is the action's own dry-run sentence, as text.
+          const p = document.createElement("div");
+          p.className = "proposal";
+          p.textContent = "Awaiting your approval: " + ev.tool.proposal.summary +
+            " (proposal " + ev.tool.proposal.id.slice(0, 8) + ")";
+          wrap.appendChild(p);
+        }
       }
       else if ("content" in ev) {
         // reasoning is done once the answer starts — collapse it (stays clickable)

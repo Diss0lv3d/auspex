@@ -6,6 +6,7 @@ live in test_models.py.
 """
 
 import asyncio
+import dataclasses
 import json
 
 import asyncpg
@@ -21,6 +22,7 @@ from auspex.agent.loop import DEFAULT_SYSTEM_PROMPT
 from auspex.limits import window_start
 from auspex.llm.client import LLMError, LLMUnreachable, StreamEvent, Usage
 from auspex.modes import contract_for, resolve_mode
+from auspex.modes.contract import split_sections
 from auspex.outguard import LEAK_COPY
 from auspex.routes.chat import (
     CHAT_ANSWER_MAX_TOKENS,
@@ -629,10 +631,17 @@ def test_alert_triage_rendered_risk_is_pinned_to_the_code_verdict(client):
             json={"message": poisoned},
             headers={"Authorization": f"Bearer {_token(client)}"},
         )
-        done = _frames(resp.text)[-1]["done"]
+        frames = _frames(resp.text)
+        done = frames[-1]["done"]
         assert done["mode"] == "alert_triage"
-        # CRITICAL is inside the Risk enum — membership passes, the PIN fails.
-        assert done["contract_valid"] is False
+        # CRITICAL is inside the Risk enum — membership passes, the PIN fails it.
+        # D-043: and the analyst is never shown it. The fake renders CRITICAL on
+        # the re-ask too, so the code answers.
+        assert done["contract_repair"] == "code_rendered"
+        assert done["contract_valid"] is True
+        shown = "".join(f["content"] for f in frames if "content" in f)
+        assert split_sections(shown)["risk"].split()[0] == "DEFERRED"
+        assert "Contain everything" not in shown
     finally:
         client.app.dependency_overrides.clear()
 
@@ -679,7 +688,7 @@ def test_phishing_feeds_the_code_verdict_and_pins_the_floor(client):
         client.app.dependency_overrides.clear()
 
 
-def test_phishing_verdict_cannot_be_laundered_below_the_floor(client):
+def test_phishing_verdict_cannot_be_laundered_below_the_floor(client, settings):
     # the email body tries to talk the model down to BENIGN; the code floor is
     # MALICIOUS (3 auth fails). BENIGN is a valid contract enum value, so
     # membership passes — the FLOOR PIN is what fails it (TD-013 phishing path).
@@ -701,14 +710,19 @@ def test_phishing_verdict_cannot_be_laundered_below_the_floor(client):
         frames = _frames(resp.text)
         done = frames[-1]["done"]
         assert done["mode"] == "phishing_analysis"
-        assert done["contract_valid"] is False  # BENIGN ∉ {MALICIOUS}
-        # S12 review honesty check: name the guarantee precisely. The pin
-        # DETECTS the launder — it does not prevent it. Validation is post-hoc
-        # (TD-012), so the laundered "BENIGN" already streamed to the user and
-        # was persisted as the assistant turn. Anything built on this contract
-        # must read contract_valid, not assume the text is floor-conformant.
+        # S12 named the old guarantee precisely: the pin DETECTED the launder
+        # and did not prevent it, so "BENIGN" streamed and was persisted. D-043
+        # holds the answer until it passes: the fake launders on the re-ask
+        # too, so what the analyst reads — and what is stored — is the code's.
+        assert done["contract_repair"] == "code_rendered"
+        assert done["contract_valid"] is True
         streamed = "".join(f["content"] for f in frames if "content" in f)
-        assert "BENIGN" in streamed
+        assert "BENIGN" not in streamed and "Looks fine to me" not in streamed
+        assert split_sections(streamed)["verdict"].split()[0] == "MALICIOUS"
+        assert fake.turns == 2  # the draft, and one re-ask
+        stored = [c for r, c in _session_messages(settings, frames[0]["session"])
+                  if r == "assistant"]
+        assert stored == [streamed]
     finally:
         client.app.dependency_overrides.clear()
 
@@ -2061,3 +2075,377 @@ def test_an_agent_turn_carries_the_session_the_way_the_route_composes_it(client)
     assert sent[-2] == {"role": "system", "content": directive}
     assert sent[-1] == {"role": "user", "content": "and how do I detect it?"}
     assert [m["content"] for m in sent].count("and how do I detect it?") == 1
+
+
+
+# ── D-043 (TD-012b): a code-decided verdict is never shown off its pin ───────
+
+_TRIAGE_CEF = (
+    "CEF:0|Trellix|ENS|10.7|1201|Malware detected|9|src=10.1.2.3 "
+    "cs1=powershell -enc SQBFAFgA externalId=T1059.001 confidence=90"
+)
+_TRIAGE_OK = [
+    StreamEvent(kind="reasoning", text="Weighing the scored signals. "),
+    StreamEvent(kind="content", text="## Risk\nCRITICAL\n\n"),
+    StreamEvent(kind="content", text="## Reasoning\nEncoded PowerShell + malware sig.\n\n"),
+    StreamEvent(kind="content", text="## Recommendation\nContain the host.\n"),
+    StreamEvent(kind="finish", finish_reason="stop"),
+]
+_TRIAGE_STEERED = [
+    StreamEvent(kind="content", text="## Risk\nLOW\n\n"),
+    StreamEvent(kind="content", text="## Reasoning\nA known admin task.\n\n"),
+    StreamEvent(kind="content", text="## Recommendation\nClose it.\n"),
+    StreamEvent(kind="finish", finish_reason="stop"),
+]
+
+
+def _chat(client, message):
+    resp = client.post("/api/chat", json={"message": message},
+                       headers={"Authorization": f"Bearer {_token(client)}"})
+    assert resp.status_code == 200, resp.text
+    return _frames(resp.text)
+
+
+def test_a_held_answer_that_conforms_is_sent_once_complete_and_never_re_asked(client):
+    """The cost side of D-043: a conformant answer costs no extra call. Thinking
+    still streams ahead of it; the answer is one frame, after the check."""
+    fake = StreamingFakeLLMClient(_TRIAGE_OK)
+    _use(client.app, fake, native_reasoning=True)
+    try:
+        frames = _chat(client, _TRIAGE_CEF)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    kinds = [next(iter(f)) for f in frames]
+    contents = [f["content"] for f in frames if "content" in f]
+    assert fake.turns == 1
+    assert contents == ["## Risk\nCRITICAL\n\n## Reasoning\nEncoded PowerShell + malware "
+                        "sig.\n\n## Recommendation\nContain the host.\n"]
+    assert kinds.index("reasoning") < kinds.index("content")
+    done = frames[-1]["done"]
+    assert done["contract_valid"] is True and done["contract_repair"] is None
+
+
+def test_a_steered_draft_is_re_asked_once_and_the_conformant_retry_is_what_is_read(client):
+    """The analyst reads the retry, never the draft — and the retry was asked for
+    with field names and the code's value, never with the draft's words."""
+    seq = SequencedStreamingFakeLLMClient([_TRIAGE_STEERED, _TRIAGE_OK])
+    _use(client.app, seq, native_reasoning=True)
+    try:
+        frames = _chat(client, _TRIAGE_CEF)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    shown = "".join(f["content"] for f in frames if "content" in f)
+    done = frames[-1]["done"]
+    assert seq.turns == 2
+    assert done["contract_repair"] == "reasked" and done["contract_valid"] is True
+    assert "Contain the host." in shown and "Close it." not in shown
+    repair = seq.stream_calls[1]["messages"][-1]
+    assert repair["role"] == "system"
+    assert 'The ## Risk section must begin with exactly "CRITICAL".' in repair["content"]
+    assert "LOW" not in repair["content"] and "admin task" not in repair["content"]
+
+
+def test_the_re_ask_is_claimed_like_any_other_call(client):
+    """TD-018: every inference call is claimed before it is made, the repair's
+    included — a turn that re-asks is charged two units, not one."""
+    seq = SequencedStreamingFakeLLMClient([_TRIAGE_STEERED, _TRIAGE_OK])
+    _use(client.app, seq, native_reasoning=True)
+    try:
+        before = _used(client)
+        _chat(client, _TRIAGE_CEF)
+        after = _used(client)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert after - before == 2 == seq.turns
+
+
+def test_a_re_ask_the_ceiling_refuses_still_gets_the_code_answer(client, monkeypatch):
+    """No call is made past the ceiling, and the analyst is not left with
+    nothing: the verdict the code computed is the answer."""
+    import auspex.routes.chat as chat_route
+    from auspex.limits import UsageLimiter
+
+    class SecondClaimRefused(UsageLimiter):
+        claims = 0
+
+        async def claim(self, **kw):
+            allowance = await super().claim(**kw)
+            SecondClaimRefused.claims += 1
+            if SecondClaimRefused.claims == 2:
+                return dataclasses.replace(allowance, allowed=False)
+            return allowance
+
+    monkeypatch.setattr(chat_route, "UsageLimiter", SecondClaimRefused)
+    seq = SequencedStreamingFakeLLMClient([_TRIAGE_STEERED, _TRIAGE_OK])
+    _use(client.app, seq, native_reasoning=True)
+    try:
+        frames = _chat(client, _TRIAGE_CEF)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    shown = "".join(f["content"] for f in frames if "content" in f)
+    assert seq.turns == 1
+    assert frames[-1]["done"]["contract_repair"] == "code_rendered"
+    assert split_sections(shown)["risk"].split()[0] == "CRITICAL"
+    assert not [f for f in frames if "error" in f]
+
+
+def test_an_endpoint_error_on_the_re_ask_falls_back_to_the_code_answer(client):
+    seq = SequencedStreamingFakeLLMClient([_TRIAGE_STEERED, []], raise_on_call=1)
+    _use(client.app, seq, native_reasoning=True)
+    try:
+        frames = _chat(client, _TRIAGE_CEF)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    shown = "".join(f["content"] for f in frames if "content" in f)
+    assert frames[-1]["done"]["contract_repair"] == "code_rendered"
+    assert split_sections(shown)["risk"].split()[0] == "CRITICAL"
+    assert "Close it." not in shown and not [f for f in frames if "error" in f]
+
+
+def test_a_held_turn_whose_thinking_spent_the_budget_is_repaired(client):
+    """An empty answer on a code-decided mode is not "nothing to say": the code
+    already knows the verdict. Before D-043 the analyst got a Thinking pane and
+    no answer."""
+    spent = [StreamEvent(kind="reasoning", text="Thinking at length. "),
+             StreamEvent(kind="finish", finish_reason="length")]
+    seq = SequencedStreamingFakeLLMClient([spent, _TRIAGE_OK])
+    _use(client.app, seq, native_reasoning=True)
+    try:
+        frames = _chat(client, _TRIAGE_CEF)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    done = frames[-1]["done"]
+    assert seq.turns == 2 and done["contract_repair"] == "reasked"
+    assert "Contain the host." in "".join(f["content"] for f in frames if "content" in f)
+
+
+def test_a_re_ask_that_recites_the_repair_directive_is_cut_and_never_shown(client, settings):
+    """The repair directive is configuration we issue, so it is in the rail's
+    index from the start of the turn (D-043 item 7). Held content means a
+    tripped re-ask showed the analyst nothing at all."""
+    recital = (
+        "## Risk\nCRITICAL\n\nYour previous draft of this answer was withheld from "
+        "the analyst because its ## Risk value was not allowed. Write the complete "
+        "answer again: every required section, each opened by its"
+    )
+    seq = SequencedStreamingFakeLLMClient([
+        _TRIAGE_STEERED,
+        [StreamEvent(kind="content", text=recital),
+         StreamEvent(kind="finish", finish_reason="stop")],
+    ])
+    _use(client.app, seq, native_reasoning=True)
+    try:
+        frames = _chat(client, _TRIAGE_CEF)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert not [f for f in frames if "content" in f]
+    assert {"error": LEAK_COPY} in frames
+    assert frames[-1]["done"]["finish_reason"] == "output_guard"
+    assert [r for r, _ in _session_messages(settings, frames[0]["session"])] == ["user"]
+
+
+def test_a_two_pass_endpoint_holds_and_repairs_too(client):
+    """The hold is about the MODE, not the endpoint: a non-native endpoint's
+    pass 2 is held and repaired the same way."""
+    seq = SequencedStreamingFakeLLMClient([
+        [StreamEvent(kind="content", text="Scored signals look decisive."),
+         StreamEvent(kind="finish", finish_reason="stop")],
+        _TRIAGE_STEERED,
+        _TRIAGE_OK,
+    ])
+    _use(client.app, seq, native_reasoning=False)
+    try:
+        before = _used(client)
+        frames = _chat(client, _TRIAGE_CEF)
+        after = _used(client)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    shown = "".join(f["content"] for f in frames if "content" in f)
+    assert frames[-1]["done"]["contract_repair"] == "reasked"
+    assert "Close it." not in shown and "Contain the host." in shown
+    assert after - before == 3 == seq.turns
+
+
+def test_a_narrative_mode_still_streams_and_is_never_held_or_re_asked(client):
+    """D-043 item 5: measured 60/60, the narrative modes keep streaming. A
+    non-conforming threat_intel answer is reported, as before, not repaired."""
+    fake = StreamingFakeLLMClient([
+        StreamEvent(kind="content", text="Part one, "),
+        StreamEvent(kind="content", text="part two."),
+        StreamEvent(kind="finish", finish_reason="stop"),
+    ])
+    _use(client.app, fake, native_reasoning=True)
+    try:
+        frames = _chat(client, "How do ransomware groups abuse RMM tools after access?")
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert [f["content"] for f in frames if "content" in f] == ["Part one, ", "part two."]
+    done = frames[-1]["done"]
+    assert fake.turns == 1
+    assert done["contract_valid"] is False and done["contract_repair"] is None
+
+
+
+# ── D-045: the chat agent may PROPOSE the platform's actions ─────────────────
+
+
+def _chat_workspace(settings):
+    async def _get():
+        conn = await asyncpg.connect(settings.database_url)
+        try:
+            return await conn.fetchval(
+                "SELECT workspace_id FROM users WHERE email = $1", CHAT_EMAIL)
+        finally:
+            await conn.close()
+
+    return asyncio.run(_get())
+
+
+def _db(settings, sql, *args):
+    async def _run():
+        conn = await asyncpg.connect(settings.database_url)
+        try:
+            return await conn.fetch(sql, *args)
+        finally:
+            await conn.close()
+
+    return asyncio.run(_run())
+
+
+@pytest.fixture
+def chat_observable(client, settings):
+    """One observable in the chat user's workspace, as an earlier IOC check
+    would have persisted it; everything the test filed against it is removed."""
+    from auspex.classify.observables import ObservableType, observable_id
+
+    _token(client)  # provisions the user and its workspace
+    ws = _chat_workspace(settings)
+    value = "d045-chat-action.test"
+    obs = observable_id(ObservableType.DOMAIN, value)
+    _db(settings, "INSERT INTO observables (workspace_id, obs_id, type, value)"
+        " VALUES ($1, $2, 'domain', $3) ON CONFLICT DO NOTHING", ws, obs, value)
+    yield ws, obs
+    _db(settings, "DELETE FROM proposals WHERE workspace_id = $1"
+        " AND tool_input->>'observable_id' = $2", ws, obs)
+    _db(settings, "DELETE FROM observables WHERE workspace_id = $1 AND obs_id = $2", ws, obs)
+
+
+def test_the_chat_agent_proposes_an_action_and_nothing_executes(client, settings,
+                                                                 chat_observable):
+    """D-045. The analyst asks for a state change; the agent calls the action;
+    what results is a pending proposal with its card, shown in the turn — and
+    no note exists until a human approves it."""
+    ws, obs = chat_observable
+    args = json.dumps({"observable_id": obs, "note": "our own pentest box"})
+    fake = SequencedStreamingFakeLLMClient([
+        _tool_step(name="annotate_observable", arguments=args,
+                   narration="I'll propose the note."),
+        _answer_step(_conformant_answer()),
+    ])
+    _use_agent(client.app, fake)
+    try:
+        resp = client.post("/api/chat", json={"message": _AGENT_QUESTION},
+                           headers={"Authorization": f"Bearer {_token(client)}"})
+    finally:
+        client.app.dependency_overrides.clear()
+
+    frames = _frames(resp.text)
+    tool = [f["tool"] for f in frames if "tool" in f]
+    assert len(tool) == 1 and tool[0]["status"] == "proposed"
+    assert tool[0]["proposal"]["summary"].startswith("Attach an analyst note to domain")
+    offered = [t["function"]["name"] for t in fake.stream_calls[0]["kwargs"]["tools"]]
+    assert "annotate_observable" in offered
+    pending = client.get("/api/proposals",
+                         headers={"Authorization": f"Bearer {_token(client)}"}).json()
+    assert tool[0]["proposal"]["id"] in [p["id"] for p in pending["proposals"]]
+    assert _db(settings, "SELECT count(*) AS n FROM observable_notes n"
+               " JOIN observables o ON o.id = n.observable_id"
+               " WHERE o.workspace_id = $1 AND o.obs_id = $2", ws, obs)[0]["n"] == 0
+    assert frames[-1]["done"]["output_valid"] is True
+
+
+def test_an_action_that_would_change_nothing_is_never_filed_from_chat(client, settings,
+                                                                      chat_observable):
+    ws, _ = chat_observable
+    args = json.dumps({"observable_id": "domain-ffffffff", "note": "n"})
+    fake = SequencedStreamingFakeLLMClient([
+        _tool_step(name="annotate_observable", arguments=args),
+        _answer_step(_conformant_answer()),
+    ])
+    _use_agent(client.app, fake)
+    try:
+        resp = client.post("/api/chat", json={"message": _AGENT_QUESTION},
+                           headers={"Authorization": f"Bearer {_token(client)}"})
+    finally:
+        client.app.dependency_overrides.clear()
+
+    tool = [f["tool"] for f in _frames(resp.text) if "tool" in f]
+    assert tool[0]["status"] == "error" and "proposal" not in tool[0]
+    told = [m for m in fake.stream_calls[1]["messages"] if m["role"] == "tool"]
+    assert "would change nothing" in told[0]["content"]
+    assert _db(settings, "SELECT count(*) AS n FROM proposals WHERE workspace_id = $1"
+               " AND tool_input->>'observable_id' = 'domain-ffffffff'", ws)[0]["n"] == 0
+
+
+def test_the_action_surface_is_in_the_rails_index(client):
+    """The action directive and the action descriptions are configuration we
+    issue; an answer that recites them is cut like any other leak."""
+    recital = ("You may PROPOSE these actions. A proposal is a request for human "
+               "approval, not an execution — nothing happens until a person approves it")
+    fake = SequencedStreamingFakeLLMClient([_answer_step(recital)])
+    _use_agent(client.app, fake)
+    try:
+        resp = client.post("/api/chat", json={"message": _AGENT_QUESTION},
+                           headers={"Authorization": f"Bearer {_token(client)}"})
+    finally:
+        client.app.dependency_overrides.clear()
+
+    frames = _frames(resp.text)
+    assert {"error": LEAK_COPY} in frames
+    assert frames[-1]["done"]["finish_reason"] == "output_guard"
+
+
+def test_a_proposal_summary_is_scanned_before_it_is_shown(client, settings, chat_observable):
+    """The summary is the action's dry-run sentence, and an action's dry run may
+    echo its arguments. It is shown, so it goes through the rail on the tool
+    channel like the line it belongs to."""
+    import dataclasses as dc
+
+    from auspex.actions import ActionOutcome, ActionRegistry
+
+    ws, obs = chat_observable
+    real = client.app.state.action_registry
+    spec = real.get("annotate_observable")
+    recital = " ".join(DEFAULT_SYSTEM_PROMPT.split()[:12])
+
+    async def echoing(**kw):
+        return ActionOutcome(would=recital, affects=(obs,))
+
+    swapped = ActionRegistry()
+    swapped.register(dc.replace(spec, dry_run=echoing))
+    client.app.state.action_registry = swapped
+    args = json.dumps({"observable_id": obs, "note": "n"})
+    fake = SequencedStreamingFakeLLMClient([
+        _tool_step(name="annotate_observable", arguments=args),
+        _answer_step(_conformant_answer()),
+    ])
+    _use_agent(client.app, fake)
+    try:
+        resp = client.post("/api/chat", json={"message": _AGENT_QUESTION},
+                           headers={"Authorization": f"Bearer {_token(client)}"})
+    finally:
+        client.app.dependency_overrides.clear()
+        client.app.state.action_registry = real
+
+    frames = _frames(resp.text)
+    assert not [f for f in frames if "tool" in f]
+    assert {"error": LEAK_COPY} in frames

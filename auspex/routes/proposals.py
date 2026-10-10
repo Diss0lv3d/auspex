@@ -3,7 +3,7 @@
 GET  /api/proposals                  — what is waiting, each with its card
 POST /api/proposals/{id}/approve     — claim it, then run it
 POST /api/proposals/{id}/reject      — claim it, and do not
-POST /api/proposals/{id}/undo        — put back an executed, incomplete or abandoned action
+POST /api/proposals/{id}/undo        — put back an executed, incomplete, kept or abandoned action
 POST /api/proposals/{id}/abandon     — declare a dead claim dead (TD-028a)
 POST /api/proposals/{id}/keep        — keep what an incomplete run left (D-041)
 
@@ -93,6 +93,9 @@ def _public(row: dict) -> dict:
         "created_at": row["created_at"].isoformat(),
         "decided_at": row["decided_at"].isoformat() if row["decided_at"] else None,
         "undone_at": row["undone_at"].isoformat() if row.get("undone_at") else None,
+        # When a human kept an incomplete run or abandoned a dead claim — its own
+        # field, so `decided_at` stays the approval (S27 review).
+        "resolved_at": row["resolved_at"].isoformat() if row.get("resolved_at") else None,
         # Present only while a claim is outstanding. A card showing `executing`
         # with a claim five minutes old is the one thing an approver must be
         # able to tell apart from a run that started a second ago (TD-028a).
@@ -100,10 +103,12 @@ def _public(row: dict) -> dict:
         # Which operation a human gave up on (TD-034): `executing` or `undoing`.
         "abandoned_from": row.get("abandoned_from"),
         # The other requests awaiting a decision that ask exactly this (TD-028d)
-        # — computed only by the queue read. Where nobody looked it is null,
-        # never [] (which would read as "no twins").
+        # — computed only by the queue read, and only for a pending row. Where
+        # nobody looked it is null, never [] (which would read as "no twins").
         "identical_pending": (
-            [str(i) for i in row["identical_pending"]] if "identical_pending" in row else None
+            [str(i) for i in row["identical_pending"]]
+            if row.get("identical_pending") is not None
+            else None
         ),
         "arguments": row["tool_input"],
         "card": row["card"],
@@ -369,8 +374,8 @@ async def approve(request: Request, auth: Auth, proposal_id: UUID) -> dict:
 
 @router.post("/{proposal_id}/undo")
 async def undo(request: Request, auth: Auth, proposal_id: UUID) -> dict:
-    """Put an action back: executed, incomplete or abandoned (TD-028c). Only
-    what this approval added (TD-023)."""
+    """Put an action back: executed, incomplete, kept or abandoned (TD-028c).
+    Only what this approval added (TD-023)."""
     try:
         outcome = await _executor(request).undo(
             workspace_id=auth.workspace_id, proposal_id=proposal_id
@@ -381,7 +386,7 @@ async def undo(request: Request, auth: Auth, proposal_id: UUID) -> dict:
     except Exception:
         logger.exception("undo of %s failed", proposal_id)
         # A failed put-back returns the row to where it started (TD-028c) —
-        # executed, incomplete or abandoned — so say which, from the row.
+        # executed, incomplete, kept or abandoned — so say which, from the row.
         row = await _settlement(request).get(
             workspace_id=auth.workspace_id, proposal_id=proposal_id
         )

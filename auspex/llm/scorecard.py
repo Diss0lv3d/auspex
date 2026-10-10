@@ -155,3 +155,22 @@ async def load_deployment_scorecard(
     if workspace_id is None:
         return None
     return await load_latest_scorecard(pool, workspace_id, base_url, model)
+
+
+async def deployment_scorecard_age(
+    pool: asyncpg.Pool, base_url: str, model: str
+) -> float | None:
+    """Seconds since the deployment's endpoint was last measured, or None if it
+    never was. The clock is Postgres's, the same one that stamped `probed_at`."""
+    return await pool.fetchval(
+        """
+        SELECT extract(epoch FROM now() - s.probed_at)::double precision
+          FROM llm_endpoint_scorecards s
+          JOIN workspaces w ON w.id = s.workspace_id
+         WHERE w.name = $1 AND s.endpoint_fingerprint = $2
+         ORDER BY s.probed_at DESC
+         LIMIT 1
+        """,
+        DEPLOYMENT_WORKSPACE,
+        endpoint_fingerprint(base_url, model),
+    )

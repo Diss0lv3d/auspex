@@ -434,3 +434,24 @@ def test_directive_names_the_victim_filter():
     block = deterministic_phishing_block(env, decide_verdict(env))
     assert "withheld" in block
     assert "victim's identity is not an IOC" in block
+
+
+# -- D-043: the code-rendered answer ------------------------------------------
+
+
+def test_the_code_rendered_phishing_answer_conforms_with_and_without_findings():
+    from auspex.modes import Mode, contract_for
+    from auspex.phishing.render import deterministic_phishing_answer
+
+    contract = contract_for(Mode.PHISHING_ANALYSIS)
+    spoof = (
+        'From: "PayPal" <security@paypa1.com>\nReply-To: x@verify.ru\nTo: v@acme.com\n'
+        "Subject: limited\nAuthentication-Results: mx.acme.com; spf=fail; dkim=fail; "
+        "dmarc=fail\n\nConfirm now"
+    )
+    sparse = "From: someone@example.net\nTo: bob@example.org\nSubject: hi\n\n"
+    for paste in (spoof, sparse):
+        verdict = decide_verdict(parse_email(paste))
+        answer = deterministic_phishing_answer(verdict)
+        assert contract.validate(answer, pinned={"Verdict": verdict.allowed}).ok, answer
+        assert verdict.recommendation in answer

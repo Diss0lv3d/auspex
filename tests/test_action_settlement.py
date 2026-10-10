@@ -1193,16 +1193,23 @@ async def test_the_undo_claim_itself_refuses_an_abandoned_row(
     fresh = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
     assert fresh["status"] == "abandoned"  # control: the row really is abandoned
 
-    # The stale read the claim is the backstop for. Only `get` is faked; the
-    # claim runs against the real row.
-    async def _stale_read(**_kwargs):
-        return {**dict(fresh), "status": "executed"}
+    # The stale read the claim is the backstop for. Only the FIRST `get` is
+    # faked; the claim, and the re-read after it loses, see the real row.
+    real_get = executor._settlement.get
+    reads = []
+
+    async def _stale_read(**kwargs):
+        reads.append(kwargs)
+        if len(reads) == 1:
+            return {**dict(fresh), "status": "executed"}
+        return await real_get(**kwargs)
 
     executor._settlement.get = _stale_read
 
     with pytest.raises(ExecutionRefused) as caught:
         await executor.undo(workspace_id=workspace_id, proposal_id=pid)
-    assert caught.value.reason == "already_undone"
+    # S27: it used to say `already_undone` — about a row nobody was undoing.
+    assert caught.value.reason == "status_changed" and "abandoned" in caught.value.detail
 
     row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
     assert row["status"] == "abandoned"  # not dragged into 'undoing'
@@ -1963,3 +1970,155 @@ async def test_a_failed_run_of_an_action_with_no_undo_is_not_promised_one(
 
     detail = resp.json()["detail"]
     assert resp.status_code == 500 and "keep" in detail and "undo will" not in detail
+
+
+# -- S27: fresh-eyes review of the D-041 review's own fixes ---------------------
+
+
+async def test_a_queue_row_nobody_looked_up_twins_for_does_not_say_it_has_none(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Review of 0a5c5b1, which made `identical_pending` null wherever nobody
+    looked. The queue read still said [] for its non-pending rows — the CASE
+    only looks for twins of `pending_approval`. An incomplete card read "no
+    twins" while nobody had asked."""
+    settlement, pid = await _incomplete(pool, registry, spec, workspace_id, an_observable)
+
+    queued = {p["id"]: p for p in await settlement.pending(workspace_id=workspace_id)}
+
+    assert proposals_route._public(queued[pid])["identical_pending"] is None
+
+
+
+async def _two_users(pool, workspace_id):
+    return [
+        await pool.fetchval(
+            "INSERT INTO users (workspace_id, email) VALUES ($1, $2) RETURNING id",
+            workspace_id, email)
+        for email in ("approver@settlement.test", "resolver@settlement.test")
+    ]
+
+
+async def test_keeping_an_incomplete_run_does_not_erase_who_approved_it(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Review of 20fefc0: `keep` wrote `decided_by`/`decided_at`, the columns
+    the approval is recorded in. After a keep nothing on the row said who
+    approved the action that partly ran — the one fact D-014 exists to keep."""
+    approver, keeper = await _two_users(pool, workspace_id)
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    approved = await settlement.settle(workspace_id=workspace_id, proposal_id=pid,
+                                       decision="approved", decided_by=approver)
+
+    async def writes_then_dies(**kwargs):
+        await spec.execute(**kwargs)
+        raise RuntimeError("died after the write")
+
+    with pytest.raises(RuntimeError):
+        await ActionExecutor(pool, _with(spec, execute=writes_then_dies)).execute(
+            workspace_id=workspace_id, proposal_id=pid)
+    kept = await settlement.keep(workspace_id=workspace_id, proposal_id=pid, decided_by=keeper)
+
+    row = kept.proposal
+    assert row["status"] == "kept"
+    assert row["decided_by"] == approver
+    assert row["decided_at"] == approved.proposal["decided_at"]
+    assert row["resolved_by"] == keeper and row["resolved_at"] is not None
+    public = proposals_route._public(row)
+    assert public["decided_at"] == approved.proposal["decided_at"].isoformat()
+    assert public["resolved_at"] == row["resolved_at"].isoformat()
+
+
+async def test_abandoning_a_dead_claim_does_not_erase_who_approved_it(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """The same erasure, older (S21): `abandon` overwrote the approval too."""
+    approver, abandoner = await _two_users(pool, workspace_id)
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await settlement.settle(workspace_id=workspace_id, proposal_id=pid,
+                            decision="approved", decided_by=approver)
+    await _wedge(pool, settlement, workspace_id, pid, age_seconds=STALE_CLAIM_SECONDS + 60)
+
+    row = (await settlement.abandon(
+        workspace_id=workspace_id, proposal_id=pid, decided_by=abandoner)).proposal
+
+    assert row["status"] == "abandoned"
+    assert row["decided_by"] == approver
+    assert row["resolved_by"] == abandoner and row["resolved_at"] is not None
+
+
+async def test_an_undo_that_lost_its_row_to_another_decision_says_where_it_went(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Review of 20fefc0: once `keep` existed, an undo's claim could lose to a
+    keep rather than to another undo — and the refusal still said "this
+    proposal is already being undone", about a row nobody was undoing."""
+    settlement, pid = await _incomplete(pool, registry, spec, workspace_id, an_observable)
+    seen = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    await settlement.keep(workspace_id=workspace_id, proposal_id=pid, decided_by=None)
+    now = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    executor = ActionExecutor(pool, registry)
+    # The read happened before the keep; the claim happens after it.
+    executor._settlement.get = mock.AsyncMock(side_effect=[seen, now])
+
+    with pytest.raises(ExecutionRefused) as caught:
+        await executor.undo(workspace_id=workspace_id, proposal_id=pid)
+
+    assert caught.value.reason == "status_changed"
+    assert "kept" in caught.value.detail and "being undone" not in caught.value.detail
+
+
+async def test_an_undo_that_lost_its_row_to_another_undo_still_says_so(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """The other half of the re-read: losing to a put-back that already finished
+    is still `already_undone`, and the copy says it is done, not in progress."""
+    settlement, pid = await _incomplete(pool, registry, spec, workspace_id, an_observable)
+    seen = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    await ActionExecutor(pool, registry).undo(workspace_id=workspace_id, proposal_id=pid)
+    now = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert now["status"] == "undone"  # control
+    executor = ActionExecutor(pool, registry)
+    executor._settlement.get = mock.AsyncMock(side_effect=[seen, now])
+
+    with pytest.raises(ExecutionRefused) as caught:
+        await executor.undo(workspace_id=workspace_id, proposal_id=pid)
+
+    assert caught.value.reason == "already_undone"
+    assert "already been undone" in caught.value.detail
+
+
+
+# -- D-045: a proposal that would change nothing is not filed -----------------
+
+
+async def test_a_dry_run_that_would_change_nothing_is_not_filed(pool, registry, spec, workspace_id):
+    """The chat agent can now call actions (D-045). A call whose dry run affects
+    nothing — here, an observable this workspace does not have — would file a
+    card a human can only reject, and whose execution can only fail. It is
+    declined in the proposer, with the dry run's own sentence as the reason."""
+    from auspex.actions.settlement import NothingToPropose, action_proposer
+
+    propose = action_proposer(pool)
+    with pytest.raises(NothingToPropose) as caught:
+        await propose(spec=spec, arguments={"observable_id": "domain-00000000", "note": "n"},
+                      workspace_id=workspace_id)
+
+    assert "would change nothing" in caught.value.model_feedback
+    assert "no observable" in caught.value.model_feedback
+    assert 0 == await pool.fetchval(
+        "SELECT count(*) FROM proposals WHERE workspace_id = $1", workspace_id)
+
+
+async def test_a_dry_run_that_would_change_something_is_filed(
+    pool, spec, workspace_id, an_observable
+):
+    from auspex.actions.settlement import action_proposer
+
+    row = await action_proposer(pool)(
+        spec=spec, arguments={"observable_id": an_observable, "note": "n"},
+        workspace_id=workspace_id)
+
+    assert row["status"] == "pending_approval" and row["card"]["affects"] == [an_observable]

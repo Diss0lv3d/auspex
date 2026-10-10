@@ -1260,3 +1260,218 @@ Also fixed:
 
 **The bound is unchanged.** A merely slow handler on an abandoned run can land
 after its put-back, and it is now visible when it does.
+
+## D-042 — The deployment measures its endpoint again once the measurement is a week old (2026-10-10, S27)
+
+**Context.** TD-041, D-038's logged shortcut. D-038 probes once per
+fingerprint, and the fingerprint is base URL + model. A provider can change
+what a model does under the same name: a silent update, thinking turned on
+server-side, tool calling degraded. Nothing re-measured, so the scorecard kept
+choosing the reasoning path, the agent path (D-037) and the rail's thinking
+floor (D-040) from a measurement that might no longer be true. Burhan put it
+in scope at the S27 start ritual ("dont park anything, do everything").
+
+**Decision.**
+1. **A measurement expires.** Once the newest deployment scorecard is older than
+   `SCORECARD_MAX_AGE_SECONDS` (7 days), the endpoint is measured again, under
+   the same advisory lock and with the same battery. The new row is recorded
+   (history is kept, newest wins) and the outcome is `reprobed`.
+2. **The running app looks.** The startup task no longer ends after its first
+   cycle: `keep_scorecard_fresh` repeats the D-038 cycle every
+   `REPROBE_CHECK_SECONDS` (6 hours). A look at a fresh scorecard costs one DB
+   read. Both numbers are code constants (D-026).
+3. **A re-probe that measures nothing changes nothing.** If the endpoint is
+   unreachable, or basic chat fails, nothing is recorded, so the old scorecard
+   stands. An old measurement is still better than "unknown", which would drop
+   every deep turn to two-pass and off the agent path. D-038's retry schedule
+   applies.
+4. **A changed endpoint is said out loud.** If the re-probe moves the agent mode
+   or any of `native_reasoning`, `native_tool_calling`, `streaming_tool_deltas`,
+   `json_object_mode` or `json_schema_mode`, the app logs a WARNING naming each
+   change. The log also says to re-measure the thinking floor, because D-040's
+   number is calibrated per model and no probe re-calibrates it. Field names
+   and booleans only; no endpoint output reaches the log.
+
+**Cost.** About 15 requests of the customer's inference per endpoint per week,
+on top of D-038's one-time cost. `LLM_AUTOPROBE_ENABLED` still turns off all
+of it.
+
+**Not done.** TD-041 also offered a trigger driven by behaviour: re-probe when
+the agent path sees a run of `empty_answer` or tool-less turns. Not built: a
+run of tool-less turns is also what an analyst asking tool-less questions looks
+like, and the schedule bounds staleness without having to tell the two apart.
+
+**What this supersedes.** D-038's "once per fingerprint", in that a
+fingerprint is now probed once per week. Everything else in D-038 stands.
+
+## D-043 — A code-decided verdict is never shown off its pin (TD-012(b)) (2026-10-10, S27)
+
+**Context.** TD-012(b), carried since S9. The answer is validated against its
+mode's contract only after it has streamed, so a non-conforming answer is
+reported in the done frame and never repaired. TD-012 sketched the repair as a
+non-streamed structured pass, validated before emit, re-asked once on failure,
+using `json_schema_mode`. S27 measured first
+(docs/probes/2026-10-10-s27-contract-drift.md):
+- **Drift on security questions: 0 of 60**, every mode, both deep paths.
+- **Laundering: 0 of 6.** Pastes written to steer the code-decided
+  Risk/Verdict did not move glm-4.5-air off the pin.
+- The only failures were the known non-security control (4/4). That is a mode
+  resolver problem.
+- The scorecard records `json_object_mode: true`, `json_schema_mode: false`
+  (`json_schema` is silently ignored on this endpoint).
+
+So on the dev endpoint the sketched repair would repair nothing, and it would
+cost every answer its streaming. **The two failures are not the same size.** A
+drifted narrative answer loses structure. A laundered alert or phishing
+verdict replaces the one field the code exists to own (ADR 0006), and today
+that is **detected after the analyst has read it** (the S12 honesty test pins
+exactly that). That is the part worth a guarantee on any endpoint. Burhan put
+TD-012(b) in scope as the S27 goal.
+
+**Decision.**
+1. **Held, then validated, for the code-decided modes only** (`alert_triage`,
+   `phishing_analysis`). Thinking streams as before. The answer's content goes
+   through the output rail as it arrives, but the analyst is sent it only once
+   it is complete and has passed the contract and the code's pins.
+2. **One re-ask on failure.** That covers a missing section, an out-of-enum
+   value, an off-pin value, or no answer at all. The re-ask is the same
+   messages plus a repair directive compiled from the contract and the pins,
+   which carries **field names and the code's values only**. The failed draft
+   and its tokens are model output, possibly steered by the paste, and never
+   enter a system message. The re-ask is claimed like any other call (TD-018).
+   Its thinking streams. Its content is held, scanned and validated in the
+   same way.
+3. **Then the code answers.** If the re-ask fails, is refused by the ceiling, or
+   the endpoint errors, the analyst gets the contract's sections rendered by
+   code from the deterministic verdict: the Risk or Verdict, the itemised
+   signals or findings, and the recommendation. It opens with one sentence
+   saying the written analysis was withheld. It conforms by construction, and
+   a test asserts that.
+4. **The done frame says what happened.** `contract_valid` now describes the
+   answer the analyst received. A new `contract_repair` field is `null`,
+   `"reasked"` or `"code_rendered"`. The first attempt's failure is logged with
+   field names only.
+5. **Narrative modes are unchanged.** `definition`, `ioc_enrichment`,
+   `threat_intel` and `brief`, on both paths, keep streaming and keep
+   reporting (measured 60/60). The existing "contract drift" log line is the
+   trigger to revisit.
+6. **No JSON mode.** The validator is the one compiled from the spec (ADR 0007)
+   and works on any endpoint. `json_schema` does not work here. `json_object`
+   would change an output format measured as conformant, for no measured gain.
+7. **The repair directive is configuration we issue,** so it is in the rail's
+   index from the start of the turn. A re-ask that recites it is cut and not
+   persisted, like any other leak.
+
+**Bounds, stated.**
+- The model's thinking still streams for these modes, and it may quote the
+  paste or weigh the steered value. The Thinking pane is process. The verdict
+  is what is now guaranteed.
+- A held answer arrives as one block, after thinking. Measured for these
+  modes: medians of 315–487 chars of answer after 1.4–1.6k chars of thinking,
+  in 5–6 s.
+- A re-ask is a second call on the rare failing turn.
+
+**What this supersedes.** The S11/S12 statement, in `auspex/phishing/render.py`
+and in `test_phishing_verdict_cannot_be_laundered_below_the_floor`, that the
+pin "DETECTS the launder — it does not prevent it". For these two modes it now
+prevents the analyst from being shown it. No ratified decision is overturned.
+TD-012's "re-ask once" is adopted for these modes; its structured pass is
+declined, on measurement.
+
+## D-044 — A deep question with no security signal is answered in a seventh mode, `general` (2026-10-11, S27)
+
+**Context.** IDEAS (S26). With no threat-intel keyword, the resolver defaulted
+to `threat_intel`. A non-security question could not meet that contract
+(measured 4/4 at S26 and 4/4 at S27), and the conversational path half-refused
+it. The S9 catalog calls any new mode "a scope decision, not a code edit".
+Burhan put this in S27's scope at the start ritual. Record:
+docs/probes/2026-10-11-s27-mode-fallback.md.
+
+**Decision.**
+1. **A seventh mode, `general`.** Its contract declares no sections, and its
+   directive says so ("No section structure is required"). Its one rule is
+   neutral: ask for the details only the analyst has, then help. It is not a
+   code-decided mode, so on a native_tools endpoint it takes the agent path
+   like the other narrative modes.
+2. **The resolver's new last step.** After the existing tiers, a question
+   becomes `general` only if it has **no** security, IT, identity or payments
+   vocabulary (`_SECURITY_RE`) **and no observable**. Otherwise it stays
+   `threat_intel`, as before. The vocabulary is generous on purpose: a word
+   too many keeps today's behaviour, and a word too few costs a security
+   question its structure.
+3. **The operating point is measured on an independent battery and pinned.**
+   On questions an independent agent wrote after the vocabulary was frozen:
+   9 of 50 plain-language security questions resolve to `general`, 24 of 30
+   non-security questions do, and none stays `threat_intel`. A test holds
+   those bounds.
+
+**Why accept 18% misroutes.** Live, misrouted security questions still got
+security answers: ransomware named and grounded in the KB, isolation steps,
+exfiltration and physical-breach handling. They lost only the
+Summary/Key facts/Assessment structure. The alternative was today's state:
+every non-security question forced into a structure it cannot meet, and
+sometimes a refusal.
+
+**Bounds, stated.**
+- A misrouted security question is reported `contract_valid: true`, because
+  `general` has nothing to drift from. Contract drift is not observable for
+  those turns.
+- The vocabulary is English and was measured on English questions.
+- Approach 1 (security words alone, 15/40 misroutes out of sample) was the
+  first of the two attempts the thrash brake allows. This is the second.
+
+**What this supersedes.** The S9 catalog's "six modes ONLY", by adding a
+seventh through the decision that rule asked for.
+
+## D-045 — The chat agent may propose the platform's actions; a dry run that would change nothing is not filed (2026-10-11, S27)
+
+**Context.** IDEAS (S26). S18 built the action proposer and the approvals
+surface. D-037 put the agent loop on `/api/chat` with READ tools only, so the
+agent could read and never propose (README honesty section; STATE follow-up
+8). Burhan put it in S27's scope at the start ritual. Record:
+docs/probes/2026-10-11-s27-chat-actions.md.
+
+**Decision.**
+1. **The chat agent gets the app's action manifest and proposer.** It is the
+   same registry the approvals surface executes from, so a proposal filed in
+   chat is one the executor can find. D-014 is unchanged: calling an action
+   dry-runs it and files a pending proposal, and nothing in the turn can
+   execute it.
+2. **The turn shows the proposal.** The tool frame carries the proposal id and
+   the card's dry-run summary, which is the sentence the approver will read,
+   never the model's account. The summary is scanned on the tool channel
+   before it is shown. The page shows it outside the Thinking pane, which
+   folds away when the answer starts.
+3. **A dry run that affects nothing is not filed** (`NothingToPropose`, in the
+   proposer, for every caller). Such a card can only be rejected, and its
+   execution can only fail, so it would spend a human's decision on nothing.
+   The model is told the action's own dry-run sentence, so it can correct the
+   call or say so. Only that deliberate, code-written reason crosses to the
+   model; any other proposer exception is still reported by class alone.
+
+**Why.** The approval gate, the card, the fingerprint re-check and the undo
+rail (D-014, D-023, D-041) are what make a model-initiated action safe, and
+all of them were already real. Offering actions from chat changes who can ask
+for one, not what happens before one runs. Live: one explicit ask filed one
+correct proposal, and two turns that did not ask filed none.
+
+**Found on the way.** The real proposer returns the row's id as a UUID
+object. The loop fed it back to the model inside JSON, and the turn died
+(`9130c39`). Every earlier test had used a double that returned string ids.
+
+**Bounds, stated.**
+- A proposal can only target an observable the workspace already has. The
+  agent path's enrichment does not persist observables; the 92/8 IOC check
+  does.
+- The rail does not scan the approvals surface, which serves the stored,
+  code-rendered card.
+- In the narrative modes an action-request turn may not match its mode's
+  contract (live: `ioc_enrichment`, `contract_valid: false`). That is
+  reported, not repaired.
+- The proposal is filed before the tool frame is scanned. A turn the rail
+  cuts at that frame can still leave a pending proposal, which the approvals
+  queue shows like any other.
+
+**What this supersedes.** Nothing ratified. It retires the README's "The
+agent reads, it does not act" and STATE follow-up 8.
+

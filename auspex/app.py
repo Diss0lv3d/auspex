@@ -17,7 +17,7 @@ from auspex.db import create_pool
 from auspex.enrich import EnrichmentService
 from auspex.ingest import IngestScheduler
 from auspex.kb import KnowledgeService
-from auspex.llm.autoprobe import autoprobe
+from auspex.llm.autoprobe import keep_scorecard_fresh
 from auspex.llm.registry import load_dev_registry
 from auspex.migrations import run_migrations
 from auspex.routes import (
@@ -71,10 +71,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.ingest_task = asyncio.create_task(app.state.ingest.run())
             # D-038: measure the configured endpoint once per fingerprint, in the
             # background — the port binds now and deep turns stay on the safe
-            # default ("unknown") until the scorecard lands.
+            # default ("unknown") until the scorecard lands. D-042: and again
+            # whenever the measurement gets old, for as long as the app runs.
             if settings.llm_autoprobe_enabled and settings.llm_base_url:
                 app.state.autoprobe_task = asyncio.create_task(
-                    autoprobe(app.state.pool, settings)
+                    keep_scorecard_fresh(app.state.pool, settings)
                 )
             yield
         finally:

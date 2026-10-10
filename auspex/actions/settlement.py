@@ -181,7 +181,9 @@ class ProposalSettlement:
         requests awaiting a decision in this workspace for the same action, with
         the same arguments, under the same declaration. Not a dedupe — whether a
         second identical intent was a mistake is the human's call (D-014) — but
-        an approver must be able to see they are being asked twice.
+        an approver must be able to see they are being asked twice. Only a
+        pending row is looked up; every other row carries NULL, not an empty
+        list, because nobody looked (S27 review of 0a5c5b1).
 
         An `incomplete` row belongs here as well (TD-028b): a run failed after
         some of its effects landed, or the action cannot look, and only a human
@@ -208,7 +210,7 @@ class ProposalSettlement:
                           AND q.spec_fingerprint IS NOT DISTINCT FROM p.spec_fingerprint
                         ORDER BY q.created_at
                         LIMIT 20
-                   ) ELSE ARRAY[]::uuid[] END AS identical_pending
+                   ) END AS identical_pending
               FROM proposals p
              WHERE p.workspace_id = $1::uuid
                AND (p.status IN ('pending_approval', 'incomplete')
@@ -248,13 +250,18 @@ class ProposalSettlement:
         `executing` or `undoing` — at the instant it is replaced. And
         `abandoned_token` records WHICH CLAIM: the only one whose late answer
         may still land (S26 review of D-041).
+
+        `decided_by` is the human abandoning, and it lands in `resolved_by`:
+        `decided_by`/`decided_at` hold the APPROVAL, and before S27 this
+        overwrote them, so an abandoned row no longer said who had approved the
+        run that was lost.
         """
         row = await self._pool.fetchrow(
             """
             UPDATE proposals
                SET status = 'abandoned', abandoned_from = status,
                    abandoned_token = claim_token, claim_token = NULL, claimed_at = NULL,
-                   decided_at = now(), decided_by = $3::uuid
+                   resolved_at = now(), resolved_by = $3::uuid
              WHERE id = $1::uuid
                AND workspace_id = $2::uuid
                AND claimed_at IS NOT NULL
@@ -288,13 +295,14 @@ class ProposalSettlement:
         wanted what landed to stay had no way to say so, and an action that
         declares no undo could never leave the queue at all (S26 review of
         D-041). This is that decision, claim-first like `settle` and `abandon`,
-        recorded with who made it. It is not a lock: a kept run can still be put
-        back (UNDOABLE_FROM).
+        recorded with who made it — in `resolved_by`, beside the approval rather
+        than over it (S27 review: a kept row had stopped saying who approved the
+        run). It is not a lock: a kept run can still be put back (UNDOABLE_FROM).
         """
         row = await self._pool.fetchrow(
             """
             UPDATE proposals
-               SET status = 'kept', decided_at = now(), decided_by = $3::uuid
+               SET status = 'kept', resolved_at = now(), resolved_by = $3::uuid
              WHERE id = $1::uuid AND workspace_id = $2::uuid AND status = 'incomplete'
             RETURNING *
             """,
@@ -355,6 +363,17 @@ class ProposalSettlement:
         )
 
 
+class NothingToPropose(RuntimeError):
+    """The dry run says the action would change nothing, so no proposal is filed
+    (D-045). `model_feedback` is the sentence the agent loop hands back to the
+    model in place of a proposal id: code-written, and carrying the action's own
+    dry-run sentence so the model can correct the call or say so."""
+
+    def __init__(self, would: str) -> None:
+        super().__init__(would)
+        self.model_feedback = f"not proposed: the action would change nothing. {would}"
+
+
 def action_proposer(pool: asyncpg.Pool):
     """The seam the agent loop calls when a model calls an action.
 
@@ -362,11 +381,18 @@ def action_proposer(pool: asyncpg.Pool):
     action against the real arguments, then file the proposal carrying the card
     that dry run produced. Nothing here executes — this IS the round-trip S17
     deferred, and its whole output is a row with an id.
+
+    **A dry run that affects nothing is not filed** (D-045). Once the chat agent
+    could call actions, an argument the workspace does not resolve (an
+    observable it has never seen) would file a card a human can only reject and
+    whose execution can only fail — a human's decision spent on nothing.
     """
     settlement = ProposalSettlement(pool)
 
     async def propose(*, spec: ActionSpec, arguments: dict, workspace_id, session_id=None):
         outcome = await spec.dry_run(workspace_id=workspace_id, **arguments)
+        if not outcome.affects:
+            raise NothingToPropose(outcome.would)
         return await settlement.file(
             workspace_id=workspace_id,
             spec=spec,
@@ -681,7 +707,22 @@ class ActionExecutor:
             was,
         )
         if claimed is None:
-            raise ExecutionRefused("already_undone", "this proposal is already being undone")
+            # Lost the row between the read and the claim. Since `keep` exists
+            # that is not only another undo, so say where the row went rather
+            # than assume (S27 review of 20fefc0) — after the fact, so it cannot
+            # widen the window that matters.
+            now = await self._settlement.get(workspace_id=workspace_id, proposal_id=proposal_id)
+            if now is None:
+                raise ExecutionRefused("not_found", "no such proposal in this workspace")
+            if now["status"] == "undoing":
+                raise ExecutionRefused("already_undone", "this proposal is already being undone")
+            if now["status"] == "undone":
+                raise ExecutionRefused("already_undone", "this proposal has already been undone")
+            raise ExecutionRefused(
+                "status_changed",
+                f"the proposal moved from {was} to {now['status']} while this undo was "
+                "starting — re-read it before deciding again",
+            )
         args = dict(proposal["tool_input"] or {})
         try:
             outcome = await spec.undo.handler(
@@ -747,6 +788,7 @@ __all__ = [
     "UNDOABLE_FROM",
     "ActionExecutor",
     "ExecutionRefused",
+    "NothingToPropose",
     "ProposalSettlement",
     "SettleResult",
     "Settlement",

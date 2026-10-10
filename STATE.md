@@ -1,133 +1,174 @@
 # STATE — Auspex
 
-_Last updated: 2026-10-10 — **S26 CLOSED** (session-end ritual run). `./ci.sh`
-green: **1217 tests, 120 modules**. `/api/health/ready` 200,
+_Last updated: 2026-10-11 — **S27 CLOSED** (session-end ritual run). `./ci.sh`
+green: **1257 tests, 120 modules**. `/api/health/ready` 200,
 `./scripts/demo.sh` exit 0, branch `staging`, tree clean apart from Burhan's two
-untracked overview files. **Not promoted:** everything after promote #27
-(D-037…D-041) is on staging only._
+untracked overview files. **Not promoted:** everything after promote #28
+(`d87469a`) is on staging only: D-042…D-045 and the review fixes._
 
-## S26 — what happened (read this first)
+## S27 — what happened (read this first)
 
-S26 began 2026-08-16 (Step 0 and an unfinished goal item 1), stopped for eight
-weeks, and resumed 2026-10-10. Five things happened, and each is recorded where
-it lives:
+S27 ran 2026-10-10 into 2026-10-11. At the start ritual Burhan answered the
+candidates question with **"dont park anything, do everything"**, so all three
+candidates joined the goal. Six things happened, each recorded where it lives:
 
-1. **The dev LLM was replaced.** Scout's host is NXDOMAIN.
-   - **D-033:** the base URL is the provider's documented root.
-   - **D-034:** glm-4.5-air on Z.ai's general pay-as-you-go API. Dev only;
-     never KSA data.
-   - **D-035:** the scorecard is the deployment's.
-   - **D-036:** two-pass survives a thinking model.
-   - Shipped in promote #27 (`8631307`). Record: docs/probes/2026-10-10-zai-endpoint.md.
-2. **Goal item 1, the routing decision → D-037.** Re-measured on glm-4.5-air:
-   0 refusals in 25 tools-on runs. The agent path runs for any deep turn the
-   code has not already decided (not alert triage or phishing), on an endpoint
-   whose deployment scorecard compiles to native_tools **and** streams tool
-   calls. Record: docs/probes/2026-10-10-s26-routing-glm.md.
-3. **Goal item 2, `/api/chat` runs the agent loop.**
-   - `1b86070` plus the TD-036 hold `39f1afc`, aclosing `1803253`, UI `44a040e`.
-   - Two adversarial reviews; 8 fixes, including the per-turn enrichment
-     budget `76be482`.
-   - Live: units == calls on every turn.
-   - Record: docs/probes/2026-10-10-s26-wiring-review.md.
-4. **TD-037/038/039/040, delegated by Burhan → all resolved.**
-   - **D-038:** autoprobe once per fingerprint (`315719c`, LLM_AUTOPROBE_ENABLED).
-   - **D-039:** only supplied indicators reach a provider (`52f4fec`).
-   - Brand-safe endpoint errors (`1f54b37`).
-   - Tool descriptions indexed (`9e20217`).
-   - **The calibration found a live rail defect → D-040** (`239df94`): a
-     thinking model's thinking quotes its instructions (19–28 words, live), and
-     the floor of 8 cut legitimate turns. Thinking's floor is now 40.
-   - Records: docs/probes/2026-10-10-s26-rail-calibration-glm.md.
-5. **Goal item 4, TD-028 b/c/d + TD-034 → D-041, what a proposal's terminal
-   states say.**
-   - `failed` is checked through `ActionSpec.observe`; otherwise the row is
-     `incomplete` (queued).
-   - Undo is allowed from incomplete/kept/abandoned; `POST /keep` → `kept`.
-   - `identical_pending` twins are named, never merged.
-   - Claims are tokens (`claim_token`/`abandoned_token`).
-   - A review found 8 more defects, all fixed, including one **HIGH**: a second
-     status-CHECK migration block that stopped the app booting with one
-     `incomplete` row (`cd44b4f`).
-   - Record: docs/probes/2026-10-10-s26-terminal-states.md.
+1. **Promote #28** (`d87469a`) shipped the S26 slate (D-037…D-041), with the
+   back-merge `e907678`.
+2. **A fresh-eyes review of the D-041 review's own seven fixes** found three
+   defects, all fixed with tests that failed first:
+   - `922f30c`: a queue row nobody looked up twins for said `[]`, which reads as
+     "no twins".
+   - `9458518`: `keep` and `abandon` overwrote `decided_by`/`decided_at`, which
+     erased who approved the run. They now write `resolved_by`/`resolved_at`.
+   - `94abbeb`: a lost undo claim said "already being undone" about a row a
+     keep or an abandon had taken.
 
-**Not started: goal item 5, TD-012(b)** (contract-conformance repair).
+   It cleared 4 commits, recorded one bound (`be81543`: the twin index misses
+   numbers that differ only in scale), and logged **TD-042**. Record:
+   docs/probes/2026-10-10-s27-d041-fixes-review.md.
+3. **Goal: TD-012(b) → D-043, measured first.**
+   - Drift was **0/60** on security questions across both deep paths, every
+     mode, and **laundering 0/6** on glm-4.5-air.
+   - The repair therefore guards the one field that matters. An alert or
+     phishing verdict is **held until it passes, re-asked once, then rendered
+     by code**, so the analyst is never shown a verdict off the code's pin.
+   - Narrative modes still stream and report. The JSON pass was declined on
+     measurement.
+   - Commits `51c6161`, `e96e27c`; live `5d70d7e`. Record:
+     docs/probes/2026-10-10-s27-contract-drift.md.
+4. **TD-041 → D-042.** The deployment scorecard expires after 7 days, and the
+   running app looks every 6 h (`keep_scorecard_fresh`, `9d97ddd`).
+   - A re-probe that measures nothing leaves the old scorecard standing.
+   - A changed endpoint logs each changed field.
+5. **Mode fallback → D-044.** A seventh mode, `general`, for deep questions
+   with no security, IT, identity or payments vocabulary and no observable
+   (`87a0ccb`).
+   - Judged on batteries written by independent agents that never saw the
+     code: approach 1 misrouted 15/40 security questions out of sample (one
+     thrash-brake strike).
+   - Approach 2 misroutes **9/50** and sends **24/30** non-security questions
+     to general. That point is pinned as a test.
+   - Live, a misrouted security question still gets a security answer; it
+     loses only the section structure. Record:
+     docs/probes/2026-10-11-s27-mode-fallback.md.
+6. **Actions on the chat agent path → D-045** (`0e85f3f`).
+   - The agent may **propose**. A call files a pending proposal, shown in the
+     turn and outside the folding Thinking pane.
+   - A dry run that affects nothing is not filed (`NothingToPropose`).
+   - Live: one explicit ask filed one correct proposal; two turns that did
+     not ask filed none.
+   - Wiring it found a latent bug, fixed in `9130c39`: a real proposal id is a
+     UUID, and the loop's JSON feedback died on it. Record:
+     docs/probes/2026-10-11-s27-chat-actions.md.
 
-**How the work was proven.** Every fix has a regression test that failed first.
-31 mutants were run across the new guarantees; all were caught except one,
-which is equivalent and recorded. Every behaviour was verified live through the rebuilt container.
-About 200 inference calls on Z.ai over the day, a few dollars.
+**How the work was proven.**
+- Every fix and feature shipped with tests, and every test that guards a fix
+  failed first.
+- Mutants were run on each new guarantee: D-043 5/5 caught, D-045 3/3, D-042
+  the age gate, plus the review fixes.
+- Every behaviour was checked live through the rebuilt container.
+- About 120 inference calls on Z.ai, under a dollar.
+- **One commit left the suite red in between:** `e96e27c` (D-043) broke a
+  hardening test's call count, fixed in the next commit `c8a3fe2`. The full
+  gate caught it, and no amend was made (org rule).
 
 ## Where we are
 
 Phase 4: contract (S17), decision loop (S18), hardened input and spend (S19),
 pipeline/docs/demo (S20), beta debt (S21), output rail (S22–S24), tools as
-prompts and a streaming loop (S25), and **S26: the agent path live in chat,
-the deployment measuring its own engine, and an approval state machine whose
-every state says what it knows.** The ROADMAP through S20 is complete;
-S21–S26 were each scoped by a decision rather than a plan.
+prompts and a streaming loop (S25), the agent path live in chat (S26), and
+**S27: verdicts the code decides are guaranteed on screen, the deployment
+re-measures its engine, non-security questions stop failing a security
+contract, and the chat agent can propose actions.** The ROADMAP through S20 is
+complete; S21–S27 were each scoped by a decision rather than a plan.
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: NOT EMPTY.** Everything after promote #27 (`8631307`) is on
-   staging only: D-037…D-041, 59 commits.
-   - The real diff is large; read `git diff origin/main..staging --stat`, never
-     the commit list.
+1. **Promote slate: NOT EMPTY.** Everything after promote #28 (`d87469a`) is
+   on staging only: D-042…D-045, the three review fixes, the UUID fix. That is
+   about 20 commits, 51 files, +3.3k.
+   - Read `git diff origin/main..staging --stat`, never the commit list.
    - **Promote first next session.**
    - **The two untracked overview files stay untracked — Burhan's call,
      2026-10-10.** `Auspex-Product-Architecture-Overview.pdf` and
      `docs/auspex-overview.html` are his; never commit, move, publish or delete
      them, and do not ask again.
-2. **The card stream still emits only new cards, never status changes.** A
+2. **S27's own code has had no second-pass review.** Each guarantee was
+   mutant-checked by its author, but nobody else has read it adversarially:
+   - D-043's `repaired_answer` (chat.py);
+   - D-044's resolver vocabulary;
+   - D-045's chat wiring, `NothingToPropose` and the page;
+   - D-042's `keep_scorecard_fresh`;
+   - the three review fixes.
+
+   This is the same discipline S26 applied to its own work.
+3. **The card stream still emits only new cards, never status changes.** A
    client watching `/stream` is not told when a claim goes stale, or when a row
    becomes `incomplete`/`kept`. The polled list is where those surface.
-3. **TD-031 / TD-032 / TD-033 are ratified bounds, not a backlog.** Do **not**
+4. **TD-031 / TD-032 / TD-033 are ratified bounds, not a backlog.** Do **not**
    re-open the guard regex.
-4. **TD-005 trigger, still armed:** cve pool > 300k chunks, curated pool > 5k,
+5. **TD-005 trigger, still armed:** cve pool > 300k chunks, curated pool > 5k,
    any new doc_type, any embedding-model change, **or before any
    free-text-over-CVEs surface ships** (TD-027 is a HARD GATE).
-5. **Two calibrated rail numbers, neither a constant to edit.**
+6. **Two calibrated rail numbers, neither a constant to edit.**
    - `SHINGLE_WORDS = 8` (answer, tool lines, narration, two-pass): re-run
      `docs/probes/s22-outguard/probe_calibrate2.py`.
    - **`THINKING_SHINGLE_WORDS = 40`** (a thinking model's own thinking, D-040):
      re-run `docs/probes/s26-step0/probe_calibrate_agent.py`. **Its margin is
      only 1.4×** over the live legitimate ceiling of 28, so re-measure it
-     **first** on any model change (see TD-041).
-6. **Test usage isolation is designed for test_chat_sse.py (autouse refund) and
+     **first** on any model change. D-042 now logs a WARNING when the endpoint
+     changes under the same name. That line is the trigger.
+   - **S27 grew the index** with D-043's repair directive and D-045's action
+     directive and descriptions. They are covered by recital tests, and every
+     live S27 turn was `output_valid: true`. The legitimate ceiling was **not
+     re-calibrated** with them in (TD-044).
+7. **Test usage isolation is designed for test_chat_sse.py (autouse refund) and
    incidental elsewhere.** Any other file whose tests spend inference calls has
    the 29-unit problem waiting; the `default` workspace has an hourly ceiling of
-   100. The S26 agent-path tests live in test_chat_sse.py, so they are refunded.
-7. **TD-036's bound is live, so watch for it.** Narration over 400 chars before
+   100. All S27 chat tests live in test_chat_sse.py.
+8. **TD-036's bound is live, so watch for it.** Narration over 400 chars before
    a tool call would stream as answer. The route logs "agent answer differs
    from the streamed content (TD-036 bound)" when that happens. Seeing that
    line is the trigger to re-measure.
-8. **The agent reads; it does not act.** The chat agent path builds its loop
-   with no actions, so proposals still come only from the loop's proposer,
-   which chat does not offer (README honesty section; IDEAS). Also:
-   `prompted_tools` is still unwired, and the narration hold is native-only.
-9. **D-041's bound, and TD-025.** A merely slow handler on an abandoned run can
-   land after its put-back. It is recorded on the row now, but not prevented.
-   There is no idempotency key: **both matter the day an action reaches a
-   network.**
-10. **Brand, unowned.** A thinking model may name itself in its reasoning, and
+9. **The agent proposes; D-045's bounds.**
+   - An action can only target an observable already persisted, which happens
+     through the 92/8 IOC check. The agent path's enrichment does not persist
+     (IDEAS).
+   - The approvals surface serves the stored, code-rendered card unscanned.
+   - A turn the rail cuts at a tool frame can still leave a filed proposal.
+   - `prompted_tools` is still unwired, and the narration hold is native-only.
+10. **D-041's bound, and TD-025.** A merely slow handler on an abandoned run can
+    land after its put-back. It is recorded on the row, not prevented. There is
+    no idempotency key: **both matter the day an action reaches a network.**
+    With D-045 the chat agent can file proposals, so the approvals path will
+    see more traffic. **TD-042** (approved, never started, no door) now
+    matters more.
+11. **Brand, unowned.** A thinking model may name itself in its reasoning, and
     the Thinking pane is user-visible. Nothing guards that: D-030/D-040 check
     for OUR configuration, not the model's name.
+12. **D-043's drift log is no longer a clean trigger for the narrative modes.**
+    An action-request turn ("add a note to X") resolves to `ioc_enrichment` and
+    cannot fill its sections, so it logs contract drift honestly (live, D-045
+    probe). Separate those before reading the log as model drift (IDEAS).
+13. **D-044's operating point is pinned.** A vocabulary edit must keep
+    `test_the_measured_operating_point_on_the_independent_battery_holds`. If it
+    claims an improvement, prove it on a **fresh** independently written
+    battery, because both existing ones are now training data.
 
-**Closed at S26, so they leave this list:**
-- the old #3 TD-028b (done, D-041);
-- the old #9 TD-037 (done, D-038);
-- the old #10 routing (done, D-037);
-- the old #11 one-literal tool channel (done: the `tool` channel);
-- the old #2 branch protection (D-032, closed since S25; do not re-open).
+**Closed at S27, so they leave this list:**
+- the old #8 "the agent reads; it does not act" (done, D-045);
+- TD-012(b) (done, D-043);
+- TD-041 (done, D-042);
+- the mode-resolver IDEAS line (done, D-044).
 
 ## Blockers / open risks
 1. **TD-001 (OAuth identity keyed on email)** is a hard gate before any
    GOOGLE_CLIENT_ID is configured.
 2. **Open debt.**
-   - Still open: TD-012**(b)**, TD-014 … TD-025, TD-027, TD-029, TD-030,
-     TD-031/032/033, TD-035 (the two-pass path only), TD-036 (its bound),
-     TD-041.
-   - **Closed at S26:** TD-028 (b/c/d), TD-034, TD-037, TD-038, TD-039, TD-040.
-   - Closed earlier: TD-018, TD-026, TD-028a, TD-012(a).
+   - Still open: TD-014 … TD-025, TD-027, TD-029, TD-030, TD-031/032/033,
+     TD-035 (the two-pass path only), TD-036 (its bound), **TD-042, TD-043,
+     TD-044 (new at S27)**.
+   - **Closed at S27:** TD-012(b), TD-041.
+   - Closed earlier: TD-018, TD-026, TD-028, TD-034, TD-037…TD-040, TD-012(a).
 3. **The KB bootstrap needs outbound HTTPS once per fresh volume**, and ingest
    needs NVD/CISA/FIRST/GitHub reachability. Failures degrade honestly.
 4. **The corpus keeps growing while the container runs.** TD-011 tracks the
@@ -136,11 +177,12 @@ S21–S26 were each scoped by a decision rather than a plan.
    - The INPUT guard bounds accidents and naive attempts (D-027, D-029).
    - The OUTPUT rail (D-030) catches our configuration coming back out, but not
      a paraphrase, and not an injection that merely made the answer wrong.
-   - The predicted third defect arrived at S26: the rail was cutting legitimate
-     thinking-model turns (D-040). The rail is now per-channel. **Assume a
-     fourth exists.**
+     D-043 now **prevents** a wrong code-decided verdict from being shown;
+     it cannot prevent a wrong narrative answer.
+   - Three defects in three sessions (S23, S24, S26). **Assume a fourth
+     exists.**
 6. **An intermittent, unattributed test failure was observed once in S22.** Not
-   reproduced in any later full run, including about ten at S26. Still
+   reproduced in any later full run, including about six at S27. Still
    recorded rather than dismissed.
 
 ## Host notes (reality snapshot)
@@ -151,26 +193,29 @@ S21–S26 were each scoped by a decision rather than a plan.
   pay-as-you-go key in `.env` as both `GLM_API_KEY` and `LLM_API_KEY`. **Never the
   Coding Plan endpoint.** Thinking is on by default and billed inside
   `completion_tokens`; **prose precedes tool calls** (TD-036 triggered);
-  `json_schema` is silently ignored. glm-4.7-flash (free) answered 429
-  "overloaded"; glm-4.7-flashx hung once past 180 s. Rate limits are console-only.
+  `json_schema` is silently ignored, `json_object` works (scorecard; D-043 uses
+  neither). glm-4.7-flash (free) answered 429 "overloaded"; glm-4.7-flashx hung
+  once past 180 s. Rate limits are console-only.
 - **Scout on Northflank is GONE** — `p01--new-llm--…code.run` is NXDOMAIN (2026-10-10).
-- **S26 session-end (2026-10-10):** staging, identity `bh3082336888-cell`
-  (`gh` was not used at S26). All three containers are healthy, `./ci.sh` is
-  **green, 1217 tests, 120 modules**, `/api/health/ready` returns **200**, and
-  `./scripts/demo.sh` **exits 0**.
+- **S27 session-end (2026-10-11):** staging, identity `bh3082336888-cell`.
+  `gh` stayed on the personal account through promote #28; the switch was
+  re-run before every call anyway. All three containers are healthy,
+  `./ci.sh` is **green, 1257 tests, 120 modules**, `/api/health/ready` returns
+  **200**, and `./scripts/demo.sh` **exits 0**.
 - **`gh` flipped to the work account at promote #27** (also S18 and S16; not
-  S17, S13–S15, S19–S25). **Unpredictable is the pattern**, so re-check before
-  EVERY call: `gh auth switch --hostname github.com --user bh3082336888-cell`.
+  S17, S13–S15, S19–S25, S27). **Unpredictable is the pattern**, so re-check
+  before EVERY call: `gh auth switch --hostname github.com --user bh3082336888-cell`.
 - **`gh pr merge` works.** `gh pr edit` still fails with a Projects-classic
   GraphQL deprecation — use `gh api -X PATCH repos/.../pulls/N`.
-- **`gh pr merge --squash` printed NOTHING on success at S24 AND S25** — do not
-  read silence as failure; verify with `gh pr view <n> --json state,mergeCommit`.
+- **`gh pr merge --squash` printed NOTHING on success at S24, S25, #27 AND #28**
+  — do not read silence as failure; verify with `gh pr view <n> --json state,mergeCommit`.
 - **`./ci.sh | tail` HIDES THE EXIT CODE.** Redirect to a file and read `$?`.
-  S25 did this twice; both exit codes were read directly.
 - **Run the suite the way `ci.sh` does** — `.venv`, where the package is installed
   editable. A bare `python3 -m pytest` fails the packaging test for that alone.
+- **Run the FULL gate before calling a change done.** S27's `e96e27c` passed every
+  file it touched and broke `test_hardening_surface.py`, which it did not.
 - **This repo HAS GitHub Actions** (S20, D-028) — `.github/workflows/ci.yml` runs
-  `./ci.sh` on push and PR. PR #25 ran it twice (push + PR); both SUCCESS.
+  `./ci.sh` on push and PR. PR #28 ran it twice; both SUCCESS.
 - **Local `main` ref goes stale every promote.** `git fetch origin` and read
   `git diff origin/main..staging --stat`, never the commit list.
 - **The app container runs the BUILT IMAGE, not the working tree** —
@@ -178,18 +223,24 @@ S21–S26 were each scoped by a decision rather than a plan.
   the script in, then `docker compose exec -T app python /tmp/<script>.py`.
 - **qwen3:14b is SLOW to first token** — a 400-token probe timed out at 5 minutes
   cold. Budget 1500 tokens and run it in the background.
-- **Live agent-path probes run from `.venv`** against the app's own constructors
-  (docs/probes/s26-step0/). A glm-4.5-air agent turn takes 6–20 s and makes 1–3
-  calls.
-- **Startup autoprobe (D-038):** the container logs `endpoint autoprobe: known`
-  for the dev endpoint (row `a8113b41…`). A glm-5.3-flash deployment row also
-  exists, written by the live probe; it is a real measurement and harmless.
+- **Live probes run from `.venv`** against the app's own constructors
+  (docs/probes/s26-step0/, s27-td012/) or through `/api/chat` from the host
+  (`probe_app_*.py`). A glm-4.5-air agent turn takes 6–21 s and makes 1–9 calls
+  (TD-043).
+- **Independent batteries:** to judge a classifier/resolver change honestly,
+  have a subagent write the battery WITHOUT reading the repo (S27, D-044). A
+  battery that informed a change is training data from then on.
+- **Startup autoprobe (D-038/D-042):** the container logs `endpoint autoprobe: known`
+  and now re-checks every 6 h; the dev scorecard (row `a8113b41…`, probed
+  2026-10-10 09:33 UTC) expires **2026-10-17**, after which the running
+  container re-probes it (~15 calls).
 - **Do NOT run pytest during live `/api/chat` probes.** The suite purges the
   shared `analyst@auspex.dev` user, and a live turn then dies on an FK
   violation.
 - **All dev-login users share the `default` workspace**, hourly ceiling 100
-  inference calls. See standing follow-up 8.
-- **Probe residue is expensive.** Plan assertions must VACUUM first.
+  inference calls. See standing follow-up 7.
+- **Probe residue is expensive.** Plan assertions must VACUUM first. Probes that
+  file proposals must reject them afterwards (`probe_app_chat_actions.py` does).
 - **THE DEMO IS ONE COMMAND: `./scripts/demo.sh`** (~3 min, end to end).
 
 ## Reference intelligence (from the SARA Open architecture study)
@@ -202,14 +253,15 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 - RRF retrieval + ID bypass: 2026-07-17-sara-rrf-retriever-pattern.md
 
 ## Next session should
-**S27, in a fresh window (NEXT-SESSION.md has the full prompt).**
-1. **Step 0: `/promote` the S26 slate** (D-037…D-041). Read the diff, not the
+**S28, in a fresh window (NEXT-SESSION.md has the full prompt).**
+1. **Step 0: `/promote` the S27 slate** (D-042…D-045). Read the diff, not the
    list; re-check `gh` before every call.
-2. **Then a fresh-eyes look at the newest unreviewed code:** the D-041 review
-   fixes `cd44b4f`…`0a5c5b1` (claim tokens, `kept`, observe rails, the twin
-   index). Every other S26 change has had an adversarial review; these are
-   the review's own fixes.
-3. **Goal: TD-012(b)**, the contract-conformance repair carried since S9. It is
-   the one S26 goal item not started.
-4. Candidates only on Burhan's call at the start ritual (IDEAS.md): actions on
-   the chat agent path; TD-041 re-probe; the mode-resolver fallback.
+2. **Step 0: an adversarial second-pass review of S27's own code** (standing
+   follow-up 2). Reproduce by execution, fix with a test that fails first.
+3. **Goal: TD-043**, the agent spending its whole step cap re-searching (9
+   calls a turn). Measure, fix, re-measure with the same prompts.
+4. **Goal: TD-042**, an approved run that never started has no door. Needs a
+   decision (re-run vs withdraw); D-045 made it matter more.
+5. Candidates only on Burhan's call at the start ritual (IDEAS.md): agent-path
+   enrichment persistence; the action-request mode fit; alert-normaliser JSON
+   coverage.
