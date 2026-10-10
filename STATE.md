@@ -29,10 +29,25 @@ now be re-measured on the new model.**)_
     TD-039 clause 1 covers only recognised modes, Burhan's call; TD-040 provider
     error text reaches the analyst). Record: docs/probes/2026-10-10-s26-wiring-review.md.
     Live re-run after the fixes: 4/4, units == calls.
-  - **TD-037 now gates the agent path:** nothing outside dev writes the
-    deployment scorecard, so the agent path is unreachable in any non-dev
-    deployment.
-  - 1140 tests. Next: `/session-end`, or go on to goal item 4 (TD-028 b/c/d +
+  - **TD-037/038/039/040 — Burhan delegated ("do what you think is best"); all
+    four resolved, each with a decision and a live check:**
+    - TD-040 `1f54b37`: an endpoint error is told in the platform's words.
+    - TD-039 → **D-039** `52f4fec`: the agent sends third parties only
+      indicators the analyst (user turns) or a KB record supplied.
+    - TD-037 → **D-038** `315719c`: the deployment probes its own endpoint
+      once per fingerprint at startup (LLM_AUTOPROBE_ENABLED, born and
+      documented). Plus `48fb195`: the agent path also needs
+      streaming_tool_deltas. Live: glm-5.3-flash probed for real in 179 s,
+      then "known".
+    - TD-038 `9e20217`: tool descriptions and the nudge are indexed, after
+      calibration (answer ceiling 3, floor 8).
+    - **The calibration found a live defect → D-040 `239df94`:** a thinking
+      model quotes its instructions while reasoning (19–28 words, measured
+      live), and the floor of 8 cut those LEGITIMATE turns on both native
+      paths. Thinking now has its own floor of 40; everything else keeps 8.
+      Live: 3/3 previously-cut turns pass. **The 40 has a 1.4× margin over
+      the legitimate ceiling of 28; re-measure it first on any other model.**
+  - 1175 tests. Next: `/session-end`, or go on to goal item 4 (TD-028 b/c/d +
     TD-034).
 
 - **Step 0 (2026-08-16):** promote #26 merged; fresh-eyes review fixed `f931c98`
