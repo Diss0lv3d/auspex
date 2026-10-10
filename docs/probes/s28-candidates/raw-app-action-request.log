@@ -1,0 +1,6 @@
+observable in workspace before the turn: False
+path=agent mode=action_request contract_valid=True output_valid=True
+   tool: annotate_observable(185.220.101.33, seen scanning the payroll WAF at 02:00 on Friday, blocked at the edge) -> error
+   answer: 
+           I cannot add a note to 185.220.101.33 because this IP address is not present in the current workspace. The system indicates that there is no observable with that identifier available for annotation.
+proposals filed this turn: 0
