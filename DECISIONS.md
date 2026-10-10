@@ -1005,3 +1005,60 @@ skips pass 1 entirely, as before.
 
 **What this supersedes.** Nothing. D-016 stands — the scorecard still chooses
 first; this is what two-pass does when the stream proves the scorecard wrong.
+
+## D-037 — Which deep turns take the agent path: any the code has not already decided, on an endpoint measured to call tools (2026-10-10, S26)
+
+**Context.** D-031 settled *how* the agent path streams. Which turns take it was
+left open behind one S25 observation: offered tools, Scout refused a question no
+tool answers. The rule proposed on 2026-08-16 (agent path only when the
+classifier found an observable) existed to keep such questions away from the
+tools. Every measurement it rested on was of Scout, which no longer exists.
+Re-measured on glm-4.5-air: docs/probes/2026-10-10-s26-routing-glm.md.
+
+**Decision.** A DEEP turn takes the agent path if and only if
+
+1. its mode is **not** `ALERT_TRIAGE` or `PHISHING_ANALYSIS`, **and**
+2. the configured endpoint's **deployment scorecard** (D-035) compiles to
+   `native_tools` (`decide_agent_mode`).
+
+Every other deep turn takes the conversational path exactly as before (native or
+two-pass, D-016/D-036). Shortcut turns are untouched: the 92/8 gate still runs
+first, in code.
+
+**Why the observable clause is dropped.** It protected nothing, and it cost
+something:
+- the refusal it guarded against did not happen in **0 of 25** tools-on runs,
+  across S25's exact method, the 2×2, and the route's full composition. Scout's
+  own record is 0 of 12 under the route's conditions;
+- its positive case barely exists, because a short question carrying an observable
+  is answered by the 92/8 shortcut before it is ever deep. The probe's own example
+  was a CVE card;
+- its negative case is where the tools helped most. On a KB-shaped question with
+  no observable, the conversational path mislabelled an ATT&CK ID in 2 of 3 runs,
+  while the agent path searched the KB and labelled all 3 correctly. Both paths
+  conformed to the mode contract 3/3, in comparable time.
+
+**Why clause 1 stays.** In those two modes the code has already computed the
+verdict (D-018-era scorers, S10/S11), and validation pins the rendered answer to
+it. The pasted alert or email is attacker-controlled, so on the agent path the
+model would be drawing **tool arguments** from it. That combination has not been
+measured, and it is not needed for those modes to work.
+
+**Why clause 2 is the scorecard, and what each outcome means.**
+- **Unprobed endpoint → conversational.** No assumption is made that an endpoint
+  calls tools; this is the same fail-safe as `channel_for`.
+- **`prompted_tools` → conversational**, until it is probed against a streaming
+  surface (D-031 scope: its tags arrive in content).
+- **`plan_only` → conversational.** A loop built with zero tools still sends
+  "Use the provided tools", and that composition was measured inventing a tool
+  call as prose. The loop never runs tool-less on this route.
+- **Dev-switcher endpoints** carry no agent mode and stay conversational.
+
+**Cost, stated.** A measured agent turn made **2–3** model calls where the
+conversational path makes one. Each call is claimed against the workspace's
+hourly ceiling as it is made (D-031 decision 4, TD-018), so the ceiling holds and
+the turn's real spend is what gets counted. This is still the customer's
+inference (D-005).
+
+**What this supersedes.** Nothing ratified. The 2026-08-16 proposal was never
+ratified, and STATE.md standing follow-up 10 closes with this entry.
