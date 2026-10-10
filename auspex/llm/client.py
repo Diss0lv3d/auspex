@@ -119,8 +119,11 @@ def _extract_error(status: int, content_type: str, text: str) -> LLMError:
 
 def _thinking(part: dict[str, Any]) -> str:
     """The thinking text of a message or a delta, whichever spelling the endpoint
-    uses. `or`, not `+`: an endpoint that sends BOTH carries the same text twice
-    (vLLM emitted both during its rename), and summing would double it."""
+    uses. A key can be PRESENT and empty — vLLM writes `"reasoning": null`
+    (tests/fixtures/llm/northflank/chat_basic.json) — so this reads the first
+    non-empty value, never the first key present. `or`, not `+`: an endpoint
+    that ever sent both spellings would carry one thought twice, and summing
+    would double it in the Thinking pane (defensive — no probe has seen both)."""
     return part.get("reasoning") or part.get("reasoning_content") or ""
 
 

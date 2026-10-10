@@ -197,17 +197,32 @@ async def test_reasoning_content_stream_folds_onto_the_reasoning_channel():
     assert result.usage is not None and result.usage.completion_tokens == 415
 
 
+def _thinking_seen(where: str, fields: dict) -> list[tuple[str, str]]:
+    """What the client makes of `fields` on a message or on a stream delta."""
+    if where == "message":
+        got = LLMClient.parse_completion({"choices": [{"message": {"content": "x", **fields}}]})
+        return [("reasoning", got.reasoning)] if got.reasoning else []
+    events = parse_sse_line("data: " + json.dumps({"choices": [{"delta": fields}]}))
+    return [(e.kind, e.text) for e in events if e.kind == "reasoning"]
+
+
 @pytest.mark.parametrize("where", ["message", "delta"])
 def test_an_endpoint_sending_both_spellings_is_not_counted_twice(where):
-    """vLLM emitted both fields with the same text during its rename. Summing the
-    two would double every thinking token the analyst sees."""
+    """Defensive: no probe has seen both spellings on one message, but summing
+    them would double every thinking token the analyst sees if one ever did."""
     both = {"reasoning": "think once", "reasoning_content": "think once"}
-    if where == "message":
-        got = LLMClient.parse_completion({"choices": [{"message": {"content": "x", **both}}]})
-        assert got.reasoning == "think once"
-    else:
-        events = parse_sse_line("data: " + json.dumps({"choices": [{"delta": both}]}))
-        assert [(e.kind, e.text) for e in events] == [("reasoning", "think once")]
+    assert _thinking_seen(where, both) == [("reasoning", "think once")]
+
+
+@pytest.mark.parametrize("where", ["message", "delta"])
+@pytest.mark.parametrize("empty", [None, ""])
+def test_a_present_but_empty_spelling_does_not_hide_the_other(where, empty):
+    """vLLM writes `"reasoning": null` on every completion
+    (tests/fixtures/llm/northflank/chat_basic.json:16). A reader that picks the
+    first key PRESENT rather than the first value non-empty would return that
+    null and drop a `reasoning_content` thought sitting right beside it."""
+    fields = {"reasoning": empty, "reasoning_content": "thought"}
+    assert _thinking_seen(where, fields) == [("reasoning", "thought")]
 
 
 # -- errors (Finding 0: bodies may be JSON envelopes OR raw text) ------------
@@ -296,4 +311,23 @@ async def test_a_404_at_the_root_names_the_likely_misconfiguration():
 
     assert seen == ["GET /models"]
     assert ok is False
-    assert "LLM_BASE_URL" in detail and "API root" in detail
+    # The DIRECTION of the advice, not just its keywords: a note that said
+    # "drop the /v1" would mention LLM_BASE_URL and the API root too.
+    assert "LLM_BASE_URL must be the API root" in detail
+    assert "ending in /v1" in detail
+
+
+@pytest.mark.parametrize("status", [401, 500, 503])
+async def test_a_failure_that_is_not_a_404_is_reported_as_itself(status):
+    """The reverse boundary of the 404 hint. A scaled-to-zero edge (503,
+    docs/probes/2026-07-14-llm-endpoint.md) or a bad key (401) on a CORRECT
+    root must not send the operator to change a URL that is already right."""
+    seen: list[str] = []
+    client = _recording_client("http://localhost:11434/v1", seen, status=status)
+    ok, detail = await client.check_reachable()
+    await client.aclose()
+
+    assert seen == ["GET /v1/models"]
+    assert ok is False
+    assert detail.startswith(f"status {status}") and "not here" in detail
+    assert "LLM_BASE_URL" not in detail
