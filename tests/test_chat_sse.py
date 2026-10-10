@@ -1799,6 +1799,41 @@ def test_a_whitespace_answer_is_no_answer_on_the_agent_path_either(client, setti
     assert [r for r, _ in _session_messages(settings, frames[0]["session"])] == ["user"]
 
 
+def test_a_turn_landing_in_between_cannot_make_the_message_go_out_twice(client, monkeypatch):
+    """Review of 1b86070. The current message was left out of the agent's history
+    by comparing CONTENT with the session's last row. A second turn in the same
+    session that stored its message in between made the last row another one,
+    nothing was stripped, and the analyst's message went out twice with the
+    other turn between the copies. Left out by row id, it cannot."""
+    import auspex.routes.chat as chat_module
+
+    real_insert = chat_module._insert_message
+
+    async def insert_then_a_concurrent_turn(pool, auth, session_id, role, content):
+        row = await real_insert(pool, auth, session_id, role, content)
+        if role == "user" and content == "and how do I detect it?":
+            await real_insert(pool, auth, session_id, "user", "a turn from another tab")
+        return row
+
+    first = SequencedStreamingFakeLLMClient([_answer_step("First answer.")])
+    _use_agent(client.app, first)
+    try:
+        session = _post_deep(client, _AGENT_QUESTION)[0]["session"]
+        monkeypatch.setattr(chat_module, "_insert_message", insert_then_a_concurrent_turn)
+        second = SequencedStreamingFakeLLMClient([_answer_step("Second answer.")])
+        _use_agent(client.app, second)
+        client.post(
+            "/api/chat", json={"message": "and how do I detect it?", "session_id": session},
+            headers={"Authorization": f"Bearer {_token(client)}"},
+        )
+    finally:
+        client.app.dependency_overrides.clear()
+
+    sent = [m["content"] for m in second.stream_calls[0]["messages"]]
+    assert sent.count("and how do I detect it?") == 1
+    assert sent[-1] == "and how do I detect it?"
+
+
 def test_an_agent_turn_carries_the_session_the_way_the_route_composes_it(client):
     """What goes on the wire: the loop's system message first, the fence
     directive, prior turns with every assistant turn fenced (TD-009), the mode

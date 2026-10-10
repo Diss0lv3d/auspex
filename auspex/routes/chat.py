@@ -288,9 +288,10 @@ async def get_endpoint_resolver(request: Request, auth: Auth) -> ChatEndpointRes
 
 async def _insert_message(
     pool: asyncpg.Pool, auth: AuthContext, session_id: UUID, role: str, content: str
-) -> None:
-    await pool.execute(
-        "INSERT INTO messages (workspace_id, session_id, role, content) VALUES ($1, $2, $3, $4)",
+) -> UUID:
+    return await pool.fetchval(
+        "INSERT INTO messages (workspace_id, session_id, role, content)"
+        " VALUES ($1, $2, $3, $4) RETURNING id",
         auth.workspace_id,
         session_id,
         role,
@@ -326,25 +327,32 @@ async def _ensure_session(pool: asyncpg.Pool, auth: AuthContext, session_id: UUI
     )
 
 
-async def _turns(pool: asyncpg.Pool, auth: AuthContext, session_id: UUID) -> list[dict]:
+async def _session_rows(
+    pool: asyncpg.Pool, auth: AuthContext, session_id: UUID
+) -> list[asyncpg.Record]:
+    return await pool.fetch(
+        "SELECT id, role, content FROM messages"
+        " WHERE workspace_id = $1 AND session_id = $2 ORDER BY created_at",
+        auth.workspace_id,
+        session_id,
+    )
+
+
+def _turns(rows: list[asyncpg.Record], *, exclude: UUID | None = None) -> list[dict]:
     """The session's turns (oldest first), as replayed to the model. Reasoning is
     not persisted, so replayed history is content-only — exactly what the model
     needs. Assistant turns are fenced as data (TD-009): they may quote feed/KB
     text that is attacker-influenceable, so injected instructions inside them
     must be inert. User turns are the human's own input and are replayed
-    unfenced."""
-    rows = await pool.fetch(
-        "SELECT role, content FROM messages"
-        " WHERE workspace_id = $1 AND session_id = $2 ORDER BY created_at",
-        auth.workspace_id,
-        session_id,
-    )
+    unfenced. `exclude` leaves out one row BY ID — the agent path's current
+    message, which the loop sends last itself."""
     return [
         {
             "role": r["role"],
             "content": _fence_assistant(r["content"]) if r["role"] == "assistant" else r["content"],
         }
         for r in rows
+        if r["id"] != exclude
     ]
 
 
@@ -357,15 +365,15 @@ def _history(turns: list[dict]) -> list[dict]:
     ]
 
 
-def _agent_history(turns: list[dict], message: str, directive: str) -> list[dict]:
+def _agent_history(prior: list[dict], directive: str) -> list[dict]:
     """What the agent path sends between the loop's own system message and the
-    analyst's message, which `AgentLoop` appends LAST — so the current turn,
-    already stored and therefore already in `turns`, is left out here rather
-    than sent twice. The composition measured in
-    docs/probes/s26-step0/probe_routing_baseline.py: fence directive, prior
-    turns, mode directive. No CHAT_SYSTEM_PROMPT: the loop's message is this
-    path's system prompt, and two identities would be two instructions."""
-    prior = turns[:-1] if turns and turns[-1] == {"role": "user", "content": message} else turns
+    analyst's message, which `AgentLoop` appends LAST — so `prior` must not
+    hold the current turn (`_turns(..., exclude=<its row id>)`; matching by
+    content broke when another turn landed in between, review of 1b86070). The
+    composition measured in docs/probes/s26-step0/probe_routing_baseline.py:
+    fence directive, prior turns, mode directive. No CHAT_SYSTEM_PROMPT: the
+    loop's message is this path's system prompt, and two identities would be
+    two instructions."""
     return [
         {"role": "system", "content": HISTORY_FENCE_DIRECTIVE},
         *prior,
@@ -474,7 +482,7 @@ async def chat(
     if shortcut is None and not resolver.configured:
         raise HTTPException(status_code=503, detail="LLM endpoint not configured")
     session_id = await _ensure_session(pool, auth, body.session_id)
-    await _insert_message(pool, auth, session_id, "user", body.message)
+    user_row = await _insert_message(pool, auth, session_id, "user", body.message)
 
     if shortcut is not None:
         # Shortcut path: LLM-free always. ioc_check turns additionally run the
@@ -542,8 +550,8 @@ async def chat(
 
         return _sse_response(shortcut_stream())
 
-    turns = await _turns(pool, auth, session_id)
-    messages = _history(turns)
+    rows = await _session_rows(pool, auth, session_id)
+    messages = _history(_turns(rows))
     # Mode resolution (S9): code picks the mode (format beats keywords), and the
     # mode's typed contract COMPILES to the system directive appended here — the
     # spec shapes the prompt, not the other way around (ADR 0007). The contract
@@ -651,7 +659,9 @@ async def chat(
             session_id=session_id,
             max_tokens=CHAT_ANSWER_MAX_TOKENS,
         )
-        agent_history = _agent_history(turns, body.message, contract.system_directive())
+        agent_history = _agent_history(
+            _turns(rows, exclude=user_row), contract.system_directive()
+        )
         # D-031 decision 5: on this path the configuration we issued is the
         # loop's COMPOSED system message, plus the two directives in its history.
         leak_index = instruction_index(
