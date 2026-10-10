@@ -5,6 +5,7 @@ POST /api/proposals/{id}/approve     — claim it, then run it
 POST /api/proposals/{id}/reject      — claim it, and do not
 POST /api/proposals/{id}/undo        — put back an executed, incomplete or abandoned action
 POST /api/proposals/{id}/abandon     — declare a dead claim dead (TD-028a)
+POST /api/proposals/{id}/keep        — keep what an incomplete run left (D-041)
 
 Four things about this surface are deliberate:
 
@@ -268,6 +269,28 @@ async def abandon(request: Request, auth: Auth, proposal_id: UUID) -> dict:
             ),
         )
     return {"settled": "abandoned", "proposal": _public(result.proposal)}
+
+
+@router.post("/{proposal_id}/keep")
+async def keep(request: Request, auth: Auth, proposal_id: UUID) -> dict:
+    """Keep what an incomplete run left (S26 review of D-041).
+
+    The run failed after some of it landed, or could not look; a human has
+    looked and keeps it. Without this an incomplete row's only door out was
+    undo — closed outright for an action that declares none. 409 for anything
+    not incomplete: the request was fine, the row is not in that state.
+    """
+    result = await _settlement(request).keep(
+        workspace_id=auth.workspace_id, proposal_id=proposal_id, decided_by=auth.user_id
+    )
+    if result.outcome is Settlement.NOT_FOUND:
+        raise HTTPException(status_code=404, detail="no such proposal")
+    if result.outcome is Settlement.ALREADY_DECIDED:
+        raise HTTPException(
+            status_code=409,
+            detail=f"proposal is {result.current_status} — only an incomplete run can be kept",
+        )
+    return {"settled": "kept", "proposal": _public(result.proposal)}
 
 
 @router.post("/{proposal_id}/approve")

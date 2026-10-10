@@ -65,7 +65,7 @@ STALE_CLAIM_SECONDS = 300
 
 # The statuses a put-back may start from (TD-028c): the action ran, or what it
 # left behind is unknown. Not `failed` — that one looked and found nothing.
-UNDOABLE_FROM = frozenset({"executed", "incomplete", "abandoned"})
+UNDOABLE_FROM = frozenset({"executed", "incomplete", "kept", "abandoned"})
 
 
 class Settlement(StrEnum):
@@ -264,6 +264,42 @@ class ProposalSettlement:
             str(workspace_id),
             str(decided_by) if decided_by is not None else None,
             float(STALE_CLAIM_SECONDS),
+        )
+        if row is not None:
+            return SettleResult(Settlement.CLAIMED, _as_dict(row))
+        current = await self.get(workspace_id=workspace_id, proposal_id=proposal_id)
+        if current is None:
+            return SettleResult(Settlement.NOT_FOUND)
+        return SettleResult(
+            Settlement.ALREADY_DECIDED, current, current_status=current["status"]
+        )
+
+    async def keep(
+        self,
+        *,
+        workspace_id: UUID | str,
+        proposal_id: UUID | str,
+        decided_by: UUID | str | None,
+    ) -> SettleResult:
+        """A human looked at an incomplete run and keeps what landed.
+
+        `incomplete` joined the queue with ONE door out — undo — so a human who
+        wanted what landed to stay had no way to say so, and an action that
+        declares no undo could never leave the queue at all (S26 review of
+        D-041). This is that decision, claim-first like `settle` and `abandon`,
+        recorded with who made it. It is not a lock: a kept run can still be put
+        back (UNDOABLE_FROM).
+        """
+        row = await self._pool.fetchrow(
+            """
+            UPDATE proposals
+               SET status = 'kept', decided_at = now(), decided_by = $3::uuid
+             WHERE id = $1::uuid AND workspace_id = $2::uuid AND status = 'incomplete'
+            RETURNING *
+            """,
+            str(proposal_id),
+            str(workspace_id),
+            str(decided_by) if decided_by is not None else None,
         )
         if row is not None:
             return SettleResult(Settlement.CLAIMED, _as_dict(row))
@@ -616,8 +652,8 @@ class ActionExecutor:
         if was not in UNDOABLE_FROM:
             raise ExecutionRefused(
                 "not_executed",
-                f"proposal is {was} — only an executed, incomplete or abandoned "
-                "action can be put back",
+                f"proposal is {was} — only an executed, incomplete, kept or "
+                "abandoned action can be put back",
             )
         spec = self._registry.get(proposal["tool_name"])
         if spec is None or spec.undo is None:

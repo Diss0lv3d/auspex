@@ -474,7 +474,8 @@ SCHEMA_V0: list[str] = [
     # the approvals list saw the action disappear.
     #
     # S26 adds 'incomplete' (TD-028b): the handler raised and some of this
-    # proposal's effects landed — or the action cannot look.
+    # proposal's effects landed — or the action cannot look. And 'kept' (S26
+    # review of D-041): a human looked at an incomplete run and kept what landed.
     #
     # THE ONLY BLOCK THAT MAY DEFINE THIS CONSTRAINT, AND IT HOLDS THE FULL
     # CURRENT LIST. Every boot re-runs every statement, and re-adding the CHECK
@@ -490,7 +491,7 @@ SCHEMA_V0: list[str] = [
         ALTER TABLE proposals ADD CONSTRAINT proposals_status_check
             CHECK (status IN ('pending_approval', 'approved', 'rejected',
                               'executing', 'executed', 'failed', 'incomplete',
-                              'undoing', 'undone', 'abandoned'));
+                              'kept', 'undoing', 'undone', 'abandoned'));
     END $$
     """,
     # S21 (TD-028a): when the claim was taken. Without it "this claim is stale"

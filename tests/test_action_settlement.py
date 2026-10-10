@@ -1733,3 +1733,108 @@ async def test_a_put_back_does_not_wear_the_previous_attempt_s_answer(
         await asyncio.wait_for(task, timeout=10)
 
     assert mid["status"] == "undoing" and mid["undo_result"] is None
+
+
+# -- review of D-041: an incomplete row has a way out besides undo ------------
+
+
+async def test_an_incomplete_run_can_be_kept_as_it_is(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Review finding 3. `incomplete` joined the queue with ONE door out — undo.
+    A human who looks at what landed and wants it kept had no way to say so,
+    and the row stayed in the queue forever: TD-028a's "every door shut",
+    visible this time and still undismissable. `keep` is that decision,
+    claim-first like every other, and recorded with who made it."""
+    settlement, pid = await _incomplete(pool, registry, spec, workspace_id, an_observable)
+
+    kept = await settlement.keep(workspace_id=workspace_id, proposal_id=pid, decided_by=None)
+
+    assert kept.won and kept.proposal["status"] == "kept"
+    assert pid not in [p["id"] for p in await settlement.pending(workspace_id=workspace_id)]
+    assert 1 == await pool.fetchval(
+        "SELECT count(*) FROM observable_notes WHERE proposal_id = $1::uuid", str(pid))
+
+
+async def test_an_incomplete_run_of_an_action_with_no_undo_is_not_stuck(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """The shape the reviewer named: a WRITE action that declares no undo (legal
+    under validate_spec — the likely first third-party action). Undo refuses
+    it, so keep is the only way out — and it must exist."""
+    no_undo = _with(spec, undo=None)
+    no_undo_spec = no_undo.get("annotate_observable")
+
+    async def writes_then_dies(**kwargs):
+        await spec.execute(**kwargs)
+        raise RuntimeError("died after the write")
+
+    # Filed AND run under the no-undo declaration — otherwise the fingerprint
+    # check refuses the run as a changed action before it starts.
+    settlement, pid = await _approved(pool, no_undo, no_undo_spec, workspace_id, an_observable)
+    with pytest.raises(RuntimeError):
+        await ActionExecutor(pool, _with(no_undo_spec, execute=writes_then_dies)).execute(
+            workspace_id=workspace_id, proposal_id=pid)
+    assert (await settlement.get(workspace_id=workspace_id, proposal_id=pid))[
+        "status"] == "incomplete"
+    with pytest.raises(ExecutionRefused) as refused:
+        await ActionExecutor(pool, no_undo).undo(workspace_id=workspace_id, proposal_id=pid)
+    assert refused.value.reason == "no_undo"
+
+    assert (await settlement.keep(workspace_id=workspace_id, proposal_id=pid,
+                                  decided_by=None)).won
+
+
+async def test_only_an_incomplete_run_can_be_kept(
+    pool, registry, spec, workspace_id, an_observable
+):
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+
+    result = await settlement.keep(workspace_id=workspace_id, proposal_id=proposal["id"],
+                                   decided_by=None)
+
+    assert result.outcome is Settlement.ALREADY_DECIDED
+    assert result.current_status == "pending_approval"
+
+
+async def test_a_kept_run_can_still_be_put_back(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Keeping is a decision about what landed, not a lock on it: the human who
+    kept it can change their mind, and the put-back removes exactly this
+    proposal's effects as it does from `executed`."""
+    settlement, pid = await _incomplete(pool, registry, spec, workspace_id, an_observable)
+    await settlement.keep(workspace_id=workspace_id, proposal_id=pid, decided_by=None)
+
+    await ActionExecutor(pool, registry).undo(workspace_id=workspace_id, proposal_id=pid)
+
+    assert (await settlement.get(workspace_id=workspace_id, proposal_id=pid))[
+        "status"] == "undone"
+
+
+async def test_keep_through_the_surface(pool, client, route_ws):
+    ws, obs_id = route_ws
+    app_spec = client.app.state.action_registry.get("annotate_observable")
+
+    async def writes_then_dies(**kwargs):
+        await app_spec.execute(**kwargs)
+        raise RuntimeError("died after the write")
+
+    registry = ActionRegistry()
+    registry.register_all(build_builtin_actions(pool))
+    _, proposal = await _file(pool, registry, registry.get("annotate_observable"), ws, obs_id)
+    _, pending = await _file(pool, registry, registry.get("annotate_observable"), ws, obs_id,
+                             note="still pending")
+    hdr = _hdr(client)
+    real = client.app.state.action_registry
+    client.app.state.action_registry = _with(app_spec, execute=writes_then_dies)
+    try:
+        client.post(f"/api/proposals/{proposal['id']}/approve", headers=hdr)
+    finally:
+        client.app.state.action_registry = real
+
+    kept = client.post(f"/api/proposals/{proposal['id']}/keep", headers=hdr)
+    early = client.post(f"/api/proposals/{pending['id']}/keep", headers=hdr)
+
+    assert kept.status_code == 200 and kept.json()["proposal"]["status"] == "kept"
+    assert early.status_code == 409
