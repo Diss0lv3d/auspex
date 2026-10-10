@@ -173,12 +173,11 @@
       // append(), not textContent +=, which would erase the tool-step lines
       else if ("reasoning" in ev) { ensureThink(wrap).append(ev.reasoning); }
       else if ("tool" in ev) {
-        // one agent tool step: what ran and what it was asked. Shown as text,
-        // since the arguments are the model's.
-        const args = Object.values(ev.tool.arguments || {}).flat().map(String).join(", ");
+        // one agent tool step: the server's line, verbatim — it is exactly
+        // what the output rail scanned. Shown as text: it is the model's.
         const line = document.createElement("div");
         line.className = "step " + ev.tool.status;
-        line.textContent = "→ " + ev.tool.name + "(" + args + ") · " + ev.tool.status;
+        line.textContent = "→ " + ev.tool.call + " · " + ev.tool.status;
         ensureThink(wrap).appendChild(line);
       }
       else if ("content" in ev) {

@@ -82,6 +82,9 @@ def test_index_shows_each_tool_step_in_the_thinking_pane(client):
     body = client.get("/").text
     assert '"tool" in ev' in body
     assert "ev.tool.status" in body
+    # The server's line verbatim: re-rendering the arguments here ordered them
+    # differently from what the output rail scanned (review of 1b86070).
+    assert "ev.tool.call" in body and "ev.tool.arguments" not in body
     # The model's arguments are rendered as text, never parsed as markup.
     assert "innerHTML" not in body.split('"tool" in ev', 1)[1].split("else if", 1)[0]
 

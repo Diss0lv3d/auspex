@@ -374,20 +374,21 @@ def _agent_history(turns: list[dict], message: str, directive: str) -> list[dict
 
 
 def _tool_frame(invocation: ToolInvocation) -> dict:
-    """What the analyst is shown of one tool step: which tool, what it was asked,
-    and what actually happened (D-014's status — never the model's account of
-    it). The RESULT stays out: it is data for the model, and the answer is
-    built from it."""
-    return {"name": invocation.name, "status": invocation.status,
-            "arguments": invocation.arguments}
+    """What the analyst is shown of one tool step: one line saying which tool
+    was asked what, and the D-014 status of what actually happened (never the
+    model's account of it). The RESULT stays out: it is data for the model, and
+    the answer is built from it.
 
-
-def _shown_text(frame: dict) -> str:
-    """The words of a tool frame, for the output rail. The arguments are model
-    output like any other; flattening them (rather than scanning their JSON)
-    keeps an escaped newline from splitting a run in two."""
-    parts = [frame["name"]]
-    stack = [frame["arguments"]]
+    The line is rendered HERE, once, and it is both what the rail scans and the
+    only part of the arguments sent — the page shows it verbatim. Review of
+    1b86070 measured what sending raw arguments cost: a NaN made the frame
+    invalid JSON and an object value threw in the page's renderer (the step
+    vanished after the lookup ran), the page ordered keys differently from the
+    scan (a split run of our configuration was shown whole), and keys reached
+    the wire unscanned. Values only, in the order the model sent them; nested
+    containers are flattened so an escaped newline cannot split a run."""
+    values: list[str] = []
+    stack: list = [invocation.arguments]
     while stack:
         value = stack.pop()
         if isinstance(value, dict):
@@ -395,8 +396,12 @@ def _shown_text(frame: dict) -> str:
         elif isinstance(value, list):
             stack.extend(reversed(value))
         else:
-            parts.append(str(value))
-    return " ".join(parts)
+            values.append(str(value))
+    return {
+        "name": invocation.name,
+        "status": invocation.status,
+        "call": f"{invocation.name}({', '.join(values)})",
+    }
 
 
 def _add_usage(total: dict | None, usage: Usage) -> dict:
@@ -716,7 +721,7 @@ async def chat(
                         yield _sse({"content": ev.text})
                     elif ev.kind == "tool":
                         frame = _tool_frame(ev.invocation)
-                        if scanner.feed(_shown_text(frame), channel="tool"):
+                        if scanner.feed(frame["call"], channel="tool"):
                             return
                         yield _sse({"tool": frame})
                     elif ev.kind == "usage" and ev.usage:

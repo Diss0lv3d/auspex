@@ -1539,7 +1539,7 @@ def test_a_native_tools_endpoint_runs_a_deep_turn_through_the_agent(client, sett
     # The tool step is narrated, then the answer streams (D-031 decision 1).
     tool_frames = [f["tool"] for f in frames if "tool" in f]
     assert tool_frames == [{"name": "search_knowledge", "status": "executed",
-                            "arguments": {"query": "kerberoasting"}}]
+                            "call": "search_knowledge(kerberoasting)"}]
     assert kinds.index("tool") < kinds.index("content")
     # The sentence before the tool call is process, shown as reasoning (TD-036).
     reasoning = "".join(f["reasoning"] for f in frames if "reasoning" in f)
@@ -1683,6 +1683,73 @@ def test_a_leak_through_tool_arguments_is_cut_off_before_it_is_shown(client, set
     assert [f["error"] for f in frames if "error" in f] == [LEAK_COPY]
     assert fake.turns == 1
     assert [r for r, _ in _session_messages(settings, frames[0]["session"])] == ["user"]
+
+
+def _strict_frames(body: str) -> list[dict]:
+    """Frames parsed the way a browser's JSON.parse does: NaN is not JSON."""
+
+    def refuse(token):
+        raise ValueError(f"non-JSON constant on the wire: {token}")
+
+    return [json.loads(line[len("data:"):].strip(), parse_constant=refuse)
+            for line in body.splitlines() if line.strip().startswith("data:")]
+
+
+def test_the_tool_frame_carries_the_line_the_rail_scanned(client):
+    """Review of 1b86070. The frame used to carry the raw arguments for the page
+    to render: a NaN made the frame invalid JSON, an object value threw inside
+    the page's renderer — either way the step vanished after the lookup ran —
+    and the page ordered integer-like keys differently from the scan, so a
+    split run of our configuration could be shown whole. Now the server renders
+    the line once, scans exactly it, and sends nothing else of the arguments."""
+    odd = '{"query": "kerberoasting", "depth": NaN, "x": {"toString": 0}}'
+    fake = SequencedStreamingFakeLLMClient([_tool_step(arguments=odd), _answer_step("Done.")])
+    _use_agent(client.app, fake)
+    try:
+        resp = client.post("/api/chat", json={"message": _AGENT_QUESTION},
+                           headers={"Authorization": f"Bearer {_token(client)}"})
+    finally:
+        client.app.dependency_overrides.clear()
+
+    frames = _strict_frames(resp.text)
+    tool = [f["tool"] for f in frames if "tool" in f]
+    assert tool == [{"name": "search_knowledge", "status": "executed",
+                     "call": "search_knowledge(kerberoasting, nan, 0)"}]
+
+
+def test_the_line_shown_is_in_the_order_it_was_scanned(client):
+    """The page ordered integer-like keys first (JS `Object.values`) while the
+    rail scanned in insertion order, so `{"1": second half, "0": first half}`
+    was scanned as two halves and SHOWN as one verbatim run of our
+    configuration. The server's line, in the scanned order, is what is shown."""
+    # Two 7-word runs (the rail's floor is 8) with no hyphenated word, which the
+    # scanner would count as two.
+    words = DEFAULT_SYSTEM_PROMPT.split()
+    first, second = " ".join(words[7:14]), " ".join(words[14:21])
+    split = json.dumps({"1": second, "0": first})
+    fake = SequencedStreamingFakeLLMClient([_tool_step(arguments=split), _answer_step("x")])
+    _use_agent(client.app, fake)
+    try:
+        frames = _post_deep(client, _AGENT_QUESTION)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    tool = [f["tool"] for f in frames if "tool" in f]
+    assert [t["call"] for t in tool] == [f"search_knowledge({second}, {first})"]
+
+
+def test_argument_keys_never_reach_the_analyst(client):
+    """Keys are the model's text too, and were sent in the raw frame unscanned."""
+    keyed = json.dumps({"query": "kerberoasting", DEFAULT_SYSTEM_PROMPT: 1})
+    fake = SequencedStreamingFakeLLMClient([_tool_step(arguments=keyed), _answer_step("x")])
+    _use_agent(client.app, fake)
+    try:
+        resp = client.post("/api/chat", json={"message": _AGENT_QUESTION},
+                           headers={"Authorization": f"Bearer {_token(client)}"})
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert "provided tools to gather facts" not in resp.text
 
 
 def test_an_endpoint_failure_mid_turn_reports_and_persists_nothing(client, settings):
