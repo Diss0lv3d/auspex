@@ -1193,16 +1193,23 @@ async def test_the_undo_claim_itself_refuses_an_abandoned_row(
     fresh = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
     assert fresh["status"] == "abandoned"  # control: the row really is abandoned
 
-    # The stale read the claim is the backstop for. Only `get` is faked; the
-    # claim runs against the real row.
-    async def _stale_read(**_kwargs):
-        return {**dict(fresh), "status": "executed"}
+    # The stale read the claim is the backstop for. Only the FIRST `get` is
+    # faked; the claim, and the re-read after it loses, see the real row.
+    real_get = executor._settlement.get
+    reads = []
+
+    async def _stale_read(**kwargs):
+        reads.append(kwargs)
+        if len(reads) == 1:
+            return {**dict(fresh), "status": "executed"}
+        return await real_get(**kwargs)
 
     executor._settlement.get = _stale_read
 
     with pytest.raises(ExecutionRefused) as caught:
         await executor.undo(workspace_id=workspace_id, proposal_id=pid)
-    assert caught.value.reason == "already_undone"
+    # S27: it used to say `already_undone` — about a row nobody was undoing.
+    assert caught.value.reason == "status_changed" and "abandoned" in caught.value.detail
 
     row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
     assert row["status"] == "abandoned"  # not dragged into 'undoing'
@@ -2040,3 +2047,44 @@ async def test_abandoning_a_dead_claim_does_not_erase_who_approved_it(
     assert row["status"] == "abandoned"
     assert row["decided_by"] == approver
     assert row["resolved_by"] == abandoner and row["resolved_at"] is not None
+
+
+async def test_an_undo_that_lost_its_row_to_another_decision_says_where_it_went(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Review of 20fefc0: once `keep` existed, an undo's claim could lose to a
+    keep rather than to another undo — and the refusal still said "this
+    proposal is already being undone", about a row nobody was undoing."""
+    settlement, pid = await _incomplete(pool, registry, spec, workspace_id, an_observable)
+    seen = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    await settlement.keep(workspace_id=workspace_id, proposal_id=pid, decided_by=None)
+    now = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    executor = ActionExecutor(pool, registry)
+    # The read happened before the keep; the claim happens after it.
+    executor._settlement.get = mock.AsyncMock(side_effect=[seen, now])
+
+    with pytest.raises(ExecutionRefused) as caught:
+        await executor.undo(workspace_id=workspace_id, proposal_id=pid)
+
+    assert caught.value.reason == "status_changed"
+    assert "kept" in caught.value.detail and "being undone" not in caught.value.detail
+
+
+async def test_an_undo_that_lost_its_row_to_another_undo_still_says_so(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """The other half of the re-read: losing to a put-back that already finished
+    is still `already_undone`, and the copy says it is done, not in progress."""
+    settlement, pid = await _incomplete(pool, registry, spec, workspace_id, an_observable)
+    seen = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    await ActionExecutor(pool, registry).undo(workspace_id=workspace_id, proposal_id=pid)
+    now = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert now["status"] == "undone"  # control
+    executor = ActionExecutor(pool, registry)
+    executor._settlement.get = mock.AsyncMock(side_effect=[seen, now])
+
+    with pytest.raises(ExecutionRefused) as caught:
+        await executor.undo(workspace_id=workspace_id, proposal_id=pid)
+
+    assert caught.value.reason == "already_undone"
+    assert "already been undone" in caught.value.detail

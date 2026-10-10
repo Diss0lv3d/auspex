@@ -689,7 +689,22 @@ class ActionExecutor:
             was,
         )
         if claimed is None:
-            raise ExecutionRefused("already_undone", "this proposal is already being undone")
+            # Lost the row between the read and the claim. Since `keep` exists
+            # that is not only another undo, so say where the row went rather
+            # than assume (S27 review of 20fefc0) — after the fact, so it cannot
+            # widen the window that matters.
+            now = await self._settlement.get(workspace_id=workspace_id, proposal_id=proposal_id)
+            if now is None:
+                raise ExecutionRefused("not_found", "no such proposal in this workspace")
+            if now["status"] == "undoing":
+                raise ExecutionRefused("already_undone", "this proposal is already being undone")
+            if now["status"] == "undone":
+                raise ExecutionRefused("already_undone", "this proposal has already been undone")
+            raise ExecutionRefused(
+                "status_changed",
+                f"the proposal moved from {was} to {now['status']} while this undo was "
+                "starting — re-read it before deciding again",
+            )
         args = dict(proposal["tool_input"] or {})
         try:
             outcome = await spec.undo.handler(

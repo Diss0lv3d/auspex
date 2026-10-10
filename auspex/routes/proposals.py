@@ -3,7 +3,7 @@
 GET  /api/proposals                  — what is waiting, each with its card
 POST /api/proposals/{id}/approve     — claim it, then run it
 POST /api/proposals/{id}/reject      — claim it, and do not
-POST /api/proposals/{id}/undo        — put back an executed, incomplete or abandoned action
+POST /api/proposals/{id}/undo        — put back an executed, incomplete, kept or abandoned action
 POST /api/proposals/{id}/abandon     — declare a dead claim dead (TD-028a)
 POST /api/proposals/{id}/keep        — keep what an incomplete run left (D-041)
 
@@ -374,8 +374,8 @@ async def approve(request: Request, auth: Auth, proposal_id: UUID) -> dict:
 
 @router.post("/{proposal_id}/undo")
 async def undo(request: Request, auth: Auth, proposal_id: UUID) -> dict:
-    """Put an action back: executed, incomplete or abandoned (TD-028c). Only
-    what this approval added (TD-023)."""
+    """Put an action back: executed, incomplete, kept or abandoned (TD-028c).
+    Only what this approval added (TD-023)."""
     try:
         outcome = await _executor(request).undo(
             workspace_id=auth.workspace_id, proposal_id=proposal_id
@@ -386,7 +386,7 @@ async def undo(request: Request, auth: Auth, proposal_id: UUID) -> dict:
     except Exception:
         logger.exception("undo of %s failed", proposal_id)
         # A failed put-back returns the row to where it started (TD-028c) —
-        # executed, incomplete or abandoned — so say which, from the row.
+        # executed, incomplete, kept or abandoned — so say which, from the row.
         row = await _settlement(request).get(
             workspace_id=auth.workspace_id, proposal_id=proposal_id
         )
