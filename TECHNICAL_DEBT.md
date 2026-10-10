@@ -2,6 +2,12 @@
 
 ## TD-044 (S27) — the rail's index grew and its legitimate ceiling was not re-measured
 
+> **S28: the trigger fired again.** D-050 added a mode directive
+> (`action_request`), compiled into every note-only turn and indexed like every
+> mode directive. The calibration was still not re-run. Every live S28 turn read
+> `output_valid: true`: the identity, D-049 and D-050 probes, about 8 turns
+> through `/api/chat`. That is evidence, not a calibration.
+
 **Where:** `auspex/routes/chat.py`. The rail now indexes D-043's repair
 directive (conversational path, code-decided modes) and D-045's action
 directive and descriptions (agent path, through `loop.issued_instructions`).
@@ -1243,6 +1249,15 @@ first real customer deployment.
 ---
 
 ## TD-036 (S25) — the streaming turn trusts a measurement about the endpoint
+
+> **S28: the trigger fired live.** In two of three D-049 probe turns
+> (`docs/probes/s28-candidates/`), glm-4.5-air wrote a full answer before its
+> annotate call. That text passed NARRATION_HOLD_CHARS (400) and streamed as
+> answer, and the final answer followed, so the analyst read the answer twice.
+> The route logged "agent answer differs from the streamed content (TD-036
+> bound)" both times. Not fixed at S28. Re-measure the longest pre-tool
+> narration on glm-4.5-air, including action-calling turns, before choosing a
+> fix.
 
 **Where:** `auspex/agent/loop.py` — `run_stream`, the `content`/`reasoning`
 deltas passed through as they arrive.
