@@ -1731,3 +1731,63 @@ be filed.
 
 **What this supersedes.** Nothing ratified. It retires D-045's first bound
 and the IDEAS line.
+
+## D-050 — A note request is a deep turn, and a note-only request gets its own mode, `action_request` (2026-10-11, S28)
+
+**Context.** IDEAS (S27): live, "add a note to X" resolved to `ioc_enrichment`,
+could not fill its sections and read `contract_valid: false`. Burhan put it in
+S28's scope at the start ritual. Measured first, on two batteries written by
+agents that never read the repo (`docs/probes/s28-candidates/`). The problem
+was larger than the drift:
+- **9–10 of 30 note-only requests took the IOC-check shortcut.** No model ran,
+  the analyst got an enrichment answer, the note was never proposed, and
+  nothing said so.
+- 6 of 20 requests that asked for analysis AND a note took the shortcut too.
+- The rest landed in narrative modes they could not fill.
+
+**Decision.**
+1. **A note request never takes the shortcut.** `asks_for_note` in the
+   classifier finds the ask anywhere in the message (add/attach/leave/put/
+   write/record a note or comment, annotate, jot/mark down on, record
+   against, with a note, "pls note", update the notes on). It makes the turn
+   DEEP, as the analytical-verb veto does: proposing the note needs the model.
+2. **A message that LEADS with that ask is note-only and resolves to a new
+   mode, `action_request`** (`is_note_request`, resolver step 2b, after the
+   two format steps).
+   - A mixed request asks its question first ("check X and add a note"), so it
+     keeps its analysis mode.
+   - The contract has no sections. Its directive says the change can only be
+     proposed for a human to approve, and that the answer must never say it
+     was made.
+   - The directive is compiled into the turn and indexed by the rail like
+     every mode directive.
+3. **An eighth mode is a scope decision** (D-044's rule), made here.
+
+**Judged on a held-out battery.** Battery B was opened once, after the rule
+was frozen.
+
+| | before | after |
+|---|---|---|
+| note-only → `action_request` | 0/30 | **19/30** |
+| note-only → IOC shortcut | 9/30 | **3/30** |
+| mixed → shortcut | 6/20 | **0/20** |
+| mixed → `action_request` | 0/20 | **0/20** |
+| not-action → `action_request` | 0/30 | **0/30** (routing unchanged) |
+
+Battery A shaped the rule (training data): 29/30, and 0 false positives. The
+operating point is pinned by
+`test_the_action_request_operating_point_on_the_held_out_battery_holds`.
+
+**Bounds, stated.**
+- **11 of 30 held-out note-only phrasings still miss**, and route exactly as
+  they did before. Examples: "append to the notes on X", "X — note: …",
+  "remark on X", "INC-4520: attach a note…". 3 of those still take the
+  shortcut.
+- A note-only request is also routed to `action_request` when it asks for
+  something the platform cannot do ("add a comment in Jira…"). Its contract
+  then has the answer say why nothing could be proposed.
+- A request that leads with the note and asks a question afterwards loses its
+  analysis sections. That is structure, not substance (D-044's trade).
+- Any improvement claim needs a fresh battery.
+
+**What this supersedes.** Nothing ratified. It retires the IDEAS line.
