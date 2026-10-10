@@ -1683,3 +1683,51 @@ so this path will see traffic.
   an action reaches a network.
 
 **What this supersedes.** Nothing ratified. It resolves TD-042.
+
+## D-049 — What the agent looks up is recorded, the way the IOC check records it (2026-10-11, S28)
+
+**Context.** IDEAS (S27), and D-045's first stated bound: a proposal can
+target only an observable the workspace already has. Only the 92/8 IOC check
+recorded observables and verdicts (`persist_enrichment`). An analyst who asked
+the chat agent to check an indicator and annotate it got the check, and then
+the annotate call was refused as `NothingToPropose`, unless they had run the
+shortcut first. Burhan put it in S28's scope at the start ritual. Record:
+`docs/probes/s28-candidates/`.
+
+**Decision.**
+1. **`enrich_observable` records what it looked up.**
+   `build_capability_registry` takes a `record` callable, and the chat route
+   passes the same `persist_enrichment` the IOC check calls, bound to the
+   turn's workspace. The observable is upserted, and a verdict row and its
+   falsification watchers are written when the signals synthesise one.
+2. **Only what was looked up is recorded.** That means `outcome.enriched`,
+   which only ever holds indicators D-039 let through: from the analyst, or
+   from a knowledge-base record. The model cannot make the platform record an
+   indicator it composed. Skipped indicators are not recorded, for example
+   reserved address space, which enrichment does not look up. The IOC check
+   behaves the same way.
+3. **The model is told whether it was recorded** (`recorded: true/false` in
+   the tool result). A failed write is logged and said, never claimed, and the
+   computed results still return: the IOC check's S5 rule. With no `record`
+   (probes, tests), nothing is recorded and nothing is said.
+4. **The tool stays READ.** The write is the platform's own bookkeeping of a
+   lookup it made, the same as on the shortcut path. It is not an action the
+   model chose, so D-014's gate does not apply. The module docstring says so.
+
+**Why.** Live through the rebuilt container: one turn named an IP the
+workspace had never seen and asked for it to be checked and annotated.
+`enrich_observable` recorded the observable, and the same turn filed the
+annotate proposal (rejected as cleanup). Before D-049 that proposal could not
+be filed.
+
+**Bounds, stated.**
+- **Every enrichment the agent runs now writes.** A turn that checks five
+  supplied indicators adds five observables and their verdicts to the
+  workspace, exactly as an IOC check of the same five would.
+- The verdicts feed Living Verdicts (retro-hunts, falsification watchers) like
+  any other.
+- Indicators learned from a knowledge-base record this turn (D-039) are
+  recorded too, if the agent looks them up.
+
+**What this supersedes.** Nothing ratified. It retires D-045's first bound
+and the IDEAS line.
