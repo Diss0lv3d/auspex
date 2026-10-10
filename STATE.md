@@ -1,174 +1,227 @@
 # STATE — Auspex
 
-_Last updated: 2026-10-11 — **S27 CLOSED** (session-end ritual run). `./ci.sh`
-green: **1257 tests, 120 modules**. `/api/health/ready` 200,
+_Last updated: 2026-10-11 — **S28 CLOSED** (session-end ritual run). `./ci.sh`
+green: **1292 tests, 120 modules**. `/api/health/ready` 200,
 `./scripts/demo.sh` exit 0, branch `staging`, tree clean apart from Burhan's two
-untracked overview files. **Not promoted:** everything after promote #28
-(`d87469a`) is on staging only: D-042…D-045 and the review fixes._
+untracked overview files. **Not promoted:** everything after promote #29
+(`31f7fc1`, back-merge `08bebdf`) is on staging only: D-046…D-050 and the review
+fixes._
 
-## S27 — what happened (read this first)
+## S28 — what happened (read this first)
 
-S27 ran 2026-10-10 into 2026-10-11. At the start ritual Burhan answered the
-candidates question with **"dont park anything, do everything"**, so all three
-candidates joined the goal. Six things happened, each recorded where it lives:
+S28 ran 2026-10-11. At the start ritual Burhan answered the candidates question
+with **"all"**, so all three candidates joined the goal. Mid-session he made
+three more calls:
+- fix the identity leak;
+- keep D-002 (put back to him as overturn or drop: dropped);
+- both doors for TD-042.
 
-1. **Promote #28** (`d87469a`) shipped the S26 slate (D-037…D-041), with the
-   back-merge `e907678`.
-2. **A fresh-eyes review of the D-041 review's own seven fixes** found three
-   defects, all fixed with tests that failed first:
-   - `922f30c`: a queue row nobody looked up twins for said `[]`, which reads as
-     "no twins".
-   - `9458518`: `keep` and `abandon` overwrote `decided_by`/`decided_at`, which
-     erased who approved the run. They now write `resolved_by`/`resolved_at`.
-   - `94abbeb`: a lost undo claim said "already being undone" about a row a
-     keep or an abandon had taken.
+Everything is recorded where it lives:
 
-   It cleared 4 commits, recorded one bound (`be81543`: the twin index misses
-   numbers that differ only in scale), and logged **TD-042**. Record:
-   docs/probes/2026-10-10-s27-d041-fixes-review.md.
-3. **Goal: TD-012(b) → D-043, measured first.**
-   - Drift was **0/60** on security questions across both deep paths, every
-     mode, and **laundering 0/6** on glm-4.5-air.
-   - The repair therefore guards the one field that matters. An alert or
-     phishing verdict is **held until it passes, re-asked once, then rendered
-     by code**, so the analyst is never shown a verdict off the code's pin.
-   - Narrative modes still stream and report. The JSON pass was declined on
-     measurement.
-   - Commits `51c6161`, `e96e27c`; live `5d70d7e`. Record:
-     docs/probes/2026-10-10-s27-contract-drift.md.
-4. **TD-041 → D-042.** The deployment scorecard expires after 7 days, and the
-   running app looks every 6 h (`keep_scorecard_fresh`, `9d97ddd`).
-   - A re-probe that measures nothing leaves the old scorecard standing.
-   - A changed endpoint logs each changed field.
-5. **Mode fallback → D-044.** A seventh mode, `general`, for deep questions
-   with no security, IT, identity or payments vocabulary and no observable
-   (`87a0ccb`).
-   - Judged on batteries written by independent agents that never saw the
-     code: approach 1 misrouted 15/40 security questions out of sample (one
-     thrash-brake strike).
-   - Approach 2 misroutes **9/50** and sends **24/30** non-security questions
-     to general. That point is pinned as a test.
-   - Live, a misrouted security question still gets a security answer; it
-     loses only the section structure. Record:
-     docs/probes/2026-10-11-s27-mode-fallback.md.
-6. **Actions on the chat agent path → D-045** (`0e85f3f`).
-   - The agent may **propose**. A call files a pending proposal, shown in the
-     turn and outside the folding Thinking pane.
-   - A dry run that affects nothing is not filed (`NothingToPropose`).
-   - Live: one explicit ask filed one correct proposal; two turns that did
-     not ask filed none.
-   - Wiring it found a latent bug, fixed in `9130c39`: a real proposal id is a
-     UUID, and the loop's JSON feedback died on it. Record:
-     docs/probes/2026-10-11-s27-chat-actions.md.
+1. **Promote #29** (`31f7fc1`) shipped the S27 slate (D-042…D-045), with the
+   back-merge `08bebdf`.
+2. **An adversarial second-pass review of S27's own code** (record:
+   docs/probes/2026-10-11-s28-s27-code-review.md). Three findings:
+   - `831dedc`: an undo that lost its row and got it back said "moved from
+     incomplete to incomplete". It now refuses as `contended`.
+   - `3a09fcd`: a real action call was logged as `<unregistered>`.
+     `AgentLoop.knows()` fixes it.
+   - **Live, 4/4 identity questions that missed the shortcut were answered
+     "I'm Claude, by Anthropic".** That is false and breaks D-002. It became
+     D-047 (item 5).
+
+   Cleared: D-043's hold, D-042's re-probe, D-044's contract, D-045's
+   proposal path, and `922f30c`/`9458518`. Two bounds were stated (tool-result
+   text is unindexed by D-031's design; a leaking held draft ends the turn).
+3. **Goal: TD-043 → D-046, measured first.**
+   - **0 of 31 re-searches were misses.** Every search returns a full page,
+     because the KB has no entity documents.
+   - `search_knowledge` now has a per-turn budget of 3. It is withdrawn from
+     the wire once spent, and a call from history is refused (glm-4.5-air
+     made one every thin turn). The last allowed result says it was the last.
+   - S27's prompts went **37 calls → 23**, with no step-cap hits and 6/6
+     conformant.
+   - Price: the LockBit turns no longer reach T1566. TA0001, found first,
+     names the same vectors.
+   - De-dup and a budget of 5 were measured and not shipped (thrash brake).
+     Record: docs/probes/2026-10-11-s28-td043-search-budget.md.
+4. **Goal: TD-042 → D-048 (Burhan: both doors).**
+   - An `approved` row with no claim, older than STALE_CLAIM_SECONDS, rejoins
+     the queue.
+   - `POST /{id}/execute` re-runs `check_executable` and records the human in
+     `resolved_by`.
+   - `POST /{id}/withdraw` moves it to the new status `withdrawn`, added to the
+     one status-CHECK block in place.
+   - Both doors are stale-only and claim-first, with a race test. 6/6 mutants
+     were caught. Live through the container (docs/probes/s28-td042/).
+5. **D-047, identity.** The widened shortcut was judged on a held-out battery
+   written blind: **0/45 → 18/45 caught, 0/45 false positives.** The copy says
+   it runs on "the platform's engine", never the model (D-002 kept).
+6. **Candidate → D-049.** What the agent looks up is recorded like the IOC check
+   (`record` → `persist_enrichment`), and the model is told
+   `recorded: true/false`. Live: one turn checked a never-seen IP, recorded it,
+   and filed its note proposal.
+7. **Candidate → D-050.** A note request never takes the IOC shortcut. One that
+   leads the message resolves to an eighth mode, `action_request`, with no
+   sections. Held out:
+   - note-only → `action_request`: 0/30 → **19/30**;
+   - note-only → shortcut: 9 → 3;
+   - mixed → shortcut: 6 → 0;
+   - **0 false positives.**
+
+   Live: `contract_valid: true`.
+8. **Candidate: alert JSON keys, measured against the published ECS and
+   Microsoft Graph schemas** (docs/probes/2026-10-11-s28-alert-json-keys.md).
+   - **An ECS alert was named after its host** (`host.name` before
+     `rule.name`). Fixed (`e2af082`), and `source.ip`/`destination.ip`/
+     `processCommandLine`/`createdDateTime` are now read.
+   - The S27 MEDIUM was the scorer, not the keys. Documented credential-theft
+     alerts score **LOW 35** (IDEAS).
 
 **How the work was proven.**
-- Every fix and feature shipped with tests, and every test that guards a fix
-  failed first.
-- Mutants were run on each new guarantee: D-043 5/5 caught, D-045 3/3, D-042
-  the age gate, plus the review fixes.
-- Every behaviour was checked live through the rebuilt container.
-- About 120 inference calls on Z.ai, under a dollar.
-- **One commit left the suite red in between:** `e96e27c` (D-043) broke a
-  hardening test's call count, fixed in the next commit `c8a3fe2`. The full
-  gate caught it, and no amend was made (org rule).
+- Every fix and feature shipped with tests, and each one was shown to fail
+  before the change.
+- Mutants were run: TD-043 3/3, TD-042 6/6, D-049's route wiring.
+- Classifier/resolver changes were judged on batteries written by agents that
+  never read the repo, with the held-out one opened once after freezing.
+- Live checks went through the rebuilt container.
+- About 70 inference calls on Z.ai, well under a dollar.
+- **One gate went red in between and was fixed before commit:** a comment in
+  `classifier.py` said "requests", and the structural test that forbids that
+  library's name in the classify package caught it. Targeted test runs had
+  skipped that file; the full gate did not.
 
 ## Where we are
 
-Phase 4: contract (S17), decision loop (S18), hardened input and spend (S19),
-pipeline/docs/demo (S20), beta debt (S21), output rail (S22–S24), tools as
-prompts and a streaming loop (S25), the agent path live in chat (S26), and
-**S27: verdicts the code decides are guaranteed on screen, the deployment
-re-measures its engine, non-security questions stop failing a security
-contract, and the chat agent can propose actions.** The ROADMAP through S20 is
-complete; S21–S27 were each scoped by a decision rather than a plan.
+Phase 4:
+- contract (S17);
+- decision loop (S18);
+- hardened input and spend (S19);
+- pipeline/docs/demo (S20);
+- beta debt (S21);
+- output rail (S22–S24);
+- tools as prompts and a streaming loop (S25);
+- the agent path live in chat (S26);
+- verdicts the code decides held on screen, and the agent proposing (S27);
+- **S28: the agent's spend bounded per tool, an approval that never ran given
+  doors, the agent's lookups recorded, note requests routed to a mode they can
+  meet, and the engine no longer naming another vendor on 18/45 held-out
+  identity questions.**
+
+The ROADMAP through S20 is complete; S21–S28 were each scoped by a decision.
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: NOT EMPTY.** Everything after promote #28 (`d87469a`) is
-   on staging only: D-042…D-045, the three review fixes, the UUID fix. That is
-   about 20 commits, 51 files, +3.3k.
+1. **Promote slate: NOT EMPTY.** Everything after promote #29 (`31f7fc1`) is on
+   staging only: D-046…D-050, the review fixes and the alert key fix. That is
+   55 files, +3360.
    - Read `git diff origin/main..staging --stat`, never the commit list.
    - **Promote first next session.**
    - **The two untracked overview files stay untracked — Burhan's call,
      2026-10-10.** `Auspex-Product-Architecture-Overview.pdf` and
      `docs/auspex-overview.html` are his; never commit, move, publish or delete
      them, and do not ask again.
-2. **S27's own code has had no second-pass review.** Each guarantee was
-   mutant-checked by its author, but nobody else has read it adversarially:
-   - D-043's `repaired_answer` (chat.py);
-   - D-044's resolver vocabulary;
-   - D-045's chat wiring, `NothingToPropose` and the page;
-   - D-042's `keep_scorecard_fresh`;
-   - the three review fixes.
+2. **S28's own code has had no second-pass review.** Each change was
+   mutant-checked or battery-judged by its author, but nobody else has read it
+   adversarially:
+   - D-046's budget (`_on_offer`, `_dispatch_within_budget`, the notice);
+   - D-048's two doors (`run_stale_approval`, `withdraw`, the shared
+     `_run_claimed`, the queue clause);
+   - D-049's `record`;
+   - D-047's `_IDENTITY_RE`;
+   - D-050's `_NOTE_ASK_RE`/`_NOTE_REQUEST_RE` and the `action_request`
+     contract;
+   - the alert-name precedence (`e2af082`);
+   - the review fixes `831dedc` and `3a09fcd`.
 
-   This is the same discipline S26 applied to its own work.
-3. **The card stream still emits only new cards, never status changes.** A
+   The S27 review of S27's code (closed at S28) found three.
+3. **TD-036's trigger FIRED at S28 — the analyst reads the answer twice.** In
+   2 of 3 D-049 probe turns, glm-4.5-air wrote a full answer before its
+   annotate call. It passed the 400-char hold, streamed as answer, and then the
+   real answer followed. The route logged the TD-036 line both times. Not
+   fixed: re-measure the longest pre-tool narration on action-calling turns
+   first.
+4. **The rail's index keeps growing (TD-044; its trigger fired again at S28).**
+   - `SHINGLE_WORDS = 8`: re-run `docs/probes/s22-outguard/probe_calibrate2.py`.
+   - **`THINKING_SHINGLE_WORDS = 40`** (D-040): re-run
+     `docs/probes/s26-step0/probe_calibrate_agent.py`. **Its margin is only
+     1.4×** over the live legitimate ceiling of 28, so re-measure it **first**
+     on any model change. D-042 logs a WARNING when the endpoint changes under
+     the same name; that line is the trigger.
+   - S27 added D-043's repair directive and D-045's action surface. S28 added
+     D-050's `action_request` directive.
+   - Every live S28 turn read `output_valid: true` (about 8 turns). The
+     legitimate ceiling has not been re-calibrated.
+5. **The card stream still emits only new cards, never status changes.** A
    client watching `/stream` is not told when a claim goes stale, or when a row
-   becomes `incomplete`/`kept`. The polled list is where those surface.
-4. **TD-031 / TD-032 / TD-033 are ratified bounds, not a backlog.** Do **not**
+   becomes `incomplete`/`kept`/`withdrawn`, or rejoins the queue as a stale
+   approval (D-048). The polled list is where those surface.
+6. **TD-031 / TD-032 / TD-033 are ratified bounds, not a backlog.** Do **not**
    re-open the guard regex.
-5. **TD-005 trigger, still armed:** cve pool > 300k chunks, curated pool > 5k,
+7. **TD-005 trigger, still armed:** cve pool > 300k chunks, curated pool > 5k,
    any new doc_type, any embedding-model change, **or before any
-   free-text-over-CVEs surface ships** (TD-027 is a HARD GATE).
-6. **Two calibrated rail numbers, neither a constant to edit.**
-   - `SHINGLE_WORDS = 8` (answer, tool lines, narration, two-pass): re-run
-     `docs/probes/s22-outguard/probe_calibrate2.py`.
-   - **`THINKING_SHINGLE_WORDS = 40`** (a thinking model's own thinking, D-040):
-     re-run `docs/probes/s26-step0/probe_calibrate_agent.py`. **Its margin is
-     only 1.4×** over the live legitimate ceiling of 28, so re-measure it
-     **first** on any model change. D-042 now logs a WARNING when the endpoint
-     changes under the same name. That line is the trigger.
-   - **S27 grew the index** with D-043's repair directive and D-045's action
-     directive and descriptions. They are covered by recital tests, and every
-     live S27 turn was `output_valid: true`. The legitimate ceiling was **not
-     re-calibrated** with them in (TD-044).
-7. **Test usage isolation is designed for test_chat_sse.py (autouse refund) and
+   free-text-over-CVEs surface ships** (TD-027 is a HARD GATE). The IDEAS line
+   "ingest ATT&CK groups and software" would be a new doc_type.
+8. **Test usage isolation is designed for test_chat_sse.py (autouse refund) and
    incidental elsewhere.** Any other file whose tests spend inference calls has
    the 29-unit problem waiting; the `default` workspace has an hourly ceiling of
-   100. All S27 chat tests live in test_chat_sse.py.
-8. **TD-036's bound is live, so watch for it.** Narration over 400 chars before
-   a tool call would stream as answer. The route logs "agent answer differs
-   from the streamed content (TD-036 bound)" when that happens. Seeing that
-   line is the trigger to re-measure.
-9. **The agent proposes; D-045's bounds.**
-   - An action can only target an observable already persisted, which happens
-     through the 92/8 IOC check. The agent path's enrichment does not persist
-     (IDEAS).
+   100. All S28 chat tests live in test_chat_sse.py.
+9. **The agent proposes; the bounds that remain.**
+   - **D-049 retired the first** (an action could only target an observable
+     the shortcut had recorded).
    - The approvals surface serves the stored, code-rendered card unscanned.
    - A turn the rail cuts at a tool frame can still leave a filed proposal.
-   - `prompted_tools` is still unwired, and the narration hold is native-only.
-10. **D-041's bound, and TD-025.** A merely slow handler on an abandoned run can
-    land after its put-back. It is recorded on the row, not prevented. There is
-    no idempotency key: **both matter the day an action reaches a network.**
-    With D-045 the chat agent can file proposals, so the approvals path will
-    see more traffic. **TD-042** (approved, never started, no door) now
-    matters more.
-11. **Brand, unowned.** A thinking model may name itself in its reasoning, and
-    the Thinking pane is user-visible. Nothing guards that: D-030/D-040 check
-    for OUR configuration, not the model's name.
-12. **D-043's drift log is no longer a clean trigger for the narrative modes.**
-    An action-request turn ("add a note to X") resolves to `ioc_enrichment` and
-    cannot fill its sections, so it logs contract drift honestly (live, D-045
-    probe). Separate those before reading the log as model drift (IDEAS).
-13. **D-044's operating point is pinned.** A vocabulary edit must keep
-    `test_the_measured_operating_point_on_the_independent_battery_holds`. If it
-    claims an improvement, prove it on a **fresh** independently written
-    battery, because both existing ones are now training data.
+   - `prompted_tools` is still unwired, and the narration hold is
+     native-only.
+   - **New, live (D-050):** a note-only request on an indicator the workspace
+     has never seen is refused (`NothingToPropose`) and answered honestly. The
+     agent does not look the indicator up first, which would record it and let
+     the proposal file (IDEAS).
+10. **D-041's bound, and TD-025.**
+    - A merely slow handler on an abandoned run can land after its put-back.
+      It is recorded on the row, not prevented.
+    - There is no idempotency key: **both matter the day an action reaches a
+      network.**
+    - TD-042 is closed (D-048). Its own bound: `resolved_by` is the LATEST
+      human resolver.
+11. **Brand, partly owned now (D-047).** The identity shortcut catches 18/45
+    held-out identity questions. **The other 27 reach the model, which named
+    another vendor 4/4 times live.** Nothing guards the model's
+    self-description in the answer or the Thinking pane. D-030/D-040 check for
+    OUR configuration, not the model's claims about itself.
+12. **D-043's drift log is cleaner but not clean.** D-050 sends note-only turns
+    to `action_request` (no sections). A **mixed** request ("check X and add a
+    note") stays in its analysis mode, and 11/30 held-out note-only phrasings
+    still miss. Either can still log drift honestly.
+13. **Three classifier/resolver operating points are pinned:**
+    - D-044: `test_the_measured_operating_point_on_the_independent_battery_holds`;
+    - D-047: `test_the_identity_operating_point_on_the_held_out_battery_holds`;
+    - D-050: `test_the_action_request_operating_point_on_the_held_out_battery_holds`.
 
-**Closed at S27, so they leave this list:**
-- the old #8 "the agent reads; it does not act" (done, D-045);
-- TD-012(b) (done, D-043);
-- TD-041 (done, D-042);
-- the mode-resolver IDEAS line (done, D-044).
+    Every battery behind them is training data now. **Any improvement claim
+    needs a fresh, independently written battery.**
+14. **D-046's price.**
+    - Thin-topic turns reach fewer documents. The LockBit turns lost T1566;
+      TA0001 still grounds the vectors.
+    - A refused over-budget call shows in the turn as `· error`.
+    - The cause is KB coverage (IDEAS: ATT&CK groups and software).
+
+**Closed at S28, so they leave this list:**
+- the old #2, "S27's own code has had no second-pass review" (done; three
+  findings);
+- TD-042 (D-048) and TD-043 (D-046);
+- the IDEAS lines for agent-path persistence (D-049), the action-request mode
+  fit (D-050), and alert-normaliser key coverage (measured; the remaining
+  issue is the scorer, now in IDEAS).
 
 ## Blockers / open risks
 1. **TD-001 (OAuth identity keyed on email)** is a hard gate before any
    GOOGLE_CLIENT_ID is configured.
 2. **Open debt.**
    - Still open: TD-014 … TD-025, TD-027, TD-029, TD-030, TD-031/032/033,
-     TD-035 (the two-pass path only), TD-036 (its bound), **TD-042, TD-043,
-     TD-044 (new at S27)**.
-   - **Closed at S27:** TD-012(b), TD-041.
-   - Closed earlier: TD-018, TD-026, TD-028, TD-034, TD-037…TD-040, TD-012(a).
+     TD-035 (the two-pass path only), **TD-036 (trigger fired, S28)**,
+     **TD-044 (trigger fired again, S28)**.
+   - **Closed at S28:** TD-042, TD-043.
+   - Closed earlier: TD-012, TD-018, TD-026, TD-028, TD-034, TD-037…TD-041.
 3. **The KB bootstrap needs outbound HTTPS once per fresh volume**, and ingest
    needs NVD/CISA/FIRST/GitHub reachability. Failures degrade honestly.
 4. **The corpus keeps growing while the container runs.** TD-011 tracks the
@@ -177,70 +230,76 @@ complete; S21–S27 were each scoped by a decision rather than a plan.
    - The INPUT guard bounds accidents and naive attempts (D-027, D-029).
    - The OUTPUT rail (D-030) catches our configuration coming back out, but not
      a paraphrase, and not an injection that merely made the answer wrong.
-     D-043 now **prevents** a wrong code-decided verdict from being shown;
-     it cannot prevent a wrong narrative answer.
+   - D-043 prevents a wrong code-decided verdict from being shown. It cannot
+     prevent a wrong narrative answer.
    - Three defects in three sessions (S23, S24, S26). **Assume a fourth
      exists.**
 6. **An intermittent, unattributed test failure was observed once in S22.** Not
-   reproduced in any later full run, including about six at S27. Still
-   recorded rather than dismissed.
+   reproduced in any later full run, including about ten at S28. Still recorded
+   rather than dismissed.
 
 ## Host notes (reality snapshot)
 - Postgres 55432; app 8000; OpenSearch 9200. Host runs pin via `auspex.devhost`.
 - Ollama 0.34.0 on :11434 (root `http://localhost:11434/v1`, D-033); models
-  qwen3:14b / llama3.1:8b / mistral:latest.
+  qwen3:14b / llama3.1:8b / mistral:latest. The S28 start gate passed.
 - **Primary dev LLM is glm-4.5-air on Z.ai (D-034)** — `https://api.z.ai/api/paas/v4`,
   pay-as-you-go key in `.env` as both `GLM_API_KEY` and `LLM_API_KEY`. **Never the
-  Coding Plan endpoint.** Thinking is on by default and billed inside
-  `completion_tokens`; **prose precedes tool calls** (TD-036 triggered);
-  `json_schema` is silently ignored, `json_object` works (scorecard; D-043 uses
-  neither). glm-4.7-flash (free) answered 429 "overloaded"; glm-4.7-flashx hung
-  once past 180 s. Rate limits are console-only.
+  Coding Plan endpoint.**
+  - Thinking is on by default and billed inside `completion_tokens`.
+  - **Prose precedes tool calls** (TD-036, triggered again at S28).
+  - **It calls a tool withdrawn from the wire if it is in its history** (S28,
+    D-046).
+  - **It calls itself "Claude by Anthropic" when asked** (S28, D-047).
+  - `json_schema` is silently ignored; `json_object` works.
+  - glm-4.7-flash (free) answered 429 "overloaded"; glm-4.7-flashx hung once
+    past 180 s. Rate limits are console-only.
 - **Scout on Northflank is GONE** — `p01--new-llm--…code.run` is NXDOMAIN (2026-10-10).
-- **S27 session-end (2026-10-11):** staging, identity `bh3082336888-cell`.
-  `gh` stayed on the personal account through promote #28; the switch was
-  re-run before every call anyway. All three containers are healthy,
-  `./ci.sh` is **green, 1257 tests, 120 modules**, `/api/health/ready` returns
+- **S28 session-end (2026-10-11):** staging, identity `bh3082336888-cell`. The
+  `gh` switch was re-run before every call. All three containers are healthy,
+  `./ci.sh` is **green, 1292 tests, 120 modules**, `/api/health/ready` returns
   **200**, and `./scripts/demo.sh` **exits 0**.
-- **`gh` flipped to the work account at promote #27** (also S18 and S16; not
-  S17, S13–S15, S19–S25, S27). **Unpredictable is the pattern**, so re-check
+- **`gh` flips to the work account unpredictably** (S16, S18, #27). Re-check
   before EVERY call: `gh auth switch --hostname github.com --user bh3082336888-cell`.
 - **`gh pr merge` works.** `gh pr edit` still fails with a Projects-classic
   GraphQL deprecation — use `gh api -X PATCH repos/.../pulls/N`.
-- **`gh pr merge --squash` printed NOTHING on success at S24, S25, #27 AND #28**
-  — do not read silence as failure; verify with `gh pr view <n> --json state,mergeCommit`.
+- **`gh pr merge --squash` printed NOTHING on success at S24, S25, #27, #28
+  AND #29** — do not read silence as failure; verify with
+  `gh pr view <n> --json state,mergeCommit`.
 - **`./ci.sh | tail` HIDES THE EXIT CODE.** Redirect to a file and read `$?`.
 - **Run the suite the way `ci.sh` does** — `.venv`, where the package is installed
-  editable. A bare `python3 -m pytest` fails the packaging test for that alone.
-- **Run the FULL gate before calling a change done.** S27's `e96e27c` passed every
-  file it touched and broke `test_hardening_surface.py`, which it did not.
+  editable.
+- **Run the FULL gate before calling a change done.** S27's `e96e27c` and S28's
+  D-050 comment both passed every file they touched and broke one they did not.
 - **This repo HAS GitHub Actions** (S20, D-028) — `.github/workflows/ci.yml` runs
-  `./ci.sh` on push and PR. PR #28 ran it twice; both SUCCESS.
+  `./ci.sh` on push and PR. PR #29 ran it; SUCCESS.
 - **Local `main` ref goes stale every promote.** `git fetch origin` and read
   `git diff origin/main..staging --stat`, never the commit list.
 - **The app container runs the BUILT IMAGE, not the working tree** —
   `docker compose up -d --build app`. In-container probes: `docker compose cp`
   the script in, then `docker compose exec -T app python /tmp/<script>.py`.
-- **qwen3:14b is SLOW to first token** — a 400-token probe timed out at 5 minutes
-  cold. Budget 1500 tokens and run it in the background.
-- **Live probes run from `.venv`** against the app's own constructors
-  (docs/probes/s26-step0/, s27-td012/) or through `/api/chat` from the host
-  (`probe_app_*.py`). A glm-4.5-air agent turn takes 6–21 s and makes 1–9 calls
-  (TD-043).
+- **Editing code while `./ci.sh` runs puts the edit in its container build.**
+  Pytest imports at collection, so the test phase is not affected, but the
+  build is. Wait, or re-run.
+- **qwen3:14b is SLOW to first token** — budget 1500 tokens and run it in the
+  background.
+- **Live probes run from `.venv`** against the app's own constructors (S27/S28
+  probe dirs) or through `/api/chat` from the host (`probe_app_*.py`).
+- **Enrichment skips reserved address space** (TEST-NET etc.): a probe that
+  needs an indicator recorded must use a routable one (S28, D-049 run 1).
 - **Independent batteries:** to judge a classifier/resolver change honestly,
-  have a subagent write the battery WITHOUT reading the repo (S27, D-044). A
-  battery that informed a change is training data from then on.
-- **Startup autoprobe (D-038/D-042):** the container logs `endpoint autoprobe: known`
-  and now re-checks every 6 h; the dev scorecard (row `a8113b41…`, probed
-  2026-10-10 09:33 UTC) expires **2026-10-17**, after which the running
-  container re-probes it (~15 calls).
+  have a subagent write TWO batteries WITHOUT reading the repo. Build on one,
+  and open the other once after the rule is frozen (S28: D-047, D-050).
+- **Startup autoprobe (D-038/D-042):** the dev scorecard (row `a8113b41…`,
+  probed 2026-10-10 09:33 UTC) expires **2026-10-17**. After that the running
+  container re-probes it (~15 calls). If it logs the "endpoint changed"
+  WARNING, re-measure D-040's thinking floor first.
 - **Do NOT run pytest during live `/api/chat` probes.** The suite purges the
-  shared `analyst@auspex.dev` user, and a live turn then dies on an FK
-  violation.
+  shared `analyst@auspex.dev` user.
 - **All dev-login users share the `default` workspace**, hourly ceiling 100
-  inference calls. See standing follow-up 7.
-- **Probe residue is expensive.** Plan assertions must VACUUM first. Probes that
-  file proposals must reject them afterwards (`probe_app_chat_actions.py` does).
+  inference calls. See standing follow-up 8.
+- **Probe residue is expensive.** Probes that file proposals must reject them,
+  and probes that create observables delete only what they created (S28
+  probes do both).
 - **THE DEMO IS ONE COMMAND: `./scripts/demo.sh`** (~3 min, end to end).
 
 ## Reference intelligence (from the SARA Open architecture study)
@@ -253,15 +312,17 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 - RRF retrieval + ID bypass: 2026-07-17-sara-rrf-retriever-pattern.md
 
 ## Next session should
-**S28, in a fresh window (NEXT-SESSION.md has the full prompt).**
-1. **Step 0: `/promote` the S27 slate** (D-042…D-045). Read the diff, not the
+**S29, in a fresh window (NEXT-SESSION.md has the full prompt).**
+1. **Step 0: `/promote` the S28 slate** (D-046…D-050). Read the diff, not the
    list; re-check `gh` before every call.
-2. **Step 0: an adversarial second-pass review of S27's own code** (standing
+2. **Step 0: an adversarial second-pass review of S28's own code** (standing
    follow-up 2). Reproduce by execution, fix with a test that fails first.
-3. **Goal: TD-043**, the agent spending its whole step cap re-searching (9
-   calls a turn). Measure, fix, re-measure with the same prompts.
-4. **Goal: TD-042**, an approved run that never started has no door. Needs a
-   decision (re-run vs withdraw); D-045 made it matter more.
-5. Candidates only on Burhan's call at the start ritual (IDEAS.md): agent-path
-   enrichment persistence; the action-request mode fit; alert-normaliser JSON
-   coverage.
+3. **Goal: TD-036, the answer shown twice** (follow-up 3). Measure the longest
+   pre-tool narration on action-calling turns, then fix.
+4. **Goal: TD-044, re-calibrate the rail** with the index as it now stands
+   (follow-up 4).
+5. Candidates only on Burhan's call at the start ritual (IDEAS.md):
+   - the scorer under-rating credential theft;
+   - looking an indicator up before annotating it;
+   - ATT&CK groups and software as KB documents (TD-027 gate);
+   - more identity recall (needs a fresh battery).
