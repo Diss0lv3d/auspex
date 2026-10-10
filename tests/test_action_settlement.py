@@ -347,7 +347,11 @@ def test_canonical_spec_covers_every_declared_field(spec):
     # Handlers are excluded on purpose: we cannot detect that someone changed
     # what a function BODY does, and pretending otherwise would make the check
     # look stronger than it is (proposal.py module docstring).
-    assert {f.name for f in dataclasses.fields(ActionSpec)} - {"dry_run", "execute"} == (
+    # `observe` (S26, TD-028b) is a handler too: it says how to LOOK at effects,
+    # and what it looks at is already declared by `scope`.
+    assert {f.name for f in dataclasses.fields(ActionSpec)} - {
+        "dry_run", "execute", "observe"
+    } == (
         set(canon) - {"v"}
     )
     assert {f.name for f in dataclasses.fields(ActionParam)} == set(canon["params"][0])
@@ -1277,3 +1281,124 @@ async def test_a_late_run_answer_still_lands_on_the_run_that_was_abandoned(
 
     row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
     assert row["status"] == "abandoned" and row["result"] == {"would": "the run, late"}
+
+
+# -- TD-028(b): a failed execute must not deny effects that landed (S26) -------
+
+
+async def _approved(pool, registry, spec, workspace_id, an_observable):
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    await settlement.settle(workspace_id=workspace_id, proposal_id=proposal["id"],
+                            decision="approved", decided_by=None)
+    return settlement, proposal["id"]
+
+
+def _with(spec, **changes) -> ActionRegistry:
+    r = ActionRegistry()
+    r.register(dataclasses.replace(spec, **changes))
+    return r
+
+
+async def test_a_run_that_failed_after_its_write_landed_says_so(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """TD-028(b), reproduced at S19 Step 0: the handler's INSERT landed, then it
+    raised, and the row said `failed` — the surface reported that nothing
+    happened while the note was really in the table. The executor now asks the
+    action what of THIS proposal's effects exist, and a row with effects is
+    `incomplete`: something happened, and a human has to decide about it."""
+    async def writes_then_dies(**kwargs):
+        await spec.execute(**kwargs)
+        raise RuntimeError("died after the write")
+
+    settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
+    with pytest.raises(RuntimeError):
+        await ActionExecutor(pool, _with(spec, execute=writes_then_dies)).execute(
+            workspace_id=workspace_id, proposal_id=pid)
+
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert row["status"] == "incomplete"
+    assert row["result"] == {"error": "RuntimeError", "effects": "present"}
+    assert 1 == await pool.fetchval(
+        "SELECT count(*) FROM observable_notes WHERE proposal_id = $1::uuid", str(pid))
+    queued = [p["id"] for p in await settlement.pending(workspace_id=workspace_id)]
+    assert pid in queued, "a row whose effects landed needs a human"
+
+
+async def test_a_run_that_failed_before_writing_is_failed_and_checked(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """`failed` now means what it says, because it was checked: the action
+    looked, and nothing of this proposal's exists."""
+    settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
+    with pytest.raises(RuntimeError):
+        await ActionExecutor(pool, _with(
+            spec, execute=mock.AsyncMock(side_effect=RuntimeError("died first")))
+        ).execute(workspace_id=workspace_id, proposal_id=pid)
+
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert row["status"] == "failed"
+    assert row["result"] == {"error": "RuntimeError", "effects": "none"}
+
+
+async def test_an_action_that_cannot_look_is_incomplete_never_failed(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """An action that declares no way to observe its effects cannot support
+    "nothing happened", so the platform does not say it — the first third-party
+    action will be exactly this shape."""
+    settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
+    with pytest.raises(RuntimeError):
+        await ActionExecutor(pool, _with(
+            spec, observe=None, execute=mock.AsyncMock(side_effect=RuntimeError("x")))
+        ).execute(workspace_id=workspace_id, proposal_id=pid)
+
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert row["status"] == "incomplete"
+    assert row["result"]["effects"] == "unknown"
+
+
+async def test_a_look_that_itself_fails_is_unknown_not_none(
+    pool, registry, spec, workspace_id, an_observable
+):
+    settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
+    with pytest.raises(RuntimeError):
+        await ActionExecutor(pool, _with(
+            spec,
+            observe=mock.AsyncMock(side_effect=ConnectionError("db away")),
+            execute=mock.AsyncMock(side_effect=RuntimeError("x")),
+        )).execute(workspace_id=workspace_id, proposal_id=pid)
+
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert (row["status"], row["result"]["effects"]) == ("incomplete", "unknown")
+
+
+def test_the_builtin_action_can_observe_its_own_effects(spec):
+    """The one executable action ships able to look, so its `failed` is a
+    checked fact rather than a hope."""
+    assert spec.observe is not None
+
+
+async def test_the_approval_surface_says_what_landed_when_a_run_fails(pool, client, route_ws):
+    """The 500 used to name only the row's status; an analyst reading `failed`
+    concluded nothing happened. Now it says what the action found."""
+    ws, obs_id = route_ws
+    app_spec = client.app.state.action_registry.get("annotate_observable")
+
+    async def writes_then_dies(**kwargs):
+        await app_spec.execute(**kwargs)
+        raise RuntimeError("died after the write")
+
+    real = client.app.state.action_registry
+    client.app.state.action_registry = _with(app_spec, execute=writes_then_dies)
+    try:
+        registry = ActionRegistry()
+        registry.register_all(build_builtin_actions(pool))
+        _, proposal = await _file(pool, registry, registry.get("annotate_observable"), ws, obs_id)
+        resp = client.post(f"/api/proposals/{proposal['id']}/approve", headers=_hdr(client))
+    finally:
+        client.app.state.action_registry = real
+
+    assert resp.status_code == 500
+    detail = resp.json()["detail"]
+    assert "incomplete" in detail and "landed" in detail and "undo" in detail

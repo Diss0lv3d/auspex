@@ -96,12 +96,34 @@ def _public(row: dict) -> dict:
         # with a claim five minutes old is the one thing an approver must be
         # able to tell apart from a run that started a second ago (TD-028a).
         "claimed_at": row["claimed_at"].isoformat() if row.get("claimed_at") else None,
+        # Which operation a human gave up on (TD-034): `executing` or `undoing`.
+        "abandoned_from": row.get("abandoned_from"),
         "arguments": row["tool_input"],
         "card": row["card"],
         "spec_fingerprint": row["spec_fingerprint"],
         "result": row["result"],
         "undo_result": row["undo_result"],
     }
+
+
+# What a failed run's 500 says, by what the action found (TD-028b). The status
+# alone read as "nothing happened" when the write had landed.
+_EFFECTS_COPY = {
+    "none": "the action checked and nothing of it landed",
+    "present": "part of it landed before it failed — undo will remove what landed",
+    "unknown": "it cannot tell whether any of it landed — undo will remove whatever did",
+}
+
+
+def _failure_detail(row: dict | None) -> str:
+    if row is None:
+        return "the action was approved and failed while running"
+    effects = (row.get("result") or {}).get("effects")
+    found = _EFFECTS_COPY.get(effects, "its effects were not checked")
+    return (
+        f"the action was approved and failed while running: {found}; "
+        f"its proposal is {row['status']}"
+    )
 
 
 def _settlement(request: Request) -> ProposalSettlement:
@@ -289,8 +311,7 @@ async def approve(request: Request, auth: Auth, proposal_id: UUID) -> dict:
         )
         raise HTTPException(
             status_code=500,
-            detail="the action was approved and failed while running; "
-            f"its proposal is {row['status'] if row else 'unknown'}",
+            detail=_failure_detail(row),
         ) from None
 
     row = await _settlement(request).get(

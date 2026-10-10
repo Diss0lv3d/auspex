@@ -173,6 +173,10 @@ class ProposalSettlement:
         any other, so it comes back from the same query rather than from a
         second endpoint nobody would call.
 
+        An `incomplete` row belongs here as well (TD-028b): a run failed after
+        some of its effects landed, or the action cannot look, and only a human
+        can decide whether to put them back.
+
         Deliberately NOT a reaper. A timer cannot know whether the handler ran
         before the process died, so anything it decided would be a guess: back
         to `approved` invites a second run of a half-run action, `failed` claims
@@ -184,7 +188,7 @@ class ProposalSettlement:
             """
             SELECT * FROM proposals
             WHERE workspace_id = $1::uuid
-              AND (status = 'pending_approval'
+              AND (status IN ('pending_approval', 'incomplete')
                    OR (claimed_at IS NOT NULL
                        AND claimed_at < now() - make_interval(secs => $3::double precision)))
             ORDER BY created_at DESC
@@ -430,12 +434,16 @@ class ActionExecutor:
                 workspace_id=workspace_id, proposal_id=str(proposal_id), **args
             )
         except Exception as exc:
+            # TD-028b: a raise is not "nothing happened". The handler may have
+            # written before it died, so ask the action what of THIS proposal's
+            # exists. Only a look that found nothing earns `failed`.
+            effects = await _effects(spec, workspace_id, proposal_id, args)
             await self._finish_claim(
                 proposal_id,
                 from_status="executing",
-                to_status="failed",
+                to_status="failed" if effects == "none" else "incomplete",
                 column="result",
-                payload={"error": type(exc).__name__},
+                payload={"error": type(exc).__name__, "effects": effects},
             )
             raise
         await self._finish_claim(
@@ -581,6 +589,23 @@ class ActionExecutor:
             stamp_undone_at=True,
         )
         return outcome
+
+
+async def _effects(
+    spec: ActionSpec, workspace_id: UUID | str, proposal_id: UUID | str, args: dict
+) -> str:
+    """What of one proposal's effects exist after its handler raised: 'none',
+    'present', or 'unknown'. Unknown whenever the action cannot look, or the
+    look itself fails — a failed look is not evidence of absence."""
+    if spec.observe is None:
+        return "unknown"
+    try:
+        found = await spec.observe(
+            workspace_id=workspace_id, proposal_id=str(proposal_id), **args
+        )
+    except Exception:
+        return "unknown"
+    return "present" if found else "none"
 
 
 def _outcome_json(outcome: ActionOutcome) -> dict:

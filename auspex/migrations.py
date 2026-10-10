@@ -493,6 +493,19 @@ SCHEMA_V0: list[str] = [
     """
     ALTER TABLE proposals ADD COLUMN IF NOT EXISTS claimed_at timestamptz
     """,
+    # S26 (TD-028b) adds 'incomplete': the handler raised and some of this
+    # proposal's effects landed — or the action cannot look. 'failed' now means
+    # it raised AND the action looked and found nothing of this proposal's.
+    """
+    DO $$
+    BEGIN
+        ALTER TABLE proposals DROP CONSTRAINT IF EXISTS proposals_status_check;
+        ALTER TABLE proposals ADD CONSTRAINT proposals_status_check
+            CHECK (status IN ('pending_approval', 'approved', 'rejected',
+                              'executing', 'executed', 'failed', 'incomplete',
+                              'undoing', 'undone', 'abandoned'));
+    END $$
+    """,
     # S26 (TD-034): WHICH operation `abandon` gave up on. `abandoned` alone does
     # not say whether a run or a put-back was lost, so a late undo answer could
     # land on a row whose RUN was abandoned. Written by the statement that moves
