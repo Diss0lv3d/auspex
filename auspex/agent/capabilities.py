@@ -43,6 +43,7 @@ import logging
 from auspex.agent.registry import ToolLevel, ToolRegistry
 from auspex.classify.observables import Observable, extract
 from auspex.enrich import EnrichmentService
+from auspex.enrich.service import CAP_SKIP, ENRICH_MAX_OBSERVABLES
 from auspex.kb import MAX_IDS_PER_LOOKUP, KBUnavailable, KnowledgeService
 
 logger = logging.getLogger("auspex.agent.capabilities")
@@ -206,8 +207,16 @@ def build_capability_registry(
     known = {o.obs_id: o for o in observables}
     known.update({o.value: o for o in observables})
     registry = ToolRegistry()
+    # The TURN's enrichment budget (review of 1b86070). The service caps each
+    # call at ENRICH_MAX_OBSERVABLES, but a loop makes up to nine calls and a
+    # model re-asks for what came back over the cap — so per call, one deep
+    # turn could drive hundreds of lookups against provider keys and breakers
+    # every tenant shares. Per turn is the bound the shortcut path has always
+    # had (CAP_SKIP says "this turn's"), and the registry is built per turn.
+    enrich_budget = ENRICH_MAX_OBSERVABLES
 
     async def enrich_observable(args: dict) -> dict:
+        nonlocal enrich_budget
         requested, omitted = _as_list(
             args.get("observables") or args.get("observable"), cap=MAX_TOOL_ARG_ITEMS
         )
@@ -225,9 +234,10 @@ def build_capability_registry(
                 "detail": "none of these parsed as a supported indicator",
                 "unresolved": unresolved,
             }
-        outcome = await enrichment.enrich(tuple(resolved))
+        within, beyond = resolved[:enrich_budget], resolved[enrich_budget:]
+        outcome = await enrichment.enrich(tuple(within)) if within else None
         items = []
-        for item in outcome.items:
+        for item in outcome.items if outcome else ():
             entry = {
                 "observable": _observable_payload(item.observable),
                 "sources_answered": item.sources_answered,
@@ -248,8 +258,15 @@ def build_capability_registry(
                     for s in item.signals
                 ]
             items.append(entry)
+        if outcome:
+            enrich_budget -= len(outcome.enriched)
+        for obs in beyond:
+            # Not looked up because the turn's budget is spent — named exactly
+            # as the service names its own cap, never as "no signals".
+            items.append({"observable": _observable_payload(obs), "sources_answered": 0,
+                          "not_checked": CAP_SKIP})
         result: dict = {"results": items}
-        if outcome.provider_failures:
+        if outcome and outcome.provider_failures:
             # Named, because "nobody had anything" and "the sources that would
             # have known did not answer" must not read alike.
             result["sources_unavailable"] = outcome.provider_failures
