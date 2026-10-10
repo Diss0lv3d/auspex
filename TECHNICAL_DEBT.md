@@ -21,6 +21,15 @@ model change (D-042's WARNING), or the next addition to the index.
 
 ## TD-043 (S27) — an agent turn on a thinly covered topic spends the whole step cap re-searching
 
+> **RESOLVED S28 — D-046.** Measured first: 0 of 31 re-searches were misses.
+> Every search returned a full page of the nearest documents, so nothing told
+> the model to stop. `search_knowledge` now has a budget of 3 calls a turn: it
+> is withdrawn from the wire once spent, a call from history is refused, and
+> the last allowed result says it was the last. On S27's prompts calls went
+> 37 → 23, with no step-cap hits and every answer conformant. The cost is
+> stated in D-046: the LockBit turns no longer reach the T1566 page. Record:
+> docs/probes/2026-10-11-s28-td043-search-budget.md. Entry kept as written.
+
 **Where:** `auspex/agent/loop.py` (`DEFAULT_MAX_STEPS = 8`) with the
 `search_knowledge` tool (`auspex/agent/capabilities.py`).
 **Measured (S27, docs/probes/2026-10-10-s27-contract-drift.md, Result 3):**

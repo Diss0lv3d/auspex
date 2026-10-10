@@ -1475,3 +1475,62 @@ object. The loop fed it back to the model inside JSON, and the turn died
 **What this supersedes.** Nothing ratified. It retires the README's "The
 agent reads, it does not act" and STATE follow-up 8.
 
+## D-046 — A tool may declare a per-turn budget; `search_knowledge` gets 3 (TD-043) (2026-10-11, S28)
+
+**Context.** TD-043 (S27): on topics the curated KB covers thinly, agent turns
+searched until the step cap, 9 inference calls for one turn. TD-043 named three
+candidate fixes and chose none until the cause was measured. Record:
+docs/probes/2026-10-11-s28-td043-search-budget.md.
+
+**Measured first.** On S27's prompts, 0 of 31 re-searches were misses.
+- Every search returned a full page of five, because the KB has no document
+  about the entity asked for (no ATT&CK group or software pages). So it
+  returns the nearest generic techniques, the same ones every time.
+- The model never sees a miss, so it rewords until the cap.
+- That ruled out "a miss that says rewording will not help" (it would never
+  fire) and "count distinct-result calls" (27 of 31 searches added
+  something).
+
+**Decision.**
+1. **A tool may declare `max_calls_per_turn`** (`Tool`, `ToolRegistry.add`).
+   It is declared with the tool, because whether a repeat call can find
+   something new depends on what the tool looks up. The default is no budget;
+   the step cap still bounds everything.
+2. **`search_knowledge` declares `SEARCH_KNOWLEDGE_MAX_CALLS = 3`.** It is a
+   code constant (D-026). The id lookups (`enrich_observable`, `lookup_cve`)
+   are bounded by their inputs and declare none.
+3. **Enforced by structure.**
+   - Once spent, the tool is no longer offered on the wire.
+   - A call to it anyway is refused with `call_limit` without running the
+     handler. glm-4.5-air made such a call from its history on every thin
+     turn, so withdrawal alone is not the guarantee.
+   - The result of the last allowed call says it was the last.
+   - `run` and `run_stream` share the counting.
+4. **The rail's index is unchanged.** No system or description text changed.
+   The refusal and the notice are tool-result text, which D-031 leaves
+   unindexed as data.
+
+**Why.** Each call is the customer's inference (D-005), and the `default`
+workspace's ceiling of 100 an hour was 11 such turns. On the same prompts:
+- calls went 37 → 23;
+- step-cap hits went 3 → 0;
+- every answer still met its contract (6/6);
+- the ATT&CK-shaped question that searched once is unchanged.
+
+**The price, stated.** With three searches, the LockBit turns no longer reach
+the T1566 Phishing page. Before, the model reached it at search 4–5 once its
+queries moved to technique words.
+- The Initial Access tactic page, returned first on every LockBit turn, names
+  spearphishing, exploiting public-facing servers, valid accounts and
+  external remote services.
+- So the vectors are still grounded, just less specifically.
+- De-duplicating results within the turn, and a budget of 5, were both
+  measured and neither restored it. The cause is KB coverage (IDEAS).
+
+**Bounds, stated.**
+- A model that would have changed strategy at search 4 no longer gets to.
+- A thinly covered topic still costs up to 5 calls: 3 searches, possibly 1
+  refused call, then the answer.
+- The refused call shows in the turn as `→ search_knowledge(…) · error`.
+
+**What this supersedes.** Nothing ratified. It resolves TD-043.
