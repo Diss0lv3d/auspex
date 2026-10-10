@@ -110,7 +110,9 @@ real answers, a legitimate ceiling of 6 shared words, a floor of 8. See
 The platform probes the endpoint you bring and compiles its agent loop to what
 that model can actually do — native tool-calling, prompted tools, or plan-only —
 and reports a capability scorecard rather than assuming a feature set and
-failing strangely.
+failing strangely. Deep chat turns use the loop only when that scorecard says
+native tool-calling; each tool step streams to the Thinking pane as it runs,
+and every model call is counted against the workspace's ceiling as it is made.
 
 ### Per-workspace spend ceilings
 
@@ -126,10 +128,17 @@ keep working. `GET /api/usage`.
 
 Read this part. A demo that only walks the happy path is a demo that lies.
 
-- **The deep path is conversational-only.** The agent loop is built, tested and
-  capability-negotiated, but it is **not wired into `/api/chat`** — deep turns
-  are analysis and reasoning, not autonomous tool-calling. Proposals are created
-  through the investigation and action surfaces.
+- **The agent reads, it does not act.** A deep turn goes through the agent
+  loop (enrichment, CVE lookup and knowledge-base search, each step shown as it
+  runs) only on an endpoint measured to call them: the deployment's
+  capability scorecard must say it calls tools natively, and an endpoint nobody
+  has probed stays conversational. Alert triage and phishing analysis
+  never take it, because their verdicts are computed in code (D-037). The agent
+  cannot propose an action from chat; proposals are created through the
+  investigation and action surfaces. When an endpoint narrates before a tool
+  call, the first 400 characters of each step are held back so the narration
+  is not shown as answer (TD-036). Narration longer than that would still
+  reach the analyst ahead of the result.
 - **`EXECUTABLE_SYSTEMS` is `{"auspex"}`.** Actions execute against Auspex's own
   store — an observable annotation is real, durable and undoable. There is **no
   firewall, no EDR, no ticketing integration**. The contract, the approval gate,
@@ -176,6 +185,7 @@ Read this part. A demo that only walks the happy path is a demo that lies.
                   │ shortcut answers  │   │ deep path          │
                   │ • IOC enrichment  │   │ • rate ceiling     │
                   │ • CVE lookup (KB) │   │ • typed contracts  │
+                  │                   │   │ • read-tool agent  │
                   │ • definitions (KB)│   │ • SSE streaming    │
                   │   ZERO inference  │   │   customer LLM     │
                   └─────────┬─────────┘   └─────────┬──────────┘
