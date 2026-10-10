@@ -63,6 +63,10 @@ EXECUTABLE_SYSTEMS = frozenset({"auspex"})
 # a firewall rule change has a different honest ceiling than a note.
 STALE_CLAIM_SECONDS = 300
 
+# The statuses a put-back may start from (TD-028c): the action ran, or what it
+# left behind is unknown. Not `failed` — that one looked and found nothing.
+UNDOABLE_FROM = frozenset({"executed", "incomplete", "abandoned"})
+
 
 class Settlement(StrEnum):
     """Why a settle attempt ended the way it did — distinguishable in code, so a
@@ -533,21 +537,50 @@ class ActionExecutor:
         return False
 
     async def undo(self, *, workspace_id: UUID | str, proposal_id: UUID | str) -> ActionOutcome:
-        """Put an executed action back.
+        """Put an action back — an executed one, or one whose effects are
+        unknown (TD-028c).
 
         An undo that is declared and never run is a promise nobody checked, which
         is why TD-023 called this out and why the executed path ships with a test
         that actually runs it.
+
+        **Where a put-back may start.** `executed` (the S18 path); `incomplete`,
+        a run that failed after something of it landed or could not look
+        (TD-028b); and `abandoned`, a claim a human gave up on, whose effects
+        nobody knows. The last two are exactly the rows whose cleanup the old
+        gate (`status = 'executed'`) shut — while `put_back`, keyed on the
+        proposal, would have removed exactly the orphaned effects. Not
+        `failed`: the action looked and nothing of it landed, so there is
+        nothing to put back, and `undone` would report a put-back of nothing.
+
+        **The claim moves the row only out of the status the read saw.** That
+        status is also where a failed put-back RETURNS: before S26 every failed
+        undo went back to `executed`, which for a cleanup of an incomplete run
+        would claim a success that never happened.
+
+        Bound, stated: a row abandoned during a run whose handler is merely slow
+        (TD-028a) can be put back while that handler is still alive, and a write
+        it lands afterwards outlives the undo. Abandon requires a claim older
+        than STALE_CLAIM_SECONDS, and every action that can run today is a single
+        local statement.
         """
         proposal = await self._settlement.get(
             workspace_id=workspace_id, proposal_id=proposal_id
         )
         if proposal is None:
             raise ExecutionRefused("not_found", "no such proposal in this workspace")
-        if proposal["status"] != "executed":
+        was = proposal["status"]
+        if was == "failed":
+            raise ExecutionRefused(
+                "nothing_to_undo",
+                "the action failed and checked that nothing of it landed — there is "
+                "nothing to put back",
+            )
+        if was not in UNDOABLE_FROM:
             raise ExecutionRefused(
                 "not_executed",
-                f"proposal is {proposal['status']} — only an executed action can be undone",
+                f"proposal is {was} — only an executed, incomplete or abandoned "
+                "action can be put back",
             )
         spec = self._registry.get(proposal["tool_name"])
         if spec is None or spec.undo is None:
@@ -558,11 +591,12 @@ class ActionExecutor:
         claimed = await self._pool.fetchrow(
             """
             UPDATE proposals SET status = 'undoing', claimed_at = now()
-             WHERE id = $1::uuid AND workspace_id = $2::uuid AND status = 'executed'
+             WHERE id = $1::uuid AND workspace_id = $2::uuid AND status = $3
             RETURNING id
             """,
             str(proposal_id),
             str(workspace_id),
+            was,
         )
         if claimed is None:
             raise ExecutionRefused("already_undone", "this proposal is already being undone")
@@ -575,7 +609,7 @@ class ActionExecutor:
             await self._finish_claim(
                 proposal_id,
                 from_status="undoing",
-                to_status="executed",
+                to_status=was,
                 column="undo_result",
                 payload={"error": type(exc).__name__},
             )
@@ -620,6 +654,7 @@ def _outcome_json(outcome: ActionOutcome) -> dict:
 __all__ = [
     "EXECUTABLE_SYSTEMS",
     "STALE_CLAIM_SECONDS",
+    "UNDOABLE_FROM",
     "ActionExecutor",
     "ExecutionRefused",
     "ProposalSettlement",
