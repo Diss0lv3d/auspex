@@ -47,12 +47,16 @@ class ModeContract:
 
     def system_directive(self) -> str:
         """Compile the contract → a system-prompt fragment (specs → prompts)."""
-        lines = [
-            f"You are operating in {self.name} mode: {self.purpose}",
-            "",
-            "Structure your answer with these plain-text sections, each opened "
-            'by a "## <Name>" header, in this order:',
-        ]
+        lines = [f"You are operating in {self.name} mode: {self.purpose}", ""]
+        if not self.fields:
+            # A contract with no sections (D-044's `general`) says so, rather
+            # than introducing a list it does not have.
+            lines.append("No section structure is required: answer in plain prose.")
+        else:
+            lines.append(
+                "Structure your answer with these plain-text sections, each opened "
+                'by a "## <Name>" header, in this order:'
+            )
         for f in self.fields:
             opt = "" if f.required else " (optional — omit if not applicable)"
             line = f"## {f.name}{opt} — {f.description}"

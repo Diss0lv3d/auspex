@@ -326,3 +326,73 @@ def test_the_repair_directive_says_an_empty_draft_was_empty_and_lists_a_pinned_s
 
     assert "it was empty" in directive
     assert "The ## Verdict section must begin with one of: SUSPICIOUS, MALICIOUS." in directive
+
+
+# -- D-044: a deep question with no security signal is answered as `general` --
+
+
+def test_a_question_with_no_security_signal_resolves_to_general():
+    """IDEAS (S26, measured 4x; S27 4x again): a status update for a manager
+    resolved to threat_intel, whose contract it cannot meet."""
+    assert resolve("Write me a status update for my manager about this week.") is Mode.GENERAL
+    assert resolve("How do I convert a JSON file to CSV in Python?") is Mode.GENERAL
+
+
+def test_a_security_situation_described_in_plain_words_keeps_its_structure():
+    """Approach 1 (security words only) sent these to general; the resolver must
+    read the IT and identity words an analyst describes a situation with."""
+    for q in (
+        "An admin account was created at 3am on Sunday and nobody admits to it.",
+        "One of our laptops keeps reaching out to the same server every five minutes.",
+        "Someone set up a rule in the CFO's mailbox that forwards anything to an outside address.",
+    ):
+        assert resolve(q) is Mode.THREAT_INTEL, q
+
+
+def test_an_observable_alone_is_a_security_signal():
+    """A prose mention of a common domain is not ioc-shaped (no enrichment), but
+    an analyst who names infrastructure is not asking a general question."""
+    q = "Tell me the long history of github.com and how its founders built it up, please."
+    assert _obs(q) and resolve(q) is Mode.THREAT_INTEL
+
+
+def test_the_general_contract_asks_for_no_structure_and_cannot_drift():
+    general = contract_for(Mode.GENERAL)
+    directive = general.system_directive()
+
+    assert "No section structure is required" in directive and "## " not in directive
+    assert general.validate("Here is a short status update.").ok
+
+
+def _battery(name):
+    import json
+    from pathlib import Path
+
+    path = Path(__file__).parents[1] / "docs" / "probes" / "s27-modes" / name
+    return json.loads(path.read_text())
+
+
+def test_the_measured_operating_point_on_the_independent_battery_holds():
+    """D-044's numbers, from a battery an independent agent wrote AFTER the
+    vocabulary was frozen (heldout2-battery.json): at most 9 of 50 security
+    questions lose their structure, at least 24 of 30 non-security questions
+    gain the general mode, and no non-security question stays threat_intel.
+    A vocabulary edit that moves the point the wrong way fails here; one that
+    improves it should move these bounds with a new probe log."""
+    from auspex.classify import classify, shortcut_answer
+
+    def deep_modes(questions):
+        out = []
+        for q in questions:
+            c = classify(q)
+            if shortcut_answer(c) is None:
+                out.append(resolve_mode(q, c.observables))
+        return out
+
+    battery = _battery("heldout2-battery.json")
+    security, non = deep_modes(battery["security"]), deep_modes(battery["non_security"])
+
+    assert len(security) == 50 and len(non) == 30  # floors: nothing silently skipped
+    assert security.count(Mode.GENERAL) <= 9
+    assert non.count(Mode.GENERAL) >= 24
+    assert non.count(Mode.THREAT_INTEL) == 0

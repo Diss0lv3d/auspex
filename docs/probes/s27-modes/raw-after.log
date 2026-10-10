@@ -1,0 +1,38 @@
+
+security questions (should never lose their structure)
+  threat_intel       How should we harden our nginx configuration?
+  threat_intel       A laptop with customer data was left in a taxi overnight. What do we do now?
+  threat_intel       Someone in finance got a call from the 'CEO' asking for an urgent wire transfer.
+  threat_intel       What logs should we keep to investigate a domain controller compromise?
+  threat_intel       Our users keep reusing passwords. What policy should we set?
+  threat_intel       How do we rotate the service account keys on our build server?
+  threat_intel       Explain how Kerberos delegation can be abused.
+  threat_intel       Is it safe to let contractors use their own laptops on our network?
+  threat_intel       What should our incident response playbook for ransomware include?
+  threat_intel       Write a detection rule for suspicious PowerShell usage.
+  threat_intel       How do I tell if a USB drive someone found in the car park is malicious?
+  threat_intel       Should we block TOR exit nodes at the perimeter?
+  threat_intel       How can we reduce our attack surface on AWS?
+  definition         What's the best way to segment an OT network from the office LAN?
+  threat_intel       Draft an email warning staff about a fake invoice scam going around.
+  threat_intel       How long should we retain firewall logs for an investigation?
+  threat_intel       Our SSO provider had an outage this morning. What are the risks for us?
+  threat_intel       Why would a process inject into explorer.exe?
+  threat_intel       An ex-employee still has access to our shared drive. What should I do first?
+  general            We think someone is copying files off the HR server at night. How do we confirm 
+
+non-security questions
+  general            Write me a status update for my manager about this week.
+  general            Can you help me plan the agenda for our team offsite next month?
+  general            Explain the difference between TCP and UDP for a new hire.
+  general            Draft a polite email declining a meeting invite for Thursday.
+  general            How do I convert a JSON file to CSV in Python?
+  definition         What's a good way to structure a one-on-one with a new team member?
+  general            Translate 'good morning, how was your weekend' into Arabic.
+  general            Give me three ideas for a team lunch that work for vegetarians.
+  general            How many working hours are there in a fortnight?
+  general            Rewrite this sentence to sound more professional: we done the thing late.
+
+summary
+  security deep turns: 20; resolved to general: 1; threat_intel: 18
+  non-security deep turns: 10; resolved to general: 9; threat_intel: 0

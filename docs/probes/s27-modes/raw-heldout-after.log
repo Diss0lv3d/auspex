@@ -1,0 +1,68 @@
+
+security questions (should never lose their structure)
+  threat_intel       A contractor's account was used from two countries within an hour. How do I tell
+  general            Finance got an email from the CEO asking for an urgent wire to a new supplier. T
+  general            One of our laptops keeps reaching out to the same unknown server every five minu
+  general            Someone in HR says files on the shared drive suddenly all have weird extensions 
+  general            An admin account was created at 3am on Sunday and nobody on the team admits to i
+  general            A user approved about fifteen login prompts on their phone in a row because they
+  general            Our S3 bucket with customer invoices turned out to be readable by anyone with th
+  general            A departing engineer copied a lot of files to a personal USB drive in their last
+  threat_intel       The help desk reset a password for someone who called claiming to be the VP of s
+  general            Several customers say they were charged twice and the second charge went to an a
+  general            PowerShell launched from Word on an accountant's machine and then downloaded som
+  threat_intel       Write me a checklist for revoking access when someone is fired on short notice.
+  threat_intel       Our auditors want evidence that we review who has admin rights every quarter. Wh
+  general            How do I explain to the board, in plain language, why we need to spend money on 
+  general            Someone set up a rule in the CFO's mailbox that forwards anything mentioning 'in
+  threat_intel       A service account that normally only talks to the database started logging in in
+  general            We found a scheduled task named like a Windows update that runs a script from th
+  general            Which of our cloud storage buckets should never be public, and how would I check
+  threat_intel       A vendor's support portal asked our staff to re-enter their Microsoft 365 passwo
+  threat_intel       Gift card purchases spiked on a handful of loyalty accounts right after their pa
+  general            How should we structure the on-call rota so the overnight analyst isn't the only
+  general            Draft a short message to staff telling them not to approve sign-in requests they
+  threat_intel       An intern's account suddenly has access to the payroll database. Who could have 
+  definition         What's a reasonable time target for us to contain a compromised laptop after the
+  threat_intel       Our developers keep pasting API keys into the team chat. What's a realistic way 
+  brief              Summarise the MITRE ATT&CK techniques most associated with initial access throug
+  definition         What's the difference between an incident and an event in our IR playbook, and w
+  brief              Do ransomware groups usually hand over working decryptors after payment, or is t
+  threat_intel       Help me prioritise which vulnerabilities to patch first when the scanner shows 4
+  threat_intel       Write a tabletop exercise scenario for a supply-chain attack delivered through a
+  threat_intel       How do we map our security controls to ISO 27001 Annex A for the upcoming certif
+  threat_intel       Which threat actors are known to target Gulf energy companies, and what initial 
+  threat_intel       Draft a breach notification timeline that satisfies GDPR's 72-hour requirement.
+  threat_intel       Explain how pass-the-hash attacks work and which Windows event IDs I should hunt
+  threat_intel       Our EDR flagged a process as malware but the vendor says it's their signed updat
+  threat_intel       What KPIs should a CISO report monthly to show the SOC is improving? Something b
+  threat_intel       Give me a hunting approach for spotting lateral movement over SMB after an explo
+  threat_intel       Can you write a phishing awareness quiz with 10 questions for the finance team?
+  threat_intel       A security researcher emailed claiming they found a bug in our login page and wa
+  threat_intel       What should our incident retention policy say about how long we keep forensic di
+
+non-security questions
+  general            Can you tighten this paragraph for my quarterly update email? It feels too long 
+  definition         What's 18% of 2.4 million, and how much is that per month?
+  general            Write a Python function that removes duplicate rows from a CSV while keeping the
+  general            Find a 30-minute slot next week that works for London, Dubai and Singapore durin
+  general            How many days of annual leave do I have left if I started with 25 and have taken
+  general            Suggest three titles for a team offsite agenda that don't sound cheesy.
+  definition         What's the difference between a median and a mean, in one sentence I can put on 
+  general            My SQL query for total sales per region per month keeps erroring on the GROUP BY
+  general            Write a polite reply declining a meeting invite because I'm on leave that week.
+  general            How do I convert a column of dates from DD/MM/YYYY to YYYY-MM-DD in Excel?
+  general            Help me write a performance review for a junior analyst who's strong technically
+  SHORTCUT definition   What's the capital of Kazakhstan, and when did it change?
+  general            How do I submit an expense claim for a client dinner? Do I need itemised receipt
+  general            Explain the difference between git rebase and git merge like I'm new to it.
+  general            Draft a job description for a mid-level technical writer, remote-friendly.
+  general            If our team grows from 8 to 14 people, what's the percentage increase?
+  general            Turn these bullet points into a short thank-you note for the facilities team who
+  definition         What's a good quick vegetarian lunch I can prep on Sunday for the whole week?
+  general            Write a regex that matches UK postcodes for a form validation field.
+  general            How does parental leave usually work when both parents work at the same company?
+
+summary (HELD-OUT battery)
+  security deep turns: 40; resolved to general: 15; threat_intel: 21
+  non-security deep turns: 19; resolved to general: 16; threat_intel: 0

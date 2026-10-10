@@ -1,10 +1,12 @@
-"""The six response modes and their typed contracts — S9.
+"""The response modes and their typed contracts — S9, plus `general` (D-044).
 
-Six modes ONLY (scope-locked, ROADMAP S9): definition, ioc_enrichment,
+Six modes from S9 (scope-locked, ROADMAP S9): definition, ioc_enrichment,
 threat_intel, alert_triage, phishing_analysis, brief. Each is a `ModeContract`
 whose fields compile to the DEEP-path system directive and the output validator
-(contract.py). Adding a seventh mode is a scope decision, not a code edit — the
-enum and this catalog are the closed set the resolver maps onto.
+(contract.py). The seventh, `general`, was a scope decision (D-044), as any new
+mode is: the resolver's fallback for a deep question with no security signal at
+all, which before S27 defaulted to threat_intel and could never meet its
+contract. It declares no sections, so it has nothing to drift from.
 
 alert_triage ships with the DEFERRED rail from day one (SARA's
 sara/agents/alert_triage.py:1414-1554, snapshot
@@ -27,6 +29,7 @@ class Mode(StrEnum):
     ALERT_TRIAGE = "alert_triage"
     PHISHING_ANALYSIS = "phishing_analysis"
     BRIEF = "brief"
+    GENERAL = "general"
 
 
 _RISK_LEVELS = ("DEFERRED", "LOW", "MEDIUM", "HIGH", "CRITICAL")
@@ -153,6 +156,22 @@ CONTRACTS: dict[Mode, ModeContract] = {
             ),
         ),
         rules=("Lead with the conclusion. Keep it brief — this is a brief, not a report.",),
+    ),
+    Mode.GENERAL: ModeContract(
+        name=Mode.GENERAL.value,
+        purpose=(
+            "answer a question that needs no structured security analysis — "
+            "directly and plainly, as a colleague would."
+        ),
+        fields=(),
+        # Neutral on purpose: a security question phrased with no signal the
+        # resolver knows lands here too (measured, D-044), and a rule telling
+        # the model to drop the security angle would make that misroute harmful
+        # instead of merely unstructured.
+        rules=(
+            "If the answer needs details only the analyst has, say which ones and "
+            "what you would do with them, then help with what you can.",
+        ),
     ),
 }
 
