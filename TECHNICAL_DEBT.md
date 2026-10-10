@@ -1,5 +1,60 @@
 # Technical debt — logged the moment it's taken
 
+## TD-040 (S26) — an endpoint's error text reaches the analyst verbatim
+
+**Where:** `auspex/routes/chat.py`, the `except LLMError` handler.
+`yield _sse({"error": str(err)})` sends the analyst "LLM endpoint error <status>:
+<up to 500 chars of the provider's error body>", and nothing scans it first.
+**Risk:** LOW-MEDIUM, and the problem is the brand rule rather than security.
+A provider error body can name the model or the provider (D-002: the engine is
+never named to the analyst), and the agent path's longer contexts make provider
+400s (context window, content filter) likelier than the single-call path did.
+This predates S26; the 1b86070 review found it.
+**Fix:** show a fixed, brand-safe sentence carrying the status class, and send
+the body to the log only after redaction. **Trigger:** the first provider error
+seen in a customer-facing session, or the next change to that handler.
+
+## TD-039 (S26) — D-037 clause 1 covers only the modes the resolver recognises
+
+**Where:** `auspex/routes/chat.py` `CODE_DECIDED_MODES`, and
+`auspex/modes/resolver.py`.
+**Risk:** LOW-MEDIUM. This is a design question and needs Burhan's call. Clause 1
+keeps alert triage and phishing off the agent path because their paste is
+attacker-controlled and would steer tool arguments. The same paste reaches the
+agent path whenever the resolver does not recognise it: "Summarize this
+report: <paste>" resolves to BRIEF, and an alert format `_is_alert_paste` misses
+falls through to IOC_ENRICHMENT or THREAT_INTEL. Injected text can then make
+the model look up an indicator it composed itself, at third-party providers. The
+1b86070 review's example was a public URL whose query string carries session
+data. The tools are READ-only and the turn's enrichment budget is now 8
+(`76be482`), so this is bounded. It is not closed.
+**Options:**
+- (a) `enrich_observable` accepts only indicators that appear in the
+  conversation. This costs the agent indicators it learns from the KB.
+- (b) Clause 1 also takes BRIEF, and any turn carrying a paste-shaped artefact.
+- (c) Accept the bound and document it.
+
+**Trigger:** before any tenant-facing deployment of the agent path.
+
+## TD-038 (S26) — the agent path's rail does not index the tool descriptions or the synthesis nudge
+
+**Where:** `auspex/routes/chat.py`, the agent `leak_index`.
+**Risk:** LOW-MEDIUM, a gap against D-030 decision 2 ("configuration we issued")
+on the only mode that is wired. In native_tools mode the three tool descriptions
+travel in the `tools` parameter, not in the system message. They work as prompts
+(S25), but they are not indexed, so the model can recite one verbatim without
+tripping the rail. Measured by the 1b86070 review. The same holds for
+`_SYNTHESIS_NUDGE`, which is sent at the step cap.
+**Why not fixed on the spot:** the descriptions are written in the domain's own
+vocabulary ("whether the vulnerability is known to be exploited"), and that is
+exactly the case SHINGLE_WORDS was calibrated against. Indexing them unmeasured
+risks the false-positive failure that would get the rail switched off (D-030
+decision 2's own warning).
+**Fix:** add the descriptions and the nudge to the index after re-running
+`docs/probes/s22-outguard/probe_calibrate2.py` with them included, over
+agent-path answers. **Trigger:** the next change to the rail, or before any
+tenant-facing deployment of the agent path.
+
 ## TD-037 (S26) — the deployment's scorecard has only a dev writer
 
 > **S26, later the same day — the harm is fixed (D-036); the cost remains.**
@@ -33,6 +88,12 @@ own `reasoning` events instead of discarding them.
 
 **Trigger:** the first non-dev deployment, or the first dev endpoint change made
 without re-running the harness (the dev deployment's row is per fingerprint).
+
+**S26 — this now gates the agent path too (D-037).** The agent path runs only
+when the deployment scorecard compiles to native_tools. With nothing in a
+production deployment writing that scorecard, **every deep turn in a non-dev
+deployment stays conversational and the agent path is unreachable there.**
+This entry decides whether the S26 wiring ever reaches a customer.
 
 **When it is fixed, move the guard.** Today the reserved workspace is protected
 only where users are provisioned (`get_or_create_user`); the D-035 review showed
