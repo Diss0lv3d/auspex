@@ -1,0 +1,4 @@
+action-battery-heldout.json
+  action_only  n= 30  {'ioc_enrichment': 12, 'shortcut:ioc_check': 9, 'threat_intel': 7, 'general': 2}
+  mixed        n= 20  {'ioc_enrichment': 11, 'shortcut:ioc_check': 6, 'threat_intel': 2, 'brief': 1}
+  not_action   n= 30  {'threat_intel': 10, 'general': 8, 'shortcut:ioc_check': 7, 'ioc_enrichment': 3, 'brief': 1, 'definition': 1}

@@ -1,0 +1,4 @@
+action-battery.json
+  action_only  n= 30  {'action_request': 29, 'threat_intel': 1}
+  mixed        n= 20  {'ioc_enrichment': 15, 'threat_intel': 3, 'brief': 1, 'definition': 1}
+  not_action   n= 30  {'ioc_enrichment': 11, 'shortcut:ioc_check': 7, 'general': 5, 'threat_intel': 5, 'definition': 2}
