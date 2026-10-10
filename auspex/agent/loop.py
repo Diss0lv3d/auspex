@@ -137,7 +137,10 @@ class AgentStreamEvent:
     kind:
       'reasoning' — a thinking-pane delta.
       'content'   — an answer delta. Held for up to NARRATION_HOLD_CHARS while
-                    tools are on the wire (TD-036), then streamed as it arrives.
+                    NATIVE tools are on the wire (TD-036), then streamed as it
+                    arrives. Prompted-mode tool tags arrive IN content and are
+                    not held — that channel is not wired to a streaming
+                    surface (D-031, D-037) and needs tag-aware holding first.
       'narration' — prose from a step that turned out to call tools: the
                     model saying what it is about to do, never the answer and
                     never part of `done.text`. Shown as process, not answer.
