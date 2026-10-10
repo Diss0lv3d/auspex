@@ -109,7 +109,7 @@ def main() -> None:
             print(f"  first frame at: {first}")
             print(f"  units claimed: {after - before}   usage: {done.get('usage')}")
             for t in tools:
-                print(f"  tool: {t['name']}({t['arguments']}) -> {t['status']}")
+                print(f"  tool: {t['call']} -> {t['status']}")
             print(f"  tools before the answer: "
                   f"{last_tool is None or first_content is None or last_tool < first_content}")
             print(f"  reasoning: {len(reasoning)} chars   content: {len(content)} chars "

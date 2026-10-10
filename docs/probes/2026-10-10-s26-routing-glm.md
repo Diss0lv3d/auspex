@@ -173,3 +173,9 @@ native_tools`) and no hand-seeding. Raw output:
 - ¹ A non-security question resolves to `threat_intel` and does not fit that
   contract. The conversational path does the same; this is the mode resolver,
   not the agent path.
+
+**Re-run after the review fixes** (`96ce09e`, container rebuilt), same four turns.
+Raw: `raw/2026-10-10-glm-4.5-air-app-agent-turn-after-review.log`. Paths
+agent/agent/agent/model. Units 2/2/1/1, equal to the calls made. Tools always
+before the answer, and the stored turn equal to the streamed one 4/4. Tool lines
+now arrive rendered by the server, e.g. `enrich_observable(185.220.101.5)`.
