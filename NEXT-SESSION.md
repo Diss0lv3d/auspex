@@ -1,25 +1,26 @@
 # NEXT-SESSION — paste everything below the line into a fresh Claude Code window opened in /home/burhan/auspex-new
 
-_(**S28.** S27 closed on 2026-10-11. Burhan's call at its start ritual was
-"dont park anything, do everything", so:
-- promote #28 shipped S26, and a fresh-eyes review of the D-041 fixes found 3
-  more defects, all fixed (TD-042 logged);
-- **D-043:** a code-decided alert or phishing verdict is held until it passes,
-  re-asked once, then rendered by code. It was measured first: drift 0/60,
-  laundering 0/6;
-- **D-042:** the deployment scorecard expires after a week, and the app
-  re-measures it;
-- **D-044:** a seventh mode, `general`, for questions with no security signal,
-  judged on independently written batteries;
-- **D-045:** the chat agent may propose actions; nothing runs until a human
-  approves.
+_(**S29.** S28 closed on 2026-10-11. Burhan's call at its start ritual was
+"all" for the candidates, so:
+- promote #29 shipped S27, and a review of S27's code found 3 issues, all
+  dealt with;
+- **D-046:** `search_knowledge` has a per-turn budget of 3. Measured first;
+  S27's prompts went 37 → 23 calls;
+- **D-048:** an approval no run ever started rejoins the queue, with two doors:
+  run now, or withdraw;
+- **D-047:** the identity shortcut catches 18/45 held-out identity questions
+  (was 0). D-002 kept, on Burhan's call;
+- **D-049:** what the agent looks up is recorded like the IOC check;
+- **D-050:** note requests never take the shortcut, and note-only ones get an
+  eighth mode, `action_request`;
+- JSON alerts read the documented ECS and Graph keys.
 
-**Nothing after promote #28 is on main.** 1257 tests, 120 modules.)_
+**Nothing after promote #29 is on main.** 1292 tests, 120 modules.)_
 
 ---
 
-SESSION S28 of Auspex. The working dir must be /home/burhan/auspex-new. Run
-`/session-start S28` first (the full ritual).
+SESSION S29 of Auspex. The working dir must be /home/burhan/auspex-new. Run
+`/session-start S29` first (the full ritual).
 
 **LLM endpoints.**
 - The primary dev LLM is **glm-4.5-air on Z.ai's general API (D-034)**:
@@ -27,11 +28,10 @@ SESSION S28 of Auspex. The working dir must be /home/burhan/auspex-new. Run
 - Local Ollama `qwen3:14b` at `http://localhost:11434/v1` is the
   secondary/offline endpoint (D-013), and it is what the session-start
   local-Ollama gate validates.
-- The app probes its configured endpoint at startup and re-checks every 6 h
-  (D-038, D-042). The dev scorecard was probed 2026-10-10 09:33 UTC, so it
-  expires **2026-10-17**. After that, a running container re-probes it (~15
-  calls) and logs a WARNING if anything changed. If you see that WARNING,
-  re-measure D-040's thinking floor before anything else.
+- The app probes its endpoint at startup and re-checks every 6 h (D-038, D-042).
+  The dev scorecard expires **2026-10-17**; after that a running container
+  re-probes it (~15 calls). **If it logs the "endpoint changed" WARNING,
+  re-measure D-040's thinking floor before anything else.**
 - Any mismatch → STOP and tell me.
 
 **`gh` (D-011).** `gh` flips to the work account between and during sessions;
@@ -39,8 +39,8 @@ assume it has and re-check before every call:
 `gh auth switch --hostname github.com --user bh3082336888-cell`. Also:
 - `gh pr edit` fails on this repo with a Projects-classic GraphQL error; use
   `gh api -X PATCH repos/.../pulls/N`.
-- `gh pr merge --squash` printed nothing on success at S24, S25, #27 and #28;
-  verify with `gh pr view <n> --json state,mergeCommit`.
+- `gh pr merge --squash` printed nothing on success at S24, S25, #27, #28 and
+  #29; verify with `gh pr view <n> --json state,mergeCommit`.
 - Local `main` goes stale every promote. `git fetch`, then read
   `git diff origin/main..staging --stat`, **never the commit list**.
 
@@ -49,25 +49,32 @@ assume it has and re-check before every call:
   `docker compose up -d --build app`.
 - Run the suite the way `ci.sh` does (`.venv`, package installed editable).
 - **Never pipe `./ci.sh` into `tail`**: the pipeline reports `tail`'s exit code.
-- **Run the full gate before calling a change done.** At S27 one commit passed
-  every file it touched and broke a test in a file it did not touch.
+- **Run the full gate before calling a change done.** Twice now (S27, S28) a
+  change passed every file it touched and broke a test in one it did not.
+- Do not edit code while `./ci.sh` is running: the edit lands in its container
+  build.
 
 Step 0 (do BEFORE new scope):
 
-1. **`/promote` the S27 slate (#29).** It is everything after `d87469a`:
-   D-042…D-045, the three review fixes and the UUID fix. Read the diff, not the
-   list.
-2. **An adversarial second-pass review of S27's own code.** Each guarantee was
-   mutant-checked by its author, but nobody else has read it adversarially.
-   Read and attack:
-   - `repaired_answer` and the hold in `auspex/routes/chat.py` (D-043): order
-     against the leak path, usage accounting, the two-pass and thinks-natively
-     branches, what the analyst sees on every failure;
-   - `_SECURITY_RE` and the `general` contract (D-044);
-   - the chat wiring, `NothingToPropose`, the loop's `model_feedback` and the
-     page's proposal line (D-045);
-   - `keep_scorecard_fresh` and the re-probe (D-042);
-   - the review fixes `922f30c`, `9458518` and `94abbeb`.
+1. **`/promote` the S28 slate (#30).** It is everything after `31f7fc1`:
+   D-046…D-050, the review fixes `831dedc` and `3a09fcd`, and the alert key fix
+   `e2af082`. Read the diff, not the list.
+2. **An adversarial second-pass review of S28's own code.** Each change was
+   mutant-checked or battery-judged by its author, but nobody else has read it
+   adversarially. Read and attack:
+   - D-046: `_on_offer`, `_dispatch_within_budget` and the last-call notice
+     (`auspex/agent/loop.py`), and the budget declaration
+     (`auspex/agent/capabilities.py`). Check `run` and `run_stream` parity,
+     and what a call refused for budget looks like on the page;
+   - D-048: `run_stale_approval`, the shared `_run_claimed`, `withdraw`, and
+     the queue's new clause (`auspex/actions/settlement.py`), plus the two
+     routes. Check against every claim-token and `resolved_by` rule;
+   - D-049: `record` in `enrich_observable` and the route's lambda. What gets
+     written, for which workspace, and what the model is told on failure;
+   - D-047: `_IDENTITY_RE` (`auspex/classify/classifier.py`);
+   - D-050: `_NOTE_ASK_RE`, `_NOTE_REQUEST_RE`, the shortcut veto, and the
+     `action_request` contract;
+   - `e2af082`: JSON alert name precedence and the new keys.
 
    Same discipline as before: reproduce by execution first, fix with a test
    that fails pre-fix, and record what you clear in a probe record.
@@ -76,34 +83,36 @@ Step 0 (do BEFORE new scope):
 
 Goal (two items, in order):
 
-1. **TD-043: an agent turn on a thinly covered topic spends the whole step cap
-   re-searching.** Measured at S27: 4 of 6 `threat_intel` agent turns (LockBit
-   initial access, RMM abuse) made 8 `search_knowledge` calls plus synthesis,
-   9 inference calls for one turn. Read TECHNICAL_DEBT.md TD-043.
-   - **Measure first** with the same prompts
-     (`docs/probes/s27-td012/probe_contract_drift.py` holds them). Find out
-     what the tool returned on each re-search. Are they misses, near-misses,
-     or the same chunks again?
-   - Then fix the cause. Candidates: a miss that says rewording will not help;
-     a per-tool repeat cap; the cap counting distinct results. Re-measure on the
-     same prompts and record before/after. Tests ship with it. If the fix
-     changes what the agent is told, it changes the rail's index too.
-2. **TD-042: an approved run that never started has no door and no queue
-   slot.** D-045 lets the chat agent file proposals, so this path will see
-   traffic. Reproduction: `docs/probes/s27-review/probe_approved_wedge.py`.
-   Decide the door, re-run (`POST /{id}/execute`, re-checking every
-   `check_executable` guarantee) or withdraw (to `rejected`) or both, and record
-   it as a numbered decision. Then build it with tests, live-check it, and keep
-   D-041's rule: one status-CHECK block, edited in place.
+1. **TD-036: the analyst reads the answer twice.** Its trigger fired live at
+   S28: in 2 of 3 D-049 probe turns, glm-4.5-air wrote a full answer BEFORE its
+   annotate call. It passed the 400-char narration hold, streamed as answer,
+   and then the real answer followed. Raw logs:
+   `docs/probes/s28-candidates/raw-app-agent-records-run*.log`. Read
+   TECHNICAL_DEBT.md TD-036.
+   - **Measure first.** On action-calling turns (and the S26 routing prompts),
+     what is the longest pre-tool content, and how often does it pass 400?
+   - Then fix the cause, with tests, and live-check through the container. The
+     hold is native-only, so keep D-031's ordering guarantee.
+2. **TD-044: re-calibrate the output rail with the index as it now stands.**
+   S27 added D-043's repair directive and D-045's action surface; S28 added
+   D-050's `action_request` directive. Re-run
+   `docs/probes/s22-outguard/probe_calibrate2.py` and
+   `docs/probes/s26-step0/probe_calibrate_agent.py`, including action-request
+   turns. Record the new legitimate ceilings next to the floors. A floor moves
+   only on that measurement.
 
 Candidates. **Ask Burhan at the start ritual. Do NOT start any of these
 unasked:**
-- Persist the agent path's enrichment (observables and verdicts) like the 92/8
-  IOC check does. Today an action can target only an indicator checked on the
-  shortcut path first (D-045 bound; IDEAS).
-- The action-request mode fit: "add a note to X" resolves to `ioc_enrichment`
-  and reads `contract_valid: false` (IDEAS).
-- Alert-normaliser coverage of JSON EDR key spellings (IDEAS).
+- The additive alert scorer under-rates credential theft. Documented ECS and
+  Graph lsass-dump alerts score LOW 35 (IDEAS;
+  docs/probes/2026-10-11-s28-alert-json-keys.md). A scoring change needs its
+  own independently written battery.
+- Look an indicator up before annotating it. Live, a note-only request on a
+  never-seen IP was refused as NothingToPropose instead (IDEAS).
+- Ingest ATT&CK groups and software as KB documents. This is a new doc_type,
+  so the TD-005 trigger and TD-027 HARD GATE apply (IDEAS).
+- More identity recall: 27/45 held-out identity questions still reach the
+  model. This needs a FRESH battery.
 
 Constraints:
 - **Process.**
@@ -113,9 +122,9 @@ Constraints:
   - One concern per commit, and never amend (org rule).
   - End with `/session-end`.
 - **Inference costs real money.**
-  - Z.ai is pay-as-you-go: glm-4.5-air is $0.20/$1.10 per 1M tokens, thinking is
-    on by default and billed inside `completion_tokens`. An agent turn is 1–9
-    calls (TD-043). Budget probes.
+  - Z.ai is pay-as-you-go: glm-4.5-air is $0.20/$1.10 per 1M tokens, and
+    thinking is billed inside `completion_tokens`. A thin-topic agent turn is
+    now at most ~5 calls (D-046). Budget probes.
   - General endpoint only, pay-as-you-go only, dev only. Never
     `api/coding/paas/v4`. Z.ai processes in Singapore, so **no KSA-tenant data,
     ever** (org policy).
@@ -123,36 +132,36 @@ Constraints:
     the shared `analyst@auspex.dev` user mid-turn.
   - **Any new test that spends inference calls must refund them.** Chat tests
     belong in test_chat_sse.py, whose autouse fixture refunds them.
-  - **A probe that files proposals must reject them afterwards**, as
-    `probe_app_chat_actions.py` does.
-- **Judging a classifier or resolver change.** Have a subagent write the battery
-  without reading the repo. A battery that informed a change is training data
-  from then on (D-044). D-044's operating point is pinned by
-  `test_the_measured_operating_point_on_the_independent_battery_holds`.
+  - **A probe that files proposals must reject them afterwards.** A probe that
+    creates observables deletes only what it created. Enrichment skips
+    reserved address space, so use a routable IP when one must be recorded.
+- **Judging a classifier or resolver change.** Have TWO subagents write
+  batteries without reading the repo. Build on one; open the other once, after
+  the rule is frozen. Three operating points are pinned (D-044, D-047,
+  D-050), and every battery behind them is training data now.
 - **The output rail.**
-  - **Two calibrated floors.** `SHINGLE_WORDS = 8`: re-run
-    `docs/probes/s22-outguard/probe_calibrate2.py` to move it.
-    `THINKING_SHINGLE_WORDS = 40` (D-040): re-run
-    `docs/probes/s26-step0/probe_calibrate_agent.py`. Its margin is only 1.4×
-    over the live legitimate ceiling of 28.
-  - S27 grew the index with D-043's repair directive and D-045's action
-    surface, and the legitimate ceiling was not re-calibrated with them in.
+  - **Two calibrated floors.** `SHINGLE_WORDS = 8` and
+    `THINKING_SHINGLE_WORDS = 40` (D-040, margin only 1.4× over the live
+    legitimate ceiling of 28). The index has grown three times without a
+    re-calibration: TD-044, this session's goal 2.
   - **Assume the rail has a fourth defect** (S23, S24 and S26 each found one).
-    Any new text the agent is told goes into the index; any text shown goes
-    through the scanner.
+    Any new text the agent is told in the system message or the descriptions
+    goes into the index. Tool-result text is unindexed by D-031's design.
   - **Do NOT re-open the guard regex.** TD-031/032/033 are ratified.
 - **Code-decided verdicts (D-043).** Alert and phishing answers are held,
   re-asked once, then code-rendered. Any change to those modes keeps
-  `contract_repair` honest, and the code-rendered answers must stay conformant
-  by construction (pinned).
-- **Approval state machine (D-041, S27 review).**
-  - **One status-CHECK migration block, edited in place.**
-    `test_startup_survives_every_status_a_proposal_can_be_in` covers every
-    status the live constraint allows.
-  - **Claims are tokens.** Any new claim must mint `claim_token`, and any new
-    finish must match it.
+  `contract_repair` honest.
+- **Approval state machine (D-041, D-048).**
+  - **One status-CHECK migration block, edited in place** (it now includes
+    `withdrawn`). `test_startup_survives_every_status_a_proposal_can_be_in`
+    reads the live constraint.
+  - **Claims are tokens.** Any new claim mints `claim_token`, and any new finish
+    must match it.
   - **The approval lives in `decided_by`/`decided_at`.** Later human decisions
-    (keep, abandon, anything new) write `resolved_by`/`resolved_at`.
+    (keep, abandon, run-now, withdraw, anything new) write
+    `resolved_by`/`resolved_at`.
+  - A door that can race an in-flight approve must be stale-only
+    (STALE_CLAIM_SECONDS), like abandon and D-048's two.
 - **Code conventions.**
   - Reuse caps, never re-declare them. A tunable that belongs to us is a code
     constant (D-026).
@@ -160,20 +169,24 @@ Constraints:
   - Every new env var → `.env.example` + `docs/ENV_VARS.md` at birth.
   - New package directory? → `pyproject.toml` packages AND the Dockerfile
     skeleton (**120 modules**).
+  - The classify package must never contain the name of an HTTP library, even
+    in a comment: a structural test scans its source.
 - **Gates and promises.**
   - The CI gate is real (D-028): `.github/workflows/ci.yml` runs `./ci.sh` only.
   - The README is a promise pinned by `tests/test_docs.py`: its test count must
-    equal the collected count on a full run, and the honesty claims are pinned
-    (agent path, D-043 hold, D-045 propose-never-act). Every test-adding commit
-    updates the count.
+    equal the collected count on a full run, and the honesty claims are
+    pinned. Every test-adding commit updates the count.
   - `./scripts/demo.sh` must keep running end to end.
   - DECISIONS.md entries are immutable once ratified; overturning one is a NEW
-    numbered decision naming which it supersedes. D-033…D-045 are ratified.
+    numbered decision naming which it supersedes. D-033…D-050 are ratified.
+    **D-002 was re-affirmed at S28 (D-047): the engine is never named
+    user-visibly.**
 - **Brand (D-002, locked).** Never leak the underlying model or provider name
   into user-visible strings, including "glm", "zhipu" and "z.ai"
-  (`FORBIDDEN_ENGINE_NAMES`). Endpoint errors use `LLMError.public`. A thinking
-  model may still name itself in the Thinking pane. That is unowned; record it,
-  do not fix it unasked.
+  (`FORBIDDEN_ENGINE_NAMES`). Endpoint errors use `LLMError.public`. On an
+  identity question the shortcut misses, the model may still name a vendor in
+  the answer or the Thinking pane. That is recorded, not owned; do not fix it
+  unasked.
 - **Deferred; do NOT pick up unless explicitly re-scoped:**
   - KB-doc citability / ioc_check→KB-CVE-context (parked 20×);
   - TD-014; TD-015; TD-016; TD-017; TD-019; TD-020; TD-021; TD-022; TD-023;
