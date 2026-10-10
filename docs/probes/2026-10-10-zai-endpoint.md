@@ -271,3 +271,38 @@ The native path, chosen by the route from a scorecard the harness wrote — the
 writer and the reader agree for the first time. The fabricated handover
 specifics recur verbatim on this path too ("12 reported attempts, 2 successful
 credential compromises").
+
+## Pass 1 on a thinking model, and D-036 live
+
+**What pass 1 looks like** — `docs/probes/s26-zai/probe_pass1_thinking.py`, raw
+output saved verbatim at `docs/probes/s26-zai/raw/glm-4.5-air--pass1-thinking.txt`.
+Pass 1 built as the route builds it (system prompt, question, `PASS1_DIRECTIVE`
+last, minus the per-mode contract directive) at `CHAT_REASONING_MAX_TOKENS = 256`:
+
+| question | first text event | sequence | finish | pass-1 content |
+|---|---|---|---|---|
+| Kerberoasting → DA | 2.16 s | reasoning ×245, content ×9 | length | 49 chars, cut off |
+| phishing handover | 1.55 s | reasoning ×220, content ×34 | length | 192 chars, cut off |
+| "hi" | 1.30 s | reasoning ×72, content ×23 | stop | 104 chars |
+
+Every pass 1 opens with the model's own thinking — the signal D-036 reads. Even
+"hi" thinks first, so this model gave no content-first control; the content-first
+branch rests on the non-thinking fixtures (Scout, llama3.1) and is unchanged code.
+
+**D-036 live** — app on `332fa35`, the deployment scorecard parked in another
+workspace so the default endpoint read as unprobed (`/api/models` →
+`native_reasoning: false`), then restored afterwards (→ `true`). No concurrent
+pytest — a first attempt collided with one: the review agents' test session
+purged the shared `analyst@auspex.dev` user mid-turn and the turn died on a
+foreign-key violation at persistence. A shared-dev-DB hazard, not the switch.
+
+| question | wall | first reasoning | first content | Thinking pane | calls |
+|---|---|---|---|---|---|
+| Kerberoasting → DA | 29.3 s | 5.4 s | 25.2 s | **5527 chars** | 2 |
+| phishing handover | 9.5 s | 5.0 s | 7.5 s | **894 chars** | 2 |
+
+Both turns logged `turn switched to native`; `inference_calls` moved 0 → 4 for two
+turns — two claimed, two made, each. Against the same unprobed endpoint before
+D-036: 0 chars in the pane. Against a probed one (native, one call): thinking from
+~3 s — so the price of not knowing is ~2 s and one abandoned pass-1 per turn,
+which is exactly what TD-037 now records.

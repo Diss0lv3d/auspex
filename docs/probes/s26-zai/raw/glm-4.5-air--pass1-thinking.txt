@@ -1,0 +1,13 @@
+model: glm-4.5-air  pass-1 max_tokens: 256
+
+Q: 'Explain how an attacker typically chains Kerberoasting into domain adm'
+  first text event at 2.16s  sequence: Rx245 Cx9
+  finish=length  content=49 chars  'The question asks about the attack chain from Ker'
+
+Q: 'Write a short handover note for the next shift about an ongoing phishi'
+  first text event at 1.55s  sequence: Rx220 Cx34
+  finish=length  content=192 chars  '**Private Working Analysis:**\nThis request asks for a concise handover note about an ongoing phishing campaign targeting'
+
+Q: 'hi'
+  first text event at 1.3s  sequence: Rx72 Cx23
+  finish=stop  content=104 chars  "Hello. I'm Auspex, ready to assist with security analysis when you have a specific question or scenario."

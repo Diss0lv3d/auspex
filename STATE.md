@@ -177,9 +177,12 @@ complete; S21–S25 were each scoped by a decision rather than a plan.**
    finds its own scorecard** (reserved `__deployment__` workspace; harness writes
    it, chat reads it; no user can be provisioned into it). The hand-seeded row is
    deleted; the dev deployment's row is `a8113b41…`, written by the harness.
-   **Still open as TD-037:** nothing in a PRODUCTION deployment writes that
-   scorecard, and two-pass is broken on thinking models — probing the customer's
-   endpoint unasked is D-005's call. History of the defect below.
+   **TD-037, now LOW (D-036, `332fa35`):** nothing in a production deployment
+   writes that scorecard, but two-pass no longer breaks on a thinking model — a
+   pass 1 that opens with the model's own thinking hands the turn to the native
+   path (live: pane 0 → 5527 chars, two calls claimed and made). What remains is
+   one abandoned pass-1 (~2 s) per turn on an unprobed thinking endpoint.
+   History of the defect below.
    **(was) The scorecard's writer and reader disagree on scope.**
    The only writer (`scripts/llm_harness.py`) saves to workspace `dev`; the only
    reader (`_default_native_reasoning`, chat.py) reads the ANALYST's workspace
