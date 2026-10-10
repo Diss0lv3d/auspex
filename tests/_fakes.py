@@ -28,6 +28,10 @@ FORBIDDEN_ENGINE_NAMES = [
     "anthropic",
     "mistral",
     "deepseek",
+    # The dev engine since S26 (D-034) — the name most likely to leak next.
+    "glm",
+    "zhipu",
+    "z.ai",
 ]
 
 
