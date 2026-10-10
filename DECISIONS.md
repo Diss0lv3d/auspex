@@ -1378,3 +1378,48 @@ prevents the analyst from being shown it. No ratified decision is overturned.
 TD-012's "re-ask once" is adopted for these modes; its structured pass is
 declined, on measurement.
 
+## D-044 — A deep question with no security signal is answered in a seventh mode, `general` (2026-10-11, S27)
+
+**Context.** IDEAS (S26). With no threat-intel keyword, the resolver defaulted
+to `threat_intel`. A non-security question could not meet that contract
+(measured 4/4 at S26 and 4/4 at S27), and the conversational path half-refused
+it. The S9 catalog calls any new mode "a scope decision, not a code edit".
+Burhan put this in S27's scope at the start ritual. Record:
+docs/probes/2026-10-11-s27-mode-fallback.md.
+
+**Decision.**
+1. **A seventh mode, `general`.** Its contract declares no sections, and its
+   directive says so ("No section structure is required"). Its one rule is
+   neutral: ask for the details only the analyst has, then help. It is not a
+   code-decided mode, so on a native_tools endpoint it takes the agent path
+   like the other narrative modes.
+2. **The resolver's new last step.** After the existing tiers, a question
+   becomes `general` only if it has **no** security, IT, identity or payments
+   vocabulary (`_SECURITY_RE`) **and no observable**. Otherwise it stays
+   `threat_intel`, as before. The vocabulary is generous on purpose: a word
+   too many keeps today's behaviour, and a word too few costs a security
+   question its structure.
+3. **The operating point is measured on an independent battery and pinned.**
+   On questions an independent agent wrote after the vocabulary was frozen:
+   9 of 50 plain-language security questions resolve to `general`, 24 of 30
+   non-security questions do, and none stays `threat_intel`. A test holds
+   those bounds.
+
+**Why accept 18% misroutes.** Live, misrouted security questions still got
+security answers: ransomware named and grounded in the KB, isolation steps,
+exfiltration and physical-breach handling. They lost only the
+Summary/Key facts/Assessment structure. The alternative was today's state:
+every non-security question forced into a structure it cannot meet, and
+sometimes a refusal.
+
+**Bounds, stated.**
+- A misrouted security question is reported `contract_valid: true`, because
+  `general` has nothing to drift from. Contract drift is not observable for
+  those turns.
+- The vocabulary is English and was measured on English questions.
+- Approach 1 (security words alone, 15/40 misroutes out of sample) was the
+  first of the two attempts the thrash brake allows. This is the second.
+
+**What this supersedes.** The S9 catalog's "six modes ONLY", by adding a
+seventh through the decision that rule asked for.
+
