@@ -142,3 +142,34 @@ this budget once per call, not once per turn.
   alert/phishing pastes on the agent path (excluded by clause (1), which stands).
 - Sample sizes are small (3 per cell). These are decisions about which way to
   route, not benchmarks.
+
+---
+
+## Through the running app — the wiring, live (after `1b86070`)
+
+`docs/probes/s26-step0/probe_app_agent_turn.py`, against the rebuilt container,
+with the dev deployment's own scorecard (row `a8113b41…`, `agent_mode
+native_tools`) and no hand-seeding. Raw output:
+`raw/2026-10-10-glm-4.5-air-app-agent-turn.log`.
+
+| turn | path | mode | tools (in order) | units | first reasoning / tool / content | contract | stored = streamed |
+|---|---|---|---|---|---|---|---|
+| C, KB-shaped | **agent** | threat_intel | search_knowledge | **2** | 2.2 / 2.7 / 8.2 s | valid | yes |
+| B′, IOC narrative (`${jndi:…}` from 185.220.101.5) | **agent** | ioc_enrichment | enrich_observable, search_knowledge ×2 | **3** | 2.8 / 6.2 / 17.9 s | valid | yes |
+| A, no-tool question | **agent** | threat_intel | — | **1** | 2.7 / — / 6.1 s | invalid¹ | yes |
+| X, CEF alert | **model** | alert_triage | — | **1** | 2.9 / — / 10.4 s | valid | yes |
+
+- **Every turn claimed exactly the calls it made.** That is D-031 decision 4
+  holding live, and TD-035 is gone on this path.
+- **Tools always came before the answer.** No narration reached `content`: the
+  answers begin with the contract's first section header.
+- **The answer streamed** (285 / 199 / 34 content frames). The hold did not turn
+  it into one block.
+- The B′ answer was written from tool data: AbuseIPDB 378 reports, the Tor exit,
+  CVSS 10.0, EPSS 0.99999, KEV with ransomware use.
+- **Observed, not pursued:** in B′ the model passed `CVE-2021-44228` to
+  `search_knowledge` rather than `lookup_cve`, even though the tool description
+  says to use `lookup_cve` for an id. The KB answered anyway.
+- ¹ A non-security question resolves to `threat_intel` and does not fit that
+  contract. The conversational path does the same; this is the mode resolver,
+  not the agent path.
