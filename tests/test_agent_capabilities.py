@@ -654,3 +654,23 @@ async def test_the_models_own_earlier_answer_supplies_nothing():
 
     assert service.enrich_calls == []
     assert result["results"][0]["not_checked"] == NOT_SUPPLIED_SKIP
+
+
+# -- TD-043: the one tool with a per-turn budget -------------------------------
+
+
+def test_search_knowledge_carries_the_measured_budget_and_the_others_none():
+    """S28, measured (D-046): on a thinly covered topic every search returned a
+    full five results and the agent reworded until the step cap (9 calls a
+    turn). Three searches cut S27's six turns from 37 calls to 23 with every
+    answer still conformant. The id lookups are bounded by their inputs and
+    carry no budget."""
+    from auspex.agent.capabilities import SEARCH_KNOWLEDGE_MAX_CALLS
+
+    registry = _build()
+    assert SEARCH_KNOWLEDGE_MAX_CALLS == 3
+    assert registry.get("search_knowledge").max_calls_per_turn == SEARCH_KNOWLEDGE_MAX_CALLS
+    for name in TOOL_NAMES:
+        if name != "search_knowledge":
+            assert registry.get(name).max_calls_per_turn is None, name
+

@@ -68,6 +68,20 @@ MAX_TOOL_ARG_ITEMS = 25
 # rather than silent — a model shown a clipped page must be able to tell.
 SNIPPET_CHARS = 600
 
+# TD-043 (D-046): how many times one turn may search the knowledge base. A
+# free-text search can always be reworded, and on a topic the KB covers thinly
+# every rewording still returns a full page of the nearest documents — never a
+# miss that would say "stop". Measured at S28 on S27's prompts
+# (docs/probes/2026-10-11-s28-td043-search-budget.md): 3 of 6 threat-intel turns
+# searched 8 times and hit the step cap; with 3, the same six turns made 23
+# calls instead of 37 and every answer still met its contract. The price is
+# stated there: on "LockBit initial access" searches 4-5 had found the T1566
+# Phishing page, which 3 never reach (the Initial Access tactic page, found
+# first every time, names the same vectors). A budget of 5 did not reach it
+# either. The id lookups are bounded by their inputs and carry no budget. Code,
+# not config (D-026).
+SEARCH_KNOWLEDGE_MAX_CALLS = 3
+
 # D-039: why an indicator the model asked about was not looked up. Phrased as a
 # reason the model can act on (ask the analyst), and never as "no signals".
 NOT_SUPPLIED_SKIP = (
@@ -437,6 +451,7 @@ def build_capability_registry(
         required=["query"],
         level=ToolLevel.READ,
         handler=search_knowledge,
+        max_calls_per_turn=SEARCH_KNOWLEDGE_MAX_CALLS,
     )
     return registry
 

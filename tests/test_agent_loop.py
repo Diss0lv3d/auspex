@@ -593,3 +593,31 @@ async def test_a_proposal_id_the_database_returns_reaches_the_model_as_json():
     told = [m for m in client.calls[1]["messages"] if m["role"] == "tool"]
     assert json.loads(told[0]["content"])["proposal_id"] == str(real_shaped)
     assert result.invocations[0].proposal_id == str(real_shaped)
+
+
+async def test_run_spends_a_tool_budget_exactly_as_run_stream_does():
+    """TD-043, the blocking twin: `run` and `run_stream` must offer the same
+    tools at every step and refuse the same over-budget call."""
+    executed: list = []
+    reg = ToolRegistry()
+
+    async def lookup_ip(args: dict) -> dict:
+        executed.append(args)
+        return {"ip": args.get("ip")}
+
+    reg.add("lookup_ip", "Look up IP reputation.", {"ip": {"type": "string"}}, ["ip"],
+            ToolLevel.READ, lookup_ip, max_calls_per_turn=1)
+    client = FakeLLMClient([
+        _tool_call_result("lookup_ip", {"ip": "192.0.2.10"}, call_id="a"),
+        _tool_call_result("lookup_ip", {"ip": "203.0.113.99"}, call_id="b"),
+        ChatResult(content="Answer from what was gathered.", finish_reason="stop"),
+    ])
+
+    result = await _loop(reg, InMemoryProposalStore()).run(client, "check both")
+
+    assert executed == [{"ip": "192.0.2.10"}]
+    assert [i.status for i in result.invocations] == ["executed", "error"]
+    assert result.invocations[1].feedback["error"] == "call_limit"
+    assert "tools" in client.calls[0]["kwargs"]
+    assert "tools" not in client.calls[1]["kwargs"]
+    assert result.stopped_reason == "final_answer"
