@@ -160,12 +160,15 @@ Read this part. A demo that only walks the happy path is a demo that lies.
   judge whether an answer was influenced. An injection that produced a confident
   wrong answer looks exactly like an answer; only a verdict the platform computed
   in code can contradict one, which is what the 92/8 split is for.
-- **A failed action can leave effects it denies.** If a handler dies after its
-  write lands, the row says `failed` and the write is really in the table; there
-  is no idempotency key and no partial-effect reasoning (TD-028b). A claim whose
-  process died is at least *visible* now — it appears in the approvals queue and
-  a human can abandon it, which records that nobody knows whether it ran rather
-  than guessing (TD-028a, fixed).
+- **A failed action says what it left behind only if it can look.** When a
+  handler dies, the platform asks the action what of that proposal's effects
+  exist. Nothing → `failed`, a checked fact. Something, or no way to look →
+  `incomplete`, which joins the approvals queue and can be put back, as can a
+  claim a human abandoned (D-041). An action that declares no way to look is
+  never `failed`, only `incomplete`. One bound remains: a handler that is
+  merely *slow* on a run a human abandoned can land its write after the
+  put-back. There is still no idempotency key, which matters the day an action
+  reaches a network.
 - **Definition ranking is measured on eleven queries, not a benchmark.** The
   definition path fuses over documents and picks the page a question is most
   *about*, by title/question overlap in code (`auspex/kb/canonical.py`) — 7 of 7

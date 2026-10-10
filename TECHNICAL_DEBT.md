@@ -159,6 +159,10 @@ two-pass path still claims 2 up front, so a pass-1 leak there is still charged
 for the call it prevented. Unchanged: LOW, safe direction, no refund path.
 
 ## TD-034 (S23) — the late-write knows the row was abandoned, not which operation was
+
+> **RESOLVED — S26 (`f263c1d`, D-041).** `abandon` writes `abandoned_from` from
+> the status it replaces, and the late-write matches it. It had to be fixed
+> before TD-028c opened the undo path onto abandoned rows. Entry kept as written.
 **Where:** `auspex/actions/settlement.py` — `_finish_claim`, the second
 statement (the late-write onto a terminal row).
 **Risk:** LOW, and **currently unreachable** — pinned by a test, not by luck.
@@ -277,6 +281,16 @@ roughly one session, and it would have to be measured against the S11 `.eml`
 corpus the way S19's carve-outs were. Not worth it before TD-012.
 
 ## TD-028 (S19) — the proposal status machine has no way back from three states
+
+> **(b), (c), (d) RESOLVED — S26, D-041.**
+> - (b) `203cccc`: a failed run looks. `failed` is checked; otherwise it is
+>   `incomplete`, queued.
+> - (c) `1c6c9bd`: undo from `incomplete` and `abandoned`, returning to where it
+>   started on failure.
+> - (d) `6811d45`: each pending card names its identical twins.
+>
+> What remains is D-041's stated bound (a slow handler on an abandoned run) and
+> TD-025's missing idempotency key. Entry kept as written.
 **Where:** `auspex/actions/settlement.py` (`ActionExecutor.execute` / `.undo`),
 `auspex/routes/proposals.py` (`list_proposals`, pending-only).
 **All four items below were REPRODUCED BY EXECUTION** at S19 Step 0 —

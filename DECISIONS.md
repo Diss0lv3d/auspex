@@ -1186,3 +1186,48 @@ question ×3 carried thinking runs of 19, **28** and 19 words, and all three
 passed. The old floor would have cut all three. The legitimate ceiling is now 28,
 and the margin under 40 is 1.4×. The floor is unchanged: recitations run 58 and
 60. It is the number to re-measure first on any other model.
+
+## D-041 — What a proposal's terminal states say (2026-10-10, S26)
+
+**Context.** TD-028 (b/c/d) and TD-034, all four deferred since S19 to "terminal
+state semantics". Four defects had one cause:
+- a failed run reported "nothing happened" while its write was in the table (b);
+- the cleanup that would remove exactly the orphan was gated shut (c);
+- an approver could not tell two identical requests apart (d);
+- a late answer could land on the wrong abandoned operation (TD-034).
+
+Goal item 4 of S26; Burhan asked for it to proceed.
+
+**Decision.**
+1. **`failed` is a checked fact.** After a handler raises, the executor asks
+   the action what of **this proposal's** effects exist, through a new
+   optional `ActionSpec.observe` keyed on `proposal_id`.
+   - Nothing → `failed`.
+   - Something, no way to look, or a look that itself failed → **`incomplete`**.
+   - The result records `effects: none | present | unknown`.
+   - An action that cannot look is never `failed`. That is the shape the first
+     third-party action will have, and the honest default for it.
+2. **`incomplete` needs a human**, so it joins the approvals queue.
+3. **A put-back may start where effects are unknown.** `undo` is allowed from
+   `executed`, `incomplete` and `abandoned` (either operation). It is not
+   allowed from `failed`, because nothing landed and `undone` would report a
+   put-back of nothing. The claim moves the row only out of the exact status
+   the read saw, and a failed put-back returns there, never to `executed`
+   unless it started there.
+4. **`abandoned` records what it gave up on** (`abandoned_from`), and a late
+   answer lands only for that operation (TD-034).
+5. **Identical requests are named, never merged.** Each pending card carries
+   `identical_pending`: other pending requests in the workspace for the same
+   action, arguments and declaration. Merging them would have the platform
+   decide that a second intent was a mistake (D-014).
+
+**Bound, stated.** A run a human abandoned whose handler was merely slow can be
+put back while it is still alive, and a write it lands afterwards outlives the
+put-back. Abandon needs a claim older than STALE_CLAIM_SECONDS, and every
+executable action today is a single local statement. There is still no
+idempotency key. That matters the day an action reaches a network (TD-025).
+
+**What this supersedes.** S23's pin "an undo cannot start on a row abandoned
+during execute", which kept TD-034 unreachable by keeping the cleanup shut.
+TD-034 is now fixed structurally. Nothing ratified is overturned: D-024
+(an approval is decided once) and the no-reaper rule (S21) stand.
