@@ -1,0 +1,92 @@
+S27 — TD-012(b): contract drift, measured
+==============================================================================
+model: glm-4.5-air  repeats: 2  enrichment=True kb=True
+control passed: 64 runs planned
+
+  alert_triage[0] conversational #0: ok  finish=stop answer=447 thinking=1105 calls=1 tools=[] pinned={'Risk': 'CRITICAL'} 5.7s
+  alert_triage[1] conversational #0: ok  finish=stop answer=366 thinking=1488 calls=1 tools=[] pinned={'Risk': 'DEFERRED'} 5.8s
+  alert_triage[0] conversational #1: ok  finish=stop answer=527 thinking=1573 calls=1 tools=[] pinned={'Risk': 'CRITICAL'} 6.6s
+  alert_triage[1] conversational #1: ok  finish=stop answer=592 thinking=1566 calls=1 tools=[] pinned={'Risk': 'DEFERRED'} 5.8s
+  alert_triage[2] conversational #0: ok  finish=stop answer=442 thinking=1862 calls=1 tools=[] pinned={'Risk': 'DEFERRED'} 9.1s
+  alert_triage[2] conversational #1: ok  finish=stop answer=547 thinking=2526 calls=1 tools=[] pinned={'Risk': 'DEFERRED'} 8.8s
+  phishing_analysis[0] conversational #0: ok  finish=stop answer=579 thinking=1965 calls=1 tools=[] pinned={'Verdict': ('MALICIOUS',)} 7.4s
+  phishing_analysis[1] conversational #0: ok  finish=stop answer=283 thinking=1209 calls=1 tools=[] pinned={'Verdict': ('DEFERRED', 'SUSPICIOUS', 'MALICIOUS')} 3.8s
+  phishing_analysis[0] conversational #1: ok  finish=stop answer=731 thinking=1464 calls=1 tools=[] pinned={'Verdict': ('MALICIOUS',)} 7.2s
+  phishing_analysis[1] conversational #1: ok  finish=stop answer=276 thinking=1299 calls=1 tools=[] pinned={'Verdict': ('DEFERRED', 'SUSPICIOUS', 'MALICIOUS')} 4.7s
+  phishing_analysis[2] conversational #0: ok  finish=stop answer=316 thinking=1809 calls=1 tools=[] pinned={'Verdict': ('BENIGN', 'SUSPICIOUS', 'MALICIOUS')} 6.0s
+  phishing_analysis[2] conversational #1: ok  finish=stop answer=314 thinking=1060 calls=1 tools=[] pinned={'Verdict': ('BENIGN', 'SUSPICIOUS', 'MALICIOUS')} 3.6s
+  ioc_enrichment[0] conversational #0: ok  finish=stop answer=818 thinking=1702 calls=1 tools=[] pinned=None 6.7s
+  ioc_enrichment[0] conversational #1: ok  finish=stop answer=749 thinking=1920 calls=1 tools=[] pinned=None 7.4s
+  ioc_enrichment[1] conversational #0: ok  finish=stop answer=817 thinking=2180 calls=1 tools=[] pinned=None 7.8s
+  ioc_enrichment[0] agent #0: ok  finish=stop answer=1875 thinking=2752 calls=4 tools=['enrich_observable', 'search_knowledge', 'search_knowledge'] pinned=None 18.1s
+  ioc_enrichment[0] agent #1: ok  finish=stop answer=1603 thinking=2199 calls=3 tools=['enrich_observable', 'search_knowledge', 'search_knowledge'] pinned=None 13.6s
+  ioc_enrichment[1] conversational #1: ok  finish=stop answer=924 thinking=2776 calls=1 tools=[] pinned=None 9.4s
+  ioc_enrichment[2] conversational #0: ok  finish=stop answer=676 thinking=1610 calls=1 tools=[] pinned=None 6.4s
+  ioc_enrichment[2] conversational #1: ok  finish=stop answer=581 thinking=1675 calls=1 tools=[] pinned=None 7.0s
+  ioc_enrichment[1] agent #0: ok  finish=stop answer=1211 thinking=1541 calls=2 tools=['enrich_observable'] pinned=None 30.2s
+  ioc_enrichment[1] agent #1: ok  finish=stop answer=1305 thinking=1968 calls=3 tools=['enrich_observable', 'search_knowledge'] pinned=None 31.9s
+  ioc_enrichment[2] agent #0: ok  finish=stop answer=1553 thinking=1362 calls=2 tools=['enrich_observable'] pinned=None 15.2s
+  ioc_enrichment[2] agent #1: ok  finish=stop answer=1445 thinking=1433 calls=2 tools=['enrich_observable'] pinned=None 9.7s
+  threat_intel[0] conversational #0: ok  finish=stop answer=1788 thinking=1913 calls=1 tools=[] pinned=None 9.0s
+  threat_intel[0] conversational #1: ok  finish=stop answer=1397 thinking=2042 calls=1 tools=[] pinned=None 10.1s
+  threat_intel[1] conversational #0: ok  finish=stop answer=1351 thinking=2831 calls=1 tools=[] pinned=None 11.3s
+  threat_intel[0] agent #1: ok  finish=stop answer=2334 thinking=3545 calls=8 tools=['search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge'] pinned=None 20.0s
+  threat_intel[0] agent #0: ok  finish=stop answer=1770 thinking=3865 calls=9 tools=['search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge'] pinned=None 21.4s
+  threat_intel[1] conversational #1: ok  finish=stop answer=1659 thinking=3003 calls=1 tools=[] pinned=None 10.2s
+  threat_intel[2] conversational #0: ok  finish=stop answer=979 thinking=1591 calls=1 tools=[] pinned=None 6.5s
+  threat_intel[2] conversational #1: ok  finish=stop answer=1105 thinking=1988 calls=1 tools=[] pinned=None 8.4s
+  threat_intel[1] agent #0: ok  finish=stop answer=1722 thinking=3968 calls=9 tools=['search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge'] pinned=None 22.7s
+  threat_intel[1] agent #1: ok  finish=stop answer=2088 thinking=4312 calls=9 tools=['search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge'] pinned=None 23.7s
+  brief[0] conversational #0: ok  finish=stop answer=938 thinking=2215 calls=1 tools=[] pinned=None 7.3s
+  threat_intel[2] agent #0: ok  finish=stop answer=2048 thinking=2486 calls=3 tools=['search_knowledge', 'search_knowledge'] pinned=None 12.2s
+  threat_intel[2] agent #1: ok  finish=stop answer=2068 thinking=2867 calls=3 tools=['search_knowledge', 'search_knowledge'] pinned=None 13.5s
+  brief[0] conversational #1: ok  finish=stop answer=1008 thinking=926 calls=1 tools=[] pinned=None 4.9s
+  brief[1] conversational #0: ok  finish=stop answer=983 thinking=1885 calls=1 tools=[] pinned=None 6.9s
+  brief[0] agent #0: ok  finish=stop answer=1015 thinking=2217 calls=5 tools=['search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge'] pinned=None 11.8s
+  brief[1] conversational #1: ok  finish=stop answer=834 thinking=1739 calls=1 tools=[] pinned=None 6.2s
+  brief[0] agent #1: ok  finish=stop answer=1082 thinking=2925 calls=6 tools=['search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge'] pinned=None 14.9s
+  brief[1] agent #0: ok  finish=stop answer=1285 thinking=1389 calls=2 tools=['search_knowledge'] pinned=None 7.2s
+  brief[1] agent #1: ok  finish=stop answer=1241 thinking=1481 calls=2 tools=['search_knowledge'] pinned=None 6.7s
+  brief[2] conversational #0: ok  finish=stop answer=1124 thinking=1930 calls=1 tools=[] pinned=None 6.8s
+  brief[2] conversational #1: ok  finish=stop answer=1007 thinking=1791 calls=1 tools=[] pinned=None 6.6s
+  brief[2] agent #0: ok  finish=stop answer=1083 thinking=1481 calls=2 tools=['search_knowledge'] pinned=None 6.9s
+  brief[2] agent #1: ok  finish=stop answer=1299 thinking=1459 calls=2 tools=['search_knowledge'] pinned=None 7.2s
+  definition[0] conversational #0: ok  finish=stop answer=871 thinking=2125 calls=1 tools=[] pinned=None 8.3s
+  definition[0] conversational #1: ok  finish=stop answer=925 thinking=2109 calls=1 tools=[] pinned=None 8.9s
+  definition[0] agent #0: ok  finish=stop answer=1391 thinking=1314 calls=2 tools=['search_knowledge'] pinned=None 7.6s
+  definition[0] agent #1: ok  finish=stop answer=1918 thinking=1702 calls=3 tools=['search_knowledge', 'search_knowledge'] pinned=None 10.3s
+  definition[1] conversational #0: ok  finish=stop answer=701 thinking=2504 calls=1 tools=[] pinned=None 8.5s
+  definition[1] conversational #1: ok  finish=stop answer=1073 thinking=2527 calls=1 tools=[] pinned=None 9.5s
+  definition[1] agent #0: ok  finish=stop answer=1109 thinking=1283 calls=2 tools=['search_knowledge'] pinned=None 6.5s
+  definition[1] agent #1: ok  finish=stop answer=965 thinking=1187 calls=2 tools=['search_knowledge'] pinned=None 6.5s
+  definition[2] conversational #0: ok  finish=stop answer=1078 thinking=2759 calls=1 tools=[] pinned=None 9.9s
+  definition[2] conversational #1: ok  finish=stop answer=920 thinking=3168 calls=1 tools=[] pinned=None 10.3s
+  CONTROL(non-security)[0] conversational #0: DRIFT missing sections: Summary, Key facts, Assessment finish=stop answer=383 thinking=1008 calls=1 tools=[] pinned=None 3.2s
+      answer head: "I'm Auspex, a threat intelligence analyst. I'm not able to write a generic status update without context about your specific work, projects, or the threat intelligence you need analyzed. \n\nIf you have a specific threat, actor, campaign, malware family, or vulnerability you'd like me to analyze, I can provide a structured assessment with summary, key facts, and evaluation sections."
+  definition[2] agent #0: ok  finish=stop answer=1380 thinking=1508 calls=4 tools=['search_knowledge', 'search_knowledge', 'search_knowledge'] pinned=None 9.7s
+  CONTROL(non-security)[0] conversational #1: DRIFT missing sections: Summary, Key facts, Assessment finish=stop answer=308 thinking=741 calls=1 tools=[] pinned=None 2.6s
+      answer head: "I can't write a status update for your manager without knowing what work you've done this week. As Auspex, I'm a security operations co-analyst focused on threat intelligence. If you have questions about threats, actors, campaigns, malware, or vulnerabilities, I can provide an analyst-to-analyst assessment."
+  CONTROL(non-security)[0] agent #0: DRIFT missing sections: Summary, Key facts, Assessment finish=stop answer=638 thinking=798 calls=1 tools=[] pinned=None 3.8s
+      answer head: "\nI'd be happy to help you write a status update for your manager! However, I'll need some information about your week to create a meaningful update. Could you please share:\n\n1. **Key projects/activities** you worked on this week\n2. **Accomplishments** or completed tasks\n3. **Challenges** or obstacles you encountered\n4. **Priorities** for next week\n5. **Any blockers** that need management attention\n6. **Metrics or progress** made on key initiatives\n\nOnce you provide these details, I can help you structure a professional status update that highlights your contributions and keeps your manager informed of your progress and priorities."
+  definition[2] agent #1: ok  finish=stop answer=1073 thinking=1585 calls=4 tools=['search_knowledge', 'search_knowledge', 'search_knowledge'] pinned=None 9.1s
+  CONTROL(non-security)[0] agent #1: DRIFT missing sections: Summary, Key facts, Assessment finish=stop answer=486 thinking=657 calls=1 tools=[] pinned=None 2.9s
+      answer head: "\nI'd be happy to help you write a status update for your manager! However, I'll need some more information about what you'd like to include. Could you please share:\n\n- What projects or tasks you worked on this week\n- Key accomplishments or deliverables\n- Any challenges or blockers you encountered\n- Progress toward goals or milestones\n- What you're planning for next week\n\nOnce you provide these details, I can help you organize them into a clear and professional status update format."
+
+==============================================================================
+mode                     path              n  ok drift empty err
+CONTROL(non-security)    agent             2   0     2     0   0
+CONTROL(non-security)    conversational    2   0     2     0   0
+alert_triage             conversational    6   6     0     0   0
+brief                    agent             6   6     0     0   0
+brief                    conversational    6   6     0     0   0
+definition               agent             6   6     0     0   0
+definition               conversational    6   6     0     0   0
+ioc_enrichment           agent             6   6     0     0   0
+ioc_enrichment           conversational    6   6     0     0   0
+phishing_analysis        conversational    6   6     0     0   0
+threat_intel             agent             6   6     0     0   0
+threat_intel             conversational    6   6     0     0   0
+security questions, conversational: 36/36 conformant
+security questions, agent: 24/24 conformant
+
+drift reasons:

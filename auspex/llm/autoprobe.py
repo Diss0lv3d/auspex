@@ -55,9 +55,10 @@ _RETRY = frozenset({"unreachable", "unusable", "busy"})
 SCORECARD_MAX_AGE_SECONDS = 7 * 24 * 3600.0
 REPROBE_CHECK_SECONDS = 6 * 3600.0
 
-# What a re-probe compares, because each of these changes what a deep turn does:
-# the reasoning path (D-016/D-036), the agent path (D-037), and the structured
-# pass (D-043).
+# What a re-probe compares: the reasoning path (D-016/D-036) and the agent path
+# (D-037) are chosen from these, and the JSON modes are what a structured pass
+# would need (D-043 measured one and declined it — a change is still worth
+# knowing).
 _WATCHED = ("native_reasoning", "native_tool_calling", "streaming_tool_deltas",
             "json_object_mode", "json_schema_mode")
 

@@ -1,5 +1,25 @@
 # Technical debt — logged the moment it's taken
 
+## TD-043 (S27) — an agent turn on a thinly covered topic spends the whole step cap re-searching
+
+**Where:** `auspex/agent/loop.py` (`DEFAULT_MAX_STEPS = 8`) with the
+`search_knowledge` tool (`auspex/agent/capabilities.py`).
+**Measured (S27, docs/probes/2026-10-10-s27-contract-drift.md, Result 3):**
+4 of 6 `threat_intel` agent turns on topics the curated KB covers thinly
+(LockBit initial access, RMM abuse) made **8 `search_knowledge` calls and the
+synthesis pass, 9 inference calls for one turn**, in about 21 s. The model
+re-queried with new wording each time. The ATT&CK-shaped question stopped after
+2 searches. Every answer still conformed.
+**Risk:** LOW-MEDIUM, and it is about cost. Each call is the customer's
+inference (D-005). The `default` workspace's ceiling of 100 calls an hour is
+11 such turns. The step cap bounds the spend, but here the cap is the normal
+path, not the exception.
+**Path to fix (not chosen yet):** have a miss say that rewording will not help,
+or cap repeat calls to one tool per turn, or count distinct-result calls toward
+the cap. Measure with the same prompts before and after.
+**Trigger:** the next change to the agent's tools, or the first workspace that
+hits its ceiling on agent turns.
+
 ## TD-042 (S27) — an approved run that never started has no door and no queue slot
 
 **Where:** `auspex/routes/proposals.py` `approve` → `ActionExecutor.execute`
@@ -912,9 +932,13 @@ them shipped in S22.** Whoever picks this up next needs the distinction:
   configuration we issued, cuts the turn off, and refuses to persist it.
   Calibrated on 34 live answers (`SHINGLE_WORDS = 8`, legitimate ceiling 6);
   record: docs/probes/2026-08-16-s22-outguard.md.
-- **(b) Contract-conformance repair — STILL OPEN**, and it is what the original
-  S9 entry below actually describes. A non-conforming answer (missing `## Risk`,
-  out-of-enum value) is still reported and not repaired. Unchanged by S22.
+- **(b) Contract-conformance repair — RESOLVED S27, D-043**, measured first
+  (docs/probes/2026-10-10-s27-contract-drift.md: drift 0/60 on security
+  questions across both deep paths, laundering 0/6). For the two code-decided
+  modes the answer is held, validated, re-asked once, and otherwise rendered by
+  code: the analyst is never shown a verdict off its pin. The narrative modes
+  stay streamed and reported, deliberately; the "contract drift" log line is the
+  trigger to revisit them. The structured JSON pass was declined, on measurement.
 
 **The two bounds (a) deliberately does not cover**, both named in D-030: a
 paraphrase of the configuration rather than a verbatim run, and an injection

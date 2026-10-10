@@ -1304,3 +1304,77 @@ like, and the schedule bounds staleness without having to tell the two apart.
 **What this supersedes.** D-038's "once per fingerprint", in that a
 fingerprint is now probed once per week. Everything else in D-038 stands.
 
+## D-043 — A code-decided verdict is never shown off its pin (TD-012(b)) (2026-10-10, S27)
+
+**Context.** TD-012(b), carried since S9. The answer is validated against its
+mode's contract only after it has streamed, so a non-conforming answer is
+reported in the done frame and never repaired. TD-012 sketched the repair as a
+non-streamed structured pass, validated before emit, re-asked once on failure,
+using `json_schema_mode`. S27 measured first
+(docs/probes/2026-10-10-s27-contract-drift.md):
+- **Drift on security questions: 0 of 60**, every mode, both deep paths.
+- **Laundering: 0 of 6.** Pastes written to steer the code-decided
+  Risk/Verdict did not move glm-4.5-air off the pin.
+- The only failures were the known non-security control (4/4). That is a mode
+  resolver problem.
+- The scorecard records `json_object_mode: true`, `json_schema_mode: false`
+  (`json_schema` is silently ignored on this endpoint).
+
+So on the dev endpoint the sketched repair would repair nothing, and it would
+cost every answer its streaming. **The two failures are not the same size.** A
+drifted narrative answer loses structure. A laundered alert or phishing
+verdict replaces the one field the code exists to own (ADR 0006), and today
+that is **detected after the analyst has read it** (the S12 honesty test pins
+exactly that). That is the part worth a guarantee on any endpoint. Burhan put
+TD-012(b) in scope as the S27 goal.
+
+**Decision.**
+1. **Held, then validated, for the code-decided modes only** (`alert_triage`,
+   `phishing_analysis`). Thinking streams as before. The answer's content goes
+   through the output rail as it arrives, but the analyst is sent it only once
+   it is complete and has passed the contract and the code's pins.
+2. **One re-ask on failure.** That covers a missing section, an out-of-enum
+   value, an off-pin value, or no answer at all. The re-ask is the same
+   messages plus a repair directive compiled from the contract and the pins,
+   which carries **field names and the code's values only**. The failed draft
+   and its tokens are model output, possibly steered by the paste, and never
+   enter a system message. The re-ask is claimed like any other call (TD-018).
+   Its thinking streams. Its content is held, scanned and validated in the
+   same way.
+3. **Then the code answers.** If the re-ask fails, is refused by the ceiling, or
+   the endpoint errors, the analyst gets the contract's sections rendered by
+   code from the deterministic verdict: the Risk or Verdict, the itemised
+   signals or findings, and the recommendation. It opens with one sentence
+   saying the written analysis was withheld. It conforms by construction, and
+   a test asserts that.
+4. **The done frame says what happened.** `contract_valid` now describes the
+   answer the analyst received. A new `contract_repair` field is `null`,
+   `"reasked"` or `"code_rendered"`. The first attempt's failure is logged with
+   field names only.
+5. **Narrative modes are unchanged.** `definition`, `ioc_enrichment`,
+   `threat_intel` and `brief`, on both paths, keep streaming and keep
+   reporting (measured 60/60). The existing "contract drift" log line is the
+   trigger to revisit.
+6. **No JSON mode.** The validator is the one compiled from the spec (ADR 0007)
+   and works on any endpoint. `json_schema` does not work here. `json_object`
+   would change an output format measured as conformant, for no measured gain.
+7. **The repair directive is configuration we issue,** so it is in the rail's
+   index from the start of the turn. A re-ask that recites it is cut and not
+   persisted, like any other leak.
+
+**Bounds, stated.**
+- The model's thinking still streams for these modes, and it may quote the
+  paste or weigh the steered value. The Thinking pane is process. The verdict
+  is what is now guaranteed.
+- A held answer arrives as one block, after thinking. Measured for these
+  modes: medians of 315–487 chars of answer after 1.4–1.6k chars of thinking,
+  in 5–6 s.
+- A re-ask is a second call on the rare failing turn.
+
+**What this supersedes.** The S11/S12 statement, in `auspex/phishing/render.py`
+and in `test_phishing_verdict_cannot_be_laundered_below_the_floor`, that the
+pin "DETECTS the launder — it does not prevent it". For these two modes it now
+prevents the analyst from being shown it. No ratified decision is overturned.
+TD-012's "re-ask once" is adopted for these modes; its structured pass is
+declined, on measurement.
+
