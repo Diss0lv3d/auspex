@@ -244,7 +244,8 @@ complete; S21–S25 were each scoped by a decision rather than a plan.**
 
 ## Host notes (reality snapshot)
 - Postgres 55432; app 8000; OpenSearch 9200. Host runs pin via `auspex.devhost`.
-- Ollama 0.32.5 on :11434 (root `http://localhost:11434/v1`, D-033); models
+- Ollama 0.34.0 on :11434 (was 0.32.5; seen 0.34.0 at the 2026-10-10 S26
+  resume ritual) (root `http://localhost:11434/v1`, D-033); models
   qwen3:14b / llama3.1:8b / mistral:latest.
 - **Primary dev LLM is glm-4.5-air on Z.ai (D-034)** — `https://api.z.ai/api/paas/v4`,
   pay-as-you-go key in `.env` as both `GLM_API_KEY` and `LLM_API_KEY`. **Never the
