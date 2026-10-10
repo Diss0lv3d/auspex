@@ -23,7 +23,7 @@ PROMPT = "Is paypa1-secure.com a lookalike of paypal.com? One short line."
 
 
 async def main():
-    client = LLMClient("http://localhost:11434", "qwen3:14b")
+    client = LLMClient("http://localhost:11434/v1", "qwen3:14b")  # D-033: the documented root
     seq = []          # the ordered kind sequence, collapsed to runs
     counts = {}
     try:
