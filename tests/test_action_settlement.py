@@ -1917,3 +1917,49 @@ async def test_a_huge_request_still_files_and_still_finds_its_twin(
     queued = {p["id"]: p for p in await settlement.pending(workspace_id=workspace_id)}
 
     assert queued[first["id"]]["identical_pending"] == [second["id"]]
+
+
+async def test_a_read_that_did_not_look_for_twins_does_not_say_there_are_none(
+    pool, client, route_ws
+):
+    """Review of 6811d45: `_public` sent `identical_pending: []` on GET /{id} and
+    on every decision response — where nobody looked — which reads as "no
+    twins" while two may be waiting. Not looked: null."""
+    ws, obs_id = route_ws
+    registry = ActionRegistry()
+    registry.register_all(build_builtin_actions(pool))
+    spec = registry.get("annotate_observable")
+    _, first = await _file(pool, registry, spec, ws, obs_id, note="same words")
+    await _file(pool, registry, spec, ws, obs_id, note="same words")
+
+    one = client.get(f"/api/proposals/{first['id']}", headers=_hdr(client)).json()
+
+    assert one["identical_pending"] is None
+
+
+async def test_a_failed_run_of_an_action_with_no_undo_is_not_promised_one(
+    pool, client, route_ws
+):
+    """Review of 203cccc: the 500 promised "undo will remove what landed" for
+    an action that declares no undo. It names the door that exists: keep."""
+    ws, obs_id = route_ws
+    app_spec = client.app.state.action_registry.get("annotate_observable")
+    no_undo = dataclasses.replace(app_spec, undo=None)
+
+    async def writes_then_dies(**kwargs):
+        await app_spec.execute(**kwargs)
+        raise RuntimeError("died after the write")
+
+    filing = ActionRegistry()
+    filing.register(dataclasses.replace(
+        build_builtin_actions(pool)[0], undo=None))
+    _, proposal = await _file(pool, filing, filing.get("annotate_observable"), ws, obs_id)
+    real = client.app.state.action_registry
+    client.app.state.action_registry = _with(no_undo, execute=writes_then_dies)
+    try:
+        resp = client.post(f"/api/proposals/{proposal['id']}/approve", headers=_hdr(client))
+    finally:
+        client.app.state.action_registry = real
+
+    detail = resp.json()["detail"]
+    assert resp.status_code == 500 and "keep" in detail and "undo will" not in detail

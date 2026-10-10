@@ -100,8 +100,11 @@ def _public(row: dict) -> dict:
         # Which operation a human gave up on (TD-034): `executing` or `undoing`.
         "abandoned_from": row.get("abandoned_from"),
         # The other requests awaiting a decision that ask exactly this (TD-028d)
-        # — present on queue reads; an approver asked twice can see it.
-        "identical_pending": [str(i) for i in row.get("identical_pending") or []],
+        # — computed only by the queue read. Where nobody looked it is null,
+        # never [] (which would read as "no twins").
+        "identical_pending": (
+            [str(i) for i in row["identical_pending"]] if "identical_pending" in row else None
+        ),
         "arguments": row["tool_input"],
         "card": row["card"],
         "spec_fingerprint": row["spec_fingerprint"],
@@ -114,16 +117,24 @@ def _public(row: dict) -> dict:
 # alone read as "nothing happened" when the write had landed.
 _EFFECTS_COPY = {
     "none": "the action checked and nothing of it landed",
-    "present": "part of it landed before it failed — undo will remove what landed",
-    "unknown": "it cannot tell whether any of it landed — undo will remove whatever did",
+    "present": "part of it landed before it failed",
+    "unknown": "it cannot tell whether any of it landed",
 }
 
 
-def _failure_detail(row: dict | None) -> str:
+def _failure_detail(row: dict | None, can_put_back: bool) -> str:
+    """Names the door that exists (S26 review): undo only where the action
+    declares one, and keep — for what landed — always."""
     if row is None:
         return "the action was approved and failed while running"
     effects = (row.get("result") or {}).get("effects")
     found = _EFFECTS_COPY.get(effects, "its effects were not checked")
+    if effects in ("present", "unknown"):
+        found += (
+            " — undo will remove what landed, or keep it as it is"
+            if can_put_back
+            else " — this action declares no undo: keep it as it is, or clean up by hand"
+        )
     return (
         f"the action was approved and failed while running: {found}; "
         f"its proposal is {row['status']}"
@@ -335,9 +346,10 @@ async def approve(request: Request, auth: Auth, proposal_id: UUID) -> dict:
         row = await _settlement(request).get(
             workspace_id=auth.workspace_id, proposal_id=proposal_id
         )
+        spec = request.app.state.action_registry.get(row["tool_name"]) if row else None
         raise HTTPException(
             status_code=500,
-            detail=_failure_detail(row),
+            detail=_failure_detail(row, can_put_back=bool(spec and spec.undo)),
         ) from None
 
     row = await _settlement(request).get(
