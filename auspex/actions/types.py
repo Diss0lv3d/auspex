@@ -302,6 +302,20 @@ def validate_spec(spec: ActionSpec) -> None:
                 "restores nothing, and the approval was granted on the undo's strength"
             )
 
+    if spec.observe is not None:
+        # S26 review of D-041, reproduced: `observe=execute` registered, and when
+        # a run failed the platform's "look" ran the action a second time,
+        # unapproved. The look must be its own callable — not the run, not the
+        # preview (which would always say nothing landed), not the put-back.
+        if not callable(spec.observe):
+            raise ActionSpecError(f"{spec.name}: observe must be callable")
+        undo_handler = spec.undo.handler if spec.undo is not None else None
+        if spec.observe in (spec.execute, spec.dry_run) or spec.observe is undo_handler:
+            raise ActionSpecError(
+                f"{spec.name}: observe is this action's own execute, dry_run or undo — "
+                "a look that runs, previews or reverts is not a look"
+            )
+
     if not spec.scope:
         raise ActionSpecError(
             f"{spec.name}: declare at least one scope — an approver is consenting to "

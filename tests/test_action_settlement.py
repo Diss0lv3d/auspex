@@ -32,6 +32,7 @@ from auspex.actions import (
     ActionRisk,
     ActionScope,
     ActionSpec,
+    ActionSpecError,
     ExecutionRefused,
     ParamType,
     ProposalSettlement,
@@ -1838,3 +1839,42 @@ async def test_keep_through_the_surface(pool, client, route_ws):
 
     assert kept.status_code == 200 and kept.json()["proposal"]["status"] == "kept"
     assert early.status_code == 409
+
+
+# -- review of D-041: what an effects probe may be, and what its answer means --
+
+
+@pytest.mark.parametrize("slot", ["execute", "dry_run", "undo"])
+def test_the_look_cannot_be_the_run_the_preview_or_the_put_back(spec, slot):
+    """Review finding 4, reproduced: `observe=execute` registered happily, and
+    when a run failed the platform's "look" ran the action a SECOND time,
+    unapproved — one more note, and the row went `incomplete`. The same rails
+    the undo slot has (S18 Step 0), for the same reason."""
+    handler = {"execute": spec.execute, "dry_run": spec.dry_run,
+               "undo": spec.undo.handler}[slot]
+
+    with pytest.raises(ActionSpecError):
+        dataclasses.replace(spec, observe=handler)
+
+
+def test_the_look_must_be_callable(spec):
+    with pytest.raises(ActionSpecError):
+        dataclasses.replace(spec, observe=3)
+
+
+@pytest.mark.parametrize("answer", [None, True, "0", 0.0, [], -1])
+async def test_only_a_count_of_zero_means_nothing_landed(
+    pool, registry, spec, workspace_id, an_observable, answer
+):
+    """Review finding 4, reproduced: an `observe` that forgot its `return` gave
+    `None`, which read as falsy — `failed`, effects `none` — while the write was
+    in the table. "Nothing landed" is a claim; only an int 0 makes it."""
+    settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
+    with pytest.raises(RuntimeError):
+        await ActionExecutor(pool, _with(
+            spec, observe=mock.AsyncMock(return_value=answer),
+            execute=mock.AsyncMock(side_effect=RuntimeError("x")))
+        ).execute(workspace_id=workspace_id, proposal_id=pid)
+
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert (row["status"], row["result"]["effects"]) == ("incomplete", "unknown")

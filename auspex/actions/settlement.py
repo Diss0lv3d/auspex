@@ -718,7 +718,13 @@ async def _effects(
         )
     except Exception:
         return "unknown"
-    return "present" if found else "none"
+    # "Nothing landed" is a claim, and only a count of zero makes it: a probe
+    # that forgot its `return` gives None, which is falsy and would read as
+    # `failed` while the write sits in the table (S26 review). bool is an int
+    # subclass and is not a count either.
+    if type(found) is not int or found < 0:
+        return "unknown"
+    return "present" if found > 0 else "none"
 
 
 def _outcome_json(outcome: ActionOutcome) -> dict:
