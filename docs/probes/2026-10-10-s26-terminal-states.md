@@ -4,14 +4,16 @@
 - **Scope:** TD-028 (b/c/d) and TD-034, fixed in `f263c1d` `203cccc` `1c6c9bd`
   `6811d45`; decision D-041.
 - **Hermetic proof:** `tests/test_action_settlement.py`. 19 new tests and 2
-  reversed or regeneralised, each failing before its fix. Mutants run against
-  every new branch: 11 of 11 caught.
-  - TD-034 late-write: 1 mutant.
+  reversed or regeneralised, each failing before its fix. Mutants run: **8 of 8
+  caught**.
   - (b): 4 mutants, covering failed vs incomplete, cannot-look, look-fails and
     the queue.
   - (c): 3 mutants, covering the claim from the status read, return-to-origin
     and nothing-to-undo.
   - (d): 1 mutant, tenant scoping of the twin lookup.
+  - TD-034 had **no mutant run**. Its tests were watched failing before the fix
+    (RED), which proves the same thing for that statement. (Corrected at
+    session end: this line first said "11 of 11", which was a miscount.)
 - **Live:** `docs/probes/s26-step0/probe_terminal_states_live.py`, against the
   rebuilt container (its migrations added `incomplete` to the status CHECK and
   the `abandoned_from` column). Raw: `raw/2026-10-10-terminal-states-live.log`.
