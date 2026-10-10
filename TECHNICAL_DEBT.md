@@ -26,6 +26,14 @@ own `reasoning` events instead of discarding them.
 **Trigger:** the first non-dev deployment, or the first dev endpoint change made
 without re-running the harness (the dev deployment's row is per fingerprint).
 
+**When it is fixed, move the guard.** Today the reserved workspace is protected
+only where users are provisioned (`get_or_create_user`); the D-035 review showed
+a directly-inserted `__deployment__` user resolves at `resolve_user` (no route
+can create one, and anyone who can INSERT could poison the scorecard directly,
+so it is not exploitable now). The first route that lets a workspace probe or
+write a scorecard must refuse `DEPLOYMENT_WORKSPACE` at `resolve_user` too, with
+a regression test that inserts such a user and expects 401.
+
 ## TD-035 (S24) — a pass-1 leak is charged for the call it prevented
 **Where:** `auspex/routes/chat.py` — the TD-018 usage claim, taken before the
 first inference call.
