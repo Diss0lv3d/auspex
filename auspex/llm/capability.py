@@ -20,6 +20,11 @@ from auspex.llm.scorecard import CapabilityScorecard
 # paths judge thinking models on the same footing.
 PROBE_MAX_TOKENS = 2000
 
+# The note a probe leaves when the endpoint answered /models but could not chat
+# — a wrong key, a wrong model name. It measured nothing about the ENDPOINT, so
+# the startup probe does not record it (D-038).
+BASIC_CHAT_FAILED = "basic chat failed — endpoint reachable but not usable"
+
 _PROBE_TOOL = tool_spec(
     "get_weather",
     "Get current weather for a city.",
@@ -134,7 +139,7 @@ async def probe_capabilities(
     # basic chat sanity (also warms the model for the timing probe)
     basic = await probe("basic_chat", [{"role": "user", "content": "Reply with exactly: pong"}])
     if basic is None:
-        sc.notes.append("basic chat failed — endpoint reachable but not usable")
+        sc.notes.append(BASIC_CHAT_FAILED)
         return sc
     # Native reasoning: thinking models return their thinking on a separate field
     # (`reasoning` or `reasoning_content` — the client reads both, D-033). Read it

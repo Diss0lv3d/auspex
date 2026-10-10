@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     llm_base_url: str = ""
     llm_model: str = ""
     llm_api_key: str = ""
+    # D-038: probe the configured endpoint once per fingerprint, in the
+    # background at startup, and record the deployment's scorecard. Spends ~15
+    # requests of the customer's inference once per endpoint (D-005 — so it is
+    # switchable). Tests/host runs pin LLM_AUTOPROBE_ENABLED=false (hermetic).
+    llm_autoprobe_enabled: bool = True
 
     # --- Enrichment (S5). Keyless providers (InternetDB, hashlookup, OTX) are
     # always on when enabled; key-gated ones activate when their key exists.
