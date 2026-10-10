@@ -1,5 +1,31 @@
 # Technical debt — logged the moment it's taken
 
+## TD-042 (S27) — an approved run that never started has no door and no queue slot
+
+**Where:** `auspex/routes/proposals.py` `approve` → `ActionExecutor.execute`
+(`auspex/actions/settlement.py`). `settle` moves the row to `approved`; the run
+claims it (`approved` → `executing`) a few awaits later.
+**Risk:** LOW today, and the same shape as TD-028a. If the process dies between
+the two statements, the row is `approved` with no claim:
+- `pending()` does not list it (it lists pending, incomplete and stale claims);
+- `reject`, `abandon` and `keep` all return `already_decided`;
+- there is no execute route apart from approve, which needs `pending_approval`.
+
+Reproduced at S27: `docs/probes/s27-review/probe_approved_wedge.py`. The same
+state is the honest end of an execute-time refusal (spec or risk changed), and
+that response says so. The crash case is told to nobody.
+**Why not fixed at S27:** found by the review, outside the commits under review,
+and the door is a decision. Because no claim was ever taken, no handler ever
+started, so re-running is safe. But an approval given an hour ago may not be
+one a human would give now (TD-023's reasoning), so "re-run" vs "withdraw" is
+a call about what an approval means once time has passed.
+**Path to fix:** list unclaimed `approved` rows older than STALE_CLAIM_SECONDS in
+the queue, and give them a door: `POST /{id}/execute`, which re-runs every
+`check_executable` guarantee, and/or a withdraw to `rejected`. Record the
+choice as a decision.
+**Trigger:** the first action that reaches a network, or a second process
+writing proposals.
+
 ## TD-041 (S26) — the deployment scorecard never expires
 
 **Where:** `auspex/llm/autoprobe.py`. D-038 probes once per fingerprint
