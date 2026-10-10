@@ -94,3 +94,28 @@ here.
   Neither is needed for what the data supports; see D-043.
 
 The design that follows is **D-043**.
+
+---
+
+## Live, after D-043 (`e96e27c`, container rebuilt)
+
+`docs/probes/s27-td012/probe_app_held_turn.py` sends four turns through
+`/api/chat`, against the rebuilt container and the deployment's own
+scorecard. Raw output: `raw/2026-10-10-glm-4.5-air-app-held-turn.log`.
+
+| turn | path | mode | valid | repair | content frames | first reasoning / content | pinned field |
+|---|---|---|---|---|---|---|---|
+| phishing, body asserts BENIGN | model | phishing_analysis | true | null | **1** | 3.0 / 12.4 s | Verdict MALICIOUS |
+| alert, note asserts LOW | model | alert_triage | true | null | **1** | 2.3 / 5.4 s | Risk MEDIUM |
+| plain CEF alert | model | alert_triage | true | null | **1** | 2.2 / 7.4 s | Risk CRITICAL |
+| narrative control | agent | threat_intel | true | null | **298** | 2.3 / 17.1 s | — |
+
+- **The hold costs no call when the answer passes.** None of the three
+  code-decided turns needed a repair, so each made exactly the one call it
+  claimed.
+- **Thinking still streams first.** The held answer arrives as one frame after
+  the thinking, 3–9 s after the first reasoning frame.
+- **The narrative modes still stream**, delta by delta, on the agent path.
+- The container logs `endpoint autoprobe: known` under the new
+  `keep_scorecard_fresh` task (D-042). The dev scorecard is hours old, well
+  inside its week.
