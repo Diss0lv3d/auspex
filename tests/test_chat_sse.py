@@ -1834,6 +1834,26 @@ def test_a_turn_landing_in_between_cannot_make_the_message_go_out_twice(client, 
     assert sent[-1] == "and how do I detect it?"
 
 
+def test_a_tool_name_the_model_invented_never_reaches_the_log(client, caplog):
+    """Review of 1b86070. The agent-turn log line listed every invocation's name,
+    and for an unknown tool the name is whatever the model sent — model output
+    in the server log, against this route's own rule and the org's."""
+    invented = "payroll_export_for_jdoe_ssn_000000000"
+    fake = SequencedStreamingFakeLLMClient(
+        [_tool_step(name=invented, arguments="{}"), _answer_step("Done.")]
+    )
+    _use_agent(client.app, fake)
+    try:
+        with caplog.at_level("INFO", logger="auspex.chat"):
+            frames = _post_deep(client, _AGENT_QUESTION)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert [f["tool"]["status"] for f in frames if "tool" in f] == ["error"]
+    assert any("agent turn:" in r.getMessage() for r in caplog.records)
+    assert all(invented not in r.getMessage() for r in caplog.records)
+
+
 def test_an_agent_turn_carries_the_session_the_way_the_route_composes_it(client):
     """What goes on the wire: the loop's system message first, the fence
     directive, prior turns with every assistant turn fenced (TD-009), the mode

@@ -855,7 +855,10 @@ async def chat(
                 "agent turn: mode=%s steps=%d tools=%s stop=%s",
                 mode.value,
                 agent_done.step,
-                [i.name for i in agent_done.invocations],
+                # Registered names only: an unknown one is whatever the model
+                # sent, and model output stays out of the log.
+                [i.name if i.name in loop.registry else "<unregistered>"
+                 for i in agent_done.invocations],
                 agent_done.stop_reason,
             )
         leak = scanner.result()
