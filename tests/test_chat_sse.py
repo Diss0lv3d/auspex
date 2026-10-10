@@ -1478,9 +1478,10 @@ def test_a_pass_one_leak_cannot_be_followed_by_a_switch(client, settings):
 _AGENT_QUESTION = "how does kerberoasting lead to domain admin?"
 
 
-def _use_agent(app, fake, *, agent_mode="native_tools"):
+def _use_agent(app, fake, *, agent_mode="native_tools", streams_tools=True):
     app.dependency_overrides[get_endpoint_resolver] = lambda: ChatEndpointResolver.fixed(
-        ChatEndpoint(client=fake, native_reasoning=True, id="test", agent_mode=agent_mode)
+        ChatEndpoint(client=fake, native_reasoning=True, id="test", agent_mode=agent_mode,
+                     streams_tools=streams_tools)
     )
 
 
@@ -1595,6 +1596,22 @@ def test_an_endpoint_not_measured_to_call_tools_stays_conversational(client, age
 
     assert frames[-1]["done"]["path"] == "model"
     assert fake.turns == 1 and "tools" not in fake.stream_calls[0]["kwargs"]
+
+
+def test_an_endpoint_that_does_not_stream_its_tool_calls_stays_conversational(client):
+    """D-037 clause 2, sharpened for D-038: `native_tools` is decided from a
+    NON-streaming probe, but the agent path only exists streaming. An endpoint
+    that calls tools but was not measured streaming them would hand `run_stream`
+    a tool call it never sees as one."""
+    fake = StreamingFakeLLMClient(_answer_step("An answer."))
+    _use_agent(client.app, fake, streams_tools=False)
+    try:
+        frames = _post_deep(client, _AGENT_QUESTION)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert frames[-1]["done"]["path"] == "model"
+    assert "tools" not in fake.stream_calls[0]["kwargs"]
 
 
 @pytest.mark.parametrize("message,mode", [

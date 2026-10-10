@@ -190,7 +190,7 @@ def test_the_chat_resolver_itself_reads_the_deployment_scorecard(
     client = default_endpoint_is_the_test_one
     _db(settings, lambda pool: save_deployment_scorecard(pool, _sc(native_reasoning=True)))
 
-    endpoint_id, native, base_url, _ = _resolve_as_the_analyst(client)
+    endpoint_id, native, base_url, *_ = _resolve_as_the_analyst(client)
 
     assert (endpoint_id, base_url) == ("default", TEST_BASE.rstrip("/"))  # it IS the default
     assert native is True
@@ -216,7 +216,7 @@ def _resolve_as_the_analyst(client):
         endpoint = await (await get_endpoint_resolver(request, auth)).resolve()
         try:
             return (endpoint.id, endpoint.native_reasoning, endpoint.client.base_url,
-                    endpoint.agent_mode)
+                    endpoint.agent_mode, endpoint.streams_tools)
         finally:
             await endpoint.client.aclose()
 
@@ -239,6 +239,23 @@ def test_the_resolver_carries_the_mode_the_deployment_scorecard_compiles_to(
     tools = _sc(native_reasoning=True).model_copy(update={"native_tool_calling": True})
     _db(settings, lambda pool: save_deployment_scorecard(pool, tools))
     assert _resolve_as_the_analyst(client)[3] == "native_tools"
+
+
+def test_the_resolver_carries_whether_the_endpoint_streams_its_tool_calls(
+    default_endpoint_is_the_test_one, settings
+):
+    """The agent path streams; `native_tools` is decided non-streaming. The
+    resolver carries the streaming measurement so the route can require both."""
+    client = default_endpoint_is_the_test_one
+    assert _resolve_as_the_analyst(client)[4] is False  # unprobed: not measured
+
+    calls = _sc(native_reasoning=True).model_copy(update={"native_tool_calling": True})
+    _db(settings, lambda pool: save_deployment_scorecard(pool, calls))
+    assert _resolve_as_the_analyst(client)[3:] == ("native_tools", False)
+
+    streams = calls.model_copy(update={"streaming_tool_deltas": True})
+    _db(settings, lambda pool: save_deployment_scorecard(pool, streams))
+    assert _resolve_as_the_analyst(client)[3:] == ("native_tools", True)
 
 
 def test_the_newest_deployment_probe_wins(default_endpoint_is_the_test_one, settings):

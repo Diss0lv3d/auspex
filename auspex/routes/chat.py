@@ -154,6 +154,9 @@ class ChatEndpoint:
     native_reasoning: bool
     id: str = "default"
     agent_mode: AgentMode | None = None
+    # Measured streaming its tool calls (`streaming_tool_deltas`). The agent
+    # path only exists streaming, and `native_tools` is decided non-streaming.
+    streams_tools: bool = False
 
 
 # D-037 clause 1: modes whose verdict the CODE computes and validation pins.
@@ -281,6 +284,7 @@ async def get_endpoint_resolver(request: Request, auth: Auth) -> ChatEndpointRes
             bool(loaded and loaded[0].native_reasoning),
             "default",
             agent_mode=loaded[1] if loaded else None,
+            streams_tools=bool(loaded and loaded[0].streaming_tool_deltas),
         )
 
     return ChatEndpointResolver(configured=True, factory=_default_factory)
@@ -609,9 +613,14 @@ async def chat(
     endpoint = await resolver.resolve()
 
     # D-037: the agent path, for any deep turn the code has not already decided,
-    # on an endpoint MEASURED to call tools natively. Unprobed, prompted_tools
-    # and plan_only endpoints all stay conversational.
-    agent_path = endpoint.agent_mode == "native_tools" and mode not in CODE_DECIDED_MODES
+    # on an endpoint MEASURED to call tools natively — and to stream them, since
+    # this path only exists streaming. Unprobed, prompted_tools and plan_only
+    # endpoints all stay conversational.
+    agent_path = (
+        endpoint.agent_mode == "native_tools"
+        and endpoint.streams_tools
+        and mode not in CODE_DECIDED_MODES
+    )
     path = "agent" if agent_path else "model"
 
     # TD-018 (S19): bound the NUMBER of inference calls a workspace can cause.
