@@ -133,3 +133,36 @@ def test_ci_runs_the_same_gate_a_developer_runs():
         assert duplicated not in workflow, (
             f"the workflow re-implements `{duplicated}` instead of calling ci.sh"
         )
+
+
+def test_the_readme_states_one_current_test_count(request):
+    """The count in the README is a claim like any other, and it rotted twice.
+
+    S20 wrote "902 tests" in two places. S22 updated one of them and missed the
+    other, so the README disagreed with ITSELF for four sessions while both
+    numbers drifted from the suite. Nothing counted, so nothing failed.
+
+    Two failure modes, one test: the number must be stated consistently, and on
+    a full-suite run — which is how `ci.sh` runs it, and therefore how CI does —
+    it must be the number that was actually collected.
+    """
+    stated = {
+        int(m.replace(",", "")) for m in re.findall(r"([0-9][0-9,]+) tests", README.read_text())
+    }
+    assert len(stated) == 1, (
+        f"the README must state exactly one test count, found: {sorted(stated)}"
+    )
+
+    # A subset run collects a handful, so comparing against it would fail for a
+    # reason that is about the invocation rather than the docs. Only a run with
+    # no path argument collected everything.
+    if [a for a in request.config.invocation_params.args if not a.startswith("-")]:
+        pytest.skip("not a full-suite run — the collected count is not the suite's")
+
+    # Bound before the assert: `stated.pop()` inside the comparison empties the
+    # set, and the message then renders the number it exists to report as `[]`.
+    claimed = stated.pop()
+    collected = len(request.session.items)
+    assert claimed == collected, (
+        f"the README says {claimed} tests, the suite collected {collected}"
+    )

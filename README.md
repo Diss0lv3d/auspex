@@ -8,7 +8,7 @@ LLM**. You bring an OpenAI-compatible endpoint; the platform adapts to whatever
 it can actually do. We never pay for inference, and neither does a pilot.
 
 > **Status: pre-beta.** Everything described below is built, tested and running
-> — 1014 tests, `docker compose up` green. The [What Auspex does not do
+> — 1094 tests, `docker compose up` green. The [What Auspex does not do
 > yet](#what-auspex-does-not-do-yet) section is not a roadmap wish-list; it is
 > the honest boundary of what you get today, and it is worth reading before the
 > feature list.
@@ -197,7 +197,7 @@ Read this part. A demo that only walks the happy path is a demo that lies.
 (`auspex-*` index prefix). Embeddings server-side via the OpenSearch ML plugin,
 falling back to in-process sentence-transformers.
 
-**Knowledge base:** ~31,800 documents — NVD CVEs enriched with CISA KEV and FIRST
+**Knowledge base:** ~41,500 documents — NVD CVEs enriched with CISA KEV and FIRST
 EPSS, plus MITRE ATT&CK Enterprise techniques and tactics, ingested on
 watermarked catch-up cycles. Hybrid retrieval (RRF-fused BM25 + kNN) with
 **per-doc_type relevance floors calibrated against the live corpus**, so an
@@ -208,7 +208,7 @@ off-corpus question returns an honest miss instead of a confident wrong answer.
 ## Development
 
 ```bash
-./ci.sh          # the gate: ruff + 902 tests + container build + installed-dist check
+./ci.sh          # the gate: ruff + 1094 tests + container build + installed-dist check
 make check       # same thing
 make up / down   # stack lifecycle
 ```
