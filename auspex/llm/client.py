@@ -3,6 +3,13 @@
 Coded against reality snapshots, not memory (CLAUDE.md rule 4):
 - docs/probes/2026-07-15-ollama-endpoint.md  (+ fixtures in tests/fixtures/llm/ollama/)
 - docs/probes/2026-07-14-llm-endpoint.md     (Finding 0: error bodies may be text/plain)
+- docs/probes/2026-10-10-zai-endpoint.md      (a provider whose API root is not `/v1`)
+
+`base_url` is the API root EXACTLY as the provider documents it for the OpenAI
+SDK — `https://api.openai.com/v1`, `https://api.z.ai/api/paas/v4`,
+`http://localhost:11434/v1` — and only the operation (`/chat/completions`,
+`/models`) is appended here (D-033). Nothing in this module may assume a
+version segment: the customer brings the endpoint, so its path is theirs.
 
 Wire facts the parsing below relies on (probe findings 3, 7, 8, 9, 11):
 - tool_calls carry `arguments` as a JSON string; streamed deltas are keyed by
@@ -154,12 +161,21 @@ class LLMClient:
     # -- reachability ------------------------------------------------------
 
     async def check_reachable(self) -> tuple[bool, str]:
-        """GET /v1/models. A sleeping/scaled-to-zero endpoint is a normal state
-        (2026-07-14 probe) — report, don't raise."""
+        """GET {base_url}/models — the same root chat uses, so a pass here means
+        chat's URL is right too. A sleeping/scaled-to-zero endpoint is a normal
+        state (2026-07-14 probe) — report, don't raise."""
         try:
-            r = await self._http.get(f"{self.base_url}/v1/models", timeout=10.0)
+            r = await self._http.get(f"{self.base_url}/models", timeout=10.0)
         except httpx.HTTPError as err:
             return False, f"transport: {err.__class__.__name__}"
+        if r.status_code == 404:
+            # The likeliest cause is a base URL missing its documented API root
+            # (`http://host:11434` instead of `http://host:11434/v1`). Say so —
+            # a bare 404 reads like the endpoint is down.
+            return False, (
+                "status 404 — LLM_BASE_URL must be the API root the provider "
+                "documents for OpenAI-compatible clients (often ending in /v1)"
+            )
         if r.status_code != 200:
             return False, f"status {r.status_code}: {r.text[:200]}"
         return True, "ok"
@@ -185,7 +201,7 @@ class LLMClient:
             temperature=temperature,
         )
         try:
-            r = await self._http.post(f"{self.base_url}/v1/chat/completions", json=body)
+            r = await self._http.post(f"{self.base_url}/chat/completions", json=body)
         except httpx.HTTPError as err:
             raise LLMUnreachable(f"transport: {err.__class__.__name__}") from err
         if r.status_code >= 400:
@@ -242,7 +258,7 @@ class LLMClient:
         body["stream_options"] = {"include_usage": True}
         try:
             async with self._http.stream(
-                "POST", f"{self.base_url}/v1/chat/completions", json=body
+                "POST", f"{self.base_url}/chat/completions", json=body
             ) as r:
                 if r.status_code >= 400:
                     text = (await r.aread()).decode("utf-8", "replace")

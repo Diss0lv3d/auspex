@@ -17,7 +17,7 @@ services:
         required: false
     # The dev LLM (Ollama, D-013) runs on the HOST, not in compose. host-gateway
     # makes `host.docker.internal` resolve to the host from inside the container,
-    # so the app can reach it via LLM_BASE_URL=http://host.docker.internal:11434
+    # so the app can reach it via LLM_BASE_URL=http://host.docker.internal:11434/v1
     # (set in .env — the container-side value; host runs use localhost via
     # auspex.devhost). A customer's own endpoint is a normal external URL and
     # needs neither this alias nor a host Ollama.

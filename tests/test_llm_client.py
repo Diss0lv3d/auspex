@@ -7,6 +7,7 @@ Every wire shape asserted here was captured live on 2026-07-15
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 
 from auspex.llm.client import (
@@ -181,3 +182,69 @@ def test_error_text_plain_survives():
 def test_error_json_content_type_with_garbage_body():
     err = _extract_error(500, "application/json", "<html>oops</html>")
     assert err.status == 500  # must not raise while parsing
+
+
+# -- the base URL is the provider's documented API root (D-033) --------------
+
+
+def _recording_client(base_url: str, seen: list[str], status: int = 200) -> LLMClient:
+    """An LLMClient whose transport records every request path instead of
+    sending it. Bodies are the minimum each operation parses."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(f"{request.method} {request.url.path}")
+        if status != 200:
+            return httpx.Response(status, text="not here")
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json={"object": "list", "data": []})
+        if b'"stream":true' in request.content.replace(b" ", b""):
+            sse = 'data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n'
+            return httpx.Response(200, text=sse)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    client = LLMClient(base_url, "m")
+    client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    return client
+
+
+@pytest.mark.parametrize(
+    ("base_url", "root"),
+    [
+        # Z.ai's general API: the root has no /v1, and a /v1 inserted under it
+        # is a live 404 while GET .../v1/models is a live 200 — a liveness check
+        # that passes for an endpoint chat cannot reach
+        # (docs/probes/2026-10-10-zai-endpoint.md).
+        ("https://api.z.ai/api/paas/v4", "/api/paas/v4"),
+        ("https://api.z.ai/api/paas/v4/", "/api/paas/v4"),  # as the provider's SDK page prints it
+        ("http://localhost:11434/v1", "/v1"),  # Ollama / vLLM / OpenAI-style roots
+    ],
+)
+async def test_every_operation_appends_to_the_documented_root_and_nothing_else(base_url, root):
+    seen: list[str] = []
+    client = _recording_client(base_url, seen)
+    ok, _ = await client.check_reachable()
+    await client.chat([{"role": "user", "content": "hi"}])
+    await accumulate_stream(client.chat_stream([{"role": "user", "content": "hi"}]))
+    await client.aclose()
+
+    assert ok is True
+    # Arithmetic floor: three operations, three requests — an assertion over
+    # an empty list would pass with the client never called.
+    assert seen == [
+        f"GET {root}/models",
+        f"POST {root}/chat/completions",
+        f"POST {root}/chat/completions",
+    ]
+
+
+async def test_a_404_at_the_root_names_the_likely_misconfiguration():
+    """A pre-D-033 value (`http://host:11434`, no /v1) now 404s at /models. A bare
+    "status 404" reads like the endpoint is down; the note must say what to fix."""
+    seen: list[str] = []
+    client = _recording_client("http://localhost:11434", seen, status=404)
+    ok, detail = await client.check_reachable()
+    await client.aclose()
+
+    assert seen == ["GET /models"]
+    assert ok is False
+    assert "LLM_BASE_URL" in detail and "API root" in detail

@@ -152,12 +152,14 @@ async def main() -> None:
             print(f"endpoint unreachable ({detail}) — aborting, nothing measured")
             sys.exit(1)
 
-        # context hint: vLLM exposes max_model_len on /v1/models; Ollama needs
-        # its native /api/show. Generic code gets None if neither answers.
+        # context hint: vLLM exposes max_model_len on {root}/models; Ollama needs
+        # its native /api/show, which lives beside its OpenAI root, not under
+        # it (D-033: base_url IS the root, e.g. http://host:11434/v1). Generic
+        # code gets None if neither answers.
         max_ctx = None
         try:
             async with httpx.AsyncClient(timeout=10.0) as http:
-                r = await http.get(f"{client.base_url}/v1/models")
+                r = await http.get(f"{client.base_url}/models")
                 if r.status_code == 200:
                     entry = next(
                         (m for m in r.json().get("data", []) if m.get("id") == client.model),
@@ -166,7 +168,8 @@ async def main() -> None:
                     max_ctx = entry.get("max_model_len")
                 if max_ctx is None:
                     r = await http.post(
-                        f"{client.base_url}/api/show", json={"model": client.model}
+                        f"{client.base_url.removesuffix('/v1')}/api/show",
+                        json={"model": client.model},
                     )
                     if r.status_code == 200:
                         info = r.json().get("model_info", {})

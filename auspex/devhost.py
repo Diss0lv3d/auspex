@@ -30,4 +30,4 @@ def pin_host_defaults() -> None:
     # is a public URL that resolves identically from host and container, so .env
     # is the single source of truth. Only if you flip .env back to the local
     # Ollama secondary (host.docker.internal) do host runs need
-    # LLM_BASE_URL=http://localhost:11434 — set it in your shell for that case.
+    # LLM_BASE_URL=http://localhost:11434/v1 — set it in your shell for that case.
