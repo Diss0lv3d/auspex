@@ -1,0 +1,47 @@
+
+[1 IOC check (shortcut, persists)] path=shortcut mode=None output_valid=None contract_valid=None
+   answer: Parsed 1 observable:
+           
+           - 185.220.101.5 — ipv4 (id ipv4-7179fc4a)
+             verdict: malicious (confidence 1.00) — AbuseIPDB: abuse confidence 100/100 (383 reports, last 90 days); InternetDB: open ports 80, 443, 9001, 9002 · hostnames berlin01.tor-exit.artikel10.org · tags self-signed, tor; OTX: referenced in 50 threat pulses — e.g. Honeypot Data – T-Pot - Sydney, Australia - September 2026 · flagged: IP Associated with Tor Exit Nodes
+           
+           Verdicts are recorded and decay over time; paste an indicator again for a fresh read.
+
+[2 explicit ask to annotate] path=agent mode=ioc_enrichment output_valid=True contract_valid=False
+   tool: annotate_observable(ipv4-7179fc4a, it is a Tor exit node we saw hitting the payroll WAF at 02:00 on Friday, so the next analyst has the context) -> proposed  PROPOSAL 187d0810: Attach an analyst note to ipv4 185.220.101.5 (108 characters).
+   answer: 
+           I've proposed adding the note to the observable 185.220.101.5. The action would attach the note "it is a Tor exit node we saw hitting the payroll WAF at 02:00 on Friday, so the next analyst has the context" to the IP address, but it requires human approval before it will be performed.
+
+[3 same indicator, told not to change anything] path=agent mode=ioc_enrichment output_valid=True contract_valid=True
+   answer: 
+           Based on the enrichment data I already have for 185.220.101.5:
+           
+           ## Indicators
+           - 185.220.101.5 — ipv4
+           
+           ## Assessment
+           This IP has a **malicious verdict with 100% confidence**. Key indicators of concern:
+           - AbuseIPDB shows 100/100 abuse confidence with 383 reports in the last 90 days
+           - Associated with Tor exit nodes (berlin01.tor-exit.artikel10.org)
+           - Referenced in 50 threat intelligence pulses
+           - Open ports on common web services (80, 443) plus unusual ports (9001, 9002)
+           - Has "self-signed" and "tor" tags
+           
+           ## Recommended action
+           Yes, this is definitely something to worry about. This IP is actively
+
+[4 no action needed] path=agent mode=threat_intel output_valid=True contract_valid=True
+   tool: search_knowledge(kerberoasting domain admin) -> executed
+   tool: search_knowledge(kerberoasting privilege escalation) -> executed
+   tool: search_knowledge(kerberoasting attack process domain admin) -> executed
+   answer: 
+           ## Summary
+           Kerberoasting is an attack technique where adversaries extract encrypted service tickets for accounts with Service Principal Names (SPNs) and attempt offline brute-force attacks to crack the passwords. While kerberoasting itself doesn't directly lead to domain admin access, it provides the credentials needed for privilege escalation through credential reuse or by compromising accounts with elevated privileges.
+           
+           ## Key facts
+           - Kerberoasting (T1558.003) targets accounts with SPNs, which are often service accounts or privileged accounts
+           - Adversaries with any valid domain account can 
+
+proposals filed this session: 1
+   187d0810 annotate_observable pending_approval args={'note': 'it is a Tor exit node we saw hitting the payroll WAF at 02:00 on Friday, so the next analyst has the context', 'observable_id': 'ipv4-7179fc4a'} summary='Attach an analyst note to ipv4 185.220.101.5 (108 characters).'
+      rejected (probe cleanup): 200

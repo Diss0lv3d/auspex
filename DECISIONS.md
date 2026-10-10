@@ -1423,3 +1423,55 @@ sometimes a refusal.
 **What this supersedes.** The S9 catalog's "six modes ONLY", by adding a
 seventh through the decision that rule asked for.
 
+## D-045 — The chat agent may propose the platform's actions; a dry run that would change nothing is not filed (2026-10-11, S27)
+
+**Context.** IDEAS (S26). S18 built the action proposer and the approvals
+surface. D-037 put the agent loop on `/api/chat` with READ tools only, so the
+agent could read and never propose (README honesty section; STATE follow-up
+8). Burhan put it in S27's scope at the start ritual. Record:
+docs/probes/2026-10-11-s27-chat-actions.md.
+
+**Decision.**
+1. **The chat agent gets the app's action manifest and proposer.** It is the
+   same registry the approvals surface executes from, so a proposal filed in
+   chat is one the executor can find. D-014 is unchanged: calling an action
+   dry-runs it and files a pending proposal, and nothing in the turn can
+   execute it.
+2. **The turn shows the proposal.** The tool frame carries the proposal id and
+   the card's dry-run summary, which is the sentence the approver will read,
+   never the model's account. The summary is scanned on the tool channel
+   before it is shown. The page shows it outside the Thinking pane, which
+   folds away when the answer starts.
+3. **A dry run that affects nothing is not filed** (`NothingToPropose`, in the
+   proposer, for every caller). Such a card can only be rejected, and its
+   execution can only fail, so it would spend a human's decision on nothing.
+   The model is told the action's own dry-run sentence, so it can correct the
+   call or say so. Only that deliberate, code-written reason crosses to the
+   model; any other proposer exception is still reported by class alone.
+
+**Why.** The approval gate, the card, the fingerprint re-check and the undo
+rail (D-014, D-023, D-041) are what make a model-initiated action safe, and
+all of them were already real. Offering actions from chat changes who can ask
+for one, not what happens before one runs. Live: one explicit ask filed one
+correct proposal, and two turns that did not ask filed none.
+
+**Found on the way.** The real proposer returns the row's id as a UUID
+object. The loop fed it back to the model inside JSON, and the turn died
+(`9130c39`). Every earlier test had used a double that returned string ids.
+
+**Bounds, stated.**
+- A proposal can only target an observable the workspace already has. The
+  agent path's enrichment does not persist observables; the 92/8 IOC check
+  does.
+- The rail does not scan the approvals surface, which serves the stored,
+  code-rendered card.
+- In the narrative modes an action-request turn may not match its mode's
+  contract (live: `ioc_enrichment`, `contract_valid: false`). That is
+  reported, not repaired.
+- The proposal is filed before the tool frame is scanned. A turn the rail
+  cuts at that frame can still leave a pending proposal, which the approvals
+  queue shows like any other.
+
+**What this supersedes.** Nothing ratified. It retires the README's "The
+agent reads, it does not act" and STATE follow-up 8.
+
