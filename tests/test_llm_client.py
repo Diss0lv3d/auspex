@@ -331,3 +331,37 @@ async def test_a_failure_that_is_not_a_404_is_reported_as_itself(status):
     assert ok is False
     assert detail.startswith(f"status {status}") and "not here" in detail
     assert "LLM_BASE_URL" not in detail
+
+
+# -- TD-040: what an endpoint error says to the analyst ------------------------
+
+
+@pytest.mark.parametrize(
+    ("status", "kind"),
+    [
+        (0, "could not be reached"),
+        (400, "rejected the request"),
+        (401, "refused the platform's credentials"),
+        (429, "is busy"),
+        (503, "failed"),
+    ],
+)
+def test_an_endpoint_error_has_a_public_sentence_that_never_quotes_the_provider(status, kind):
+    """The provider's own error body can name the model and the provider. The
+    analyst is told the class of failure in the platform's words, and the body
+    stays with the exception for the server's own use."""
+    body = "model glm-4.5-air not found on zhipu; see z.ai console"
+    err = LLMError(status, body)
+
+    assert kind in err.public
+    assert "glm" not in err.public.lower() and "z.ai" not in err.public.lower()
+    assert body in str(err)  # still there for whoever handles the exception
+
+
+def test_the_provider_error_code_is_kept_for_the_log():
+    """A code (Z.ai's 1113 balance, 1302 rate limit) tells an operator what is
+    wrong without logging the message, which may echo the request."""
+    err = _extract_error(429, "application/json",
+                         '{"error": {"code": "1302", "message": "rate limit for glm"}}')
+
+    assert (err.status, err.code) == (429, "1302")

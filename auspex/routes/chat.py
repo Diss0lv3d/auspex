@@ -836,7 +836,11 @@ async def chat(
                             usage = _usage_dict(ev.usage)
         except LLMError as err:
             # Endpoint failure: report it, persist nothing as the assistant turn.
-            yield _sse({"error": str(err)})
+            # The analyst gets the platform's sentence; the log gets the status
+            # and the provider's code — never its message, which can name the
+            # engine and can echo the request (TD-040).
+            logger.warning("endpoint error: status=%s code=%s", err.status, err.code)
+            yield _sse({"error": err.public})
             return
         finally:
             await endpoint.client.aclose()

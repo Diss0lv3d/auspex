@@ -11,6 +11,7 @@ import json
 import asyncpg
 import pytest
 from _fakes import (
+    FORBIDDEN_ENGINE_NAMES,
     FakeKnowledgeService,
     SequencedStreamingFakeLLMClient,
     StreamingFakeLLMClient,
@@ -18,7 +19,7 @@ from _fakes import (
 
 from auspex.agent.loop import DEFAULT_SYSTEM_PROMPT
 from auspex.limits import window_start
-from auspex.llm.client import LLMUnreachable, StreamEvent, Usage
+from auspex.llm.client import LLMError, LLMUnreachable, StreamEvent, Usage
 from auspex.modes import contract_for, resolve_mode
 from auspex.outguard import LEAK_COPY
 from auspex.routes.chat import (
@@ -216,6 +217,31 @@ def test_error_event_on_unreachable_endpoint(client):
         assert fake.closed is True
     finally:
         client.app.dependency_overrides.clear()
+
+
+def test_an_endpoint_error_is_told_in_the_platforms_words(client, caplog):
+    """TD-040. The error frame used to carry `str(LLMError)` — up to 500 chars
+    of the provider's own error body, unscanned, which can name the model and
+    the provider (D-002). The analyst gets the class of failure; the log gets
+    the status and the provider's code, never its message."""
+    body = "model glm-4.5-air does not exist for this zhipu key; content: ACME-SECRET-ROW"
+    fake = StreamingFakeLLMClient([], raise_error=LLMError(400, body))
+    _use(client.app, fake, native_reasoning=True)
+    try:
+        with caplog.at_level("INFO", logger="auspex.chat"):
+            resp = client.post(
+                "/api/chat", json={"message": "summarize the overnight alerts"},
+                headers={"Authorization": f"Bearer {_token(client)}"},
+            )
+    finally:
+        client.app.dependency_overrides.clear()
+
+    errors = [f["error"] for f in _frames(resp.text) if "error" in f]
+    assert len(errors) == 1 and "rejected the request" in errors[0]
+    for name in FORBIDDEN_ENGINE_NAMES:
+        assert name not in errors[0].lower(), name
+    assert all("ACME-SECRET-ROW" not in r.getMessage() for r in caplog.records)
+    assert any("status=400" in r.getMessage() for r in caplog.records)
 
 
 def test_session_reuse_threads_history_and_rejects_foreign_session(client):

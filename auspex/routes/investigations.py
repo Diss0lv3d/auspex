@@ -478,7 +478,9 @@ async def render_summary(
     try:
         result = await llm.chat(messages, max_tokens=SUMMARY_MAX_TOKENS, temperature=0)
     except LLMError as err:
-        raise HTTPException(status_code=502, detail=f"LLM endpoint error: {err}") from err
+        # The platform's sentence, never the provider's body (TD-040).
+        logger.warning("summary endpoint error: status=%s code=%s", err.status, err.code)
+        raise HTTPException(status_code=502, detail=err.public) from err
     finally:
         await llm.aclose()
 
