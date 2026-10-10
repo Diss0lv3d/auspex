@@ -1,0 +1,38 @@
+observable in workspace before the turn: False
+path=agent mode=ioc_enrichment output_valid=True
+   tool: enrich_observable(185.220.101.47) -> executed
+   tool: annotate_observable(ipv4-2817c29c, Seen beaconing every 60 seconds from finance workstation fin-ws-12 since Tuesday. Highly suspicious activity given the IP's malicious reputation and cryptocurrency associations.) -> proposed  PROPOSAL 38bee47d: Attach an analyst note to ipv4 185.220.101.47 (177 characters).
+   answer: 
+           ## Indicators
+           - **185.220.101.47** (ipv4)
+           
+           ## Assessment
+           The IP address 185.220.101.47 has concerning characteristics:
+           - **AbuseIPDB**: Malicious (100% confidence, 230 reports in last 90 days)
+           - **InternetDB**: Unknown confidence, but shows open ports 80, 18081, hostname "tor-exit-47.for-privacy.net", and cryptocurrency tags
+           - **URLhaus**: Suspicious (60% confidence, historically hosted malware with 2 listed URLs, though none currently online)
+           - **OTX**: Timed out
+           
+           The fact that this IP is beaconing every 60 seconds from a finance workstation (fin-ws-12) is highly suspicious, especially given its malicious reputation and cryptocurrency associations.
+           
+           ## Recommended action
+           I propose adding an analyst note to this observable documenting the beaconing activity from fin-ws-12. This will provide important context for future analysts investigating this indicator.
+           
+           ## Indicators
+           - **185.220.101.47** (ipv4)
+           
+           ## Assessment
+           The IP address 185.220.101.47 shows concerning security signals:
+           - **AbuseIPDB**: Malicious (100% confidence, 230 reports in last 90 days)
+           - **InternetDB**: Unknown confidence, but associated with cryptocurrency tags and hostname "tor-exit-47.for-privacy.net"
+           - **URLhaus**: Suspicious (60% confidence, historically hosted malware)
+           - **OTX**: Timed out
+           
+           The beaconing behavior every 60 seconds from finance workstation fin-ws-12 is highly suspicious, especially given the IP's malicious reputation and cryptocurrency associations.
+           
+           ## Recommended action
+           I have proposed adding an analyst note to this observable documenting the beaconing activity from fin-ws-12. The note would provide important context for future analysts investigating this indicator. The proposal is pending human approval.
+observable in workspace after the turn: True
+proposals filed this turn: 1
+   38bee47d annotate_observable args={'note': "Seen beaconing every 60 seconds from finance workstation fin-ws-12 since Tuesday. Highly suspicious activity given the IP's malicious reputation and cryptocurrency associations.", 'observable_id': 'ipv4-2817c29c'} summary='Attach an analyst note to ipv4 185.220.101.47 (177 characters).'
+      rejected (probe cleanup): 200
