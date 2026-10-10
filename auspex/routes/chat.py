@@ -699,6 +699,9 @@ async def chat(
                     o for r in rows if r["role"] == "user"
                     for o in extract_observables(r["content"])
                 ),
+                # D-049: what the agent looked up is recorded the way the 92/8
+                # IOC check records it — same function, this turn's workspace.
+                record=lambda outcome: persist_enrichment(pool, auth.workspace_id, outcome),
             ),
             PgProposalStore(pool),
             mode="native_tools",

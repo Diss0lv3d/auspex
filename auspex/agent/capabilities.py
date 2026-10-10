@@ -16,7 +16,10 @@ worse than drift, because the two answers would disagree in front of the analyst
 within one session.
 
 **All three are READ (D-014).** They fetch and they synthesise; nothing here
-mutates tenant state or touches a provider that changes anything. The permission
+touches a provider that changes anything. One write is the platform's own
+bookkeeping, not an action: since D-049 an enrichment is recorded (observable
+and verdict) exactly as the 92/8 IOC check records one, and only for
+indicators D-039 let through. The permission
 gate auto-executes READ, so a level is a claim about consequences — these have
 none beyond outbound lookups the shortcut path already makes.
 
@@ -39,10 +42,11 @@ nothing" are three different truths and must stay three different answers.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 
 from auspex.agent.registry import ToolLevel, ToolRegistry
 from auspex.classify.observables import Observable, extract
-from auspex.enrich import EnrichmentService
+from auspex.enrich import EnrichmentOutcome, EnrichmentService
 from auspex.enrich.service import CAP_SKIP, ENRICH_MAX_OBSERVABLES
 from auspex.kb import MAX_IDS_PER_LOOKUP, KBUnavailable, KnowledgeService
 
@@ -218,6 +222,7 @@ def build_capability_registry(
     kb: KnowledgeService,
     observables: tuple[Observable, ...] = (),
     supplied: tuple[Observable, ...] = (),
+    record: Callable[[EnrichmentOutcome], Awaitable[int]] | None = None,
 ) -> ToolRegistry:
     """A registry of the platform's READ capabilities, bound to this turn.
 
@@ -232,6 +237,14 @@ def build_capability_registry(
     earlier messages in the session — USER turns only, never the model's own
     answers) seed the set; what the knowledge base returns this turn joins it.
     An indicator the model composed itself is named as not checked.
+
+    **D-049: what `enrich_observable` looked up is recorded** through `record`
+    — the route passes the same `persist_enrichment` the 92/8 IOC check calls,
+    so the observable and its verdict exist for a later proposal to target and
+    for Living Verdicts to watch. Only what D-039 let through was looked up, so
+    only that is recorded: the model cannot make the platform record an
+    indicator it composed. `None` (probes, tests) records nothing and says
+    nothing about recording.
     """
     known = {o.obs_id: o for o in observables}
     known.update({o.value: o for o in observables})
@@ -326,6 +339,16 @@ def build_capability_registry(
             # "you sent too many strings" and "your strings held more
             # indicators than we will check" are not the same sentence.
             result["omitted_observables"] = over_cap
+        if record is not None and outcome is not None and outcome.enriched:
+            # Said either way: a model that is not told cannot know whether "I
+            # have recorded the verdict" is true, and a storage hiccup must not
+            # cost the analyst a computed answer (the shortcut path's S5 rule).
+            try:
+                await record(outcome)
+                result["recorded"] = True
+            except Exception:
+                logger.exception("agent enrichment: recording failed; results returned unrecorded")
+                result["recorded"] = False
         return result
 
     async def lookup_cve(args: dict) -> dict:

@@ -2046,6 +2046,47 @@ def test_the_agent_looks_up_what_the_analyst_supplied_and_nothing_it_composed(cl
     assert looked_up == ["198.51.100.23"]
 
 
+def test_an_agent_turn_records_the_verdicts_it_looked_up(client, settings):
+    """S28 (D-049): the agent path persists what `enrich_observable` checked,
+    through the same `persist_enrichment` the 92/8 IOC check uses, so a later
+    proposal can target it (D-045's bound) and Living Verdicts sees it."""
+    from _fakes import FakeEnrichmentService
+
+    message = ("We saw 185.220.101.34 beaconing every 60s from a finance host after a "
+               "user opened an invoice attachment; what does that suggest?")
+    _purge_observable(settings, "185.220.101.34")
+    enrichment = FakeEnrichmentService(_enriched_outcome(message))
+    real = client.app.state.enrichment
+    client.app.state.enrichment = enrichment
+    fake = SequencedStreamingFakeLLMClient([
+        _tool_step(name="enrich_observable",
+                   arguments=json.dumps({"observables": ["185.220.101.34"]})),
+        _answer_step("Checked."),
+    ])
+    _use_agent(client.app, fake)
+    try:
+        frames = _post_deep(client, message)
+        assert frames[-1]["done"]["path"] == "agent"
+        fed_back = [m for m in fake.stream_calls[1]["messages"] if m.get("role") == "tool"]
+        assert json.loads(fed_back[0]["content"])["recorded"] is True
+
+        async def _verdicts():
+            conn = await asyncpg.connect(settings.database_url)
+            try:
+                return await conn.fetchval(
+                    "SELECT count(*) FROM verdicts v JOIN observables o"
+                    " ON v.observable_id = o.id WHERE o.value = '185.220.101.34'"
+                )
+            finally:
+                await conn.close()
+
+        assert asyncio.run(_verdicts()) == 1
+    finally:
+        client.app.state.enrichment = real
+        client.app.dependency_overrides.clear()
+        _purge_observable(settings, "185.220.101.34")
+
+
 def test_an_agent_turn_carries_the_session_the_way_the_route_composes_it(client):
     """What goes on the wire: the loop's system message first, the fence
     directive, prior turns with every assistant turn fenced (TD-009), the mode
