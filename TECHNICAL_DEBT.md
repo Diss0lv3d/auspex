@@ -1,5 +1,23 @@
 # Technical debt — logged the moment it's taken
 
+## TD-041 (S26) — the deployment scorecard never expires
+
+**Where:** `auspex/llm/autoprobe.py`. D-038 probes once per fingerprint
+(base URL + model).
+**Risk:** LOW. A taken shortcut, logged as one. A provider can change what a
+model does under the same name: a silent model update, a thinking toggle
+flipped server-side, tool calling degraded. The fingerprint does not change, so
+nothing re-measures. The scorecard keeps choosing native/two-pass and the agent
+path from a measurement that may no longer be true. The rail's thinking floor
+(D-040) is calibrated per model too, and has the same blind spot.
+**Why taken:** "once per fingerprint" is the smallest spend of the customer's
+inference that makes D-038 true, and nothing yet shows drift.
+**Path to fix:** re-probe on a schedule (weekly, say), or when the agent path
+sees a run of `empty_answer`/no-tool-call turns. Record each re-probe as a new
+row, as the harness already does (the newest probe wins).
+**Trigger:** the first customer deployment, or any observed change in a
+dev model's behaviour under the same name.
+
 ## TD-040 (S26) — an endpoint's error text reaches the analyst verbatim
 
 > **RESOLVED the same day (`1f54b37`).** `LLMError.public` gives the class of
