@@ -133,7 +133,9 @@ Read this part. A demo that only walks the happy path is a demo that lies.
   runs) only on an endpoint measured to call them: the deployment's
   capability scorecard must say it calls tools natively, and an endpoint nobody
   has probed stays conversational. Alert triage and phishing analysis
-  never take it, because their verdicts are computed in code (D-037). The agent
+  never take it, because their verdicts are computed in code (D-037). It sends
+  third parties only indicators that you, or a knowledge-base record, supplied:
+  an indicator the model composed is never looked up (D-039). The agent
   cannot propose an action from chat; proposals are created through the
   investigation and action surfaces. When an endpoint narrates before a tool
   call, the first 400 characters of each step are held back so the narration

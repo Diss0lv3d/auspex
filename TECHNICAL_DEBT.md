@@ -16,6 +16,11 @@ seen in a customer-facing session, or the next change to that handler.
 
 ## TD-039 (S26) — D-037 clause 1 covers only the modes the resolver recognises
 
+> **RESOLVED the same day — D-039 (`52f4fec`).** Burhan delegated the call.
+> Option (a), sharpened: `enrich_observable` looks up only indicators that the
+> analyst supplied (user turns) or that a knowledge-base record returned this
+> turn. A composed indicator never reaches a provider. Entry kept as written.
+
 **Where:** `auspex/routes/chat.py` `CODE_DECIDED_MODES`, and
 `auspex/modes/resolver.py`.
 **Risk:** LOW-MEDIUM. This is a design question and needs Burhan's call. Clause 1

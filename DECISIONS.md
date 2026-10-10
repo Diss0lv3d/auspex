@@ -1062,3 +1062,45 @@ inference (D-005).
 
 **What this supersedes.** Nothing ratified. The 2026-08-16 proposal was never
 ratified, and STATE.md standing follow-up 10 closes with this entry.
+
+## D-039 — The agent sends third parties only indicators someone other than the model supplied (2026-10-10, S26)
+
+**Context.** TD-039, from the review of the S26 wiring. D-037 clause 1 keeps
+alert triage and phishing off the agent path, because their paste is
+attacker-controlled and would steer tool arguments. The same paste reaches the
+agent path whenever the mode resolver does not recognise it: "summarize this
+report: <paste>" is BRIEF, and an unrecognised alert format falls through.
+There, an injection can make the model **compose** an indicator, for example a
+hostname whose label carries data from the session, and `enrich_observable`
+would send it to third-party providers, some of which resolve what they are
+asked about. Burhan delegated the call ("do what you think is best").
+
+**Decision.** `enrich_observable` looks up an indicator only if someone other
+than the model supplied it:
+- the analyst, in **user** turns of this session, current or earlier; or
+- a **knowledge-base record** returned by a tool this turn.
+
+Anything else is reported as `not_checked`, with a reason the model can act on
+(ask the analyst to paste it), and the enrichment service never sees it. The
+model's own earlier answers supply nothing, because an injected turn 1 can make
+the model write the composed indicator into its answer. A tool's echo of what
+it was asked supplies nothing, because that would launder a request into a
+supply.
+
+**Why this and not more excluded modes.** Excluding modes one at a time (option
+b) depends on the resolver recognising every shape a paste can take, and it
+cannot. Accepting the bound (option c) leaves the channel open at 8 lookups
+per turn. This closes the channel itself, and it costs one thing: the agent can
+no longer look up an indicator it knows only from its own training, which is
+also where its fabrications come from. S24's reason for allowing unsupplied
+indicators ("a loop may reason its way to an indicator") is kept wherever the
+reasoning ran through data the platform returned.
+
+**Scope.** Only `enrich_observable` reaches a third party. `lookup_cve` and
+`search_knowledge` still accept model-composed queries, because they go to our
+own index. D-037 clause 1 stands unchanged, since those modes' verdicts are
+code-owned for their own reasons.
+
+**What this supersedes.** Nothing ratified. It reverses the S24 test
+"enrichment also accepts an indicator the message never carried" and is
+recorded in that test's docstring.
