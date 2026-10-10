@@ -244,12 +244,15 @@ class ProposalSettlement:
 
         `abandoned_from` records WHICH operation was given up on (TD-034): the
         SET list reads the row as it was, so `status` there is the claim's —
-        `executing` or `undoing` — at the instant it is replaced.
+        `executing` or `undoing` — at the instant it is replaced. And
+        `abandoned_token` records WHICH CLAIM: the only one whose late answer
+        may still land (S26 review of D-041).
         """
         row = await self._pool.fetchrow(
             """
             UPDATE proposals
-               SET status = 'abandoned', abandoned_from = status, claimed_at = NULL,
+               SET status = 'abandoned', abandoned_from = status,
+                   abandoned_token = claim_token, claim_token = NULL, claimed_at = NULL,
                    decided_at = now(), decided_by = $3::uuid
              WHERE id = $1::uuid
                AND workspace_id = $2::uuid
@@ -437,9 +440,10 @@ class ActionExecutor:
         # proposal is the same race as two approvers, and gets the same answer.
         claimed = await self._pool.fetchrow(
             """
-            UPDATE proposals SET status = 'executing', claimed_at = now()
+            UPDATE proposals
+               SET status = 'executing', claimed_at = now(), claim_token = gen_random_uuid()
              WHERE id = $1::uuid AND workspace_id = $2::uuid AND status = 'approved'
-            RETURNING id
+            RETURNING claim_token
             """,
             str(proposal_id),
             str(workspace_id),
@@ -462,6 +466,7 @@ class ActionExecutor:
             effects = await _effects(spec, workspace_id, proposal_id, args)
             await self._finish_claim(
                 proposal_id,
+                claimed["claim_token"],
                 from_status="executing",
                 to_status="failed" if effects == "none" else "incomplete",
                 column="result",
@@ -470,6 +475,7 @@ class ActionExecutor:
             raise
         await self._finish_claim(
             proposal_id,
+            claimed["claim_token"],
             from_status="executing",
             to_status="executed",
             column="result",
@@ -480,6 +486,7 @@ class ActionExecutor:
     async def _finish_claim(
         self,
         proposal_id: UUID | str,
+        token: UUID,
         *,
         from_status: str,
         to_status: str,
@@ -508,6 +515,17 @@ class ActionExecutor:
         answer on a row whose run was abandoned is an answer for an undo that
         never began.
 
+        **Which claim is a TOKEN, not a status** (S26 review of D-041). Once
+        undo could start from `abandoned`, two undos could be in flight on one
+        row, and matching the claim by `status = 'undoing'` let an abandoned
+        undo's late failure finish the FRESH undo's claim — the row went back
+        to `executed` with the note already removed. The first statement now
+        lands only for the claim that still holds the row; the late-write only
+        for the claim a human abandoned (`abandoned_token`), into its own
+        column if that is still empty, WHATEVER the row has become since — an
+        `undone` row whose run answered late is a row that says so (D-041's
+        stated bound, made visible instead of dropped).
+
         Returns True if the claim was still held.
         """
         if column not in ("result", "undo_result"):
@@ -524,8 +542,9 @@ class ActionExecutor:
                    result = CASE WHEN $5 THEN $2::jsonb ELSE result END,
                    undo_result = CASE WHEN $5 THEN undo_result ELSE $2::jsonb END,
                    undone_at = CASE WHEN $6 THEN now() ELSE undone_at END,
-                   claimed_at = NULL
-             WHERE id = $1::uuid AND status = $4
+                   claimed_at = NULL,
+                   claim_token = NULL
+             WHERE id = $1::uuid AND status = $4 AND claim_token = $7::uuid
             RETURNING id
             """,
             str(proposal_id),
@@ -534,6 +553,7 @@ class ActionExecutor:
             from_status,
             is_result,
             stamp_undone_at,
+            str(token),
         )
         if won is not None:
             return True
@@ -543,14 +563,13 @@ class ActionExecutor:
                SET result = CASE WHEN $3 THEN $2::jsonb ELSE result END,
                    undo_result = CASE WHEN $3 THEN undo_result ELSE $2::jsonb END
              WHERE id = $1::uuid
-               AND status = 'abandoned'
-               AND abandoned_from = $4
+               AND abandoned_token = $4::uuid
                AND (CASE WHEN $3 THEN result ELSE undo_result END) IS NULL
             """,
             str(proposal_id),
             json.dumps(payload),
             is_result,
-            from_status,
+            str(token),
         )
         return False
 
@@ -606,11 +625,15 @@ class ActionExecutor:
                 "no_undo",
                 f"{proposal['tool_name']} declares no undo — it cannot be put back",
             )
+        # A fresh put-back starts with an empty answer: an earlier attempt's
+        # result is not this attempt's (S26 review of D-041).
         claimed = await self._pool.fetchrow(
             """
-            UPDATE proposals SET status = 'undoing', claimed_at = now()
+            UPDATE proposals
+               SET status = 'undoing', claimed_at = now(),
+                   claim_token = gen_random_uuid(), undo_result = NULL
              WHERE id = $1::uuid AND workspace_id = $2::uuid AND status = $3
-            RETURNING id
+            RETURNING claim_token
             """,
             str(proposal_id),
             str(workspace_id),
@@ -626,6 +649,7 @@ class ActionExecutor:
         except Exception as exc:
             await self._finish_claim(
                 proposal_id,
+                claimed["claim_token"],
                 from_status="undoing",
                 to_status=was,
                 column="undo_result",
@@ -634,6 +658,7 @@ class ActionExecutor:
             raise
         await self._finish_claim(
             proposal_id,
+            claimed["claim_token"],
             from_status="undoing",
             to_status="undone",
             column="undo_result",

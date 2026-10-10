@@ -18,6 +18,7 @@ and everything else stays proposal-only.
 import asyncio
 import dataclasses
 import json
+import uuid
 from unittest import mock
 
 import pytest
@@ -745,7 +746,9 @@ async def _wedge(pool, settlement, workspace_id, pid, *, age_seconds: float, sta
     await pool.execute(
         """
         UPDATE proposals
-           SET status = $2, claimed_at = now() - make_interval(secs => $3::double precision)
+           SET status = $2, claimed_at = now() - make_interval(secs => $3::double precision),
+               -- a live claim keeps its own token; a simulated dead one gets one
+               claim_token = COALESCE(claim_token, gen_random_uuid())
          WHERE id = $1::uuid
         """,
         str(pid),
@@ -1242,8 +1245,9 @@ async def test_a_late_undo_answer_never_lands_on_a_run_that_was_abandoned(
     assert (await settlement.abandon(workspace_id=workspace_id, proposal_id=pid,
                                      decided_by=None)).won
 
+    # An undo would hold a claim of its OWN — never the run's abandoned one.
     landed = await ActionExecutor(pool, registry)._finish_claim(
-        pid, from_status="undoing", to_status="undone", column="undo_result",
+        pid, uuid.uuid4(), from_status="undoing", to_status="undone", column="undo_result",
         payload={"would": "an undo that never began"},
     )
 
@@ -1261,12 +1265,13 @@ async def test_a_late_run_answer_still_lands_on_the_run_that_was_abandoned(
     pid = proposal["id"]
     await _wedge(pool, settlement, workspace_id, pid,
                  age_seconds=STALE_CLAIM_SECONDS + 60, state="executing")
-    assert (await settlement.abandon(workspace_id=workspace_id, proposal_id=pid,
-                                     decided_by=None)).won
+    abandoned = await settlement.abandon(workspace_id=workspace_id, proposal_id=pid,
+                                         decided_by=None)
+    assert abandoned.won
 
     await ActionExecutor(pool, registry)._finish_claim(
-        pid, from_status="executing", to_status="executed", column="result",
-        payload={"would": "the run, late"},
+        pid, abandoned.proposal["abandoned_token"], from_status="executing",
+        to_status="executed", column="result", payload={"would": "the run, late"},
     )
 
     row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
@@ -1602,3 +1607,129 @@ async def test_the_card_on_the_surface_names_its_twins(pool, client, route_ws):
     shown = {p["id"]: p for p in listed}
 
     assert shown[str(first["id"])]["identical_pending"] == [str(second["id"])]
+
+
+# -- review of D-041: a claim is identified by a token, not by a status --------
+
+
+async def test_an_abandoned_undo_cannot_finish_a_fresh_undo_s_claim(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Review of 1c6c9bd, MEDIUM, reproduced. Since undo may start from
+    `abandoned`, two undos can be in flight on one row, and a claim was known
+    only by its status string: U1 (slow) is abandoned, U2 cleans up and removes
+    the note, then U1 raises — and its finish matched U2's claim, putting the
+    row back to `executed` while U2's own success was dropped. The row said
+    `executed` with no note left."""
+    release_u1, u1_ran = asyncio.Event(), asyncio.Event()
+    release_u2, u2_removed = asyncio.Event(), asyncio.Event()
+
+    async def slow_failing_undo(**_):
+        u1_ran.set()
+        await release_u1.wait()
+        raise RuntimeError("U1 died late")
+
+    async def removes_then_waits(**kwargs):
+        out = await spec.undo.handler(**kwargs)  # the note is gone now
+        u2_removed.set()
+        await release_u2.wait()
+        return out
+
+    settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
+    await ActionExecutor(pool, registry).execute(workspace_id=workspace_id, proposal_id=pid)
+    u1 = ActionExecutor(pool, _with(spec, undo=dataclasses.replace(
+        spec.undo, handler=slow_failing_undo)))
+    u2 = ActionExecutor(pool, _with(spec, undo=dataclasses.replace(
+        spec.undo, handler=removes_then_waits)))
+    t1 = asyncio.create_task(u1.undo(workspace_id=workspace_id, proposal_id=pid))
+    t2 = None
+    try:
+        await asyncio.wait_for(u1_ran.wait(), timeout=10)
+        await pool.execute(
+            "UPDATE proposals SET claimed_at = now() - interval '1 hour' WHERE id = $1::uuid",
+            str(pid))
+        assert (await settlement.abandon(workspace_id=workspace_id, proposal_id=pid,
+                                         decided_by=None)).won
+        t2 = asyncio.create_task(u2.undo(workspace_id=workspace_id, proposal_id=pid))
+        await asyncio.wait_for(u2_removed.wait(), timeout=10)
+        # U2 holds the claim mid-flight; NOW U1's late failure arrives.
+        release_u1.set()
+        with pytest.raises(RuntimeError):
+            await asyncio.wait_for(t1, timeout=10)
+    finally:
+        release_u1.set()
+        release_u2.set()
+        if t2 is not None:
+            await asyncio.wait_for(t2, timeout=10)
+
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert row["status"] == "undone", "a late failure finished a claim it did not hold"
+    assert row["undo_result"]["detail"] == {"removed": 1}
+    assert 0 == await pool.fetchval(
+        "SELECT count(*) FROM observable_notes WHERE proposal_id = $1::uuid", str(pid))
+
+
+async def test_a_run_s_late_answer_is_kept_even_after_its_clean_up(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Review finding 6: D-041's stated bound — a slow run abandoned and put
+    back can land its write afterwards — was real, and the one record that
+    would show it happened was thrown away (the late-write required the row to
+    still be `abandoned`). It lands now, without moving the row: `undone` with
+    a `result` is a row that says the run finished after its put-back."""
+    release, ran = asyncio.Event(), asyncio.Event()
+
+    async def slow_run(**kwargs):
+        ran.set()
+        await release.wait()
+        return await spec.execute(**kwargs)
+
+    settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
+    task = asyncio.create_task(ActionExecutor(pool, _with(spec, execute=slow_run)).execute(
+        workspace_id=workspace_id, proposal_id=pid))
+    try:
+        await asyncio.wait_for(ran.wait(), timeout=10)
+        await pool.execute(
+            "UPDATE proposals SET claimed_at = now() - interval '1 hour' WHERE id = $1::uuid",
+            str(pid))
+        assert (await settlement.abandon(workspace_id=workspace_id, proposal_id=pid,
+                                         decided_by=None)).won
+        await ActionExecutor(pool, registry).undo(workspace_id=workspace_id, proposal_id=pid)
+    finally:
+        release.set()
+        await asyncio.wait_for(task, timeout=10)
+
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert row["status"] == "undone"
+    assert row["result"] and "Attached" in row["result"]["would"], "the late answer was dropped"
+
+
+async def test_a_put_back_does_not_wear_the_previous_attempt_s_answer(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Review finding 7: the undo claim kept the previous attempt's
+    `undo_result`, so an in-flight (or abandoned) put-back showed an earlier
+    attempt's error as if it were its own."""
+    release, ran = asyncio.Event(), asyncio.Event()
+
+    async def slow_undo(**kwargs):
+        ran.set()
+        await release.wait()
+        return await spec.undo.handler(**kwargs)
+
+    settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
+    await ActionExecutor(pool, registry).execute(workspace_id=workspace_id, proposal_id=pid)
+    with pytest.raises(RuntimeError):
+        await ActionExecutor(pool, _with(spec, undo=dataclasses.replace(
+            spec.undo, handler=mock.AsyncMock(side_effect=RuntimeError("first try"))))
+        ).undo(workspace_id=workspace_id, proposal_id=pid)
+    task = asyncio.create_task(ActionExecutor(pool, _with(spec, undo=dataclasses.replace(
+        spec.undo, handler=slow_undo))).undo(workspace_id=workspace_id, proposal_id=pid))
+    try:
+        await asyncio.wait_for(ran.wait(), timeout=10)
+        mid = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    finally:
+        release.set()
+        await asyncio.wait_for(task, timeout=10)
+
+    assert mid["status"] == "undoing" and mid["undo_result"] is None

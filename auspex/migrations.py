@@ -512,6 +512,17 @@ SCHEMA_V0: list[str] = [
     ALTER TABLE proposals ADD COLUMN IF NOT EXISTS abandoned_from text
         CHECK (abandoned_from IN ('executing', 'undoing'))
     """,
+    # S26 review of D-041: a claim is identified by a TOKEN, not by its status
+    # string. Once undo could start from `abandoned`, two undos could be in
+    # flight on one row, and a late failure matched the fresh claim by status
+    # alone. `claim_token` is set by every claim and cleared by every exit;
+    # `abandoned_token` is the claim a human gave up on, which is the only claim
+    # whose late answer may still land.
+    """
+    ALTER TABLE proposals
+        ADD COLUMN IF NOT EXISTS claim_token uuid,
+        ADD COLUMN IF NOT EXISTS abandoned_token uuid
+    """,
     # The stale-claim scan: within a workspace, the claimed rows by age. Partial,
     # because claims are the rare state — the index stays the size of the
     # problem rather than the size of the table.
