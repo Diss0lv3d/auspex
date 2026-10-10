@@ -1605,3 +1605,81 @@ live questions are pinned verbatim.
   Thinking pane.
 
 **What this supersedes.** Nothing. D-002 is re-affirmed, not amended.
+
+## D-048 — An approval no run ever started rejoins the queue, with two doors: run it now, or withdraw it (TD-042) (2026-10-11, S28)
+
+**Context.** TD-042, found by the S27 review and reproduced in
+`docs/probes/s27-review/probe_approved_wedge.py`. `approve` settles the row,
+then runs it a few awaits later. If the process dies in between, the row is
+`approved` with no claim:
+- it is not in the queue;
+- `reject`, `abandon` and `keep` all refuse it;
+- the only execute path is approve, which needs `pending_approval`.
+
+The same row is the honest end of an execute-time refusal (the declaration or
+its risk changed since the approval). TD-042 left the door to a decision,
+because running an approval given an hour ago is a question about what an
+approval means once time has passed. D-045 lets the chat agent file proposals,
+so this path will see traffic.
+
+**Burhan's call at S28:** both doors, and a withdrawal is its own status.
+
+**Decision.**
+1. **The queue lists it once it is stale.** `pending()` now also returns an
+   `approved` row with `claimed_at IS NULL` and `decided_at` older than
+   STALE_CLAIM_SECONDS (300 s), the threshold `abandon` already uses. Before
+   that, the approve request's own run may still be about to claim it.
+2. **Run it now:** `POST /api/proposals/{id}/execute`
+   (`ActionExecutor.run_stale_approval`).
+   - No claim was ever taken, so no handler ever started: it is safe to run.
+   - It is the same run approve makes, through one shared `_run_claimed`:
+     `check_executable` again (approved, risk still gated, declaration
+     unchanged), then the claim, then the handler.
+   - The claim is the only difference:
+     - it takes only a stale, unclaimed approval;
+     - it writes the human pressing it to `resolved_by`/`resolved_at`.
+     Running an old approval is a decision made now. The approval stays in
+     `decided_by` (S27's rule).
+   - A refusal is a 409 (404 for no such proposal), because nothing else
+     happened in the request. That differs from approve's 200, where the
+     approval itself did happen.
+3. **Withdraw it:** `POST /api/proposals/{id}/withdraw`
+   (`ProposalSettlement.withdraw`).
+   - It moves to a new terminal status, `withdrawn`: approved, then retracted
+     before anything ran.
+   - Not `rejected`, because that is the decision not to approve, and this
+     row was approved: `decided_by` keeps saying by whom.
+   - The withdrawer lands in `resolved_by`.
+   - Nothing ran, so there is nothing to put back. `undo` refuses it like any
+     other row outside UNDOABLE_FROM.
+4. **Both doors are claim-first and stale-only.** One UPDATE moves the row out
+   of `approved` only if it is unclaimed and older than the threshold. Two
+   humans pressing the two doors at once get exactly one answer, pinned by a
+   race test. A fresh approval is refused by both: `not_stale`, or a 409 that
+   says its own run may still be starting.
+5. **One status-CHECK block, edited in place** (D-041's rule). `withdrawn` was
+   added to the only block that defines `proposals_status_check`.
+   `test_startup_survives_every_status_a_proposal_can_be_in` reads the live
+   constraint, so it covers the new status unedited.
+
+**Why both.**
+- A row refused at execute time can never run again: its declaration changed.
+  So withdraw must exist.
+- A row orphaned by a crash was approved for a reason, and re-running it
+  re-checks everything the approval was given under. So run-now earns its
+  place.
+- Making the human press it again, now, answers TD-023's worry about stale
+  intent.
+
+**Bounds, stated.**
+- **A row refused at execute time must wait out the threshold** before it can
+  be withdrawn, even though its refusal was immediate.
+- **`resolved_by` is the latest human resolver.** A run started from this door
+  that then goes `incomplete` and is kept or abandoned overwrites it with
+  that later human.
+- **There is no page UI for any approvals door yet** (as with `abandon` and
+  `keep`). The doors are API routes.
+- **TD-025 still stands.** There is no idempotency key, which matters the day
+  an action reaches a network.
+
+**What this supersedes.** Nothing ratified. It resolves TD-042.

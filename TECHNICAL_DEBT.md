@@ -50,6 +50,16 @@ hits its ceiling on agent turns.
 
 ## TD-042 (S27) — an approved run that never started has no door and no queue slot
 
+> **RESOLVED S28 — D-048 (Burhan's call: both doors).** An `approved` row with
+> no claim, older than STALE_CLAIM_SECONDS, rejoins the queue. It has two
+> doors:
+> - `POST /{id}/execute` re-runs `check_executable` and records the human in
+>   `resolved_by`;
+> - `POST /{id}/withdraw` moves it to the new status `withdrawn`.
+>
+> Neither door opens within the threshold, so neither can race an approve
+> that is still in flight. Entry kept as written.
+
 **Where:** `auspex/routes/proposals.py` `approve` → `ActionExecutor.execute`
 (`auspex/actions/settlement.py`). `settle` moves the row to `approved`; the run
 claims it (`approved` → `executing`) a few awaits later.
