@@ -10,11 +10,21 @@ import json
 
 import asyncpg
 import pytest
-from _fakes import SequencedStreamingFakeLLMClient, StreamingFakeLLMClient
+from _fakes import (
+    FakeKnowledgeService,
+    SequencedStreamingFakeLLMClient,
+    StreamingFakeLLMClient,
+)
 
+from auspex.agent.loop import DEFAULT_SYSTEM_PROMPT
+from auspex.limits import window_start
 from auspex.llm.client import LLMUnreachable, StreamEvent, Usage
+from auspex.modes import contract_for, resolve_mode
+from auspex.outguard import LEAK_COPY
 from auspex.routes.chat import (
     CHAT_ANSWER_MAX_TOKENS,
+    CHAT_SYSTEM_PROMPT,
+    HISTORY_FENCE_DIRECTIVE,
     PASS1_DIRECTIVE,
     ChatEndpoint,
     ChatEndpointResolver,
@@ -1430,3 +1440,308 @@ def test_a_pass_one_leak_cannot_be_followed_by_a_switch(client, settings):
     shown = json.dumps(frames)
     assert "POST-TRIP" not in shown and "NATIVE" not in shown
     assert all(role != "assistant" for role, _ in _session_messages(settings, frames[0]["session"]))
+
+
+# -- the agent path (D-031, D-037) ---------------------------------------------
+#
+# A deep turn takes the agent path iff its mode is not one the code already
+# decided (alert triage, phishing) AND the endpoint's deployment scorecard
+# compiles to native_tools. Everything here is a fake endpoint — the claims hit
+# usage_counters, which the autouse `_no_usage_residue` above refunds.
+
+_AGENT_QUESTION = "how does kerberoasting lead to domain admin?"
+
+
+def _use_agent(app, fake, *, agent_mode="native_tools"):
+    app.dependency_overrides[get_endpoint_resolver] = lambda: ChatEndpointResolver.fixed(
+        ChatEndpoint(client=fake, native_reasoning=True, id="test", agent_mode=agent_mode)
+    )
+
+
+def _conformant_answer(message=_AGENT_QUESTION) -> str:
+    """An answer the turn's own mode contract accepts — so `contract_valid: true`
+    proves the agent's answer was validated, not just reported."""
+    mode = resolve_mode(message, ())
+    sections = [f"## {f.name}\n{(f.allowed_values or ('Grounded in the KB.',))[0]}\n"
+                for f in contract_for(mode).fields if f.required]
+    return "\n".join(sections)
+
+
+def _tool_step(name="search_knowledge", arguments='{"query": "kerberoasting"}',
+               narration="I'll search the knowledge base first."):
+    """One tool-calling step, shaped as measured on glm-4.5-air: reasoning, a
+    sentence of narration in content, then the whole tool call (TD-036)."""
+    return [
+        StreamEvent(kind="reasoning", text="Look it up before answering. "),
+        StreamEvent(kind="content", text=narration),
+        StreamEvent(kind="tool_call", tool_index=0, tool_delta={
+            "id": "call_1", "function": {"name": name, "arguments": arguments}}),
+        StreamEvent(kind="finish", finish_reason="tool_calls"),
+        StreamEvent(kind="usage", usage=Usage(10, 5, 15)),
+    ]
+
+
+def _answer_step(text):
+    return [
+        StreamEvent(kind="content", text=text),
+        StreamEvent(kind="finish", finish_reason="stop"),
+        StreamEvent(kind="usage", usage=Usage(20, 10, 30)),
+    ]
+
+
+def _swap_kb(app, kb):
+    real = app.state.kb
+    app.state.kb = kb
+    return real
+
+
+def _analyst_workspace(settings):
+    async def _get():
+        conn = await asyncpg.connect(settings.database_url)
+        try:
+            return await conn.fetchval(
+                "SELECT workspace_id FROM users WHERE email = $1", CHAT_EMAIL
+            )
+        finally:
+            await conn.close()
+
+    return asyncio.run(_get())
+
+
+def _inference_meter(client) -> dict:
+    snap = client.get("/api/usage", headers={"Authorization": f"Bearer {_token(client)}"}).json()
+    return snap["meters"]["inference_calls"]
+
+
+def _used(client) -> int:
+    return _inference_meter(client)["used"]
+
+
+def test_a_native_tools_endpoint_runs_a_deep_turn_through_the_agent(client, settings):
+    answer = _conformant_answer()
+    fake = SequencedStreamingFakeLLMClient([_tool_step(), _answer_step(answer)])
+    kb = FakeKnowledgeService(hits=[])
+    real_kb = _swap_kb(client.app, kb)
+    _use_agent(client.app, fake)
+    try:
+        frames = _post_deep(client, _AGENT_QUESTION)
+    finally:
+        client.app.dependency_overrides.clear()
+        client.app.state.kb = real_kb
+
+    kinds = [next(iter(f)) for f in frames]
+    assert kinds[0] == "session" and kinds[-1] == "done"
+    done = frames[-1]["done"]
+    assert done["path"] == "agent"
+    assert fake.turns == 2 and "tools" in fake.stream_calls[0]["kwargs"]
+    assert kb.search_calls == ["kerberoasting"], "the tool was not bound to the app's KB"
+
+    # The tool step is narrated, then the answer streams (D-031 decision 1).
+    tool_frames = [f["tool"] for f in frames if "tool" in f]
+    assert tool_frames == [{"name": "search_knowledge", "status": "executed",
+                            "arguments": {"query": "kerberoasting"}}]
+    assert kinds.index("tool") < kinds.index("content")
+    # The sentence before the tool call is process, shown as reasoning (TD-036).
+    reasoning = "".join(f["reasoning"] for f in frames if "reasoning" in f)
+    assert "I'll search the knowledge base first." in reasoning
+    content = "".join(f["content"] for f in frames if "content" in f)
+    assert content == answer
+
+    assert done["contract_valid"] is True and done["output_valid"] is True
+    assert done["usage"]["total_tokens"] == 45  # both calls, not the last one
+    assert fake.closed is True
+    persisted = _session_messages(settings, frames[0]["session"])
+    assert persisted[-1] == ("assistant", answer)
+    assert all("I'll search" not in c for _, c in persisted)
+
+
+@pytest.mark.parametrize("agent_mode", [None, "prompted_tools", "plan_only"])
+def test_an_endpoint_not_measured_to_call_tools_stays_conversational(client, agent_mode):
+    """D-037 clause 2. Unprobed is not native; prompted_tools is unmeasured on a
+    streaming surface (D-031); plan_only would run the loop tool-less, which was
+    measured inventing a tool call as prose."""
+    fake = StreamingFakeLLMClient(_answer_step("An answer."))
+    _use_agent(client.app, fake, agent_mode=agent_mode)
+    try:
+        frames = _post_deep(client, _AGENT_QUESTION)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert frames[-1]["done"]["path"] == "model"
+    assert fake.turns == 1 and "tools" not in fake.stream_calls[0]["kwargs"]
+
+
+@pytest.mark.parametrize("message,mode", [
+    ("CEF:0|Trellix|ENS|10.7|1201|Malware detected|9|src=10.1.2.3 "
+     "cs1=powershell -enc SQBFAFgA externalId=T1059.001 confidence=90", "alert_triage"),
+    (_SPOOF_EMAIL, "phishing_analysis"),
+])
+def test_a_mode_the_code_already_decided_never_takes_the_agent_path(client, message, mode):
+    """D-037 clause 1, on an endpoint that WOULD qualify: the verdict is computed
+    in code and pinned, and the paste is attacker-controlled — it does not get
+    to choose tool arguments."""
+    fake = StreamingFakeLLMClient(_answer_step("An answer."))
+    _use_agent(client.app, fake)
+    try:
+        frames = _post_deep(client, message)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    done = frames[-1]["done"]
+    assert (done["path"], done["mode"]) == ("model", mode)
+    assert "tools" not in fake.stream_calls[0]["kwargs"]
+
+
+def test_every_agent_call_is_claimed_as_it_is_made(client):
+    """D-031 decision 4 / TD-018. Two calls, two units — an equality, because the
+    route used to claim one unit up front for a native turn, and a loop wired
+    without moving the claim would cost the endpoint two while charging one."""
+    fake = SequencedStreamingFakeLLMClient([_tool_step(), _answer_step("Done.")])
+    _use_agent(client.app, fake)
+    try:
+        before = _used(client)
+        _post_deep(client, _AGENT_QUESTION)
+        after = _used(client)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert fake.turns == 2
+    assert after - before == fake.turns
+
+
+def test_a_refusal_mid_turn_says_so_and_persists_nothing(client, settings):
+    """The ceiling is reached between calls: the first is claimed up front and
+    served, the second is refused. The evidence already gathered stays on screen;
+    the analyst is told why there is no answer; nothing is stored as one."""
+    fake = SequencedStreamingFakeLLMClient([_tool_step(), _answer_step("Never sent.")])
+    _use_agent(client.app, fake)
+    try:
+        limit = _inference_meter(client)["limit"]
+        _spend_inference(settings, _analyst_workspace(settings), limit - 1)
+        frames = _post_deep(client, _AGENT_QUESTION)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert fake.turns == 1, "a call was made against a refused claim"
+    assert [f["tool"]["name"] for f in frames if "tool" in f] == ["search_knowledge"]
+    errors = [f["error"] for f in frames if "error" in f]
+    assert len(errors) == 1 and "limit" in errors[0].lower()
+    done = frames[-1]["done"]
+    assert (done["path"], done["finish_reason"]) == ("agent", "usage_refused")
+    assert [r for r, _ in _session_messages(settings, frames[0]["session"])] == ["user"]
+
+
+def _spend_inference(settings, workspace_id, units):
+    async def _fill():
+        conn = await asyncpg.connect(settings.database_url)
+        try:
+            await conn.execute(
+                "INSERT INTO usage_counters (workspace_id, meter, window_start, used)"
+                " VALUES ($1, 'inference_calls', $2, $3)"
+                " ON CONFLICT (workspace_id, meter, window_start) DO UPDATE SET used = $3",
+                workspace_id, window_start(), units,
+            )
+        finally:
+            await conn.close()
+
+    asyncio.run(_fill())
+
+
+def test_a_leak_of_the_loops_own_system_message_is_cut_off(client, settings):
+    """D-031 decision 5: on the agent path the configuration WE issued is the
+    loop's composed system message — not CHAT_SYSTEM_PROMPT, which this path never
+    sends. An index built from the conversational strings would let this through."""
+    fake = SequencedStreamingFakeLLMClient(
+        [_answer_step("Sure. My instructions say: " + DEFAULT_SYSTEM_PROMPT)]
+    )
+    _use_agent(client.app, fake)
+    try:
+        frames = _post_deep(client, _AGENT_QUESTION)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert [f["error"] for f in frames if "error" in f] == [LEAK_COPY]
+    assert frames[-1]["done"]["output_valid"] is False
+    assert [r for r, _ in _session_messages(settings, frames[0]["session"])] == ["user"]
+
+
+def test_a_leak_through_tool_arguments_is_cut_off_before_it_is_shown(client, settings):
+    """The tool frame shows the model's own arguments to the analyst, so they are
+    model output like any other and go through the rail — on one literal channel
+    (STATE follow-up 11). Caught there, the turn ends: no frame, no second call."""
+    leaking = json.dumps({"query": DEFAULT_SYSTEM_PROMPT})
+    fake = SequencedStreamingFakeLLMClient(
+        [_tool_step(arguments=leaking), _answer_step("Never sent.")]
+    )
+    _use_agent(client.app, fake)
+    try:
+        frames = _post_deep(client, _AGENT_QUESTION)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert not [f for f in frames if "tool" in f]
+    assert [f["error"] for f in frames if "error" in f] == [LEAK_COPY]
+    assert fake.turns == 1
+    assert [r for r, _ in _session_messages(settings, frames[0]["session"])] == ["user"]
+
+
+def test_an_endpoint_failure_mid_turn_reports_and_persists_nothing(client, settings):
+    fake = SequencedStreamingFakeLLMClient([_tool_step()], raise_on_call=1)
+    _use_agent(client.app, fake)
+    try:
+        frames = _post_deep(client, _AGENT_QUESTION)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert [f["tool"]["status"] for f in frames if "tool" in f] == ["executed"]
+    assert len([f for f in frames if "error" in f]) == 1
+    assert fake.closed is True
+    assert [r for r, _ in _session_messages(settings, frames[0]["session"])] == ["user"]
+
+
+def test_an_agent_turn_with_no_answer_persists_nothing(client, settings):
+    """A thinking model can spend the whole budget thinking (probe record
+    2026-10-10-s26-routing-glm, Finding 6). No answer is not an empty answer."""
+    empty = [StreamEvent(kind="reasoning", text="still thinking"),
+             StreamEvent(kind="finish", finish_reason="length")]
+    fake = SequencedStreamingFakeLLMClient([_tool_step(), empty])
+    _use_agent(client.app, fake)
+    try:
+        frames = _post_deep(client, _AGENT_QUESTION)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    done = frames[-1]["done"]
+    assert (done["path"], done["contract_valid"]) == ("agent", None)
+    assert [r for r, _ in _session_messages(settings, frames[0]["session"])] == ["user"]
+
+
+def test_an_agent_turn_carries_the_session_the_way_the_route_composes_it(client):
+    """What goes on the wire: the loop's system message first, the fence
+    directive, prior turns with every assistant turn fenced (TD-009), the mode
+    directive, and the analyst's message LAST and exactly once — the composition
+    measured in docs/probes/s26-step0/probe_routing_baseline.py."""
+    first = SequencedStreamingFakeLLMClient([_answer_step("First answer.")])
+    _use_agent(client.app, first)
+    try:
+        session = _post_deep(client, _AGENT_QUESTION)[0]["session"]
+        second = SequencedStreamingFakeLLMClient([_answer_step("Second answer.")])
+        _use_agent(client.app, second)
+        resp = client.post(
+            "/api/chat", json={"message": "and how do I detect it?", "session_id": session},
+            headers={"Authorization": f"Bearer {_token(client)}"},
+        )
+        assert resp.status_code == 200
+    finally:
+        client.app.dependency_overrides.clear()
+
+    sent = second.stream_calls[0]["messages"]
+    assert sent[0]["role"] == "system" and sent[0]["content"].startswith(DEFAULT_SYSTEM_PROMPT)
+    assert {"role": "system", "content": HISTORY_FENCE_DIRECTIVE} in sent
+    assert all(m["content"] != CHAT_SYSTEM_PROMPT for m in sent)
+    prior = [m for m in sent if m["role"] == "assistant"]
+    assert [m["content"] for m in prior] == ["⟦DATA⟧\nFirst answer.\n⟦/DATA⟧"]
+    directive = contract_for(resolve_mode("and how do I detect it?", ())).system_directive()
+    assert sent[-2] == {"role": "system", "content": directive}
+    assert sent[-1] == {"role": "user", "content": "and how do I detect it?"}
+    assert [m["content"] for m in sent].count("and how do I detect it?") == 1

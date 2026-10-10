@@ -190,7 +190,17 @@ def test_the_chat_resolver_itself_reads_the_deployment_scorecard(
     client = default_endpoint_is_the_test_one
     _db(settings, lambda pool: save_deployment_scorecard(pool, _sc(native_reasoning=True)))
 
-    async def resolve_as_the_analyst():
+    endpoint_id, native, base_url, _ = _resolve_as_the_analyst(client)
+
+    assert (endpoint_id, base_url) == ("default", TEST_BASE.rstrip("/"))  # it IS the default
+    assert native is True
+
+
+def _resolve_as_the_analyst(client):
+    """`get_endpoint_resolver` → `resolve()`, the path a deep turn takes, driven
+    directly (no model call — resolve() only builds a client)."""
+
+    async def resolve():
         pool = client.app.state.pool
         user_id, workspace_id = await get_or_create_user(pool, email=DEV_EMAIL)
 
@@ -205,14 +215,30 @@ def test_the_chat_resolver_itself_reads_the_deployment_scorecard(
         auth = AuthContext(user_id=user_id, workspace_id=workspace_id, via="jwt")
         endpoint = await (await get_endpoint_resolver(request, auth)).resolve()
         try:
-            return endpoint.id, endpoint.native_reasoning, endpoint.client.base_url
+            return (endpoint.id, endpoint.native_reasoning, endpoint.client.base_url,
+                    endpoint.agent_mode)
         finally:
             await endpoint.client.aclose()
 
-    endpoint_id, native, base_url = client.portal.call(resolve_as_the_analyst)
+    return client.portal.call(resolve)
 
-    assert (endpoint_id, base_url) == ("default", TEST_BASE.rstrip("/"))  # it IS the default
-    assert native is True
+
+def test_the_resolver_carries_the_mode_the_deployment_scorecard_compiles_to(
+    default_endpoint_is_the_test_one, settings
+):
+    """D-037 clause 2 is read from here: the agent path runs only when the
+    deployment's scorecard compiles to native_tools. Unprobed must reach the
+    route as None — unknown, never assumed — and a probe that found no native
+    tool calling must not."""
+    client = default_endpoint_is_the_test_one
+    assert _resolve_as_the_analyst(client)[3] is None  # nothing has probed it
+
+    _db(settings, lambda pool: save_deployment_scorecard(pool, _sc(native_reasoning=True)))
+    assert _resolve_as_the_analyst(client)[3] == "plan_only"  # reachable, no tools
+
+    tools = _sc(native_reasoning=True).model_copy(update={"native_tool_calling": True})
+    _db(settings, lambda pool: save_deployment_scorecard(pool, tools))
+    assert _resolve_as_the_analyst(client)[3] == "native_tools"
 
 
 def test_the_newest_deployment_probe_wins(default_endpoint_is_the_test_one, settings):
