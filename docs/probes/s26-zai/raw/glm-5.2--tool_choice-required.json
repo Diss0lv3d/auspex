@@ -1,0 +1,84 @@
+{
+  "status": 200,
+  "seconds": 1.8,
+  "content_type": "application/json; charset=UTF-8",
+  "request": {
+    "model": "glm-5.2",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What's the weather in Riyadh in celsius?"
+      }
+    ],
+    "temperature": 0,
+    "max_tokens": 2000,
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "description": "Get current weather for a city.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string"
+              },
+              "unit": {
+                "type": "string",
+                "enum": [
+                  "celsius",
+                  "fahrenheit"
+                ]
+              }
+            },
+            "required": [
+              "city"
+            ]
+          }
+        }
+      }
+    ],
+    "tool_choice": "required"
+  },
+  "body": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "message": {
+          "content": "",
+          "reasoning_content": "The user wants to know the weather in Riyadh in celsius. I have all the required parameters.",
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"city\": \"Riyadh\", \"unit\": \"celsius\"}",
+                "name": "get_weather"
+              },
+              "id": "call_-7184290580267000480",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        }
+      }
+    ],
+    "created": 1791621185,
+    "id": "20261010163303f27a5d342cca407f",
+    "model": "glm-5.2",
+    "object": "chat.completion",
+    "request_id": "20261010163303f27a5d342cca407f",
+    "usage": {
+      "completion_tokens": 40,
+      "completion_tokens_details": {
+        "reasoning_tokens": 20
+      },
+      "prompt_tokens": 185,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 225
+    }
+  }
+}

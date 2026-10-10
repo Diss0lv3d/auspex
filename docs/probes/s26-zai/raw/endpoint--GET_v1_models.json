@@ -1,0 +1,603 @@
+{
+  "status": 200,
+  "body": {
+    "data": [
+      {
+        "id": "glm-5.3-flash",
+        "hugging_face_id": "",
+        "name": "GLM 5.3 Flash",
+        "created": 1787745612,
+        "input_modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "quantization": "fp8",
+        "context_length": 1048576,
+        "max_output_length": 131072,
+        "pricing": [
+          {
+            "prompt": "0.00000015",
+            "completion": "0.00000050",
+            "image": "0",
+            "request": "0",
+            "input_cache_read": "0.00000003"
+          }
+        ],
+        "supported_sampling_parameters": [
+          "temperature",
+          "top_p",
+          "top_k"
+        ],
+        "supported_features": [
+          "tools",
+          "reasoning"
+        ],
+        "description": "GLM-5.3-Flash is the first native multimodal model in the GLM-5 series, built for efficient coding and long-horizon Agent tasks. Its hybrid sparse and linear attention architecture preserves accurate long-context capabilities while significantly reducing compute overhead, outperforming GLM-5.2 across multiple benchmarks and real-world tasks.",
+        "deprecation_date": "2098-12-31T16:00:00Z"
+      },
+      {
+        "id": "glm-5.3-flashx",
+        "hugging_face_id": "",
+        "name": "GLM 5.3 FlashX",
+        "created": 1790043319,
+        "input_modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "quantization": "fp8",
+        "context_length": 1048576,
+        "max_output_length": 131072,
+        "pricing": [
+          {
+            "prompt": "0.00000037",
+            "completion": "0.00000125",
+            "image": "0",
+            "request": "0",
+            "input_cache_read": "0.00000009"
+          }
+        ],
+        "supported_sampling_parameters": [
+          "temperature",
+          "top_p",
+          "top_k"
+        ],
+        "supported_features": [
+          "tools",
+          "reasoning"
+        ],
+        "description": "GLM-5.3-FlashX is a high-speed inference version of GLM-5.3-Flash, optimized for real-time coding and Agent workflows. It retains the same native multimodal intelligence and long-context capabilities, while delivering faster responses through enhanced inference optimization.",
+        "deprecation_date": "2098-12-31T16:00:00Z"
+      },
+      {
+        "id": "glm-5.3",
+        "hugging_face_id": "",
+        "name": "GLM 5.3",
+        "created": 1787072396,
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "quantization": "fp8",
+        "context_length": 1048576,
+        "max_output_length": 131072,
+        "pricing": [
+          {
+            "prompt": "0.0000014",
+            "completion": "0.0000044",
+            "image": "0",
+            "request": "0",
+            "input_cache_read": "0.00000026"
+          }
+        ],
+        "supported_sampling_parameters": [
+          "temperature",
+          "top_p",
+          "top_k"
+        ],
+        "supported_features": [
+          "tools",
+          "reasoning"
+        ],
+        "description": "GLM-5.3 is the latest flagship model for complex software engineering and long-horizon Agent tasks. It delivers a 50% improvement in coding experience over its predecessor, matches Mythos 5 on selected cybersecurity capabilities, and achieves a better balance between performance and token efficiency.",
+        "deprecation_date": "2098-12-31T16:00:00Z"
+      },
+      {
+        "id": "glm-5.2",
+        "hugging_face_id": "",
+        "name": "GLM 5.2",
+        "created": 1781620972,
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "quantization": "fp8",
+        "context_length": 1048576,
+        "max_output_length": 131072,
+        "pricing": [
+          {
+            "prompt": "0.0000014",
+            "completion": "0.0000044",
+            "image": "0",
+            "request": "0",
+            "input_cache_read": "0.00000026"
+          }
+        ],
+        "supported_sampling_parameters": [
+          "temperature",
+          "top_p",
+          "top_k"
+        ],
+        "supported_features": [
+          "tools",
+          "reasoning"
+        ],
+        "description": "GLM-5.2 is Z.ai\u2019s flagship model for the era of long-horizon tasks. With a truly usable 1M-token context window, it can handle project-level engineering context, execute long-running tasks more reliably, follow engineering standards more consistently, and complete the full development workflow from requirements to multi-platform deployment in a single task.",
+        "deprecation_date": "2098-12-31T16:00:00Z"
+      },
+      {
+        "id": "glm-5.1",
+        "hugging_face_id": "",
+        "name": "GLM 5.1",
+        "created": 1780640262,
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "quantization": "fp8",
+        "context_length": 202752,
+        "max_output_length": 131072,
+        "pricing": [
+          {
+            "prompt": "0.0000014",
+            "completion": "0.0000044",
+            "image": "0",
+            "request": "0",
+            "input_cache_read": "0.00000026"
+          }
+        ],
+        "supported_sampling_parameters": [
+          "temperature",
+          "top_p",
+          "top_k"
+        ],
+        "supported_features": [
+          "tools",
+          "reasoning"
+        ],
+        "description": "GLM-5.1 delivers a major leap in coding capability, with particularly significant gains in handling long-horizon tasks. Unlike previous models built around minute-level interactions, GLM-5.1 can work independently and continuously on a single task for more than 8 hours, autonomously planning, executing, and improving itself throughout the process, ultimately delivering complete, engineering-grade results.",
+        "deprecation_date": "2098-12-31T16:00:00Z"
+      },
+      {
+        "id": "glm-5",
+        "hugging_face_id": "",
+        "name": "GLM 5",
+        "created": 1780640262,
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "quantization": "fp8",
+        "context_length": 202752,
+        "max_output_length": 131072,
+        "pricing": [
+          {
+            "prompt": "0.000001",
+            "completion": "0.0000032",
+            "image": "0",
+            "request": "0",
+            "input_cache_read": "0.0000002"
+          }
+        ],
+        "supported_sampling_parameters": [
+          "temperature",
+          "top_p",
+          "top_k"
+        ],
+        "supported_features": [
+          "tools",
+          "reasoning"
+        ],
+        "description": "GLM-5 is Z.ai\u2019s flagship open-source foundation model engineered for complex systems design and long-horizon agent workflows. Built for expert developers, it delivers production-grade performance on large-scale programming tasks, rivaling leading closed-source models. With advanced agentic planning, deep backend reasoning, and iterative self-correction, GLM-5 moves beyond code generation to full-system construction and autonomous execution.",
+        "deprecation_date": "2098-12-31T16:00:00Z"
+      },
+      {
+        "id": "glm-5-turbo",
+        "hugging_face_id": "",
+        "name": "GLM 5 Turbo",
+        "created": 1780640262,
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "quantization": "",
+        "context_length": 202752,
+        "max_output_length": 131072,
+        "pricing": [
+          {
+            "prompt": "0.0000012",
+            "completion": "0.000004",
+            "image": "0",
+            "request": "0",
+            "input_cache_read": "0.00000024"
+          }
+        ],
+        "supported_sampling_parameters": [
+          "temperature",
+          "top_p",
+          "top_k"
+        ],
+        "supported_features": [
+          "tools",
+          "reasoning"
+        ],
+        "description": "GLM-5 Turbo is a new model from Z.ai designed for fast inference and strong performance in agent-driven environments such as OpenClaw scenarios. It is deeply optimized for real-world agent workflows involving long execution chains, with improved complex instruction decomposition, tool use, scheduled and persistent execution, and overall stability across extended tasks.",
+        "deprecation_date": "2098-12-31T16:00:00Z"
+      },
+      {
+        "id": "glm-5v-turbo",
+        "hugging_face_id": "",
+        "name": "GLM 5V Turbo",
+        "created": 1780640262,
+        "input_modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "quantization": "fp8",
+        "context_length": 202752,
+        "max_output_length": 131072,
+        "pricing": [
+          {
+            "prompt": "0.0000012",
+            "completion": "0.000004",
+            "image": "0",
+            "request": "0",
+            "input_cache_read": "0.00000024"
+          }
+        ],
+        "supported_sampling_parameters": [
+          "temperature",
+          "top_p",
+          "top_k"
+        ],
+        "supported_features": [
+          "tools",
+          "reasoning"
+        ],
+        "description": "GLM-5V-Turbo is Z.ai\u2019s first native multimodal agent foundation model, built for vision-based coding and agent-driven tasks. It natively handles image, video, and text inputs, excels at long-horizon planning, complex coding, and task execution, and works seamlessly with agents to complete the full loop of \u201cperceive \u2192 plan \u2192 execute\u201c.",
+        "deprecation_date": "2098-12-31T16:00:00Z"
+      },
+      {
+        "id": "glm-4.7",
+        "hugging_face_id": "",
+        "name": "GLM 4.7",
+        "created": 1780640262,
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "quantization": "fp4",
+        "context_length": 202752,
+        "max_output_length": 131072,
+        "pricing": [
+          {
+            "prompt": "0.0000006",
+            "completion": "0.0000022",
+            "image": "0",
+            "request": "0",
+            "input_cache_read": "0.00000011"
+          }
+        ],
+        "supported_sampling_parameters": [
+          "temperature",
+          "top_p",
+          "top_k"
+        ],
+        "supported_features": [
+          "tools",
+          "reasoning"
+        ],
+        "description": "GLM-4.7 is Z.ai\u2019s latest flagship model, featuring upgrades in two key areas: enhanced programming capabilities and more stable multi-step reasoning/execution. It demonstrates significant improvements in executing complex agent tasks while delivering more natural conversational experiences and superior front-end aesthetics.",
+        "deprecation_date": "2026-12-31T16:00:00Z"
+      },
+      {
+        "id": "glm-4.7-flash",
+        "hugging_face_id": "",
+        "name": "GLM 4.7 Flash",
+        "created": 1780640262,
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "quantization": "bf16",
+        "context_length": 202752,
+        "max_output_length": 131072,
+        "pricing": [
+          {
+            "prompt": "0.00000007",
+            "completion": "0.0000004",
+            "image": "0",
+            "request": "0",
+            "input_cache_read": "0.00000001"
+          }
+        ],
+        "supported_sampling_parameters": [
+          "temperature",
+          "top_p",
+          "top_k"
+        ],
+        "supported_features": [
+          "tools",
+          "reasoning"
+        ],
+        "description": "As a 30B-class SOTA model, GLM-4.7-Flash offers a new option that balances performance and efficiency. It is further optimized for agentic coding use cases, strengthening coding capabilities, long-horizon task planning, and tool collaboration, and has achieved leading performance among open-source models of the same size on several current public benchmark leaderboards.",
+        "deprecation_date": "2098-12-31T16:00:00Z"
+      },
+      {
+        "id": "glm-4.6",
+        "hugging_face_id": "",
+        "name": "GLM 4.6",
+        "created": 1780640262,
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "quantization": "fp4",
+        "context_length": 202752,
+        "max_output_length": 131072,
+        "pricing": [
+          {
+            "prompt": "0.0000006",
+            "completion": "0.0000022",
+            "image": "0",
+            "request": "0",
+            "input_cache_read": "0.00000011"
+          }
+        ],
+        "supported_sampling_parameters": [
+          "temperature",
+          "top_p",
+          "top_k"
+        ],
+        "supported_features": [
+          "tools",
+          "reasoning"
+        ],
+        "description": "Compared with GLM-4.5, this generation brings several key improvements:\r\nLonger context window: The context window has been expanded from 128K to 200K tokens, enabling the model to handle more complex agentic tasks.\r\nSuperior coding performance: The model achieves higher scores on code benchmarks and demonstrates better real-world performance in applications such as Claude Code\u3001Cline\u3001Roo Code and Kilo Code, including improvements in generating visually polished front-end pages.\r\nAdvanced reasoning: GLM-4.6 shows a clear improvement in reasoning performance and supports tool use during inference, leading to stronger overall capability.\r\nMore capable agents: GLM-4.6 exhibits stronger performance in tool using and search-based agents, and integrates more effectively within agent frameworks.\r\nRefined writing: Better aligns with human preferences in style and readability, and performs more naturally in role-playing scenarios.",
+        "deprecation_date": "2026-12-31T16:00:00Z"
+      },
+      {
+        "id": "glm-4.6v",
+        "hugging_face_id": "",
+        "name": "GLM 4.6V",
+        "created": 1780640262,
+        "input_modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "quantization": "fp8",
+        "context_length": 131072,
+        "max_output_length": 32768,
+        "pricing": [
+          {
+            "prompt": "0.0000003",
+            "completion": "0.0000009",
+            "image": "0",
+            "request": "0",
+            "input_cache_read": "0.00000005"
+          }
+        ],
+        "supported_sampling_parameters": [
+          "temperature",
+          "top_p",
+          "top_k"
+        ],
+        "supported_features": [
+          "tools",
+          "reasoning"
+        ],
+        "description": "GLM-4.6V is a large multimodal model designed for high-fidelity visual understanding and long-context reasoning across images, documents, and mixed media. It supports up to 128K tokens, processes complex page layouts and charts directly as visual inputs, and integrates native multimodal function calling to connect perception with downstream tool execution. The model also enables interleaved image-text generation and UI reconstruction workflows, including screenshot-to-HTML synthesis and iterative visual editing.",
+        "deprecation_date": "2098-12-31T16:00:00Z"
+      },
+      {
+        "id": "glm-4.5",
+        "hugging_face_id": "",
+        "name": "GLM 4.5",
+        "created": 1780640262,
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "quantization": "fp8",
+        "context_length": 131072,
+        "max_output_length": 98304,
+        "pricing": [
+          {
+            "prompt": "0.0000006",
+            "completion": "0.0000022",
+            "image": "0",
+            "request": "0",
+            "input_cache_read": "0.00000011"
+          }
+        ],
+        "supported_sampling_parameters": [
+          "temperature",
+          "top_p",
+          "top_k"
+        ],
+        "supported_features": [
+          "tools",
+          "reasoning"
+        ],
+        "description": "GLM-4.5 is our latest flagship foundation model, purpose-built for agent-based applications. It leverages a Mixture-of-Experts (MoE) architecture and supports a context length of up to 128k tokens. GLM-4.5 delivers significantly enhanced capabilities in reasoning, code generation, and agent alignment. It supports a hybrid inference mode with two options, a \"thinking mode\" designed for complex reasoning and tool use, and a \"non-thinking mode\" optimized for instant responses. Users can control the reasoning behaviour with the reasoning enabled boolean.",
+        "deprecation_date": "2026-12-31T16:00:00Z"
+      },
+      {
+        "id": "glm-4.5v",
+        "hugging_face_id": "",
+        "name": "GLM 4.5V",
+        "created": 1780640262,
+        "input_modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "quantization": "fp8",
+        "context_length": 65536,
+        "max_output_length": 16384,
+        "pricing": [
+          {
+            "prompt": "0.0000006",
+            "completion": "0.0000018",
+            "image": "0",
+            "request": "0",
+            "input_cache_read": "0.00000011"
+          }
+        ],
+        "supported_sampling_parameters": [
+          "temperature",
+          "top_p",
+          "top_k"
+        ],
+        "supported_features": [
+          "tools",
+          "reasoning"
+        ],
+        "description": "GLM-4.5V is a vision-language foundation model for multimodal agent applications. Built on a Mixture-of-Experts (MoE) architecture with 106B parameters and 12B activated parameters, it achieves state-of-the-art results in video understanding, image Q&A, OCR, and document parsing, with strong gains in front-end web coding, grounding, and spatial reasoning. It offers a hybrid inference mode: a \"thinking mode\" for deep reasoning and a \"non-thinking mode\" for fast responses. Reasoning behavior can be toggled via the reasoning enabled boolean.",
+        "deprecation_date": "2026-12-31T16:00:00Z"
+      },
+      {
+        "id": "glm-4.5-air",
+        "hugging_face_id": "",
+        "name": "GLM 4.5 Air",
+        "created": 1780640262,
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "quantization": "fp8",
+        "context_length": 131072,
+        "max_output_length": 98304,
+        "pricing": [
+          {
+            "prompt": "0.0000002",
+            "completion": "0.0000011",
+            "image": "0",
+            "request": "0",
+            "input_cache_read": "0.00000003"
+          }
+        ],
+        "supported_sampling_parameters": [
+          "temperature",
+          "top_p",
+          "top_k"
+        ],
+        "supported_features": [
+          "tools",
+          "reasoning"
+        ],
+        "description": "GLM-4.5-Air is the lightweight variant of our latest flagship model family, also purpose-built for agent-centric applications. Like GLM-4.5, it adopts the Mixture-of-Experts (MoE) architecture but with a more compact parameter size. GLM-4.5-Air also supports hybrid inference modes, offering a \"thinking mode\" for advanced reasoning and tool use, and a \"non-thinking mode\" for real-time interaction. Users can control the reasoning behaviour with the reasoning enabled boolean.",
+        "deprecation_date": "2098-12-31T16:00:00Z"
+      },
+      {
+        "id": "glm-4.5-air:free",
+        "hugging_face_id": "",
+        "name": "GLM 4.5 Air (free)",
+        "created": 1780640262,
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "quantization": "",
+        "context_length": 131072,
+        "max_output_length": 98304,
+        "pricing": [],
+        "supported_sampling_parameters": [
+          "temperature",
+          "top_p",
+          "top_k"
+        ],
+        "supported_features": [
+          "tools",
+          "reasoning"
+        ],
+        "description": "GLM-4.5-Air is the lightweight variant of our latest flagship model family, also purpose-built for agent-centric applications. Like GLM-4.5, it adopts the Mixture-of-Experts (MoE) architecture but with a more compact parameter size. GLM-4.5-Air also supports hybrid inference modes, offering a \"thinking mode\" for advanced reasoning and tool use, and a \"non-thinking mode\" for real-time interaction. Users can control the reasoning behaviour with the reasoning enabled boolean.",
+        "deprecation_date": "2098-12-31T16:00:00Z"
+      },
+      {
+        "id": "glm-4-32b",
+        "hugging_face_id": "",
+        "name": "GLM 4 32B",
+        "created": 1780640262,
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "quantization": "",
+        "context_length": 131072,
+        "max_output_length": 131072,
+        "pricing": [
+          {
+            "prompt": "0.0000001",
+            "completion": "0.0000001",
+            "image": "0",
+            "request": "0",
+            "input_cache_read": "0.0000001"
+          }
+        ],
+        "supported_sampling_parameters": [
+          "temperature",
+          "top_p",
+          "top_k"
+        ],
+        "supported_features": [
+          "tools"
+        ],
+        "description": "GLM 4 32B is a cost-effective foundation language model.\r\nIt can efficiently perform complex tasks and has significantly enhanced capabilities in tool use, online search, and code-related intelligent tasks.\r\nIt is made by the same lab behind the thudm models.",
+        "deprecation_date": "2026-12-31T16:00:00Z"
+      }
+    ]
+  }
+}

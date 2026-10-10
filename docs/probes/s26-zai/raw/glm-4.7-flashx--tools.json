@@ -1,0 +1,83 @@
+{
+  "status": 200,
+  "seconds": 1.99,
+  "content_type": "application/json; charset=UTF-8",
+  "request": {
+    "model": "glm-4.7-flashx",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What's the weather in Riyadh in celsius?"
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "description": "Get current weather for a city.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string"
+              },
+              "unit": {
+                "type": "string",
+                "enum": [
+                  "celsius",
+                  "fahrenheit"
+                ]
+              }
+            },
+            "required": [
+              "city"
+            ]
+          }
+        }
+      }
+    ],
+    "temperature": 0,
+    "max_tokens": 2000
+  },
+  "body": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "message": {
+          "content": "I'll get the current weather in Riyadh in celsius for you.",
+          "reasoning_content": "The user is asking for the weather in Riyadh in celsius. I have the get_weather function available which takes a city parameter and an optional unit parameter. The user specifically wants celsius, so I should set the unit parameter to \"celsius\". The city is \"Riyadh\".",
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"city\":\"Riyadh\",\"unit\":\"celsius\"}",
+                "name": "get_weather"
+              },
+              "id": "call_-7184291576699419820",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        }
+      }
+    ],
+    "created": 1791621393,
+    "id": "202610101636319b69cc9a5f114f62",
+    "model": "glm-4.7-flashx",
+    "object": "chat.completion",
+    "request_id": "202610101636319b69cc9a5f114f62",
+    "usage": {
+      "completion_tokens": 93,
+      "completion_tokens_details": {
+        "reasoning_tokens": 58
+      },
+      "prompt_tokens": 183,
+      "prompt_tokens_details": {
+        "cached_tokens": 181
+      },
+      "total_tokens": 276
+    }
+  }
+}

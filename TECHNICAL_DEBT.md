@@ -1031,3 +1031,23 @@ result contradicted. Recorded, deliberately NOT fixed: the fix is the same
 buffer this entry already costs, and inventing a second one (concatenating every
 step's content into `done.text`) would persist prose the tool results refuted,
 which is worse than dropping it. Same trigger, same measurement still owed.
+
+**S26 (2026-10-10) — TRIGGERED, and the owed measurement is taken.** The first
+non-Scout endpoint we connected trips this entry's own trigger: on Z.ai, prose
+precedes tool calls on four of five models
+(docs/probes/2026-10-10-zai-endpoint.md, Finding 9). Streamed, the ordering is
+identical across three of them — reasoning, then the whole sentence, then the
+whole tool call in ONE delta:
+
+    glm-4.7-flashx   reasoning x61 → content x14 → tool_call x1
+    glm-4.5-air      reasoning x76 → content x15 → tool_call x1
+    glm-4.5-flash    reasoning x75 → content x15 → tool_call x1
+    content: "I'll get the current weather in Riyadh for you in celsius."
+
+So the buffer this entry describes is now a known size: one sentence of
+narration, released or dropped when the step's `finish_reason` arrives. The
+prose is benign intent-narration on every sample, not a premature verdict — but
+GLM-5.2's parallel case ("I'll run both requests at the same time…") shows it is
+not confined to one model or one prompt shape. **Risk is no longer LOW once the
+agent path is wired to `/api/chat` against this endpoint**; the fix belongs to
+that wiring, not to this detour.

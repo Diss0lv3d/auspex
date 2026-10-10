@@ -1,0 +1,47 @@
+{
+  "status": 200,
+  "seconds": 1.22,
+  "content_type": "application/json; charset=UTF-8",
+  "request": {
+    "model": "glm-5.2",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Reply with exactly: pong"
+      }
+    ],
+    "temperature": 0,
+    "max_tokens": 2000,
+    "thinking": {
+      "type": "disabled"
+    }
+  },
+  "body": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "pong",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1791621174,
+    "id": "20261010163253d97dff3c669a466f",
+    "model": "glm-5.2",
+    "object": "chat.completion",
+    "request_id": "20261010163253d97dff3c669a466f",
+    "usage": {
+      "completion_tokens": 1,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "prompt_tokens": 11,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 12
+    }
+  }
+}

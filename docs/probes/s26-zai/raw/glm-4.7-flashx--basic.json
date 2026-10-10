@@ -1,0 +1,45 @@
+{
+  "status": 200,
+  "seconds": 2.3,
+  "content_type": "application/json; charset=UTF-8",
+  "request": {
+    "model": "glm-4.7-flashx",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Reply with exactly: pong"
+      }
+    ],
+    "temperature": 0,
+    "max_tokens": 2000
+  },
+  "body": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "pong",
+          "reasoning_content": "1.  **Analyze the Request:** The user wants a reply containing exactly the word \"pong\".\n\n2.  **Identify the Intent:** The user is testing a simple command-response loop or just playing a game of \"ping-pong\" (text-based).\n\n3.  **Check for Safety/Policy Violations:** The request is harmless. It does not violate any safety guidelines (no hate speech, no dangerous content, no PII, etc.).\n\n4.  **Formulate the Output:** The output must be *exactly* \"pong\".\n\n5.  **Final Verification:** Does \"pong\" match the requirement? Yes.",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1791621390,
+    "id": "2026101016362852a96dd545d04620",
+    "model": "glm-4.7-flashx",
+    "object": "chat.completion",
+    "request_id": "2026101016362852a96dd545d04620",
+    "usage": {
+      "completion_tokens": 133,
+      "completion_tokens_details": {
+        "reasoning_tokens": 130
+      },
+      "prompt_tokens": 10,
+      "prompt_tokens_details": {
+        "cached_tokens": 2
+      },
+      "total_tokens": 143
+    }
+  }
+}

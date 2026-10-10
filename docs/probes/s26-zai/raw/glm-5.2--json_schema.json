@@ -1,0 +1,67 @@
+{
+  "status": 200,
+  "seconds": 14.8,
+  "content_type": "application/json; charset=UTF-8",
+  "request": {
+    "model": "glm-5.2",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Give a threat verdict for the domain example.test."
+      }
+    ],
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "name": "verdict",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "verdict": {
+              "type": "string",
+              "enum": [
+                "benign",
+                "suspicious",
+                "malicious"
+              ]
+            }
+          },
+          "required": [
+            "verdict"
+          ]
+        }
+      }
+    },
+    "temperature": 0,
+    "max_tokens": 2000
+  },
+  "body": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "**Threat Verdict: Benign / Non-Routable**\n\n**Details:**\nThe domain `example.test` uses the `.test` Top-Level Domain (TLD). The `.test` TLD is one of several Reserved Top-Level Domains (along with `.example`, `.localhost`, and `.invalid`) defined in RFC 2606 and RFC 6761. \n\nBecause it is a reserved TLD, it is **not delegated in the global Domain Name System (DNS) root zone**. This means the domain will not resolve to any public IP addresses on the global internet. As a result, it cannot be used to host public-facing malicious infrastructure, such as phishing sites, malware hosting, or botnet Command and Control (C2) servers. \n\n**Context:**\nWhile `example.test` poses no threat on the public internet, it is often used by developers and administrators in internal, isolated test environments. If you are seeing this domain in your network logs, it is likely the result of internal testing, a misconfigured application, or a local DNS sinkhole, rather than an actual external cyber threat.",
+          "reasoning_content": "1.  **Analyze the Request:**\n    *   Target: Domain `example.test`\n    *   Action: Provide a threat verdict.\n\n2.  **Analyze the Target (`example.test`):**\n    *   `.test` is a reserved top-level domain (TLD) by ICANN (RFC 2606). It is *never* intended to be installed in the global DNS root.\n    *   Because it's a reserved TLD, it cannot be registered by the public, and it does not resolve to real IP addresses on the public internet.\n    *   Therefore, it cannot host live malicious infrastructure (like phishing sites, malware C2s, etc.) on the global internet.\n    *   However, it *could* be used internally within a closed network or for testing purposes. In the context of a global threat intelligence verdict, it is inherently benign/non-routable.\n\n3.  **Determine the Threat Verdict:**\n    *   Verdict: Benign / Safe / Non-routable / Reserved.\n    *   Reasoning: `.test` is an RFC 2606 reserved TLD, meaning it is not delegated in the global DNS root and cannot host public-facing malicious content.\n\n4.  **Formulate the Response:**\n    *   State the verdict clearly (e.g., Benign / No Threat).\n    *   Provide the context/reasoning (RFC 2606 reserved TLD, not globally resolvable).\n    *   Add a minor caveat (could be used in local test environments, but poses no global threat).\n\n5.  **Review against safety guidelines:**\n    *   Does this violate any policies? No. It's a standard threat intelligence assessment of a reserved domain.\n\n6.  **Draft the final output:**\n    *   Verdict: Benign\n    *   Details: `example.test` uses the `.test` Top-Level Domain (TLD), which is reserved by ICANN under RFC 2606 for testing purposes. It is not delegated in the global Domain Name System (DNS) root zone. Therefore, it does not resolve to any public IP addresses and cannot host public malicious infrastructure (such as phishing pages, malware, or command-and-control servers). It poses no threat on the public internet.",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1791621213,
+    "id": "20261010163319bcebf82fa07e4eb2",
+    "model": "glm-5.2",
+    "object": "chat.completion",
+    "request_id": "20261010163319bcebf82fa07e4eb2",
+    "usage": {
+      "completion_tokens": 698,
+      "completion_tokens_details": {
+        "reasoning_tokens": 468
+      },
+      "prompt_tokens": 22,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 720
+    }
+  }
+}

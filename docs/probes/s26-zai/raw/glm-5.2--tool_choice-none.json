@@ -1,0 +1,73 @@
+{
+  "status": 200,
+  "seconds": 11.87,
+  "content_type": "application/json; charset=UTF-8",
+  "request": {
+    "model": "glm-5.2",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What's the weather in Riyadh in celsius?"
+      }
+    ],
+    "temperature": 0,
+    "max_tokens": 2000,
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "description": "Get current weather for a city.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string"
+              },
+              "unit": {
+                "type": "string",
+                "enum": [
+                  "celsius",
+                  "fahrenheit"
+                ]
+              }
+            },
+            "required": [
+              "city"
+            ]
+          }
+        }
+      }
+    ],
+    "tool_choice": "none"
+  },
+  "body": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "I don't have access to real-time data, so I can't give you the exact current temperature in Riyadh. \n\nTo get the most accurate and up-to-date weather right now, I recommend:\n1. Searching **\"Weather in Riyadh\"** on Google.\n2. Checking a weather app on your phone (just ensure your units are set to Celsius).\n3. Visiting a weather website like [weather.com](https://weather.com) or [accuweather.com](https://www.accuweather.com/).\n\n**As a general guide:** Riyadh has a hot desert climate. In the summer months (June\u2013August), daytime temperatures frequently exceed **40\u00b0C to 45\u00b0C**. In the winter months (December\u2013February), it is much milder, usually ranging between **10\u00b0C and 20\u00b0C**.",
+          "reasoning_content": "1.  **Identify the core intent:** The user is asking for the current weather in Riyadh, Saudi Arabia, specifically in Celsius.\n2.  **Identify the limitations:** As an AI, I do not have real-time internet access to fetch live weather data unless I use a search tool (which I don't have active in this specific environment, or I need to simulate the standard AI response for real-time data).\n3.  **Formulate the response:**\n    *   *Acknowledge the limitation:* State clearly that I cannot provide real-time weather updates.\n    *   *Provide general/seasonal context (optional but helpful):* Mention typical weather in Riyadh depending on the current season (since I don't know the exact current date the user is experiencing, though I know my system date). Let's check the current date: May 2024. In May, Riyadh is getting very hot, usually ranging from 25\u00b0C at night to 40\u00b0C+ during the day.\n    *   *Direct the user:* Tell them how to get the exact current weather (e.g., Google, Weather app, etc.).\n4.  **Refine the response:** \"I don't have access to real-time data, so I can't give you the exact current temperature in Riyadh. However, depending on the time of year, Riyadh's weather varies significantly. In the summer (June-August), temperatures often exceed 40\u00b0C (104\u00b0F), while in the winter (December-February), it can drop to around 10-20\u00b0C (50-68\u00b0F). For the most accurate and up-to-date weather right now, I recommend checking a weather service like Google Weather, AccuWeather, or your local weather app.\"\n5.  *Self-Correction during thought process:* Wait, I should check if I *can* browse. I am a standard LLM without a designated search tool in this prompt. So I must state the limitation. Let me make it concise and helpful.\n\n*Drafting final response:*\n\"I don't have access to real-time weather data, so I can't give you the exact current temperature in Riyadh.\n\nTo find the current weather in Celsius, you can:\n1. Search \"Weather in Riyadh\" on Google.\n2. Check a weather app on your phone (make sure your settings are set to Celsius).\n3. Visit a weather website like [weather.com](https://weather.com) or [accuweather.com](https://accuweather.com).\n\n*(Note: Riyadh is generally very hot. In the summer, temperatures frequently exceed 40\u00b0C, and in the winter, it cools down to around 10\u00b0C to 20\u00b0C.)*\"",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1791621198,
+    "id": "20261010163307aa32983919ce4c0f",
+    "model": "glm-5.2",
+    "object": "chat.completion",
+    "request_id": "20261010163307aa32983919ce4c0f",
+    "usage": {
+      "completion_tokens": 719,
+      "completion_tokens_details": {
+        "reasoning_tokens": 552
+      },
+      "prompt_tokens": 22,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 741
+    }
+  }
+}

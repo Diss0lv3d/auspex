@@ -1,0 +1,91 @@
+{
+  "status": 200,
+  "seconds": 1.25,
+  "content_type": "application/json; charset=UTF-8",
+  "request": {
+    "model": "glm-4.7-flashx",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What's the weather in Riyadh in celsius?"
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_probe1",
+            "type": "function",
+            "function": {
+              "name": "get_weather",
+              "arguments": "{\"city\": \"Riyadh\", \"unit\": \"celsius\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_probe1",
+        "content": "{\"temp_c\": 43, \"condition\": \"sunny\"}"
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "description": "Get current weather for a city.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string"
+              },
+              "unit": {
+                "type": "string",
+                "enum": [
+                  "celsius",
+                  "fahrenheit"
+                ]
+              }
+            },
+            "required": [
+              "city"
+            ]
+          }
+        }
+      }
+    ],
+    "temperature": 0,
+    "max_tokens": 2000
+  },
+  "body": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "The weather in Riyadh is currently 43\u00b0C and it's sunny.",
+          "reasoning_content": "The weather in Riyadh is 43\u00b0C and it's sunny. I should provide this information clearly to the user.",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1791621394,
+    "id": "20261010163633e0ba382e299645fb",
+    "model": "glm-4.7-flashx",
+    "object": "chat.completion",
+    "request_id": "20261010163633e0ba382e299645fb",
+    "usage": {
+      "completion_tokens": 39,
+      "completion_tokens_details": {
+        "reasoning_tokens": 23
+      },
+      "prompt_tokens": 221,
+      "prompt_tokens_details": {
+        "cached_tokens": 181
+      },
+      "total_tokens": 260
+    }
+  }
+}

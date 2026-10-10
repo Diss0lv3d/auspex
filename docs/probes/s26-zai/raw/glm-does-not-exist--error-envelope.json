@@ -1,0 +1,21 @@
+{
+  "status": 400,
+  "seconds": 0.31,
+  "content_type": null,
+  "request": {
+    "model": "glm-does-not-exist",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ],
+    "max_tokens": 10
+  },
+  "body": {
+    "error": {
+      "code": "1211",
+      "message": "Unknown Model, please check the model code."
+    }
+  }
+}

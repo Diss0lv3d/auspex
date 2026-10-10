@@ -1,0 +1,110 @@
+{
+  "status": 200,
+  "seconds": 2.33,
+  "content_type": "application/json; charset=UTF-8",
+  "request": {
+    "model": "glm-5.2",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Check the weather in Riyadh (celsius) AND look up the IP 8.8.8.8. Do both now."
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "description": "Get current weather for a city.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string"
+              },
+              "unit": {
+                "type": "string",
+                "enum": [
+                  "celsius",
+                  "fahrenheit"
+                ]
+              }
+            },
+            "required": [
+              "city"
+            ]
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "lookup_ip",
+          "description": "Look up reputation info for an IPv4 address.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "ip": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "ip"
+            ]
+          }
+        }
+      }
+    ],
+    "temperature": 0,
+    "max_tokens": 2000
+  },
+  "body": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "message": {
+          "content": "I'll run both requests at the same time since they're independent of each other!",
+          "reasoning_content": "The user wants two independent actions: check weather in Riyadh in celsius, and look up IP 8.8.8.8. These are independent, so I can make both calls simultaneously.",
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"city\": \"Riyadh\", \"unit\": \"celsius\"}",
+                "name": "get_weather"
+              },
+              "id": "call_-7184292332613664079",
+              "index": 0,
+              "type": "function"
+            },
+            {
+              "function": {
+                "arguments": "{\"ip\": \"8.8.8.8\"}",
+                "name": "lookup_ip"
+              },
+              "id": "call_-7184292332613664078",
+              "index": 1,
+              "type": "function"
+            }
+          ]
+        }
+      }
+    ],
+    "created": 1791621183,
+    "id": "20261010163301032eb9d085684824",
+    "model": "glm-5.2",
+    "object": "chat.completion",
+    "request_id": "20261010163301032eb9d085684824",
+    "usage": {
+      "completion_tokens": 93,
+      "completion_tokens_details": {
+        "reasoning_tokens": 41
+      },
+      "prompt_tokens": 252,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 345
+    }
+  }
+}

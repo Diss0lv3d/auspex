@@ -1,0 +1,80 @@
+{
+  "status": 200,
+  "seconds": 15.15,
+  "content_type": "application/json; charset=UTF-8",
+  "request": {
+    "model": "glm-4.5-flash",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What's the weather in Riyadh in celsius?"
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "description": "Get current weather for a city.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string"
+              },
+              "unit": {
+                "type": "string",
+                "enum": [
+                  "celsius",
+                  "fahrenheit"
+                ]
+              }
+            },
+            "required": [
+              "city"
+            ]
+          }
+        }
+      }
+    ],
+    "temperature": 0,
+    "max_tokens": 2000
+  },
+  "body": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "message": {
+          "content": "\nI'll get the current weather in Riyadh for you in celsius.\n",
+          "reasoning_content": "\nThe user is asking for the weather in Riyadh in celsius. I have the get_weather function available that takes:\n- city (required): \"Riyadh\" \n- unit (optional): \"celsius\"\n\nThe user has provided both the city (Riyadh) and the unit (celsius), so I have all the required parameters to make the function call.",
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"city\":\"Riyadh\",\"unit\":\"celsius\"}",
+                "name": "get_weather"
+              },
+              "id": "call_-7184290683346221139",
+              "index": 0,
+              "type": "function"
+            }
+          ]
+        }
+      }
+    ],
+    "created": 1791621420,
+    "id": "20261010163645ea79a781f5d74490",
+    "model": "glm-4.5-flash",
+    "object": "chat.completion",
+    "request_id": "20261010163645ea79a781f5d74490",
+    "usage": {
+      "completion_tokens": 118,
+      "prompt_tokens": 187,
+      "prompt_tokens_details": {
+        "cached_tokens": 43
+      },
+      "total_tokens": 305
+    }
+  }
+}

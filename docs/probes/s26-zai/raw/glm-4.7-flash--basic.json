@@ -1,0 +1,22 @@
+{
+  "status": 429,
+  "seconds": 0.5,
+  "content_type": "application/json; charset=UTF-8",
+  "request": {
+    "model": "glm-4.7-flash",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Reply with exactly: pong"
+      }
+    ],
+    "temperature": 0,
+    "max_tokens": 2000
+  },
+  "body": {
+    "error": {
+      "code": "1305",
+      "message": "The service may be temporarily overloaded, please try again later"
+    }
+  }
+}

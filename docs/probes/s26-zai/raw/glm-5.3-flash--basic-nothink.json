@@ -1,0 +1,25 @@
+{
+  "status": 400,
+  "seconds": 0.39,
+  "content_type": null,
+  "request": {
+    "model": "glm-5.3-flash",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Reply with exactly: pong"
+      }
+    ],
+    "temperature": 0,
+    "max_tokens": 2000,
+    "thinking": {
+      "type": "disabled"
+    }
+  },
+  "body": {
+    "error": {
+      "code": "1210",
+      "message": "This model always engages in thinking and cannot be disabled; please use low, high, or max"
+    }
+  }
+}

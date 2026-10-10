@@ -1,0 +1,42 @@
+{
+  "status": 200,
+  "seconds": 6.55,
+  "content_type": "application/json; charset=UTF-8",
+  "request": {
+    "model": "glm-4.5-flash",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Reply with exactly: pong"
+      }
+    ],
+    "temperature": 0,
+    "max_tokens": 2000
+  },
+  "body": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "pong",
+          "reasoning_content": "\nWe are given a user message: \"Reply with exactly: pong\"\n The user wants a reply that is exactly the string \"pong\".\n Therefore, we must output only the word \"pong\" without any additional text.",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1791621394,
+    "id": "202610101636284ea1e5e7383f4910",
+    "model": "glm-4.5-flash",
+    "object": "chat.completion",
+    "request_id": "202610101636284ea1e5e7383f4910",
+    "usage": {
+      "completion_tokens": 48,
+      "prompt_tokens": 10,
+      "prompt_tokens_details": {
+        "cached_tokens": 8
+      },
+      "total_tokens": 58
+    }
+  }
+}
