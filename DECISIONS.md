@@ -843,3 +843,48 @@ ratified decision.
 **What this supersedes.** Nothing. D-010 (work lands on `staging`; `main` moves
 only through `/promote`) and D-028 (CI runs `./ci.sh` and nothing else) both stand
 unchanged — this names what enforces them.
+
+## D-033 — The endpoint's URL is the customer's; its response shape is measured, not configured (2026-10-10, S26)
+
+**Context.** The customer brings the LLM (D-005), but `auspex/llm/client.py`
+hardcoded `/v1/chat/completions` and `/v1/models` under `LLM_BASE_URL`. That
+held for the three endpoints we had (Ollama, vLLM, Scout) and broke on the first
+provider whose API root is not `/v1`: Z.ai serves `https://api.z.ai/api/paas/v4`.
+Worse than a clean failure, measured live: under that root `GET .../v1/models`
+answers **200** while `POST .../v1/chat/completions` answers **404** — the
+liveness check would have passed for an endpoint chat could not reach
+(docs/probes/2026-10-10-zai-endpoint.md). Burhan proposed making the URL and the
+response JSON part of the environment so nothing provider-specific is hardcoded.
+The principle was accepted; the mechanism below was Burhan's choice between the
+two put to him.
+
+**Decision 1 — `LLM_BASE_URL` is the API root exactly as the provider documents
+it for the OpenAI SDK.** The client appends only the operation (`/chat/completions`,
+`/models`) — never a version segment. Every OpenAI-compatible provider publishes
+that value (`https://api.openai.com/v1`, `https://api.z.ai/api/paas/v4`,
+`http://localhost:11434/v1`), so a customer copies it rather than translating it.
+**No new variable**: the existing one changes meaning. Pre-D-033 values (a bare
+host) now 404 at `/models`, and the liveness note says what to fix rather than
+reading like an outage.
+
+**Decision 2 — response-shape variants are handled in code and detected by the
+capability probe, never configured.** The known variance is small and named: the
+thinking text arrives as `reasoning` (Ollama, newer vLLM) or `reasoning_content`
+(Z.ai, DeepSeek, older vLLM). The client accepts both. A field-name variable was
+rejected because the customer cannot be expected to know it, and getting it wrong
+fails SILENTLY — reasoning reads as absent while the tokens are still billed —
+which is exactly the *not-measured renders as not-present* collapse the
+capability scorecard exists to prevent. Measurement already covers it:
+`native_reasoning` is set from what the basic probe actually returned.
+
+**Decision 3 — a request pass-through (`LLM_EXTRA_BODY`) is admissible, and only
+on measurement.** Provider-specific *request* switches (Z.ai's `thinking`,
+`reasoning_effort`, `tool_stream`) ARE the customer's to set — like `LLM_MODEL`,
+they belong to their endpoint, not to us (D-026 governs tunables that are ours).
+One optional JSON variable merged into every request body would cover any
+provider. It is born only if a measurement shows the default request costs the
+platform something it must not pay; until then it does not exist.
+
+**What this supersedes.** Nothing ratified. D-005 (customer-supplied endpoint),
+D-015's `.env`-is-the-single-source-of-truth and D-016's `native_reasoning` all
+stand; this makes them true for endpoints whose root is not `/v1`.
