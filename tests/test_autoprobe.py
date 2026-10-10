@@ -19,7 +19,13 @@ import auspex.app as app_module
 from auspex.app import create_app
 from auspex.config import Settings
 from auspex.db import create_pool
-from auspex.llm.autoprobe import autoprobe, ensure_deployment_scorecard
+from auspex.llm.autoprobe import (
+    REPROBE_CHECK_SECONDS,
+    SCORECARD_MAX_AGE_SECONDS,
+    autoprobe,
+    ensure_deployment_scorecard,
+    keep_scorecard_fresh,
+)
 from auspex.llm.capability import BASIC_CHAT_FAILED
 from auspex.llm.scorecard import (
     CapabilityScorecard,
@@ -210,11 +216,10 @@ def test_the_app_starts_the_probe_only_when_switched_on(monkeypatch):
     off, like INGEST_ENABLED)."""
     started: list[Settings] = []
 
-    async def fake_autoprobe(pool, settings, **kw):
+    async def fake_keep_fresh(pool, settings, **kw):
         started.append(settings)
-        return "known"
 
-    monkeypatch.setattr(app_module, "autoprobe", fake_autoprobe)
+    monkeypatch.setattr(app_module, "keep_scorecard_fresh", fake_keep_fresh)
     for enabled in (True, False):
         with TestClient(create_app(_settings(llm_autoprobe_enabled=enabled))):
             pass
@@ -224,3 +229,107 @@ def test_the_app_starts_the_probe_only_when_switched_on(monkeypatch):
 
 def test_host_test_runs_are_pinned_off():
     assert Settings().llm_autoprobe_enabled is False
+
+
+# ── TD-041 (D-042): a measurement gets old, and the running app takes another ──
+
+
+def _age_all(pool, seconds: float):
+    """Backdate every row these tests wrote, as if probed `seconds` ago."""
+    return _run(pool, lambda p: p.execute(
+        "UPDATE llm_endpoint_scorecards"
+        "   SET probed_at = now() - make_interval(secs => $1::double precision)"
+        " WHERE base_url LIKE '%d038-%'", float(seconds)))
+
+
+def test_an_old_measurement_is_taken_again_and_the_new_one_wins(pool):
+    """TD-041: a provider can change a model under the same name, and the
+    fingerprint cannot see it. Past SCORECARD_MAX_AGE_SECONDS the endpoint is
+    measured again, and what it does NOW is what the route reads."""
+    _run(pool, lambda p: save_deployment_scorecard(p, _card(native_reasoning=True)))
+    _age_all(pool, SCORECARD_MAX_AGE_SECONDS + 3600)
+    probe = _Probe(_card(native_reasoning=False))
+
+    outcome = _run(pool, lambda p: ensure_deployment_scorecard(
+        p, _settings(), probe=probe, client_factory=probe.client_factory))
+    loaded = _run(pool, lambda p: load_deployment_scorecard(p, TEST_BASE, TEST_MODEL))
+
+    assert (outcome, probe.calls) == ("reprobed", 1)
+    assert loaded[0].native_reasoning is False
+
+
+def test_a_measurement_younger_than_the_limit_is_not_taken_again(pool):
+    _run(pool, lambda p: save_deployment_scorecard(p, _card()))
+    _age_all(pool, SCORECARD_MAX_AGE_SECONDS - 3600)
+    probe = _Probe(_card())
+
+    outcome = _run(pool, lambda p: ensure_deployment_scorecard(
+        p, _settings(), probe=probe, client_factory=probe.client_factory))
+
+    assert (outcome, probe.calls) == ("known", 0)
+
+
+def test_a_re_probe_that_measures_nothing_leaves_the_old_measurement_standing(pool):
+    """An endpoint asleep at re-probe time says nothing about the endpoint. The
+    old scorecard is still the best knowledge there is, and "unknown" would
+    drop the deployment to two-pass and off the agent path."""
+    _run(pool, lambda p: save_deployment_scorecard(p, _card()))
+    _age_all(pool, SCORECARD_MAX_AGE_SECONDS + 3600)
+    probe = _Probe(_card(reachable=False))
+
+    outcome = _run(pool, lambda p: ensure_deployment_scorecard(
+        p, _settings(), probe=probe, client_factory=probe.client_factory))
+    loaded = _run(pool, lambda p: load_deployment_scorecard(p, TEST_BASE, TEST_MODEL))
+
+    assert outcome == "unreachable"
+    assert loaded is not None and loaded[1] == "native_tools"
+
+
+def test_a_re_probe_that_finds_the_endpoint_changed_says_so(pool, caplog):
+    """The rail's thinking floor (D-040) is calibrated per model and no probe
+    re-calibrates it, so a changed endpoint has to be visible to a human."""
+    _run(pool, lambda p: save_deployment_scorecard(p, _card()))
+    _age_all(pool, SCORECARD_MAX_AGE_SECONDS + 3600)
+    probe = _Probe(_card(native_tool_calling=False, streaming_tool_deltas=False))
+
+    with caplog.at_level("WARNING", logger="auspex.llm.autoprobe"):
+        _run(pool, lambda p: ensure_deployment_scorecard(
+            p, _settings(), probe=probe, client_factory=probe.client_factory))
+
+    warned = " ".join(r.getMessage() for r in caplog.records)
+    assert "agent_mode: native_tools -> plan_only" in warned
+    assert "native_tool_calling: True -> False" in warned and "D-040" in warned
+
+
+def test_an_unchanged_endpoint_re_probes_quietly(pool, caplog):
+    _run(pool, lambda p: save_deployment_scorecard(p, _card()))
+    _age_all(pool, SCORECARD_MAX_AGE_SECONDS + 3600)
+    probe = _Probe(_card())
+
+    with caplog.at_level("WARNING", logger="auspex.llm.autoprobe"):
+        outcome = _run(pool, lambda p: ensure_deployment_scorecard(
+            p, _settings(), probe=probe, client_factory=probe.client_factory))
+
+    assert outcome == "reprobed" and not caplog.records
+
+
+def test_the_running_app_looks_again_on_a_schedule():
+    """The startup cycle alone measured each fingerprint once, ever. The task
+    the app runs repeats the look every REPROBE_CHECK_SECONDS until cancelled."""
+    cycles: list[str] = []
+    slept: list[float] = []
+
+    async def cycle(p, s):
+        cycles.append("look")
+        return "known"
+
+    async def sleep(seconds):
+        slept.append(seconds)
+        if len(slept) == 3:
+            raise asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(keep_scorecard_fresh(None, _settings(), cycle=cycle, sleep=sleep))
+
+    assert cycles == ["look"] * 3
+    assert slept == [REPROBE_CHECK_SECONDS] * 3

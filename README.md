@@ -8,7 +8,7 @@ LLM**. You bring an OpenAI-compatible endpoint; the platform adapts to whatever
 it can actually do. We never pay for inference, and neither does a pilot.
 
 > **Status: pre-beta.** Everything described below is built, tested and running
-> — 1222 tests, `docker compose up` green. The [What Auspex does not do
+> — 1228 tests, `docker compose up` green. The [What Auspex does not do
 > yet](#what-auspex-does-not-do-yet) section is not a roadmap wish-list; it is
 > the honest boundary of what you get today, and it is worth reading before the
 > feature list.
@@ -113,9 +113,10 @@ recitation runs 58 or more ([D-040](DECISIONS.md)). See
 The platform probes the endpoint you bring and compiles its agent loop to what
 that model can actually do — native tool-calling, prompted tools, or plan-only —
 and reports a capability scorecard rather than assuming a feature set and
-failing strangely. The deployment measures its configured endpoint itself, once
-per endpoint, in the background at startup ([D-038](DECISIONS.md);
-`LLM_AUTOPROBE_ENABLED` turns it off). Deep chat turns use the loop only when
+failing strangely. The deployment measures its configured endpoint itself, in
+the background at startup and again whenever the measurement is a week old
+([D-038](DECISIONS.md), [D-042](DECISIONS.md); `LLM_AUTOPROBE_ENABLED` turns it
+off). Deep chat turns use the loop only when
 that scorecard says native tool-calling; each tool step streams to the Thinking pane as it runs,
 and every model call is counted against the workspace's ceiling as it is made.
 
@@ -229,7 +230,7 @@ off-corpus question returns an honest miss instead of a confident wrong answer.
 ## Development
 
 ```bash
-./ci.sh          # the gate: ruff + 1222 tests + container build + installed-dist check
+./ci.sh          # the gate: ruff + 1228 tests + container build + installed-dist check
 make check       # same thing
 make up / down   # stack lifecycle
 ```
