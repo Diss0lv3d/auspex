@@ -25,7 +25,7 @@ import json
 import pytest
 from _fakes import InMemoryProposalStore, SequencedStreamingFakeLLMClient
 
-from auspex.agent.loop import AgentLoop
+from auspex.agent.loop import NARRATION_HOLD_CHARS, AgentLoop
 from auspex.agent.registry import ToolLevel, ToolRegistry
 from auspex.llm.client import StreamEvent, Usage
 
@@ -125,19 +125,107 @@ async def test_the_answer_arrives_as_deltas_not_one_blob():
     """The whole point of streaming. A coroutine that returned the ChatResult
     would buffer every delta until the call finished and still satisfy "the
     answer arrived" — so the floor is on the COUNT of content events (the S21
-    lesson: an assertion over an extracted set needs a floor)."""
+    lesson: an assertion over an extracted set needs a floor).
+
+    Since S26 the first `NARRATION_HOLD_CHARS` of a step are held (TD-036), so
+    the floor is on the deltas AFTER the hold: each must be its own event. A
+    hold that grew into a whole-step buffer emits one event and fails here."""
     registry, _ = _registry()
-    parts = ("one ", "two ", "three ", "four ")
+    part = "x" * 99 + " "
+    parts = tuple(part for _ in range(NARRATION_HOLD_CHARS // len(part) + 6))
     client = SequencedStreamingFakeLLMClient([_answer_script(parts)])
 
     events = await _drain(_loop(registry), client)
 
     content = [e for e in events if e.kind == "content"]
-    assert len(content) == len(parts) >= 4, f"answer did not stream: {len(content)} events"
+    held_parts = NARRATION_HOLD_CHARS // len(part) + 1  # the delta that crosses it
+    after_hold = len(parts) - held_parts
+    assert after_hold >= 4
+    assert len(content) == 1 + after_hold, f"answer did not stream: {len(content)} events"
+    assert len(content[0].text) > NARRATION_HOLD_CHARS
     assert "".join(e.text for e in content) == "".join(parts)
     done = events[-1]
     assert done.kind == "done" and done.text == "".join(parts)
     assert done.stop_reason == "final_answer"
+
+
+# -- TD-036: prose that precedes a tool call is narration, not answer ---------
+
+
+def _narrated_tool_call_script(narration=("I'll check ", "that IP for you.")):
+    """The shape measured on glm-4.5-air (probe record 2026-10-10-s26-routing-glm,
+    Finding 5): reasoning, then a sentence of content, then the tool call."""
+    return [
+        StreamEvent(kind="reasoning", text="The user wants the IP checked."),
+        *(StreamEvent(kind="content", text=t) for t in narration),
+        *_tool_call_script(),
+    ]
+
+
+async def test_prose_before_a_tool_call_is_narration_not_answer():
+    """TD-036, both consequences. Streamed on arrival, the sentence before a tool
+    call reached the analyst as ANSWER ahead of a result that could contradict
+    it — and `done.text` (what the route persists) held only the last call's
+    content, so the stored turn differed from the one the analyst read. Held,
+    the sentence comes out as `narration` once the tool call proves what it
+    was, and every `content` event is answer text that `done.text` also holds."""
+    registry, _ = _registry()
+    client = SequencedStreamingFakeLLMClient(
+        [_narrated_tool_call_script(), _answer_script()]
+    )
+
+    events = await _drain(_loop(registry), client)
+
+    kinds = [e.kind for e in events]
+    assert "narration" in kinds, kinds
+    assert kinds.index("narration") < kinds.index("tool") < kinds.index("content"), kinds
+    narration = [e for e in events if e.kind == "narration"]
+    assert "".join(e.text for e in narration) == "I'll check that IP for you."
+    assert all(e.step == 1 for e in narration)
+    content = [e for e in events if e.kind == "content"]
+    assert content and all(e.step == 2 for e in content), "a tool step leaked answer text"
+    assert "".join(e.text for e in content) == events[-1].text
+
+
+async def test_content_after_a_tool_call_in_the_same_step_is_narration_too():
+    """Once a step has called a tool it cannot be the answer step, whatever
+    arrives after the call."""
+    registry, _ = _registry()
+    step1 = [*_tool_call_script()[:-1], StreamEvent(kind="content", text="Checking."),
+             StreamEvent(kind="finish", finish_reason="tool_calls")]
+    client = SequencedStreamingFakeLLMClient([step1, _answer_script()])
+
+    events = await _drain(_loop(registry), client)
+
+    assert [e.text for e in events if e.kind == "narration"] == ["Checking."]
+    assert all(e.step == 2 for e in events if e.kind == "content")
+
+
+async def test_a_short_answer_is_held_and_then_released_whole():
+    """A tool-free step shorter than the hold is not dropped: it is released as
+    content when the step ends, before `done`."""
+    registry, _ = _registry()
+    parts = ("203.0.113.99 ", "is malicious ", "(score 88).")
+    client = SequencedStreamingFakeLLMClient([_answer_script(parts)])
+
+    events = await _drain(_loop(registry), client)
+
+    content = [e for e in events if e.kind == "content"]
+    assert [e.text for e in content] == ["".join(parts)]
+    assert [e.kind for e in events].index("content") < len(events) - 1
+    assert "narration" not in [e.kind for e in events]
+
+
+async def test_nothing_is_held_when_no_tools_are_on_the_wire():
+    """No tools offered means no tool call can follow (the synthesis pass, a
+    tool-less turn), so there is nothing to wait for and every delta streams."""
+    registry, _ = _registry()
+    parts = ("one ", "two ", "three ", "four ")
+    client = SequencedStreamingFakeLLMClient([_answer_script(parts)])
+
+    events = await _drain(_loop(registry), client, tool_names=[])
+
+    assert [e.text for e in events if e.kind == "content"] == list(parts)
 
 
 async def test_a_turn_needing_no_tool_streams_straight_through():

@@ -56,6 +56,15 @@ from auspex.llm.client import (
 # without letting a confused weak model burn the endpoint indefinitely.
 DEFAULT_MAX_STEPS = 8
 
+# TD-036: how much of a step's content is held back before it is streamed as
+# answer. An endpoint that narrates before a tool call ("I'll check that IP…")
+# would otherwise put that sentence in front of the tool result. MEASURED, not
+# chosen: the longest narration on glm-4.5-air was 201 chars across 9
+# tool-calling steps (docs/probes/2026-10-10-s26-routing-glm.md, Finding 5), so
+# this is about twice that. It is a calibrated number like SHINGLE_WORDS: to
+# change it, re-run docs/probes/s26-step0/probe_routing.py instead of editing it.
+NARRATION_HOLD_CHARS = 400
+
 DEFAULT_SYSTEM_PROMPT = (
     "You are Auspex, a security operations co-analyst. Use the provided tools to "
     "gather facts before answering. Never invent tool output, and never claim an "
@@ -126,7 +135,11 @@ class AgentStreamEvent:
 
     kind:
       'reasoning' — a thinking-pane delta.
-      'content'   — an answer delta, streamed as it arrives.
+      'content'   — an answer delta. Held for up to NARRATION_HOLD_CHARS while
+                    tools are on the wire (TD-036), then streamed as it arrives.
+      'narration' — prose from a step that turned out to call tools: the
+                    model saying what it is about to do, never the answer and
+                    never part of `done.text`. Shown as process, not answer.
       'tool'      — one tool step RESOLVED; carries the ToolInvocation, which is
                     what the route narrates. Emitted after the handler ran, so
                     it reports what happened rather than what was requested.
@@ -455,10 +468,11 @@ class AgentLoop:
         **The answer streams after the tool steps, and the tool steps are
         narrated.** Measured on real Scout (D-031 decision 1, re-confirmed S25):
         a tool-calling turn emits its tool-call deltas with `content chars: 0`
-        before them, so streaming content on arrival cannot put prose in front of
-        a result that contradicts it. That is a property of the ENDPOINT, not a
-        guarantee of ours — see TD-036 for what an endpoint that interleaves
-        prose with tool calls would do here.
+        before them. glm-4.5-air does not: one sentence of prose precedes every
+        tool call (TD-036). So while tools are on the wire a step's content is
+        held until the step shows what it is. A tool call turns the held text
+        into `narration`; the end of the stream, or passing
+        NARRATION_HOLD_CHARS, releases it as answer.
 
         **Arguments are never parsed mid-stream** (decision 2). Folding is
         `fold_stream_event`, the same code `accumulate_stream` uses; one IP was
@@ -496,6 +510,14 @@ class AgentLoop:
             """
             result = ChatResult()
             by_index: dict[int, ToolCall] = {}
+            # TD-036. While tools are on the wire, content is held until the
+            # step shows what it is: a tool call turns it into narration, the
+            # end of the stream or passing NARRATION_HOLD_CHARS releases it as
+            # answer. With no tools on the wire no tool call can follow, so
+            # nothing waits.
+            holding = "tools" in extra
+            held: list[str] = []
+            calls_tools = False
             async for ev in client.chat_stream(
                 call_messages,
                 max_tokens=self.max_tokens,
@@ -503,10 +525,31 @@ class AgentLoop:
                 **extra,
             ):
                 fold_stream_event(result, by_index, ev)
-                if ev.kind in ("content", "reasoning") and ev.text:
-                    yield AgentStreamEvent(kind=ev.kind, text=ev.text, step=at_step)
+                if ev.kind == "tool_call" and holding and not calls_tools:
+                    calls_tools = True
+                    if "".join(held).strip():
+                        yield AgentStreamEvent(kind="narration", text="".join(held), step=at_step)
+                    held.clear()
+                elif ev.kind == "content" and ev.text:
+                    if calls_tools:
+                        yield AgentStreamEvent(kind="narration", text=ev.text, step=at_step)
+                    elif holding:
+                        held.append(ev.text)
+                        if sum(map(len, held)) > NARRATION_HOLD_CHARS:
+                            # Long enough to be the answer: stream from here on.
+                            # The bound TD-036 keeps — a tool call after this
+                            # point follows prose the analyst already read.
+                            holding = False
+                            yield AgentStreamEvent(kind="content", text="".join(held), step=at_step)
+                            held.clear()
+                    else:
+                        yield AgentStreamEvent(kind="content", text=ev.text, step=at_step)
+                elif ev.kind == "reasoning" and ev.text:
+                    yield AgentStreamEvent(kind="reasoning", text=ev.text, step=at_step)
                 elif ev.kind == "usage" and ev.usage:
                     yield AgentStreamEvent(kind="usage", usage=ev.usage, step=at_step)
+            if held:
+                yield AgentStreamEvent(kind="content", text="".join(held), step=at_step)
             sealed.append(seal_stream_result(result, by_index))
 
         for step in range(1, self.max_steps + 1):
