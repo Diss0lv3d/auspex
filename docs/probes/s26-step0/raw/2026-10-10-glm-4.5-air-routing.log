@@ -1,0 +1,85 @@
+S26 — the routing decision, measured
+==============================================================================
+model: glm-4.5-air   repeats: 3
+tools: ['enrich_observable', 'lookup_cve', 'search_knowledge']  enrichment.active=True kb.active=True
+
+[0] what the rule decides, per prompt (no model involved)
+    A no-tool question           category=deep       deep=True mode=threat_intel     observables=[] -> conversational
+    B observable + broader ask   category=cve_lookup deep=False mode=ioc_enrichment   observables=['185.220.101.5', 'CVE-2021-44228'] -> conversational
+    C no observable, KB-shaped   category=deep       deep=True mode=threat_intel     observables=[] -> conversational
+
+[A] the same no-tool question, tools ON vs tools OFF
+  run 1
+    tools ON  offered=3 steps=1 stop=final_answer finish=stop reasoning=691 answer=563 refusal-shaped=False
+        answer: "I'd be happy to help you write a status update for your manager! However, I'll need some information about your week to create a meaningful update. Could you please share:\n\n1. **Projects/tasks you've been working on** this week\n2. **Progress made** on each project\n3. **Accomplishments or achievements** \n4. **Any challenges or blockers** you encountered\n5. **Plans for next week**\n\nOnce you provide these details, I can help you craft a professional and comprehensive status update that highlights y"
+    tools OFF offered=0 steps=1 stop=final_answer finish=stop reasoning=652 answer=489 refusal-shaped=False
+        answer: "I'd be happy to help you write a status update for your manager. However, I need some information about your work this week to create an appropriate update. Could you please share:\n\n1. What projects or tasks you've been working on\n2. Progress made on each item\n3. Any challenges or blockers encountered\n4. What you have planned for next week\n5. Any notable achievements or metrics\n\nOnce you provide these details, I can help craft a concise and professional status update for your manager."
+  run 2
+    tools ON  offered=3 steps=1 stop=final_answer finish=stop reasoning=877 answer=718 refusal-shaped=False
+        answer: "I'd be happy to help you write a status update for your manager! However, I'll need some information about your work activities this week to create an appropriate update. Could you please share:\n\n1. **Key projects/tasks you worked on** - What were your main priorities?\n2. **Progress made** - What did you accomplish or complete?\n3. **Challenges faced** - Any obstacles you encountered and how you addressed them\n4. **Next steps** - What are your priorities for next week?\n5. **Any blockers** - Do yo"
+    tools OFF offered=0 steps=1 stop=final_answer finish=stop reasoning=674 answer=482 refusal-shaped=False
+        answer: "I'd be happy to help you write a status update for your manager. To create an effective update, I'll need some information about your work this week. Could you please share:\n\n1. What projects or tasks you've been working on\n2. Progress made on each item\n3. Any challenges or blockers encountered\n4. What you have planned for next week\n5. Any notable achievements or metrics\n\nOnce you provide these details, I can help craft a concise and professional status update for your manager."
+  run 3
+    tools ON  offered=3 steps=1 stop=final_answer finish=stop reasoning=691 answer=563 refusal-shaped=False
+        answer: "I'd be happy to help you write a status update for your manager! However, I'll need some information about your week to create a meaningful update. Could you please share:\n\n1. **Projects/tasks you've been working on** this week\n2. **Progress made** on each project\n3. **Accomplishments or achievements** \n4. **Any challenges or blockers** you encountered\n5. **Plans for next week**\n\nOnce you provide these details, I can help you craft a professional and comprehensive status update that highlights y"
+    tools OFF offered=0 steps=1 stop=final_answer finish=stop reasoning=662 answer=488 refusal-shaped=False
+        answer: "I'd be happy to help you write a status update for your manager. To create an effective update, I'll need some information about your work this week. Could you please share:\n\n1. What projects or tasks you've been working on\n2. Progress made on each item\n3. Any challenges or blockers encountered\n4. What you're planning to work on next week\n5. Any notable achievements or metrics\n\nOnce you provide these details, I can help craft a concise and professional status update for your manager."
+
+[B] observable + broader ask, through the agent path
+  run 1: distinct tools ['enrich_observable', 'lookup_cve']
+    agent     offered=3 steps=2 stop=final_answer finish=stop reasoning=1796 answer=1097 refusal-shaped=False
+        step 1: enrich_observable({'observables': ['185.220.101.5']}) -> executed
+        step 1: lookup_cve({'cve_ids': ['CVE-2021-44228']}) -> executed
+        narration, step 1 (91 chars): "\nI'll check both the IP address and the CVE to see if there's any connection between them.\n"
+        answer: 'Based on the analysis of both the IP address and the CVE:\n\n**IP Address 185.220.101.5:**\n- Has malicious activity indicators (AbuseIPDB: 100% malicious confidence with 378 reports)\n- Associated with Tor exit nodes (OTX flagged as "IP Associated with Tor Exit Nodes")\n- Has open web ports (80, 443, 9001, 9002)\n- Hostname: berlin01.tor-exit.artikel10.org\n\n**CVE-2021-44228 (Log4j2/Log4Shell):**\n- Critical severity vulnerability (CVSS 10.0)\n- Allows arbitrary code execution via JNDI features\n- Known '
+        ordering: last tool idx=156, first ANSWER content idx=544 (tools before the answer: True)
+  run 2: distinct tools ['enrich_observable', 'lookup_cve']
+    agent     offered=3 steps=2 stop=final_answer finish=stop reasoning=2104 answer=1029 refusal-shaped=False
+        step 1: enrich_observable({'observables': ['185.220.101.5']}) -> executed
+        step 1: lookup_cve({'cve_ids': ['CVE-2021-44228']}) -> executed
+        narration, step 1 (169 chars): "\nI'll help you check if the IP address 185.220.101.5 is involved in anything related to CVE-2021-44228. Let me gather information about both the IP address and "
+        answer: 'Based on the analysis of both the IP address and CVE-2021-44228:\n\n**IP Address 185.220.101.5:**\n- Has malicious signals from AbuseIPDB (100% confidence, 378 reports in last 90 days)\n- Associated with Tor exit nodes (flagged by OTX)\n- Has open ports 80, 443, 9001, 9002\n- Hostname: berlin01.tor-exit.artikel10.org\n\n**CVE-2021-44228 (Log4Shell):**\n- Critical severity vulnerability (CVSS 10.0)\n- Allows arbitrary code execution via JNDI features\n- Listed in KEV with known ransomware use\n- Was widely e'
+        ordering: last tool idx=164, first ANSWER content idx=574 (tools before the answer: True)
+  run 3: distinct tools ['enrich_observable', 'lookup_cve']
+    agent     offered=3 steps=2 stop=final_answer finish=stop reasoning=1887 answer=1065 refusal-shaped=False
+        step 1: enrich_observable({'observables': ['185.220.101.5']}) -> executed
+        step 1: lookup_cve({'cve_ids': ['CVE-2021-44228']}) -> executed
+        narration, step 1 (169 chars): "\nI'll help you check if the IP address 185.220.101.5 is involved in anything related to CVE-2021-44228. Let me gather information about both the IP address and "
+        answer: 'Based on the analysis of both the IP address and the CVE:\n\n**IP Address 185.220.101.5:**\n- Has malicious signals from AbuseIPDB (100% confidence, 378 reports)\n- Associated with Tor exit nodes (berlin01.tor-exit.artikel10.org)\n- Flagged as suspicious by OTX with 70% confidence\n- Has open ports commonly used for web services (80, 443, 9001, 9002)\n\n**CVE-2021-44228 (Log4Shell):**\n- Critical severity vulnerability (CVSS 10.0)\n- Allows arbitrary code execution via JNDI features\n- Listed in KEV with k'
+        ordering: last tool idx=164, first ANSWER content idx=525 (tools before the answer: True)
+
+[C] no observable, KB-shaped — what clause (2) withholds
+  run 1
+    tools ON  offered=3 steps=3 stop=final_answer finish=stop reasoning=2589 answer=1871 refusal-shaped=False
+        step 1: search_knowledge({'query': 'Office macro scheduled task attack'}) -> executed
+        step 2: search_knowledge({'query': 'Office macro persistence techniques'}) -> executed
+        narration, step 1 (182 chars): "\nI'll help you identify the relevant ATT&CK techniques and provide guidance on next steps. Let me search for information about Office macros and scheduled tasks"
+        narration, step 2 (1 chars): '\n'
+        answer: 'Based on your finding of an Office macro creating a scheduled task on a finance workstation, this maps to several ATT&CK techniques:\n\n## Primary ATT&CK Techniques:\n\n**T1053.005: Scheduled Task** - The adversary is using Windows Task Scheduler to establish persistence through scheduled execution of malicious code.\n\n**T1059.005: Visual Basic** - The Office macro is likely using VBA (Visual Basic for Applications) to create and execute the scheduled task.\n\n**T1137.001: Office Template Macros** - Th'
+    tools OFF offered=0 steps=1 stop=empty_answer finish=length reasoning=8471 answer=0 refusal-shaped=False
+        answer: ''
+  run 2
+    tools ON  offered=3 steps=3 stop=final_answer finish=stop reasoning=2576 answer=1867 refusal-shaped=False
+        step 1: search_knowledge({'query': 'Office macro scheduled task attack'}) -> executed
+        step 2: search_knowledge({'query': 'Office macro persistence techniques'}) -> executed
+        narration, step 1 (182 chars): "\nI'll help you identify the relevant ATT&CK techniques and provide guidance on next steps. Let me search for information about Office macros and scheduled tasks"
+        narration, step 2 (1 chars): '\n'
+        answer: 'Based on your finding of an Office macro creating a scheduled task on a finance workstation, this maps to several ATT&CK techniques:\n\n## Primary ATT&CK Techniques:\n\n**T1053.005: Scheduled Task** - The adversary is using Windows Task Scheduler to establish persistence through scheduled execution of malicious code.\n\n**T1059.005: Visual Basic** - The Office macro is likely using VBA (Visual Basic for Applications) to create the scheduled task.\n\n**T1137.001: Office Template Macros** - This represent'
+    tools OFF offered=0 steps=1 stop=final_answer finish=stop reasoning=2125 answer=2456 refusal-shaped=False
+        answer: "I'll help you identify the relevant ATT&CK techniques and determine what to check next. Let me gather some information first.\n\n```python\nget_attck_techniques()\n```\n\nBased on the scenario of a scheduled task created by an Office macro on a finance workstation, this maps to several MITRE ATT&CK techniques:\n\n1. **T1566.001 (Phishing: Spearphishing Attachment)** - The Office macro was likely delivered via a phishing email\n2. **T1059.001 (Command and Scripting Interpreter: PowerShell)** - Office macr"
+  run 3
+    tools ON  offered=3 steps=3 stop=final_answer finish=stop reasoning=2096 answer=1753 refusal-shaped=False
+        step 1: search_knowledge({'query': 'Office macro scheduled task creation'}) -> executed
+        step 2: search_knowledge({'query': 'Office macro persistence scheduled task investigation'}) -> executed
+        narration, step 1 (201 chars): "\nI'll help you identify the relevant ATT&CK techniques and provide guidance on next steps. Let me search for information about Office macros and scheduled task "
+        narration, step 2 (1 chars): '\n'
+        answer: 'Based on the scenario of an Office macro creating a scheduled task on a finance workstation, here are the relevant ATT&CK techniques:\n\n## ATT&CK Techniques Identified:\n\n**T1137.001: Office Template Macros** - The initial technique where the malicious macro was embedded in Office templates for persistence.\n\n**T1053.005: Scheduled Task** - The technique where the macro created a scheduled task for persistence and execution.\n\n**T1137: Office Application Startup** - Related persistence mechanism thr'
+    tools OFF offered=0 steps=1 stop=final_answer finish=stop reasoning=1988 answer=1383 refusal-shaped=False
+        answer: 'Based on the information provided, this scenario maps to several MITRE ATT&CK techniques:\n\n1. **T1204.002 - User Execution: Malicious File**: Office macro execution is a common delivery method for malware.\n\n2. **T1059.007 - Command and Scripting Interpreter: VBScript**: Office macros often use VBScript for execution.\n\n3. **T1053.005 - Scheduled Task/Job**: The creation of a scheduled task is a persistence mechanism.\n\n4. **T1543.003 - Create or Modify System Process: Scheduled Task/Job**: Creatin'
+
+==============================================================================
+
+real	3m39.404s
+user	0m0.433s
+sys	0m0.038s
+routing exit 0
