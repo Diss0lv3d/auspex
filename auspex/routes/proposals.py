@@ -98,6 +98,9 @@ def _public(row: dict) -> dict:
         "claimed_at": row["claimed_at"].isoformat() if row.get("claimed_at") else None,
         # Which operation a human gave up on (TD-034): `executing` or `undoing`.
         "abandoned_from": row.get("abandoned_from"),
+        # The other requests awaiting a decision that ask exactly this (TD-028d)
+        # — present on queue reads; an approver asked twice can see it.
+        "identical_pending": [str(i) for i in row.get("identical_pending") or []],
         "arguments": row["tool_input"],
         "card": row["card"],
         "spec_fingerprint": row["spec_fingerprint"],

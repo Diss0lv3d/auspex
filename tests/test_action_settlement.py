@@ -1526,3 +1526,79 @@ async def test_a_failed_cleanup_through_the_surface_says_where_the_row_is(
 
     assert resp.status_code == 500
     assert "incomplete" in resp.json()["detail"] and "executed" not in resp.json()["detail"]
+
+
+# -- TD-028(d): the approver is told when they are asked the same thing twice --
+
+
+async def test_two_identical_requests_each_name_the_other(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """A model calling one action twice files two rows an approver cannot tell
+    apart. Deduping is deliberately NOT the fix (D-014: whether a second intent
+    was a mistake is the human's call), so each card names its twins instead —
+    same action, same arguments, same declaration, still awaiting a decision."""
+    settlement, first = await _file(pool, registry, spec, workspace_id, an_observable,
+                                    note="same words")
+    _, second = await _file(pool, registry, spec, workspace_id, an_observable,
+                            note="same words")
+    _, other = await _file(pool, registry, spec, workspace_id, an_observable,
+                           note="different words")
+
+    queued = {p["id"]: p for p in await settlement.pending(workspace_id=workspace_id)}
+
+    assert queued[first["id"]]["identical_pending"] == [second["id"]]
+    assert queued[second["id"]]["identical_pending"] == [first["id"]]
+    assert queued[other["id"]]["identical_pending"] == []
+
+
+async def test_deciding_one_twin_leaves_the_other_waiting_and_alone(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Not a dedupe: rejecting one leaves the other a real, separate request —
+    and it stops naming a twin that no longer awaits a decision."""
+    settlement, first = await _file(pool, registry, spec, workspace_id, an_observable,
+                                    note="same words")
+    _, second = await _file(pool, registry, spec, workspace_id, an_observable,
+                            note="same words")
+    await settlement.settle(workspace_id=workspace_id, proposal_id=first["id"],
+                            decision="rejected", decided_by=None)
+
+    queued = {p["id"]: p for p in await settlement.pending(workspace_id=workspace_id)}
+
+    assert first["id"] not in queued
+    assert queued[second["id"]]["identical_pending"] == []
+
+
+async def test_a_twin_in_another_workspace_is_never_named(
+    pool, registry, spec, workspace_id, other_workspace_id, an_observable
+):
+    """The twin lookup is a query across rows, so tenancy must be part of it
+    (D-008): another workspace's identical request is not this approver's to
+    know about, and its id must never reach this card."""
+    settlement, mine = await _file(pool, registry, spec, workspace_id, an_observable,
+                                   note="same words")
+    await settlement.file(
+        workspace_id=other_workspace_id, spec=spec,
+        arguments={"observable_id": an_observable, "note": "same words"},
+        dry_run=await spec.dry_run(workspace_id=workspace_id, observable_id=an_observable,
+                                   note="same words"),
+    )
+
+    queued = {p["id"]: p for p in await settlement.pending(workspace_id=workspace_id)}
+
+    assert queued[mine["id"]]["identical_pending"] == []
+
+
+async def test_the_card_on_the_surface_names_its_twins(pool, client, route_ws):
+    ws, obs_id = route_ws
+    registry = ActionRegistry()
+    registry.register_all(build_builtin_actions(pool))
+    spec = registry.get("annotate_observable")
+    _, first = await _file(pool, registry, spec, ws, obs_id, note="same words")
+    _, second = await _file(pool, registry, spec, ws, obs_id, note="same words")
+
+    listed = client.get("/api/proposals", headers=_hdr(client)).json()["proposals"]
+    shown = {p["id"]: p for p in listed}
+
+    assert shown[str(first["id"])]["identical_pending"] == [str(second["id"])]

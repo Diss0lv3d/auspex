@@ -177,6 +177,12 @@ class ProposalSettlement:
         any other, so it comes back from the same query rather than from a
         second endpoint nobody would call.
 
+        Each pending row carries `identical_pending` (TD-028d): the other
+        requests awaiting a decision in this workspace for the same action, with
+        the same arguments, under the same declaration. Not a dedupe — whether a
+        second identical intent was a mistake is the human's call (D-014) — but
+        an approver must be able to see they are being asked twice.
+
         An `incomplete` row belongs here as well (TD-028b): a run failed after
         some of its effects landed, or the action cannot look, and only a human
         can decide whether to put them back.
@@ -190,13 +196,25 @@ class ProposalSettlement:
         """
         rows = await self._pool.fetch(
             """
-            SELECT * FROM proposals
-            WHERE workspace_id = $1::uuid
-              AND (status IN ('pending_approval', 'incomplete')
-                   OR (claimed_at IS NOT NULL
-                       AND claimed_at < now() - make_interval(secs => $3::double precision)))
-            ORDER BY created_at DESC
-            LIMIT $2
+            SELECT p.*,
+                   CASE WHEN p.status = 'pending_approval' THEN ARRAY(
+                       SELECT q.id FROM proposals q
+                        WHERE q.workspace_id = p.workspace_id
+                          AND q.status = 'pending_approval'
+                          AND q.id <> p.id
+                          AND q.tool_name = p.tool_name
+                          AND q.tool_input = p.tool_input
+                          AND q.spec_fingerprint IS NOT DISTINCT FROM p.spec_fingerprint
+                        ORDER BY q.created_at
+                        LIMIT 20
+                   ) ELSE ARRAY[]::uuid[] END AS identical_pending
+              FROM proposals p
+             WHERE p.workspace_id = $1::uuid
+               AND (p.status IN ('pending_approval', 'incomplete')
+                    OR (p.claimed_at IS NOT NULL
+                        AND p.claimed_at < now() - make_interval(secs => $3::double precision)))
+             ORDER BY p.created_at DESC
+             LIMIT $2
             """,
             str(workspace_id),
             limit,
