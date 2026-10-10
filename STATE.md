@@ -152,6 +152,10 @@ complete; S21–S25 were each scoped by a decision rather than a plan.**
    nothing on success. **`gh` WAS on the work account at the start of the promote**
    — switched back with `gh auth switch --user bh3082336888-cell`.
    - **Read the diff at promote time. Never trust the commit LIST.**
+   - **The two untracked overview files stay untracked — Burhan's call, asked
+     once at the S26 resume ritual (2026-10-10).**
+     `Auspex-Product-Architecture-Overview.pdf` and `docs/auspex-overview.html`
+     are his; never commit, move, publish or delete them, and do not ask again.
 2. ~~**Branch protection on `main`.**~~ **CLOSED at S25 — D-032 ratified.** It is
    procedural, by decision. Not a task, not a blocker. Do not re-open it.
 3. **TD-028b is the sharpest open half of TD-028** — a failed execute leaves
