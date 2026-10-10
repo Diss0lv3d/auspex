@@ -47,7 +47,7 @@ now be re-measured on the new model.**)_
       paths. Thinking now has its own floor of 40; everything else keeps 8.
       Live: 3/3 previously-cut turns pass. **The 40 has a 1.4× margin over
       the legitimate ceiling of 28; re-measure it first on any other model.**
-  - 1175 tests. Next: `/session-end`, or go on to goal item 4 (TD-028 b/c/d +
+  - 1175 tests, **120 modules** (new: auspex/llm/autoprobe.py); `./ci.sh` green, demo exit 0. Next: `/session-end`, or go on to goal item 4 (TD-028 b/c/d +
     TD-034).
 
 - **Step 0 (2026-08-16):** promote #26 merged; fresh-eyes review fixed `f931c98`
