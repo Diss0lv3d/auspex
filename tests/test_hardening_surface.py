@@ -148,7 +148,10 @@ def test_a_pasted_phishing_email_carrying_the_same_sentence_is_analysed(
         assert resp.status_code == 200
         frames = _frames(resp.text)
         assert frames[-1]["done"]["path"] == "model"
-        assert fake.turns == 1  # it really reached the model
+        # It really reached the model. ">= 1", not "== 1": "Analysed." does not
+        # conform to phishing_analysis, so D-043 re-asks it once — a count that
+        # belongs to test_chat_sse.py, not to the input guard.
+        assert fake.turns >= 1
     finally:
         client.app.dependency_overrides.clear()
 
