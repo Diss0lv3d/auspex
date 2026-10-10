@@ -1,5 +1,24 @@
 # Technical debt — logged the moment it's taken
 
+## TD-044 (S27) — the rail's index grew and its legitimate ceiling was not re-measured
+
+**Where:** `auspex/routes/chat.py`. The rail now indexes D-043's repair
+directive (conversational path, code-decided modes) and D-045's action
+directive and descriptions (agent path, through `loop.issued_instructions`).
+**Risk:** LOW. A shortcut, logged as one. More indexed text means more chances
+that a legitimate answer shares an 8-word run with our configuration and is
+cut (the S26 D-040 defect had exactly this shape). Each addition has a recital
+test, and every live S27 turn read `output_valid: true` (about 20 turns, both
+paths). That is evidence, not a calibration.
+**Why taken:** the calibration battery is ~30 live turns, and S27's scope was
+already four items wide.
+**Path to fix:** re-run `docs/probes/s22-outguard/probe_calibrate2.py` and
+`docs/probes/s26-step0/probe_calibrate_agent.py` with the current index. That
+includes action-request turns, whose answers paraphrase the action directive
+("I've proposed…"). Record the new legitimate ceiling next to the floors.
+**Trigger:** any `output_guard` cut on a turn that looks legitimate, the next
+model change (D-042's WARNING), or the next addition to the index.
+
 ## TD-043 (S27) — an agent turn on a thinly covered topic spends the whole step cap re-searching
 
 **Where:** `auspex/agent/loop.py` (`DEFAULT_MAX_STEPS = 8`) with the
