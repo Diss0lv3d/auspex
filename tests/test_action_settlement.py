@@ -2088,3 +2088,37 @@ async def test_an_undo_that_lost_its_row_to_another_undo_still_says_so(
 
     assert caught.value.reason == "already_undone"
     assert "already been undone" in caught.value.detail
+
+
+
+# -- D-045: a proposal that would change nothing is not filed -----------------
+
+
+async def test_a_dry_run_that_would_change_nothing_is_not_filed(pool, registry, spec, workspace_id):
+    """The chat agent can now call actions (D-045). A call whose dry run affects
+    nothing — here, an observable this workspace does not have — would file a
+    card a human can only reject, and whose execution can only fail. It is
+    declined in the proposer, with the dry run's own sentence as the reason."""
+    from auspex.actions.settlement import NothingToPropose, action_proposer
+
+    propose = action_proposer(pool)
+    with pytest.raises(NothingToPropose) as caught:
+        await propose(spec=spec, arguments={"observable_id": "domain-00000000", "note": "n"},
+                      workspace_id=workspace_id)
+
+    assert "would change nothing" in caught.value.model_feedback
+    assert "no observable" in caught.value.model_feedback
+    assert 0 == await pool.fetchval(
+        "SELECT count(*) FROM proposals WHERE workspace_id = $1", workspace_id)
+
+
+async def test_a_dry_run_that_would_change_something_is_filed(
+    pool, spec, workspace_id, an_observable
+):
+    from auspex.actions.settlement import action_proposer
+
+    row = await action_proposer(pool)(
+        spec=spec, arguments={"observable_id": an_observable, "note": "n"},
+        workspace_id=workspace_id)
+
+    assert row["status"] == "pending_approval" and row["card"]["affects"] == [an_observable]

@@ -363,6 +363,17 @@ class ProposalSettlement:
         )
 
 
+class NothingToPropose(RuntimeError):
+    """The dry run says the action would change nothing, so no proposal is filed
+    (D-045). `model_feedback` is the sentence the agent loop hands back to the
+    model in place of a proposal id: code-written, and carrying the action's own
+    dry-run sentence so the model can correct the call or say so."""
+
+    def __init__(self, would: str) -> None:
+        super().__init__(would)
+        self.model_feedback = f"not proposed: the action would change nothing. {would}"
+
+
 def action_proposer(pool: asyncpg.Pool):
     """The seam the agent loop calls when a model calls an action.
 
@@ -370,11 +381,18 @@ def action_proposer(pool: asyncpg.Pool):
     action against the real arguments, then file the proposal carrying the card
     that dry run produced. Nothing here executes — this IS the round-trip S17
     deferred, and its whole output is a row with an id.
+
+    **A dry run that affects nothing is not filed** (D-045). Once the chat agent
+    could call actions, an argument the workspace does not resolve (an
+    observable it has never seen) would file a card a human can only reject and
+    whose execution can only fail — a human's decision spent on nothing.
     """
     settlement = ProposalSettlement(pool)
 
     async def propose(*, spec: ActionSpec, arguments: dict, workspace_id, session_id=None):
         outcome = await spec.dry_run(workspace_id=workspace_id, **arguments)
+        if not outcome.affects:
+            raise NothingToPropose(outcome.would)
         return await settlement.file(
             workspace_id=workspace_id,
             spec=spec,
@@ -770,6 +788,7 @@ __all__ = [
     "UNDOABLE_FROM",
     "ActionExecutor",
     "ExecutionRefused",
+    "NothingToPropose",
     "ProposalSettlement",
     "SettleResult",
     "Settlement",

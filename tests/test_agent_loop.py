@@ -522,6 +522,51 @@ async def test_an_action_called_with_missing_arguments_files_nothing():
 
 
 
+async def test_a_proposer_that_declines_tells_the_model_why():
+    """D-045: a proposer may decline with a reason written for the model — a dry
+    run that would change nothing is not worth a human's decision. The model is
+    told that reason, not just the exception's class name, so it can correct
+    the call or say so."""
+    registry, _ = _make_registry()
+
+    class Declined(RuntimeError):
+        model_feedback = "not proposed: the action would change nothing - no such host"
+
+    async def declining(**kw):
+        raise Declined()
+
+    loop = _loop(registry, InMemoryProposalStore(), actions=_manifest(),
+                 action_proposer=declining)
+    client = FakeLLMClient([
+        _tool_call_result("isolate_host", {"host_id": "h-404"}),
+        ChatResult(content="There is no such host to isolate.", finish_reason="stop"),
+    ])
+    result = await loop.run(client, "isolate h-404")
+
+    call = result.invocations[0]
+    assert call.status == "error" and call.proposal_id is None
+    assert call.feedback == {"error": Declined.model_feedback}
+
+
+async def test_a_proposer_that_merely_raises_is_still_reported_by_class_only():
+    """Only a deliberate, code-written reason reaches the model. An arbitrary
+    exception's message can carry anything — a SQL error, a stack detail."""
+    registry, _ = _make_registry()
+
+    async def broken(**kw):
+        raise ValueError("relation proposals does not exist")
+
+    loop = _loop(registry, InMemoryProposalStore(), actions=_manifest(),
+                 action_proposer=broken)
+    client = FakeLLMClient([
+        _tool_call_result("isolate_host", {"host_id": "h-1"}),
+        ChatResult(content="It could not be proposed.", finish_reason="stop"),
+    ])
+    result = await loop.run(client, "isolate h-1")
+
+    assert result.invocations[0].feedback == {"error": "proposing raised ValueError"}
+
+
 async def test_a_proposal_id_the_database_returns_reaches_the_model_as_json():
     """Found wiring D-045: the real proposer returns the stored row, whose id is
     a UUID object. The loop fed it back inside the tool result, which goes on

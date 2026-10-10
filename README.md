@@ -8,7 +8,7 @@ LLM**. You bring an OpenAI-compatible endpoint; the platform adapts to whatever
 it can actually do. We never pay for inference, and neither does a pilot.
 
 > **Status: pre-beta.** Everything described below is built, tested and running
-> — 1248 tests, `docker compose up` green. The [What Auspex does not do
+> — 1257 tests, `docker compose up` green. The [What Auspex does not do
 > yet](#what-auspex-does-not-do-yet) section is not a roadmap wish-list; it is
 > the honest boundary of what you get today, and it is worth reading before the
 > feature list.
@@ -134,18 +134,19 @@ keep working. `GET /api/usage`.
 
 Read this part. A demo that only walks the happy path is a demo that lies.
 
-- **The agent reads, it does not act.** A deep turn goes through the agent
+- **The agent may propose; it never acts.** A deep turn goes through the agent
   loop (enrichment, CVE lookup and knowledge-base search, each step shown as it
   runs) only on an endpoint measured to call them: the deployment's
   capability scorecard must say it calls tools natively and streams them, and an
   endpoint nobody has probed stays conversational. Alert triage and phishing analysis
   never take it, because their verdicts are computed in code (D-037). It sends
   third parties only indicators that you, or a knowledge-base record, supplied:
-  an indicator the model composed is never looked up (D-039). The agent
-  cannot propose an action from chat; proposals are created through the
-  investigation and action surfaces. When an endpoint narrates before a tool
-  call, the first 400 characters of each step are held back so the narration
-  is not shown as answer (TD-036). Narration longer than that would still
+  an indicator the model composed is never looked up (D-039). It may call the
+  platform's actions, and a call only files a pending proposal with its
+  dry-run card, shown in the turn; nothing runs until a human approves it
+  (D-014, D-045). A call whose dry run would change nothing is not filed. When
+  an endpoint narrates before a tool call, the first 400 characters of each
+  step are held back so the narration is not shown as answer (TD-036). Narration longer than that would still
   reach the analyst ahead of the result.
 - **A code-decided verdict is held until it passes; nothing else is.** For alert
   triage and phishing analysis, whose Risk or Verdict the platform computes in
@@ -239,7 +240,7 @@ off-corpus question returns an honest miss instead of a confident wrong answer.
 ## Development
 
 ```bash
-./ci.sh          # the gate: ruff + 1248 tests + container build + installed-dist check
+./ci.sh          # the gate: ruff + 1257 tests + container build + installed-dist check
 make check       # same thing
 make up / down   # stack lifecycle
 ```

@@ -32,7 +32,8 @@ D-005 holds (we never pay for inference).
 
 The agent path (D-031, D-037): a deep turn whose mode the code has not already
 decided, on an endpoint whose deployment scorecard compiles to native_tools,
-runs through `AgentLoop` with the platform's READ tools. Each tool step streams
+runs through `AgentLoop` with the platform's READ tools — and, since D-045, the
+platform's actions, which it may only PROPOSE (D-014). Each tool step streams
 as a `tool` frame (`name`, `arguments`, and the D-014 `status` of what actually
 ran), the model's narration and thinking stream as `reasoning`, and the answer
 as `content`. Every model call is claimed as it is made.
@@ -422,11 +423,20 @@ def _tool_frame(invocation: ToolInvocation) -> dict:
             stack.extend(reversed(value))
         else:
             values.append(str(value))
-    return {
+    frame = {
         "name": invocation.name,
         "status": invocation.status,
         "call": f"{invocation.name}({', '.join(values)})",
     }
+    if invocation.status == "proposed" and invocation.proposal_id is not None:
+        # D-045: an action the agent proposed. The summary is the action's own
+        # dry-run sentence from the stored card — what the approver will read —
+        # never the model's account of what it asked for.
+        frame["proposal"] = {
+            "id": str(invocation.proposal_id),
+            "summary": str((invocation.card or {}).get("summary", "")),
+        }
+    return frame
 
 
 def _add_usage(total: dict | None, usage: Usage) -> dict:
@@ -695,6 +705,13 @@ async def chat(
             workspace_id=auth.workspace_id,
             session_id=session_id,
             max_tokens=CHAT_ANSWER_MAX_TOKENS,
+            # D-045: the platform's actions, offered to PROPOSE. Calling one
+            # dry-runs it and files a pending proposal for a human; nothing in
+            # this turn can execute it (D-014). The same registry the approvals
+            # surface executes from (app.py), so a proposal filed here is one
+            # the executor can find.
+            actions=request.app.state.action_registry.manifest("native_tools"),
+            action_proposer=request.app.state.action_proposer,
         )
         agent_history = _agent_history(
             _turns(rows, exclude=user_row), contract.system_directive()
@@ -785,6 +802,12 @@ async def chat(
                     elif ev.kind == "tool":
                         frame = _tool_frame(ev.invocation)
                         if scanner.feed(frame["call"], channel="tool"):
+                            return
+                        # A proposal's summary is shown too, so it is scanned
+                        # too, on the same channel as the line it belongs to.
+                        if "proposal" in frame and scanner.feed(
+                            "\n" + frame["proposal"]["summary"], channel="tool"
+                        ):
                             return
                         yield _sse({"tool": frame})
                     elif ev.kind == "usage" and ev.usage:

@@ -786,9 +786,15 @@ class AgentLoop:
                 session_id=self.session_id,
             )
         except Exception as err:
+            # A proposer may DECLINE with a sentence written for the model (D-045:
+            # a dry run that would change nothing is not filed). Only that
+            # deliberate attribute crosses over; an arbitrary exception's message
+            # can carry anything, so it is reported by class alone.
+            declined = getattr(err, "model_feedback", None)
             return ToolInvocation(
                 call.name, args, "error",
-                {"error": f"proposing raised {type(err).__name__}"},
+                {"error": declined if isinstance(declined, str)
+                 else f"proposing raised {type(err).__name__}"},
                 level=spec.risk.value,
             )
         # The stored row's id is a UUID object; everything fed back to the model

@@ -95,3 +95,15 @@ def test_index_reasoning_appends_without_erasing_the_steps(client):
     tool step would erase the step."""
     body = client.get("/").text
     assert "ensureThink(wrap).textContent +=" not in body
+
+
+
+def test_index_shows_a_proposal_outside_the_folded_thinking_pane(client):
+    """D-045: the chat agent may propose an action. The step line sits in the
+    Thinking pane, which folds when the answer starts — a decision waiting on
+    the analyst must not fold away with it. Rendered as text, never markup."""
+    body = client.get("/").text
+    handler = body.split('"tool" in ev', 1)[1].split("else if", 1)[0]
+    assert "ev.tool.proposal" in handler
+    assert "wrap.appendChild(p)" in handler
+    assert "innerHTML" not in handler

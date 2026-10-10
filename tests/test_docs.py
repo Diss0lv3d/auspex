@@ -90,6 +90,11 @@ def test_the_readme_does_not_promise_what_the_code_does_not_do():
     assert "first 400 characters" in readme
     assert "NARRATION_HOLD_CHARS = 400" in loop
 
+    # D-045: what the chat agent may do with an action — propose, never run.
+    assert "The agent may propose; it never acts." in readme
+    assert "action_proposer=request.app.state.action_proposer" in chat
+    assert "if not outcome.affects:\n            raise NothingToPropose" in settlement
+
     # D-043: which answers are held before the analyst sees them.
     assert "A code-decided verdict is held until it passes; nothing else is." in readme
     assert "hold = mode in CODE_DECIDED_MODES and not agent_path" in chat

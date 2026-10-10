@@ -2292,3 +2292,160 @@ def test_a_narrative_mode_still_streams_and_is_never_held_or_re_asked(client):
     done = frames[-1]["done"]
     assert fake.turns == 1
     assert done["contract_valid"] is False and done["contract_repair"] is None
+
+
+
+# ── D-045: the chat agent may PROPOSE the platform's actions ─────────────────
+
+
+def _chat_workspace(settings):
+    async def _get():
+        conn = await asyncpg.connect(settings.database_url)
+        try:
+            return await conn.fetchval(
+                "SELECT workspace_id FROM users WHERE email = $1", CHAT_EMAIL)
+        finally:
+            await conn.close()
+
+    return asyncio.run(_get())
+
+
+def _db(settings, sql, *args):
+    async def _run():
+        conn = await asyncpg.connect(settings.database_url)
+        try:
+            return await conn.fetch(sql, *args)
+        finally:
+            await conn.close()
+
+    return asyncio.run(_run())
+
+
+@pytest.fixture
+def chat_observable(client, settings):
+    """One observable in the chat user's workspace, as an earlier IOC check
+    would have persisted it; everything the test filed against it is removed."""
+    from auspex.classify.observables import ObservableType, observable_id
+
+    _token(client)  # provisions the user and its workspace
+    ws = _chat_workspace(settings)
+    value = "d045-chat-action.test"
+    obs = observable_id(ObservableType.DOMAIN, value)
+    _db(settings, "INSERT INTO observables (workspace_id, obs_id, type, value)"
+        " VALUES ($1, $2, 'domain', $3) ON CONFLICT DO NOTHING", ws, obs, value)
+    yield ws, obs
+    _db(settings, "DELETE FROM proposals WHERE workspace_id = $1"
+        " AND tool_input->>'observable_id' = $2", ws, obs)
+    _db(settings, "DELETE FROM observables WHERE workspace_id = $1 AND obs_id = $2", ws, obs)
+
+
+def test_the_chat_agent_proposes_an_action_and_nothing_executes(client, settings,
+                                                                 chat_observable):
+    """D-045. The analyst asks for a state change; the agent calls the action;
+    what results is a pending proposal with its card, shown in the turn — and
+    no note exists until a human approves it."""
+    ws, obs = chat_observable
+    args = json.dumps({"observable_id": obs, "note": "our own pentest box"})
+    fake = SequencedStreamingFakeLLMClient([
+        _tool_step(name="annotate_observable", arguments=args,
+                   narration="I'll propose the note."),
+        _answer_step(_conformant_answer()),
+    ])
+    _use_agent(client.app, fake)
+    try:
+        resp = client.post("/api/chat", json={"message": _AGENT_QUESTION},
+                           headers={"Authorization": f"Bearer {_token(client)}"})
+    finally:
+        client.app.dependency_overrides.clear()
+
+    frames = _frames(resp.text)
+    tool = [f["tool"] for f in frames if "tool" in f]
+    assert len(tool) == 1 and tool[0]["status"] == "proposed"
+    assert tool[0]["proposal"]["summary"].startswith("Attach an analyst note to domain")
+    offered = [t["function"]["name"] for t in fake.stream_calls[0]["kwargs"]["tools"]]
+    assert "annotate_observable" in offered
+    pending = client.get("/api/proposals",
+                         headers={"Authorization": f"Bearer {_token(client)}"}).json()
+    assert tool[0]["proposal"]["id"] in [p["id"] for p in pending["proposals"]]
+    assert _db(settings, "SELECT count(*) AS n FROM observable_notes n"
+               " JOIN observables o ON o.id = n.observable_id"
+               " WHERE o.workspace_id = $1 AND o.obs_id = $2", ws, obs)[0]["n"] == 0
+    assert frames[-1]["done"]["output_valid"] is True
+
+
+def test_an_action_that_would_change_nothing_is_never_filed_from_chat(client, settings,
+                                                                      chat_observable):
+    ws, _ = chat_observable
+    args = json.dumps({"observable_id": "domain-ffffffff", "note": "n"})
+    fake = SequencedStreamingFakeLLMClient([
+        _tool_step(name="annotate_observable", arguments=args),
+        _answer_step(_conformant_answer()),
+    ])
+    _use_agent(client.app, fake)
+    try:
+        resp = client.post("/api/chat", json={"message": _AGENT_QUESTION},
+                           headers={"Authorization": f"Bearer {_token(client)}"})
+    finally:
+        client.app.dependency_overrides.clear()
+
+    tool = [f["tool"] for f in _frames(resp.text) if "tool" in f]
+    assert tool[0]["status"] == "error" and "proposal" not in tool[0]
+    told = [m for m in fake.stream_calls[1]["messages"] if m["role"] == "tool"]
+    assert "would change nothing" in told[0]["content"]
+    assert _db(settings, "SELECT count(*) AS n FROM proposals WHERE workspace_id = $1"
+               " AND tool_input->>'observable_id' = 'domain-ffffffff'", ws)[0]["n"] == 0
+
+
+def test_the_action_surface_is_in_the_rails_index(client):
+    """The action directive and the action descriptions are configuration we
+    issue; an answer that recites them is cut like any other leak."""
+    recital = ("You may PROPOSE these actions. A proposal is a request for human "
+               "approval, not an execution — nothing happens until a person approves it")
+    fake = SequencedStreamingFakeLLMClient([_answer_step(recital)])
+    _use_agent(client.app, fake)
+    try:
+        resp = client.post("/api/chat", json={"message": _AGENT_QUESTION},
+                           headers={"Authorization": f"Bearer {_token(client)}"})
+    finally:
+        client.app.dependency_overrides.clear()
+
+    frames = _frames(resp.text)
+    assert {"error": LEAK_COPY} in frames
+    assert frames[-1]["done"]["finish_reason"] == "output_guard"
+
+
+def test_a_proposal_summary_is_scanned_before_it_is_shown(client, settings, chat_observable):
+    """The summary is the action's dry-run sentence, and an action's dry run may
+    echo its arguments. It is shown, so it goes through the rail on the tool
+    channel like the line it belongs to."""
+    import dataclasses as dc
+
+    from auspex.actions import ActionOutcome, ActionRegistry
+
+    ws, obs = chat_observable
+    real = client.app.state.action_registry
+    spec = real.get("annotate_observable")
+    recital = " ".join(DEFAULT_SYSTEM_PROMPT.split()[:12])
+
+    async def echoing(**kw):
+        return ActionOutcome(would=recital, affects=(obs,))
+
+    swapped = ActionRegistry()
+    swapped.register(dc.replace(spec, dry_run=echoing))
+    client.app.state.action_registry = swapped
+    args = json.dumps({"observable_id": obs, "note": "n"})
+    fake = SequencedStreamingFakeLLMClient([
+        _tool_step(name="annotate_observable", arguments=args),
+        _answer_step(_conformant_answer()),
+    ])
+    _use_agent(client.app, fake)
+    try:
+        resp = client.post("/api/chat", json={"message": _AGENT_QUESTION},
+                           headers={"Authorization": f"Bearer {_token(client)}"})
+    finally:
+        client.app.dependency_overrides.clear()
+        client.app.state.action_registry = real
+
+    frames = _frames(resp.text)
+    assert not [f for f in frames if "tool" in f]
+    assert {"error": LEAK_COPY} in frames
