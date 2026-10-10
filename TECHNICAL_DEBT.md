@@ -2,6 +2,14 @@
 
 ## TD-037 (S26) — the deployment's scorecard has only a dev writer
 
+> **S26, later the same day — the harm is fixed (D-036); the cost remains.**
+> Burhan chose "make two-pass survive a thinking model". A two-pass turn whose
+> pass 1 opens with the model's own thinking now abandons pass 1 and answers
+> natively — the Thinking pane fills, no extra calls. What is LEFT of this entry
+> is the price of not knowing: one abandoned pass-1 per turn (prompt tokens +
+> ~1.3–2.2 s to the first event) on an unprobed thinking endpoint. Risk drops to
+> LOW. The text below is the entry as written before D-036.
+
 **Where:** `auspex/llm/scorecard.py` `save_deployment_scorecard` — its one
 caller is `scripts/llm_harness.py`.
 **Risk:** MEDIUM for any deployment whose endpoint thinks natively. D-035 made

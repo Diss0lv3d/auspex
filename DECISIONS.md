@@ -969,3 +969,39 @@ customer's inference without a turn asking for it, which is D-005's to decide.
 workspace); D-016's safe default stands. Pre-existing rows in workspace `dev`
 are left as history: they are probes of endpoints, not of tenants, and nothing
 reads them.
+
+## D-036 — A two-pass turn whose endpoint thinks becomes a native turn (2026-10-10, S26)
+
+**Context.** D-016 picks the reasoning path from the endpoint's scorecard: native
+if it emits its own reasoning, else two passes (pass 1 a brief analysis →
+Thinking pane, pass 2 the answer). An endpoint nobody has probed reads as
+"unknown" and takes two passes — the D-035 fix made the scorecard findable, and
+TD-037 records that nothing in a production deployment writes it. On a
+**thinking** endpoint that two-pass is broken, measured on glm-4.5-air: its own
+thinking fills pass 1's 256-token budget (`R×245 C×9`, `R×220 C×34`), the pane
+shows a cut-off fragment or nothing, and the model's real thinking is
+discarded. Two remedies were put to Burhan — probe the customer's endpoint
+unasked, or make two-pass survive a thinking model. **He chose the second.**
+
+**Decision.** The endpoint tells us inside the turn. If pass 1's FIRST text
+event is the model's own reasoning, the endpoint thinks natively: the route
+stops pass 1 at that event (closing the stream, so the endpoint stops
+generating) and spends the turn's second claimed call on the **native** answer —
+the turn's own messages, the answer budget, reasoning and content streamed on
+their own fields through the same rail. If pass 1's first text is content, the
+turn is an ordinary two-pass, exactly as before; a late reasoning event does not
+switch it (the analyst is already reading that analysis).
+
+**Why the first event and not a scorecard write.** Recording "this endpoint
+thinks" from inside a turn would be an analyst request writing deployment-scoped
+state (D-035's reserved workspace, which no tenant request writes). The signal
+is cheap to re-read every turn: measured 1.3–2.2 s to the first event.
+
+**Cost, stated.** No extra calls: two claimed, two made (pass 1 abandoned + the
+native call) — the same count two-pass always claimed (TD-018). What remains is
+one abandoned pass-1 per turn on an unprobed thinking endpoint: its prompt
+tokens and the time to its first event. A probed endpoint (scorecard present)
+skips pass 1 entirely, as before.
+
+**What this supersedes.** Nothing. D-016 stands — the scorecard still chooses
+first; this is what two-pass does when the stream proves the scorecard wrong.
