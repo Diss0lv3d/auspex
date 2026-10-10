@@ -2437,6 +2437,32 @@ def test_an_action_that_would_change_nothing_is_never_filed_from_chat(client, se
                " AND tool_input->>'observable_id' = 'domain-ffffffff'", ws)[0]["n"] == 0
 
 
+def test_the_turn_log_names_a_called_action_and_hides_only_unknown_names(client, caplog,
+                                                                         chat_observable):
+    """S28 review of D-045, seen live: a real `annotate_observable` call was
+    logged as `<unregistered>`, because the log checked the tool registry and
+    actions live in the manifest. The redaction exists for names the MODEL
+    made up; a registered action's name is ours."""
+    args = json.dumps({"observable_id": "domain-ffffffff", "note": "n"})
+    fake = SequencedStreamingFakeLLMClient([
+        _tool_step(name="annotate_observable", arguments=args),
+        _tool_step(name="exfiltrate_everything", arguments="{}"),
+        _answer_step(_conformant_answer()),
+    ])
+    _use_agent(client.app, fake)
+    try:
+        with caplog.at_level("INFO", logger="auspex.chat"):
+            client.post("/api/chat", json={"message": _AGENT_QUESTION},
+                        headers={"Authorization": f"Bearer {_token(client)}"})
+    finally:
+        client.app.dependency_overrides.clear()
+
+    line = next(r.getMessage() for r in caplog.records
+                if r.getMessage().startswith("agent turn:"))
+    assert "'annotate_observable'" in line
+    assert "'<unregistered>'" in line and "exfiltrate_everything" not in line
+
+
 def test_the_action_surface_is_in_the_rails_index(client):
     """The action directive and the action descriptions are configuration we
     issue; an answer that recites them is cut like any other leak."""

@@ -792,6 +792,11 @@ class AgentLoop:
 
     # ── the action round-trip (S18) ──────────────────────────────────────────
 
+    def knows(self, name: str) -> bool:
+        """Whether `name` is something this loop offers: a registered tool or a
+        manifest action. Anything else is a name the model made up."""
+        return name in self.registry or self._action_spec(name) is not None
+
     def _action_spec(self, name: str):
         """The spec for a name the model called, if it is an action at all."""
         if self.actions is None:
