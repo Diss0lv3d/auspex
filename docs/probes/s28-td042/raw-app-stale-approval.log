@@ -1,0 +1,9 @@
+fresh approval, execute: 409 'approved less than 300s ago — its own run may still be starting; look again after that'
+in queue once stale: run=True withdraw=True (status approved)
+execute: 200 executed=True status=executed resolved_at set=True did='Attached an analyst note to domain s28-stale-approval.test.'
+execute again: 409 'proposal is executed — only an approval that no run has started can be run from here'
+withdraw: 200 status=withdrawn
+undo a withdrawn row: 409
+notes written: 1 (expected 1: the run, not the withdrawal)
+undo the run: 200 status=undone
+left in queue: []
