@@ -93,6 +93,9 @@ def _public(row: dict) -> dict:
         "created_at": row["created_at"].isoformat(),
         "decided_at": row["decided_at"].isoformat() if row["decided_at"] else None,
         "undone_at": row["undone_at"].isoformat() if row.get("undone_at") else None,
+        # When a human kept an incomplete run or abandoned a dead claim — its own
+        # field, so `decided_at` stays the approval (S27 review).
+        "resolved_at": row["resolved_at"].isoformat() if row.get("resolved_at") else None,
         # Present only while a claim is outstanding. A card showing `executing`
         # with a claim five minutes old is the one thing an approver must be
         # able to tell apart from a run that started a second ago (TD-028a).

@@ -1981,3 +1981,62 @@ async def test_a_queue_row_nobody_looked_up_twins_for_does_not_say_it_has_none(
 
     assert proposals_route._public(queued[pid])["identical_pending"] is None
 
+
+
+async def _two_users(pool, workspace_id):
+    return [
+        await pool.fetchval(
+            "INSERT INTO users (workspace_id, email) VALUES ($1, $2) RETURNING id",
+            workspace_id, email)
+        for email in ("approver@settlement.test", "resolver@settlement.test")
+    ]
+
+
+async def test_keeping_an_incomplete_run_does_not_erase_who_approved_it(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Review of 20fefc0: `keep` wrote `decided_by`/`decided_at`, the columns
+    the approval is recorded in. After a keep nothing on the row said who
+    approved the action that partly ran — the one fact D-014 exists to keep."""
+    approver, keeper = await _two_users(pool, workspace_id)
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    approved = await settlement.settle(workspace_id=workspace_id, proposal_id=pid,
+                                       decision="approved", decided_by=approver)
+
+    async def writes_then_dies(**kwargs):
+        await spec.execute(**kwargs)
+        raise RuntimeError("died after the write")
+
+    with pytest.raises(RuntimeError):
+        await ActionExecutor(pool, _with(spec, execute=writes_then_dies)).execute(
+            workspace_id=workspace_id, proposal_id=pid)
+    kept = await settlement.keep(workspace_id=workspace_id, proposal_id=pid, decided_by=keeper)
+
+    row = kept.proposal
+    assert row["status"] == "kept"
+    assert row["decided_by"] == approver
+    assert row["decided_at"] == approved.proposal["decided_at"]
+    assert row["resolved_by"] == keeper and row["resolved_at"] is not None
+    public = proposals_route._public(row)
+    assert public["decided_at"] == approved.proposal["decided_at"].isoformat()
+    assert public["resolved_at"] == row["resolved_at"].isoformat()
+
+
+async def test_abandoning_a_dead_claim_does_not_erase_who_approved_it(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """The same erasure, older (S21): `abandon` overwrote the approval too."""
+    approver, abandoner = await _two_users(pool, workspace_id)
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await settlement.settle(workspace_id=workspace_id, proposal_id=pid,
+                            decision="approved", decided_by=approver)
+    await _wedge(pool, settlement, workspace_id, pid, age_seconds=STALE_CLAIM_SECONDS + 60)
+
+    row = (await settlement.abandon(
+        workspace_id=workspace_id, proposal_id=pid, decided_by=abandoner)).proposal
+
+    assert row["status"] == "abandoned"
+    assert row["decided_by"] == approver
+    assert row["resolved_by"] == abandoner and row["resolved_at"] is not None

@@ -250,13 +250,18 @@ class ProposalSettlement:
         `executing` or `undoing` — at the instant it is replaced. And
         `abandoned_token` records WHICH CLAIM: the only one whose late answer
         may still land (S26 review of D-041).
+
+        `decided_by` is the human abandoning, and it lands in `resolved_by`:
+        `decided_by`/`decided_at` hold the APPROVAL, and before S27 this
+        overwrote them, so an abandoned row no longer said who had approved the
+        run that was lost.
         """
         row = await self._pool.fetchrow(
             """
             UPDATE proposals
                SET status = 'abandoned', abandoned_from = status,
                    abandoned_token = claim_token, claim_token = NULL, claimed_at = NULL,
-                   decided_at = now(), decided_by = $3::uuid
+                   resolved_at = now(), resolved_by = $3::uuid
              WHERE id = $1::uuid
                AND workspace_id = $2::uuid
                AND claimed_at IS NOT NULL
@@ -290,13 +295,14 @@ class ProposalSettlement:
         wanted what landed to stay had no way to say so, and an action that
         declares no undo could never leave the queue at all (S26 review of
         D-041). This is that decision, claim-first like `settle` and `abandon`,
-        recorded with who made it. It is not a lock: a kept run can still be put
-        back (UNDOABLE_FROM).
+        recorded with who made it — in `resolved_by`, beside the approval rather
+        than over it (S27 review: a kept row had stopped saying who approved the
+        run). It is not a lock: a kept run can still be put back (UNDOABLE_FROM).
         """
         row = await self._pool.fetchrow(
             """
             UPDATE proposals
-               SET status = 'kept', decided_at = now(), decided_by = $3::uuid
+               SET status = 'kept', resolved_at = now(), resolved_by = $3::uuid
              WHERE id = $1::uuid AND workspace_id = $2::uuid AND status = 'incomplete'
             RETURNING *
             """,
