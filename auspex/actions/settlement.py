@@ -718,6 +718,15 @@ class ActionExecutor:
                 raise ExecutionRefused("already_undone", "this proposal is already being undone")
             if now["status"] == "undone":
                 raise ExecutionRefused("already_undone", "this proposal has already been undone")
+            if now["status"] == was:
+                # Taken and given back between the claim and this read — another
+                # put-back that failed returns the row to where it started (S28
+                # review of 94abbeb: this said "moved from X to X").
+                raise ExecutionRefused(
+                    "contended",
+                    f"another operation held this proposal while this undo was starting; "
+                    f"it is {was} again — try again",
+                )
             raise ExecutionRefused(
                 "status_changed",
                 f"the proposal moved from {was} to {now['status']} while this undo was "

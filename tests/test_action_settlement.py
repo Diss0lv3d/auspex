@@ -2090,6 +2090,32 @@ async def test_an_undo_that_lost_its_row_to_another_undo_still_says_so(
     assert "already been undone" in caught.value.detail
 
 
+async def test_an_undo_that_lost_its_row_and_got_it_back_does_not_say_it_moved(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """S28 review of 94abbeb: the claim can lose to an operation that has already
+    let go by the re-read — another undo that failed puts the row back where it
+    started. The refusal then said "the proposal moved from incomplete to
+    incomplete", a move that never happened."""
+    settlement, pid = await _incomplete(pool, registry, spec, workspace_id, an_observable)
+    seen = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    # Another put-back holds the row when this one claims...
+    await pool.execute(
+        "UPDATE proposals SET status = 'undoing', claimed_at = now(),"
+        " claim_token = gen_random_uuid() WHERE id = $1::uuid",
+        str(pid),
+    )
+    executor = ActionExecutor(pool, registry)
+    # ...and has failed and returned it by the time this one re-reads.
+    executor._settlement.get = mock.AsyncMock(side_effect=[seen, seen])
+
+    with pytest.raises(ExecutionRefused) as caught:
+        await executor.undo(workspace_id=workspace_id, proposal_id=pid)
+
+    assert caught.value.reason == "contended"
+    assert "incomplete to incomplete" not in caught.value.detail
+    assert "try again" in caught.value.detail
+
 
 # -- D-045: a proposal that would change nothing is not filed -----------------
 
