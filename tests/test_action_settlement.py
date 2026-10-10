@@ -2148,3 +2148,210 @@ async def test_a_dry_run_that_would_change_something_is_filed(
         workspace_id=workspace_id)
 
     assert row["status"] == "pending_approval" and row["card"]["affects"] == [an_observable]
+
+
+# -- TD-042 (D-048): an approved run that never started ------------------------
+
+
+async def _age_approval(pool, pid, seconds: float):
+    """What a process death between approve and the run's claim leaves behind:
+    `approved`, no claim, an approval that old. Written rather than produced by
+    killing a worker, for the same reason `_wedge` is."""
+    await pool.execute(
+        "UPDATE proposals SET decided_at = now() - make_interval(secs => $2::double precision)"
+        " WHERE id = $1::uuid",
+        str(pid), float(seconds),
+    )
+
+
+async def _notes(pool, workspace_id) -> int:
+    return await pool.fetchval(
+        "SELECT count(*) FROM observable_notes WHERE workspace_id = $1", workspace_id
+    )
+
+
+async def test_an_approved_run_that_never_started_returns_to_the_queue_once_stale(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """TD-042, the S27 reproduction (probe_approved_wedge.py): approved, never
+    claimed, and absent from the queue — reject, abandon and keep all refused
+    it, so nobody was told. Once its approval is older than a run takes to
+    start, it is a decision waiting on a human like any other."""
+    approver, _ = await _two_users(pool, workspace_id)
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await settlement.settle(workspace_id=workspace_id, proposal_id=pid,
+                            decision="approved", decided_by=approver)
+
+    fresh = [r["id"] for r in await settlement.pending(workspace_id=workspace_id)]
+    await _age_approval(pool, pid, STALE_CLAIM_SECONDS + 60)
+    stale = [r["id"] for r in await settlement.pending(workspace_id=workspace_id)]
+
+    assert pid not in fresh  # its own run may still be starting
+    assert pid in stale
+
+
+async def test_a_stale_approval_can_be_run_now_rechecked_and_attributed(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Door one. No claim was ever taken, so no handler ever started and there
+    is nothing half-done to fear. The human pressing it now is a decision made
+    now: it lands in `resolved_by`, beside the approval rather than over it."""
+    approver, runner = await _two_users(pool, workspace_id)
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await settlement.settle(workspace_id=workspace_id, proposal_id=pid,
+                            decision="approved", decided_by=approver)
+    await _age_approval(pool, pid, STALE_CLAIM_SECONDS + 60)
+
+    await ActionExecutor(pool, registry).run_stale_approval(
+        workspace_id=workspace_id, proposal_id=pid, run_by=runner)
+
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert row["status"] == "executed"
+    assert row["decided_by"] == approver
+    assert row["resolved_by"] == runner and row["resolved_at"] is not None
+    assert await _notes(pool, workspace_id) == 1
+
+
+async def test_running_a_stale_approval_rechecks_the_declaration(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """The same `check_executable` approve runs. A declaration that changed
+    since the approval is refused and the row stays approved — withdrawing is
+    then the only door, which is why there are two."""
+    settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
+    await _age_approval(pool, pid, STALE_CLAIM_SECONDS + 60)
+    changed = _with(spec, description=spec.description + " (changed after approval)")
+
+    with pytest.raises(ExecutionRefused) as caught:
+        await ActionExecutor(pool, changed).run_stale_approval(
+            workspace_id=workspace_id, proposal_id=pid, run_by=None)
+
+    assert caught.value.reason == "spec_changed"
+    assert (await settlement.get(workspace_id=workspace_id, proposal_id=pid))[
+        "status"] == "approved"
+    assert await _notes(pool, workspace_id) == 0
+
+
+async def test_a_fresh_approval_has_neither_door(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Within the threshold the approve request's own run may still be about
+    to claim the row. Running it from a second door would race that; so would
+    withdrawing it out from under the claim."""
+    settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
+
+    with pytest.raises(ExecutionRefused) as caught:
+        await ActionExecutor(pool, registry).run_stale_approval(
+            workspace_id=workspace_id, proposal_id=pid, run_by=None)
+    withdrawn = await settlement.withdraw(
+        workspace_id=workspace_id, proposal_id=pid, decided_by=None)
+
+    assert caught.value.reason == "not_stale"
+    assert not withdrawn.won and withdrawn.current_status == "approved"
+    assert (await settlement.get(workspace_id=workspace_id, proposal_id=pid))[
+        "status"] == "approved"
+    assert await _notes(pool, workspace_id) == 0
+
+
+async def test_withdrawing_a_stale_approval_runs_nothing_and_keeps_the_approver(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Door two: approved, then retracted before anything ran. Its own status,
+    because `rejected` is the decision NOT to approve, and this row was."""
+    approver, withdrawer = await _two_users(pool, workspace_id)
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await settlement.settle(workspace_id=workspace_id, proposal_id=pid,
+                            decision="approved", decided_by=approver)
+    await _age_approval(pool, pid, STALE_CLAIM_SECONDS + 60)
+
+    out = await settlement.withdraw(
+        workspace_id=workspace_id, proposal_id=pid, decided_by=withdrawer)
+
+    assert out.won
+    row = out.proposal
+    assert row["status"] == "withdrawn"
+    assert row["decided_by"] == approver
+    assert row["resolved_by"] == withdrawer and row["resolved_at"] is not None
+    assert await _notes(pool, workspace_id) == 0
+    assert pid not in [r["id"] for r in await settlement.pending(workspace_id=workspace_id)]
+    with pytest.raises(ExecutionRefused):
+        await ActionExecutor(pool, registry).run_stale_approval(
+            workspace_id=workspace_id, proposal_id=pid, run_by=None)
+
+
+async def test_only_an_approved_row_has_these_doors(
+    pool, registry, spec, workspace_id, an_observable
+):
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+
+    with pytest.raises(ExecutionRefused) as caught:
+        await ActionExecutor(pool, registry).run_stale_approval(
+            workspace_id=workspace_id, proposal_id=pid, run_by=None)
+    withdrawn = await settlement.withdraw(
+        workspace_id=workspace_id, proposal_id=pid, decided_by=None)
+
+    assert caught.value.reason == "not_approved"
+    assert not withdrawn.won and withdrawn.current_status == "pending_approval"
+
+
+async def test_run_now_and_withdraw_race_for_one_row_and_exactly_one_wins(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Claim-first, like every other door: two humans pressing the two doors
+    at once get one answer between them."""
+    settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
+    await _age_approval(pool, pid, STALE_CLAIM_SECONDS + 60)
+
+    async def run():
+        try:
+            await ActionExecutor(pool, registry).run_stale_approval(
+                workspace_id=workspace_id, proposal_id=pid, run_by=None)
+            return "ran"
+        except ExecutionRefused:
+            return "refused"
+
+    async def withdraw():
+        out = await settlement.withdraw(workspace_id=workspace_id, proposal_id=pid,
+                                        decided_by=None)
+        return "withdrew" if out.won else "refused"
+
+    results = sorted(await asyncio.gather(run(), withdraw()))
+    status = (await settlement.get(workspace_id=workspace_id, proposal_id=pid))["status"]
+
+    assert results in (["ran", "refused"], ["refused", "withdrew"])
+    assert status == ("executed" if "ran" in results else "withdrawn")
+    assert await _notes(pool, workspace_id) == (1 if "ran" in results else 0)
+
+
+async def test_the_routes_for_an_approval_that_never_ran(pool, client, route_ws):
+    ws, obs_id = route_ws
+    registry = ActionRegistry()
+    registry.register_all(build_builtin_actions(pool))
+    spec = registry.get("annotate_observable")
+    settlement, first = await _file(pool, registry, spec, ws, obs_id, note="run me later")
+    _, second = await _file(pool, registry, spec, ws, obs_id, note="withdraw me later")
+    for p in (first, second):
+        await settlement.settle(workspace_id=ws, proposal_id=p["id"],
+                                decision="approved", decided_by=None)
+    hdr = _hdr(client)
+
+    early_run = client.post(f"/api/proposals/{first['id']}/execute", headers=hdr)
+    early_withdraw = client.post(f"/api/proposals/{second['id']}/withdraw", headers=hdr)
+    assert early_run.status_code == 409 and early_withdraw.status_code == 409
+
+    for p in (first, second):
+        await _age_approval(pool, p["id"], STALE_CLAIM_SECONDS + 60)
+    listed = {p["id"] for p in client.get("/api/proposals", headers=hdr).json()["proposals"]}
+    assert {str(first["id"]), str(second["id"])} <= listed
+
+    ran = client.post(f"/api/proposals/{first['id']}/execute", headers=hdr)
+    withdrew = client.post(f"/api/proposals/{second['id']}/withdraw", headers=hdr)
+    assert ran.status_code == 200, ran.text
+    assert ran.json()["executed"] is True and ran.json()["proposal"]["status"] == "executed"
+    assert withdrew.status_code == 200, withdrew.text
+    assert withdrew.json()["proposal"]["status"] == "withdrawn"
+    assert client.post(f"/api/proposals/{uuid.uuid4()}/withdraw", headers=hdr).status_code == 404
