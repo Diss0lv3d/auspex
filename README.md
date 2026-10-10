@@ -102,7 +102,10 @@ A turn that starts reproducing its own instructions is cut off mid-stream, told
 to the analyst plainly, and **not persisted** — a stored assistant turn replays
 into every later turn of that session, so a leak that was saved would become a
 permanent one. The threshold is calibrated on live model output, not chosen: 34
-real answers, a legitimate ceiling of 6 shared words, a floor of 8. See
+real answers, a legitimate ceiling of 6 shared words, a floor of 8. A thinking
+model's own thinking is held to a higher floor of 40: it reasons by quoting its
+instructions (measured at 19–20 words on legitimate questions), while a
+recitation runs 58 or more ([D-040](DECISIONS.md)). See
 [D-030](DECISIONS.md) and the honesty section for what it does not cover.
 
 ### Capability-negotiated agent runtime
@@ -110,8 +113,10 @@ real answers, a legitimate ceiling of 6 shared words, a floor of 8. See
 The platform probes the endpoint you bring and compiles its agent loop to what
 that model can actually do — native tool-calling, prompted tools, or plan-only —
 and reports a capability scorecard rather than assuming a feature set and
-failing strangely. Deep chat turns use the loop only when that scorecard says
-native tool-calling; each tool step streams to the Thinking pane as it runs,
+failing strangely. The deployment measures its configured endpoint itself, once
+per endpoint, in the background at startup ([D-038](DECISIONS.md);
+`LLM_AUTOPROBE_ENABLED` turns it off). Deep chat turns use the loop only when
+that scorecard says native tool-calling; each tool step streams to the Thinking pane as it runs,
 and every model call is counted against the workspace's ceiling as it is made.
 
 ### Per-workspace spend ceilings

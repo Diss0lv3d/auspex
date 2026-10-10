@@ -1063,6 +1063,50 @@ inference (D-005).
 **What this supersedes.** Nothing ratified. The 2026-08-16 proposal was never
 ratified, and STATE.md standing follow-up 10 closes with this entry.
 
+## D-038 — The deployment probes its own endpoint, once per fingerprint (2026-10-10, S26)
+
+**Context.** TD-037. The deployment scorecard (D-035) decides native vs two-pass
+reasoning (D-016), and since D-037 also whether deep turns take the agent path.
+Its only writer was a developer running `scripts/llm_harness.py`, so every
+non-dev deployment read "unknown": two-pass on every deep turn, and no agent
+path at all. Whether the platform may spend the customer's inference to measure
+the endpoint unasked was left as a D-005 question. Burhan delegated the call
+("do what you think is best").
+
+**Decision.** At startup a background task runs the capability battery
+(`auspex/llm/capability.py`) against the configured endpoint. It does this only
+if the endpoint's fingerprint (base URL + model, never the key) has no
+deployment scorecard, and records the result. The cost is about 15 requests,
+once per endpoint.
+- **A probe that measured nothing is not recorded.** That covers an unreachable
+  endpoint and one where basic chat failed (a wrong key or model). The key is
+  not in the fingerprint, so recording a wrong-key probe would pin plan_only
+  even after the key was fixed. Such a probe is retried at 1m, 5m, 15m and 1h,
+  because a scale-to-zero endpoint asleep at startup is normal.
+- **Workers starting together probe once.** The probe runs under a Postgres
+  advisory lock and re-checks for a scorecard under it.
+- **The app never waits on the probe or fails because of it.** The port binds
+  immediately, and deep turns stay on the safe default ("unknown") until the
+  scorecard lands.
+- **`LLM_AUTOPROBE_ENABLED` is the operator's say.** An operator who will not
+  have the platform spend inference unasked turns it off and manages the
+  scorecard with the harness. Host and test runs pin it off, like
+  `INGEST_ENABLED`.
+
+**Why.** The capability-negotiated runtime is flagship #1 in CLAUDE.md: "probe
+the customer's LLM endpoint, compile the agent loop to what the model can
+actually do". Without a writer it compiled nothing outside dev. Measuring once
+per fingerprint is the smallest spend that makes it true, and it is
+switchable.
+
+**And the agent path needs one more measurement (same day, `48fb195`).**
+`native_tools` is decided from a non-streaming probe, but the agent path only
+exists streaming. D-037 clause 2 therefore also requires
+`streaming_tool_deltas`.
+
+**What this supersedes.** Nothing. D-036 still covers a two-pass turn on an
+endpoint that thinks before its scorecard lands.
+
 ## D-039 — The agent sends third parties only indicators someone other than the model supplied (2026-10-10, S26)
 
 **Context.** TD-039, from the review of the S26 wiring. D-037 clause 1 keeps
@@ -1104,3 +1148,35 @@ code-owned for their own reasons.
 **What this supersedes.** Nothing ratified. It reverses the S24 test
 "enrichment also accepts an indicator the message never carried" and is
 recorded in that test's docstring.
+
+## D-040 — A thinking model's own thinking is held to a recitation floor (2026-10-10, S26)
+
+**Context.** Before TD-038's extension could be indexed, it was calibrated on the
+agent path (docs/probes/2026-10-10-s26-rail-calibration-glm.md: 12 hard-legit
+questions plus 2 recitations, per channel, glm-4.5-air). The calibration found
+a defect unrelated to TD-038. A thinking model reasons **by quoting its
+instructions**: on a legitimate question its thinking quoted 19 words of the
+DEFINITION mode directive, and on another 20 words of a tool description. D-030
+decision 3's single floor, `SHINGLE_WORDS = 8`, was calibrated on Scout, which
+had no native thinking. It cut those turns with LEAK_COPY and stored nothing,
+on both native paths, before S26's wiring touched anything.
+
+**Decision.** The output scanner takes per-channel floors. The model's own
+thinking is scanned on a `thinking` channel at `THINKING_SHINGLE_WORDS = 40`.
+That is about twice the legitimate ceiling measured (20) and under the
+recitations measured (58 here, 60 in S22). Every other channel keeps 8: the
+answer, the tool lines, the agent's narration (the model's prose, never seen
+quoting instructions), and a two-pass analysis (content written under
+PASS1_DIRECTIVE, which S22 calibrated).
+
+**What it costs, stated.** A quotation of our configuration up to 39 words in the
+Thinking pane is no longer cut. Such quotes are the model's normal reasoning,
+and the rail's purpose (D-030) is the wholesale dump an injection produces,
+which the floor still cuts. The run is still never persisted, because thinking
+is never stored.
+
+**Calibrated, like SHINGLE_WORDS.** n = 12 on one model. Re-run
+`docs/probes/s26-step0/probe_calibrate_agent.py` to move it.
+
+**What this supersedes.** D-030 decision 3 for the thinking channel only. For
+every other channel it stands as ratified.

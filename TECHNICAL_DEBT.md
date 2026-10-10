@@ -2,6 +2,11 @@
 
 ## TD-040 (S26) — an endpoint's error text reaches the analyst verbatim
 
+> **RESOLVED the same day (`1f54b37`).** `LLMError.public` gives the class of
+> failure in the platform's words. The chat error frame and the summary's 502 show
+> it, and the log gets the status and the provider's code, never its message.
+> Entry kept as written.
+
 **Where:** `auspex/routes/chat.py`, the `except LLMError` handler.
 `yield _sse({"error": str(err)})` sends the analyst "LLM endpoint error <status>:
 <up to 500 chars of the provider's error body>", and nothing scans it first.
@@ -43,6 +48,13 @@ data. The tools are READ-only and the turn's enrichment budget is now 8
 
 ## TD-038 (S26) — the agent path's rail does not index the tool descriptions or the synthesis nudge
 
+> **RESOLVED the same day (`9e20217`), calibrated first.** The answer's
+> legitimate ceiling against the descriptions is 3 and the tool lines' is 3
+> (floor 8), so they are indexed via `AgentLoop.issued_instructions`. The
+> calibration also found that thinking quotes them, and its own directives,
+> legitimately at 19-20 words. Thinking now has its own floor (D-040, `239df94`).
+> Entry kept as written.
+
 **Where:** `auspex/routes/chat.py`, the agent `leak_index`.
 **Risk:** LOW-MEDIUM, a gap against D-030 decision 2 ("configuration we issued")
 on the only mode that is wired. In native_tools mode the three tool descriptions
@@ -61,6 +73,13 @@ agent-path answers. **Trigger:** the next change to the rail, or before any
 tenant-facing deployment of the agent path.
 
 ## TD-037 (S26) — the deployment's scorecard has only a dev writer
+
+> **RESOLVED — D-038 (`315719c`).** The deployment probes its own endpoint once
+> per fingerprint at startup, in the background, switchable with
+> LLM_AUTOPROBE_ENABLED. A probe that measured nothing is not recorded, and is
+> retried. The "move the guard" note at the end of this entry still stands for
+> the first ROUTE that lets a workspace write a scorecard; the startup probe is
+> not a route.
 
 > **S26, later the same day — the harm is fixed (D-036); the cost remains.**
 > Burhan chose "make two-pass survive a thinking model". A two-pass turn whose
