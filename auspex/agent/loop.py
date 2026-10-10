@@ -21,6 +21,7 @@ SARA pattern reference (reused, not copied): sara/core/agent_loop.py:59-.
 import json
 import re
 from collections.abc import Sequence
+from contextlib import aclosing
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -518,38 +519,48 @@ class AgentLoop:
             holding = "tools" in extra
             held: list[str] = []
             calls_tools = False
-            async for ev in client.chat_stream(
-                call_messages,
-                max_tokens=self.max_tokens,
-                temperature=self.temperature,
-                **extra,
-            ):
-                fold_stream_event(result, by_index, ev)
-                if ev.kind == "tool_call" and holding and not calls_tools:
-                    calls_tools = True
-                    if "".join(held).strip():
-                        yield AgentStreamEvent(kind="narration", text="".join(held), step=at_step)
-                    held.clear()
-                elif ev.kind == "content" and ev.text:
-                    if calls_tools:
-                        yield AgentStreamEvent(kind="narration", text=ev.text, step=at_step)
-                    elif holding:
-                        held.append(ev.text)
-                        if sum(map(len, held)) > NARRATION_HOLD_CHARS:
-                            # Long enough to be the answer: stream from here on.
-                            # The bound TD-036 keeps — a tool call after this
-                            # point follows prose the analyst already read.
-                            holding = False
-                            yield AgentStreamEvent(kind="content", text="".join(held), step=at_step)
-                            held.clear()
-                    else:
-                        yield AgentStreamEvent(kind="content", text=ev.text, step=at_step)
-                elif ev.kind == "reasoning" and ev.text:
-                    yield AgentStreamEvent(kind="reasoning", text=ev.text, step=at_step)
-                elif ev.kind == "usage" and ev.usage:
-                    yield AgentStreamEvent(kind="usage", usage=ev.usage, step=at_step)
+
+            def _text(kind: str, text: str) -> AgentStreamEvent:
+                return AgentStreamEvent(kind=kind, text=text, step=at_step)
+
+            # `aclosing`: a turn closed early (the route's rail tripped) closes
+            # the endpoint's stream NOW, so it stops generating — not whenever
+            # the abandoned generator is collected.
+            async with aclosing(
+                client.chat_stream(
+                    call_messages,
+                    max_tokens=self.max_tokens,
+                    temperature=self.temperature,
+                    **extra,
+                )
+            ) as stream:
+                async for ev in stream:
+                    fold_stream_event(result, by_index, ev)
+                    if ev.kind == "tool_call" and holding and not calls_tools:
+                        calls_tools = True
+                        if "".join(held).strip():
+                            yield _text("narration", "".join(held))
+                        held.clear()
+                    elif ev.kind == "content" and ev.text:
+                        if calls_tools:
+                            yield _text("narration", ev.text)
+                        elif holding:
+                            held.append(ev.text)
+                            if sum(map(len, held)) > NARRATION_HOLD_CHARS:
+                                # Long enough to be the answer: stream from here on.
+                                # The bound TD-036 keeps — a tool call after this
+                                # point follows prose the analyst already read.
+                                holding = False
+                                yield _text("content", "".join(held))
+                                held.clear()
+                        else:
+                            yield _text("content", ev.text)
+                    elif ev.kind == "reasoning" and ev.text:
+                        yield _text("reasoning", ev.text)
+                    elif ev.kind == "usage" and ev.usage:
+                        yield AgentStreamEvent(kind="usage", usage=ev.usage, step=at_step)
             if held:
-                yield AgentStreamEvent(kind="content", text="".join(held), step=at_step)
+                yield _text("content", "".join(held))
             sealed.append(seal_stream_result(result, by_index))
 
         for step in range(1, self.max_steps + 1):
@@ -560,8 +571,9 @@ class AgentLoop:
                 )
                 return
             sealed: list[ChatResult] = []
-            async for out in _stream_call(messages, sealed, step, **chat_kwargs):
-                yield out
+            async with aclosing(_stream_call(messages, sealed, step, **chat_kwargs)) as outs:
+                async for out in outs:
+                    yield out
             result = sealed[0]
 
             calls = self.channel.extract_calls(result)
@@ -593,10 +605,13 @@ class AgentLoop:
             )
             return
         sealed = []
-        async for out in _stream_call(
-            [*messages, {"role": "user", "content": _SYNTHESIS_NUDGE}], sealed, self.max_steps
-        ):
-            yield out
+        async with aclosing(
+            _stream_call(
+                [*messages, {"role": "user", "content": _SYNTHESIS_NUDGE}], sealed, self.max_steps
+            )
+        ) as outs:
+            async for out in outs:
+                yield out
         final = sealed[0]
         yield AgentStreamEvent(
             kind="done", text=final.content,

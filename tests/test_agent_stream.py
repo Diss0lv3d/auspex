@@ -535,3 +535,40 @@ async def test_the_wire_specs_offered_are_the_registrys_tools():
 
     offered = client.stream_calls[0]["kwargs"].get("tools") or []
     assert [t["function"]["name"] for t in offered] == ["lookup_ip"]
+
+
+# -- an abandoned turn stops the endpoint -------------------------------------
+
+
+class _FinalizingSequence(SequencedStreamingFakeLLMClient):
+    """Records which calls' streams have exited — on a real endpoint, exiting is
+    what closes the connection and stops it generating tokens someone pays for."""
+
+    def __init__(self, scripts):
+        super().__init__(scripts)
+        self.finalized: list[int] = []
+
+    async def chat_stream(self, messages, **kwargs):
+        idx = len(self.stream_calls)
+        try:
+            async for ev in super().chat_stream(messages, **kwargs):
+                yield ev
+        finally:
+            self.finalized.append(idx)
+
+
+async def test_closing_the_turn_early_closes_the_endpoints_stream_at_once():
+    """The route stops reading a turn mid-stream when its output rail trips, and
+    closes it. Without an explicit close in the loop, the endpoint's stream stays
+    suspended until garbage collection gets round to it, and a real endpoint keeps
+    generating (and billing) the answer nobody will read. The route's own
+    single-call path holds this with `aclosing` (D-036). The loop must hold it too."""
+    registry, _ = _registry()
+    client = _FinalizingSequence([_answer_script(("x" * 500, "more", "and more"))])
+
+    turn = _loop(registry).run_stream(client, "check 203.0.113.99")
+    first = await turn.__anext__()
+    assert first.kind == "content"
+    await turn.aclose()
+
+    assert client.finalized == [0], "the endpoint stream outlived the turn that opened it"
