@@ -72,3 +72,23 @@ def test_timeline_page_never_names_the_engine(client):
     body = client.get("/timeline").text.lower()
     for name in FORBIDDEN_ENGINE_NAMES:
         assert name not in body, f"engine/provider name leaked into UI: {name!r}"
+
+
+def test_index_shows_each_tool_step_in_the_thinking_pane(client):
+    """The agent path streams `tool` frames (D-031 decision 1: tool steps are
+    narrated before the answer). A page that ignored them would show an answer
+    built from lookups the analyst never saw happen. The step's STATUS is what
+    is shown, because it is what actually ran (D-014)."""
+    body = client.get("/").text
+    assert '"tool" in ev' in body
+    assert "ev.tool.status" in body
+    # The model's arguments are rendered as text, never parsed as markup.
+    assert "innerHTML" not in body.split('"tool" in ev', 1)[1].split("else if", 1)[0]
+
+
+def test_index_reasoning_appends_without_erasing_the_steps(client):
+    """`textContent +=` on the Thinking pane rewrites it as one text node, which
+    deletes every tool-step line already in it — the next reasoning delta after a
+    tool step would erase the step."""
+    body = client.get("/").text
+    assert "ensureThink(wrap).textContent +=" not in body
