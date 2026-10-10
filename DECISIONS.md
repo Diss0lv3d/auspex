@@ -1231,3 +1231,32 @@ idempotency key. That matters the day an action reaches a network (TD-025).
 during execute", which kept TD-034 unreachable by keeping the cleanup shut.
 TD-034 is now fixed structurally. Nothing ratified is overturned: D-024
 (an approval is decided once) and the no-reaper rule (S21) stand.
+
+**D-041 addendum (2026-10-10, same day — the review).** An adversarial review of
+the four commits found eight defects. All eight are fixed, each with a test
+that failed first. The design changed in three places:
+- **A claim is a token, not a status.** Once undo could start from
+  `abandoned`, two undos could be in flight on one row, and a late failure
+  finished the fresh one's claim. The row said `executed` with nothing left.
+  `claim_token` is minted by every claim, and a finish lands only for the token
+  that holds the row. `abandoned_token` names the one claim whose late answer
+  may still land: into its own column if empty, without moving the row. So a
+  run that answers after its clean-up (this decision's stated bound) is now
+  **recorded** on the `undone` row, not dropped.
+- **`kept`** is a seventh exit. A human keeps what an incomplete run left
+  (`POST /keep`). Without it an incomplete row of an action that declares no
+  undo could never leave the queue. A kept run can still be put back.
+- **`abandoned` stays out of the queue, deliberately.** Item 2 queues
+  `incomplete` because nobody has decided about it yet. An abandoned row is
+  itself a human's decision, and its put-back remains available.
+
+Also fixed:
+- a second status-CHECK block that stopped the app booting with one
+  `incomplete` row;
+- `observe` gets the undo slot's rails, and only an int 0 means "nothing";
+- pre-S26 `failed` rows are no longer refused as "checked";
+- the twin lookup is indexed (811 → 3.9 ms at 20k pending);
+- the surface's copy now claims only what it knows.
+
+**The bound is unchanged.** A merely slow handler on an abandoned run can land
+after its put-back, and it is now visible when it does.
