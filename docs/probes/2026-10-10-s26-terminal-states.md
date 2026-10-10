@@ -35,3 +35,19 @@
 inject one into the running container. It is covered hermetically, through the
 real route, by `test_an_incomplete_run_is_put_back_through_the_surface` and
 `test_the_approval_surface_says_what_landed_when_a_run_fails`.
+
+## After the review (`cd44b4f`…`0a5c5b1`, container rebuilt)
+
+An adversarial review found eight defects, all fixed (see the D-041 addendum).
+The rebuilt container's migrations applied `claim_token`, `abandoned_token`,
+the `kept` status and the twin index. Re-run, raw
+`raw/2026-10-10-terminal-states-live-after-review.log`:
+- every step above is unchanged;
+- **new [5b]:** an `incomplete` run (its note landed, then it died) is queued
+  as `incomplete`, then **keep** returns 200 `kept` and the row leaves the queue;
+- a single-proposal read now says `identical_pending: null` (not looked), not
+  `[]`.
+
+Twin lookup cost (`probe_twin_lookup_cost.py`, dev DB, scratch workspace
+deleted): **811.6 ms → 3.9 ms** median at 20 000 distinct pending rows,
+limit 200.

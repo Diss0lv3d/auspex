@@ -96,6 +96,20 @@ async def main() -> None:
         r = http.post(f"{API}/proposals/{b}/undo", headers=hdr)
         print(f"    undo    -> {r.status_code} status={r.json()['proposal']['status']}")
 
+        print("[5b] an incomplete run (its note landed, then it died) is kept as it is")
+        k = await file("kept as it is")
+        await spec.execute(workspace_id=ws, proposal_id=k, observable_id=obs, note="landed")
+        await pool.execute("UPDATE proposals SET status = 'incomplete', decided_at = now(),"
+                           " result = '{\"error\": \"RuntimeError\", \"effects\": \"present\"}'"
+                           " WHERE id = $1::uuid", k)
+        shown = card(k)
+        r = http.post(f"{API}/proposals/{k}/keep", headers=hdr)
+        print(f"    queued as {shown and shown['status']} -> keep {r.status_code} "
+              f"status={r.json()['proposal']['status']}   "
+              f"left the queue: {card(k) is None}")
+        one = http.get(f"{API}/proposals/{k}", headers=hdr).json()
+        print(f"    a single read does not claim 'no twins': identical_pending={one['identical_pending']}")
+
         print("[5] a checked failure has nothing to put back")
         f = await file("never runs")
         await pool.execute("UPDATE proposals SET status = 'failed',"

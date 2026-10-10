@@ -1,0 +1,16 @@
+[1] two identical requests and one different, filed by the real settlement
+    twin A names: True   twin B names: True   the different one names nothing: True
+[2] reject twin A through the API
+    200 rejected   twin B now names nothing: True
+[3] a crashed run: approved, claimed an hour ago, its note already landed
+    in the queue: True   status=executing
+    abandon -> 200 status=abandoned abandoned_from=executing
+    undo    -> 200 status=undone removed={'removed': 1}   notes left: 0
+[4] the ordinary path still works: approve twin B, then undo it
+    approve -> 200 executed=True status=executed
+    undo    -> 200 status=undone
+[5b] an incomplete run (its note landed, then it died) is kept as it is
+    queued as incomplete -> keep 200 status=kept   left the queue: True
+    a single read does not claim 'no twins': identical_pending=None
+[5] a checked failure has nothing to put back
+    undo of failed -> 409: the action failed and checked that nothing of it landed — there is not
