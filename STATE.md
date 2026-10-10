@@ -64,6 +64,19 @@ now be re-measured on the new model.**)_
     (docs/probes/2026-10-10-s26-terminal-states.md).
   - Bound stated: a merely-slow handler on an abandoned run can land after the
     put-back. No idempotency key yet (TD-025).
+  - **Review (1 agent): 8 defects, all fixed** (`cd44b4f`…`0a5c5b1`):
+    - **HIGH:** a second status-CHECK block made one `incomplete` row stop the
+      app booting. One block now; a test inserts a row in every status, then
+      migrates.
+    - **MEDIUM:** a claim was a status string, so a late undo failure finished a
+      fresh undo's claim. Claims are now tokens (`claim_token` /
+      `abandoned_token`), and the bound's late answer is recorded, not dropped.
+    - **MEDIUM:** an incomplete row with no undo was stuck. New `kept` state and
+      `POST /keep`.
+    - Also: `observe` gets the undo slot's rails, and only an int 0 means
+      "none"; legacy `failed` rows can be put back; the twin index
+      (811 → 3.9 ms); the surface copy.
+  - D-041 addendum recorded. Live re-run 6/6 incl. keep. 1217 tests.
 - **Step 0 (2026-08-16):** promote #26 merged; fresh-eyes review fixed `f931c98`
   (a turn the endpoint never answered reported that it answered), strengthened
   the anti-drift test (`e684671`), gave TD-036 a second consequence. Record:
