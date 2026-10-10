@@ -1901,3 +1901,19 @@ async def test_a_failure_recorded_before_anyone_looked_can_still_be_put_back(
     assert outcome.detail == {"removed": 1}
     assert (await settlement.get(workspace_id=workspace_id, proposal_id=pid))[
         "status"] == "undone"
+
+
+async def test_a_huge_request_still_files_and_still_finds_its_twin(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """The twin index (S26 review, 811 ms -> 3.9 ms at 20k pending) is on an md5
+    of the arguments, not the arguments: a model can send any size of note, and
+    a btree row past ~2.7 KB would make FILING the proposal fail. Pinned with a
+    note well past that."""
+    huge = "x" * 20_000
+    settlement, first = await _file(pool, registry, spec, workspace_id, an_observable, note=huge)
+    _, second = await _file(pool, registry, spec, workspace_id, an_observable, note=huge)
+
+    queued = {p["id"]: p for p in await settlement.pending(workspace_id=workspace_id)}
+
+    assert queued[first["id"]]["identical_pending"] == [second["id"]]

@@ -203,6 +203,7 @@ class ProposalSettlement:
                           AND q.status = 'pending_approval'
                           AND q.id <> p.id
                           AND q.tool_name = p.tool_name
+                          AND md5(q.tool_input::text) = md5(p.tool_input::text)
                           AND q.tool_input = p.tool_input
                           AND q.spec_fingerprint IS NOT DISTINCT FROM p.spec_fingerprint
                         ORDER BY q.created_at
