@@ -1260,3 +1260,47 @@ Also fixed:
 
 **The bound is unchanged.** A merely slow handler on an abandoned run can land
 after its put-back, and it is now visible when it does.
+
+## D-042 — The deployment measures its endpoint again once the measurement is a week old (2026-10-10, S27)
+
+**Context.** TD-041, D-038's logged shortcut. D-038 probes once per
+fingerprint, and the fingerprint is base URL + model. A provider can change
+what a model does under the same name: a silent update, thinking turned on
+server-side, tool calling degraded. Nothing re-measured, so the scorecard kept
+choosing the reasoning path, the agent path (D-037) and the rail's thinking
+floor (D-040) from a measurement that might no longer be true. Burhan put it
+in scope at the S27 start ritual ("dont park anything, do everything").
+
+**Decision.**
+1. **A measurement expires.** Once the newest deployment scorecard is older than
+   `SCORECARD_MAX_AGE_SECONDS` (7 days), the endpoint is measured again, under
+   the same advisory lock and with the same battery. The new row is recorded
+   (history is kept, newest wins) and the outcome is `reprobed`.
+2. **The running app looks.** The startup task no longer ends after its first
+   cycle: `keep_scorecard_fresh` repeats the D-038 cycle every
+   `REPROBE_CHECK_SECONDS` (6 hours). A look at a fresh scorecard costs one DB
+   read. Both numbers are code constants (D-026).
+3. **A re-probe that measures nothing changes nothing.** If the endpoint is
+   unreachable, or basic chat fails, nothing is recorded, so the old scorecard
+   stands. An old measurement is still better than "unknown", which would drop
+   every deep turn to two-pass and off the agent path. D-038's retry schedule
+   applies.
+4. **A changed endpoint is said out loud.** If the re-probe moves the agent mode
+   or any of `native_reasoning`, `native_tool_calling`, `streaming_tool_deltas`,
+   `json_object_mode` or `json_schema_mode`, the app logs a WARNING naming each
+   change. The log also says to re-measure the thinking floor, because D-040's
+   number is calibrated per model and no probe re-calibrates it. Field names
+   and booleans only; no endpoint output reaches the log.
+
+**Cost.** About 15 requests of the customer's inference per endpoint per week,
+on top of D-038's one-time cost. `LLM_AUTOPROBE_ENABLED` still turns off all
+of it.
+
+**Not done.** TD-041 also offered a trigger driven by behaviour: re-probe when
+the agent path sees a run of `empty_answer` or tool-less turns. Not built: a
+run of tool-less turns is also what an analyst asking tool-less questions looks
+like, and the schedule bounds staleness without having to tell the two apart.
+
+**What this supersedes.** D-038's "once per fingerprint", in that a
+fingerprint is now probed once per week. Everything else in D-038 stands.
+

@@ -28,6 +28,12 @@ writing proposals.
 
 ## TD-041 (S26) — the deployment scorecard never expires
 
+> **RESOLVED S27 — D-042.** The newest measurement expires after 7 days, and the
+> running app looks every 6 hours. A re-probe that measures nothing leaves the old
+> scorecard standing, and one that finds the endpoint changed logs each changed
+> field and says to re-measure D-040's floor. The behaviour-driven trigger was
+> deliberately not built (D-042, "Not done"). Entry kept as written.
+
 **Where:** `auspex/llm/autoprobe.py`. D-038 probes once per fingerprint
 (base URL + model).
 **Risk:** LOW. A taken shortcut, logged as one. A provider can change what a
