@@ -12,6 +12,20 @@ now be re-measured on the new model.**)_
 
 ## S26 so far (read this first)
 
+- **RESUMED 2026-10-10 (afternoon) — goal items 1 and 2 DONE, review in flight.**
+  - Item 1: re-measured on glm-4.5-air: 0 refusals in 25 tools-on runs. The
+    observable clause would hold back the KB on exactly the questions it helps.
+    Record: docs/probes/2026-10-10-s26-routing-glm.md. **D-037** ratified in-session:
+    agent path iff mode ∉ {alert, phishing} AND the deployment scorecard
+    compiles to native_tools.
+  - Item 2: wired. `39f1afc` TD-036 hold (narration → Thinking pane, 400-char
+    bound); `1803253` aclosing in run_stream; `1b86070` route wiring (per-call
+    claims, rail on the composed message, `tool` frame on one channel);
+    `44a040e` UI tool steps; `54d3858` README honesty section pinned. Live through
+    the app: 4/4 turns right path, units == calls (2/3/1/1).
+  - Next: fold in the review findings, then `/session-end`, or go on to goal
+    item 4 (TD-028 b/c/d + TD-034).
+
 - **Step 0 (2026-08-16):** promote #26 merged; fresh-eyes review fixed `f931c98`
   (a turn the endpoint never answered reported that it answered), strengthened
   the anti-drift test (`e684671`), gave TD-036 a second consequence. Record:
