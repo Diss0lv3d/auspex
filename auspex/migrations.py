@@ -493,6 +493,14 @@ SCHEMA_V0: list[str] = [
     """
     ALTER TABLE proposals ADD COLUMN IF NOT EXISTS claimed_at timestamptz
     """,
+    # S26 (TD-034): WHICH operation `abandon` gave up on. `abandoned` alone does
+    # not say whether a run or a put-back was lost, so a late undo answer could
+    # land on a row whose RUN was abandoned. Written by the statement that moves
+    # the row, from the status it moved it out of; matched by the late-write.
+    """
+    ALTER TABLE proposals ADD COLUMN IF NOT EXISTS abandoned_from text
+        CHECK (abandoned_from IN ('executing', 'undoing'))
+    """,
     # The stale-claim scan: within a workspace, the claimed rows by age. Partial,
     # because claims are the rare state — the index stays the size of the
     # problem rather than the size of the table.

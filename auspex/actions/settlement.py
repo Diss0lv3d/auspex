@@ -215,11 +215,15 @@ class ProposalSettlement:
         working, and killing it from under itself would manufacture the
         half-executed row this state exists to describe. Same claim-first device
         as `settle` — the WHERE clause is the whole guarantee.
+
+        `abandoned_from` records WHICH operation was given up on (TD-034): the
+        SET list reads the row as it was, so `status` there is the claim's —
+        `executing` or `undoing` — at the instant it is replaced.
         """
         row = await self._pool.fetchrow(
             """
             UPDATE proposals
-               SET status = 'abandoned', claimed_at = NULL,
+               SET status = 'abandoned', abandoned_from = status, claimed_at = NULL,
                    decided_at = now(), decided_by = $3::uuid
              WHERE id = $1::uuid
                AND workspace_id = $2::uuid
@@ -469,7 +473,10 @@ class ActionExecutor:
         The claim is the right to write the answer. When it has been taken, the
         answer is still recorded — on the row the human already owns, without
         moving it. `abandoned` says the answer was lost; this is that answer
-        arriving late, which is strictly more than the human had before.
+        arriving late, which is strictly more than the human had before. Only
+        the answer for the operation that WAS abandoned (TD-034): an undo's late
+        answer on a row whose run was abandoned is an answer for an undo that
+        never began.
 
         Returns True if the claim was still held.
         """
@@ -507,11 +514,13 @@ class ActionExecutor:
                    undo_result = CASE WHEN $3 THEN undo_result ELSE $2::jsonb END
              WHERE id = $1::uuid
                AND status = 'abandoned'
+               AND abandoned_from = $4
                AND (CASE WHEN $3 THEN result ELSE undo_result END) IS NULL
             """,
             str(proposal_id),
             json.dumps(payload),
             is_result,
+            from_status,
         )
         return False
 

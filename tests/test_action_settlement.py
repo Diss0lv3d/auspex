@@ -1209,3 +1209,71 @@ async def test_the_undo_claim_itself_refuses_an_abandoned_row(
     row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
     assert row["status"] == "abandoned"  # not dragged into 'undoing'
     assert row["undo_result"] is None  # TD-034's late-write never gets a row
+
+
+# -- TD-034: the late-write knows WHICH operation was abandoned (S26) ----------
+
+
+@pytest.mark.parametrize("state", ["executing", "undoing"])
+async def test_abandon_records_which_operation_it_abandoned(
+    pool, registry, spec, workspace_id, an_observable, state
+):
+    """`abandoned` alone does not say whether a run or a put-back was lost, and
+    every later decision about the row — whose late answer may land, what a
+    cleanup means — depends on which. Written by the same statement that moves
+    the row, from the status it moved it out of."""
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await _wedge(pool, settlement, workspace_id, pid,
+                 age_seconds=STALE_CLAIM_SECONDS + 60, state=state)
+
+    abandoned = await settlement.abandon(workspace_id=workspace_id, proposal_id=pid,
+                                         decided_by=None)
+
+    assert abandoned.won
+    assert abandoned.proposal["abandoned_from"] == state
+
+
+async def test_a_late_undo_answer_never_lands_on_a_run_that_was_abandoned(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """TD-034, measured in docs/probes/s23-step0/probe_late_write.py and driven
+    here the same way: an undo's late answer stamped `undo_result` onto a row
+    abandoned during EXECUTE — an answer for an undo that never began. The
+    late-write now matches the operation it belongs to."""
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await _wedge(pool, settlement, workspace_id, pid,
+                 age_seconds=STALE_CLAIM_SECONDS + 60, state="executing")
+    assert (await settlement.abandon(workspace_id=workspace_id, proposal_id=pid,
+                                     decided_by=None)).won
+
+    landed = await ActionExecutor(pool, registry)._finish_claim(
+        pid, from_status="undoing", to_status="undone", column="undo_result",
+        payload={"would": "an undo that never began"},
+    )
+
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert landed is False
+    assert row["status"] == "abandoned" and row["undo_result"] is None
+
+
+async def test_a_late_run_answer_still_lands_on_the_run_that_was_abandoned(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """The control: the late-write S22 deliberately allowed still works for the
+    operation it belongs to."""
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await _wedge(pool, settlement, workspace_id, pid,
+                 age_seconds=STALE_CLAIM_SECONDS + 60, state="executing")
+    assert (await settlement.abandon(workspace_id=workspace_id, proposal_id=pid,
+                                     decided_by=None)).won
+
+    await ActionExecutor(pool, registry)._finish_claim(
+        pid, from_status="executing", to_status="executed", column="result",
+        payload={"would": "the run, late"},
+    )
+
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert row["status"] == "abandoned" and row["result"] == {"would": "the run, late"}
