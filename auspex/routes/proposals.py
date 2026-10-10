@@ -100,10 +100,12 @@ def _public(row: dict) -> dict:
         # Which operation a human gave up on (TD-034): `executing` or `undoing`.
         "abandoned_from": row.get("abandoned_from"),
         # The other requests awaiting a decision that ask exactly this (TD-028d)
-        # — computed only by the queue read. Where nobody looked it is null,
-        # never [] (which would read as "no twins").
+        # — computed only by the queue read, and only for a pending row. Where
+        # nobody looked it is null, never [] (which would read as "no twins").
         "identical_pending": (
-            [str(i) for i in row["identical_pending"]] if "identical_pending" in row else None
+            [str(i) for i in row["identical_pending"]]
+            if row.get("identical_pending") is not None
+            else None
         ),
         "arguments": row["tool_input"],
         "card": row["card"],

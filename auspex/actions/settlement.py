@@ -181,7 +181,9 @@ class ProposalSettlement:
         requests awaiting a decision in this workspace for the same action, with
         the same arguments, under the same declaration. Not a dedupe — whether a
         second identical intent was a mistake is the human's call (D-014) — but
-        an approver must be able to see they are being asked twice.
+        an approver must be able to see they are being asked twice. Only a
+        pending row is looked up; every other row carries NULL, not an empty
+        list, because nobody looked (S27 review of 0a5c5b1).
 
         An `incomplete` row belongs here as well (TD-028b): a run failed after
         some of its effects landed, or the action cannot look, and only a human
@@ -208,7 +210,7 @@ class ProposalSettlement:
                           AND q.spec_fingerprint IS NOT DISTINCT FROM p.spec_fingerprint
                         ORDER BY q.created_at
                         LIMIT 20
-                   ) ELSE ARRAY[]::uuid[] END AS identical_pending
+                   ) END AS identical_pending
               FROM proposals p
              WHERE p.workspace_id = $1::uuid
                AND (p.status IN ('pending_approval', 'incomplete')

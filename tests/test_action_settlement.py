@@ -1963,3 +1963,21 @@ async def test_a_failed_run_of_an_action_with_no_undo_is_not_promised_one(
 
     detail = resp.json()["detail"]
     assert resp.status_code == 500 and "keep" in detail and "undo will" not in detail
+
+
+# -- S27: fresh-eyes review of the D-041 review's own fixes ---------------------
+
+
+async def test_a_queue_row_nobody_looked_up_twins_for_does_not_say_it_has_none(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Review of 0a5c5b1, which made `identical_pending` null wherever nobody
+    looked. The queue read still said [] for its non-pending rows — the CASE
+    only looks for twins of `pending_approval`. An incomplete card read "no
+    twins" while nobody had asked."""
+    settlement, pid = await _incomplete(pool, registry, spec, workspace_id, an_observable)
+
+    queued = {p["id"]: p for p in await settlement.pending(workspace_id=workspace_id)}
+
+    assert proposals_route._public(queued[pid])["identical_pending"] is None
+
