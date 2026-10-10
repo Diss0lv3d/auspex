@@ -1878,3 +1878,26 @@ async def test_only_a_count_of_zero_means_nothing_landed(
 
     row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
     assert (row["status"], row["result"]["effects"]) == ("incomplete", "unknown")
+
+
+async def test_a_failure_recorded_before_anyone_looked_can_still_be_put_back(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Review finding 5. A `failed` row written before 203cccc carries
+    `{"error": ...}` and no `effects` — nothing was checked — and the S19
+    reproduction of TD-028b is exactly such a row, with its note really in the
+    table. Refusing it as "checked that nothing of it landed" told a falsehood
+    about it. Only a failure that LOOKED is refused."""
+    settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
+    await spec.execute(workspace_id=workspace_id, proposal_id=str(pid),
+                       observable_id=an_observable, note="written before S26")
+    await pool.execute(
+        "UPDATE proposals SET status = 'failed', result = '{\"error\": \"RuntimeError\"}'"
+        " WHERE id = $1::uuid", str(pid))
+
+    outcome = await ActionExecutor(pool, registry).undo(
+        workspace_id=workspace_id, proposal_id=pid)
+
+    assert outcome.detail == {"removed": 1}
+    assert (await settlement.get(workspace_id=workspace_id, proposal_id=pid))[
+        "status"] == "undone"

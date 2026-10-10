@@ -643,13 +643,17 @@ class ActionExecutor:
         if proposal is None:
             raise ExecutionRefused("not_found", "no such proposal in this workspace")
         was = proposal["status"]
-        if was == "failed":
+        if was == "failed" and (proposal["result"] or {}).get("effects") == "none":
             raise ExecutionRefused(
                 "nothing_to_undo",
                 "the action failed and checked that nothing of it landed — there is "
                 "nothing to put back",
             )
-        if was not in UNDOABLE_FROM:
+        # A `failed` row with no `effects` predates the look (written before
+        # 203cccc): nothing was checked, so it is treated like `incomplete` —
+        # the S19 reproduction of TD-028b is exactly such a row (S26 review).
+        legacy_failure = was == "failed"
+        if was not in UNDOABLE_FROM and not legacy_failure:
             raise ExecutionRefused(
                 "not_executed",
                 f"proposal is {was} — only an executed, incomplete, kept or "
