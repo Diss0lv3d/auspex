@@ -519,3 +519,32 @@ async def test_an_action_called_with_missing_arguments_files_nothing():
     assert result.invocations[0].status == "error"
     assert "missing required parameter" in result.invocations[0].feedback["error"]
     assert filed == []
+
+
+
+async def test_a_proposal_id_the_database_returns_reaches_the_model_as_json():
+    """Found wiring D-045: the real proposer returns the stored row, whose id is
+    a UUID object. The loop fed it back inside the tool result, which goes on
+    the wire as JSON — TypeError, and the turn died. Every earlier test used a
+    double that returned a string id."""
+    import uuid
+
+    registry, _ = _make_registry()
+    real_shaped = uuid.uuid4()
+
+    async def propose(*, spec, arguments, workspace_id, session_id=None):
+        from auspex.actions import card
+
+        outcome = await spec.dry_run(workspace_id=workspace_id, **arguments)
+        return {"id": real_shaped, "card": card(spec, arguments=arguments, dry_run=outcome)}
+
+    loop = _loop(registry, InMemoryProposalStore(), actions=_manifest(), action_proposer=propose)
+    client = FakeLLMClient([
+        _tool_call_result("isolate_host", {"host_id": "h-1"}),
+        ChatResult(content="Proposed.", finish_reason="stop"),
+    ])
+    result = await loop.run(client, "isolate h-1")
+
+    told = [m for m in client.calls[1]["messages"] if m["role"] == "tool"]
+    assert json.loads(told[0]["content"])["proposal_id"] == str(real_shaped)
+    assert result.invocations[0].proposal_id == str(real_shaped)
