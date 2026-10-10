@@ -173,7 +173,14 @@ complete; S21–S25 were each scoped by a decision rather than a plan.**
    dev-login users share the `default` workspace against an **hourly** ceiling of
    100, and nothing resets it at session start. **test_agent_stream.py is fakes
    only and spends nothing.**
-9. **(NOW A DECISION, S26) The scorecard's writer and reader disagree on scope.**
+9. **FIXED at S26 (D-035, `b3f8a4e`) — live-verified: the default endpoint now
+   finds its own scorecard** (reserved `__deployment__` workspace; harness writes
+   it, chat reads it; no user can be provisioned into it). The hand-seeded row is
+   deleted; the dev deployment's row is `a8113b41…`, written by the harness.
+   **Still open as TD-037:** nothing in a PRODUCTION deployment writes that
+   scorecard, and two-pass is broken on thinking models — probing the customer's
+   endpoint unasked is D-005's call. History of the defect below.
+   **(was) The scorecard's writer and reader disagree on scope.**
    The only writer (`scripts/llm_harness.py`) saves to workspace `dev`; the only
    reader (`_default_native_reasoning`, chat.py) reads the ANALYST's workspace
    (`default`). So the configured default endpoint never finds its scorecard,

@@ -247,3 +247,27 @@ hermetically there and live here.
 model invented specifics ("active for 72 hours with 12 reported attempts, 2
 successful compromises") on both paths, and the contract validator passed it.
 A model-side fabrication the output contract does not catch.
+
+## After D-035 — the default endpoint finds its own scorecard (no hand-seeding)
+
+The hand-seeded `default`-workspace row (`b747b841…`) was **deleted**, the app
+rebuilt on `b3f8a4e`, and the harness re-run unchanged against the configured
+endpoint — it now writes to the deployment scope.
+
+- **Control, before the re-probe:** `/api/models` → default `native_reasoning: false`
+  (no deployment row yet → unknown → two-pass, D-016's safe default).
+- **Harness re-run (glm-4.5-air):** 100 % valid, **97.5 %** completion, 315 s,
+  `native_reasoning: True`, row `a8113b41…` saved "deployment scope". Raw run:
+  `docs/probes/harness-run-glm-4-5-air-rerun-d035.json` (the first run's file is
+  kept as committed). Run-to-run spread on this model so far: 95.0 → 97.5 %.
+- **After:** `/api/models` → default `native_reasoning: true`, and through `/api/chat`:
+
+| question | wall | first reasoning | first content | Thinking pane |
+|---|---|---|---|---|
+| Kerberoasting → DA + detections | 37.9 s | **3.0 s** | 25.3 s | **2670 chars** |
+| phishing handover note | 10.5 s | **3.8 s** | 7.3 s | **900 chars** |
+
+The native path, chosen by the route from a scorecard the harness wrote — the
+writer and the reader agree for the first time. The fabricated handover
+specifics recur verbatim on this path too ("12 reported attempts, 2 successful
+credential compromises").
