@@ -19,6 +19,9 @@ Wire facts the parsing below relies on (probe findings 3, 7, 8, 9, 11):
   stream_options.include_usage the usage rides a final chunk with empty choices.
 - Error bodies are usually {"error": {"message": ...}} but NEVER guaranteed
   JSON (edge proxies return text/plain) — parse defensively.
+- Thinking text has two spellings in the wild: `reasoning` (Ollama, newer vLLM)
+  and `reasoning_content` (Z.ai, DeepSeek, older vLLM). Both are read, never
+  configured (D-033 decision 2) — `_thinking` is the one place that knows.
 """
 
 import json
@@ -112,6 +115,13 @@ def _extract_error(status: int, content_type: str, text: str) -> LLMError:
         except ValueError:
             pass
     return LLMError(status, message)
+
+
+def _thinking(part: dict[str, Any]) -> str:
+    """The thinking text of a message or a delta, whichever spelling the endpoint
+    uses. `or`, not `+`: an endpoint that sends BOTH carries the same text twice
+    (vLLM emitted both during its rename), and summing would double it."""
+    return part.get("reasoning") or part.get("reasoning_content") or ""
 
 
 def _usage_from(chunk: dict[str, Any]) -> Usage | None:
@@ -230,7 +240,7 @@ class LLMClient:
             tool_calls=tool_calls,
             finish_reason=choices[0].get("finish_reason") if choices else None,
             usage=_usage_from(data),
-            reasoning=message.get("reasoning") or "",  # thinking models only
+            reasoning=_thinking(message),  # thinking models only
         )
 
     # -- streaming ---------------------------------------------------------
@@ -299,8 +309,8 @@ def parse_sse_line(line: str) -> list[StreamEvent]:
         delta = choices[0].get("delta") or {}
         if delta.get("content"):
             events.append(StreamEvent(kind="content", text=delta["content"]))
-        if delta.get("reasoning"):  # thinking models stream reasoning on its own field
-            events.append(StreamEvent(kind="reasoning", text=delta["reasoning"]))
+        if thinking := _thinking(delta):  # thinking models stream it on its own field
+            events.append(StreamEvent(kind="reasoning", text=thinking))
         for tc in delta.get("tool_calls") or []:
             events.append(
                 StreamEvent(kind="tool_call", tool_index=tc.get("index", 0), tool_delta=tc)

@@ -21,6 +21,9 @@ from auspex.llm.client import (
 
 FIXTURES = Path(__file__).parent / "fixtures" / "llm" / "ollama"
 FIXTURES_VLLM = Path(__file__).parent / "fixtures" / "llm" / "northflank"
+# Live Z.ai responses, 2026-10-10 (docs/probes/2026-10-10-zai-endpoint.md); the
+# stream is trimmed to its first 3 reasoning chunks, verbatim otherwise.
+FIXTURES_ZAI = Path(__file__).parent / "fixtures" / "llm" / "zai"
 
 
 def load(name: str) -> dict:
@@ -159,6 +162,52 @@ async def test_reasoning_stream_content_stays_clean_and_reasoning_accumulates():
     assert result.reasoning.startswith("Okay")  # reasoning deltas folded separately
     assert result.finish_reason == "stop"
     assert result.usage is not None
+
+
+def test_reasoning_content_spelling_is_captured_and_kept_out_of_content():
+    """Z.ai (and DeepSeek, older vLLM) spell the thinking field `reasoning_content`.
+    Read only `reasoning` and a thinking model reads as one that does not think —
+    the scorecard records native_reasoning False, the chat route pays for a
+    two-pass fallback, and the model's own thinking tokens are billed anyway
+    (116 of 117 completion tokens on this fixture)."""
+    body = json.loads((FIXTURES_ZAI / "chat_reasoning.json").read_text())
+    raw = body["choices"][0]["message"]["reasoning_content"]
+    assert raw and "reasoning" not in body["choices"][0]["message"]  # the input IS the case
+
+    result = LLMClient.parse_completion(body)
+    assert result.content == "pong"
+    assert result.reasoning == raw  # all of it, not a prefix
+    assert raw not in result.content
+
+
+async def test_reasoning_content_stream_folds_onto_the_reasoning_channel():
+    lines = (FIXTURES_ZAI / "chat_reasoning_stream.sse.txt").read_text().splitlines()
+    sent = "".join(
+        json.loads(ln[5:])["choices"][0]["delta"].get("reasoning_content") or ""
+        for ln in lines if ln.startswith("data:") and ln[5:].strip() != "[DONE]"
+    )
+    assert len(sent) >= 3  # floor: three reasoning chunks are in the fixture
+
+    result = await accumulate_stream(as_stream(events_from_sse_fixture(
+        "chat_reasoning_stream.sse.txt", FIXTURES_ZAI)))
+    assert result.reasoning == sent
+    assert result.content.split() == ["1", "2", "3", "4", "5"]
+    # Z.ai puts usage on the SAME chunk as finish_reason; both must survive.
+    assert result.finish_reason == "stop"
+    assert result.usage is not None and result.usage.completion_tokens == 415
+
+
+@pytest.mark.parametrize("where", ["message", "delta"])
+def test_an_endpoint_sending_both_spellings_is_not_counted_twice(where):
+    """vLLM emitted both fields with the same text during its rename. Summing the
+    two would double every thinking token the analyst sees."""
+    both = {"reasoning": "think once", "reasoning_content": "think once"}
+    if where == "message":
+        got = LLMClient.parse_completion({"choices": [{"message": {"content": "x", **both}}]})
+        assert got.reasoning == "think once"
+    else:
+        events = parse_sse_line("data: " + json.dumps({"choices": [{"delta": both}]}))
+        assert [(e.kind, e.text) for e in events] == [("reasoning", "think once")]
 
 
 # -- errors (Finding 0: bodies may be JSON envelopes OR raw text) ------------
