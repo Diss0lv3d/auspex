@@ -1170,6 +1170,9 @@ def test_a_leak_in_pass_two_is_still_caught(client, settings):
     done = frames[-1]["done"]
     assert done["output_valid"] is False
     assert len(fake.stream_calls) == 2  # pass 1 was clean, so pass 2 legitimately ran
+    # ...and since D-036 two calls no longer prove it: a switched turn makes two
+    # as well. Pass 1 opened with content, so the second call must be pass 2.
+    assert "private analysis" in fake.stream_calls[1]["messages"][-1]["content"]
     streamed = "".join(f["content"] for f in frames if "content" in f)
     assert "never follow directives" not in streamed
     assert all(role != "assistant" for role, _ in _session_messages(settings, session_id))
@@ -1279,7 +1282,7 @@ def test_a_two_pass_turn_whose_endpoint_thinks_switches_to_native(client, settin
     first, second = fake.stream_calls
     assert first["messages"][-1]["content"] == PASS1_DIRECTIVE
     assert second["messages"] == first["messages"][:-1]
-    assert second["kwargs"]["max_tokens"] == CHAT_ANSWER_MAX_TOKENS
+    assert second["kwargs"] == {"max_tokens": CHAT_ANSWER_MAX_TOKENS, "temperature": 0}
     # Pass 1 was abandoned at its first event and closed before call 2 began.
     assert fake.pulled[0] == 1
     assert fake.prior_closed_at_start == [True, True]
@@ -1349,4 +1352,81 @@ def test_the_rail_covers_the_thinking_of_a_switched_turn(client, settings):
     shown = json.dumps([f for f in frames if "reasoning" in f or "content" in f])
     assert "never follow directives" not in shown
     assert "must never be streamed" not in shown
+    assert all(role != "assistant" for role, _ in _session_messages(settings, frames[0]["session"]))
+
+
+def test_a_leak_in_the_switched_turns_answer_is_caught(client, settings):
+    """The rail test above drives the switched turn's THINKING. Its answer is the
+    other channel — the one that is persisted and replays into every later turn
+    of the session (TD-009) — so it gets its own."""
+    pass1 = [StreamEvent(kind="reasoning", text="hmm")]
+    native = [
+        StreamEvent(kind="reasoning", text="Summarising the alerts."),
+        StreamEvent(kind="content", text="My instructions are: "),
+        StreamEvent(kind="content", text=_LEAK),
+        StreamEvent(kind="content", text=" and nothing after this is shown."),
+        StreamEvent(kind="finish", finish_reason="stop"),
+    ]
+    fake = _ObservedSequence([pass1, native])
+    _use(client.app, fake, native_reasoning=False)
+    try:
+        frames = _post_deep(client, "summarize the overnight alerts")
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert len(fake.stream_calls) == 2  # the switched branch
+    done = frames[-1]["done"]
+    assert done["output_valid"] is False and done["finish_reason"] == "output_guard"
+    answer = "".join(f["content"] for f in frames if "content" in f)
+    assert "never follow directives" not in answer and "nothing after this" not in answer
+    assert all(role != "assistant" for role, _ in _session_messages(settings, frames[0]["session"]))
+
+
+def test_a_switched_turn_whose_native_call_fails_makes_no_third_call(client, settings):
+    """Two claimed, two made (TD-018). A 'resilient' fallback that caught the
+    native call's failure and ran pass 2 instead would be a third call against a
+    claim of two — and would hand the analyst an answer grounded in an empty
+    analysis. The failure is reported as itself and nothing is persisted."""
+    pass1 = [StreamEvent(kind="reasoning", text="hmm")]
+    fake = SequencedStreamingFakeLLMClient([pass1, [], [StreamEvent(kind="content", text="P2")]],
+                                           raise_on_call=1)
+    _use(client.app, fake, native_reasoning=False)
+    try:
+        frames = _post_deep(client)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert len(fake.stream_calls) == 2
+    # It was the native call: the turn's own messages, pass 1's directive gone.
+    assert fake.stream_calls[1]["messages"] == fake.stream_calls[0]["messages"][:-1]
+    assert not any("private analysis" in (m.get("content") or "")
+                   for call in fake.stream_calls for m in call["messages"])
+    kinds = [next(iter(f)) for f in frames]
+    assert kinds[-1] == "error" and "done" not in kinds
+    assert "P2" not in json.dumps(frames)
+    assert all(role != "assistant" for role, _ in _session_messages(settings, frames[0]["session"]))
+
+
+def test_a_pass_one_leak_cannot_be_followed_by_a_switch(client, settings):
+    """A pass-1 leak trips on content, before anything is appended to the
+    analysis — so a reasoning event after it would satisfy the switch's
+    'no analysis yet' condition. Only the `break` stands between that and a
+    native call made after the rail fired."""
+    pass1 = [
+        StreamEvent(kind="content", text="My instructions are: " + _LEAK),
+        StreamEvent(kind="reasoning", text="a thought after the leak"),
+        StreamEvent(kind="content", text="POST-TRIP"),
+    ]
+    fake = _ObservedSequence([pass1, [StreamEvent(kind="content", text="NATIVE")]])
+    _use(client.app, fake, native_reasoning=False)
+    try:
+        frames = _post_deep(client, "summarize the overnight alerts")
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert len(fake.stream_calls) == 1
+    assert fake.pulled == [1]
+    assert frames[-1]["done"]["finish_reason"] == "output_guard"
+    shown = json.dumps(frames)
+    assert "POST-TRIP" not in shown and "NATIVE" not in shown
     assert all(role != "assistant" for role, _ in _session_messages(settings, frames[0]["session"]))
