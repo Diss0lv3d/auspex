@@ -137,6 +137,13 @@ async def main() -> None:
     parser.add_argument("--no-db", action="store_true", help="skip the scorecard insert")
     parser.add_argument("--limit", type=int, default=0, help="run only the first N tasks")
     parser.add_argument("--model", default="", help="override LLM_MODEL for this run")
+    parser.add_argument(
+        "--deployment-base-url",
+        default="",
+        help="record the scorecard under the LLM_BASE_URL the deployment (the app "
+        "container) is configured with, when this host dials it by another name — "
+        "local Ollama: http://host.docker.internal:11434/v1 (D-035)",
+    )
     cli = parser.parse_args()
 
     settings = get_settings()
@@ -245,7 +252,9 @@ async def main() -> None:
             try:
                 # Deployment-scoped (D-035): the chat route reads the scorecard of
                 # the endpoint the DEPLOYMENT configured, so that is where it goes.
-                row_id = await save_deployment_scorecard(pool, sc)
+                row_id = await save_deployment_scorecard(
+                    pool, sc, as_base_url=cli.deployment_base_url or None
+                )
                 print(f"scorecard row {row_id} saved (deployment scope, mode={mode})")
             finally:
                 await pool.close()

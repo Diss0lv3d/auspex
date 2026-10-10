@@ -31,11 +31,14 @@ from auspex.llm.scorecard import (
 TEST_BASE = "https://d035-deployment-scope.test/v1"
 TEST_MODEL = "d035-model"
 DEV_EMAIL = "analyst@auspex.dev"
+TENANT_B_EMAIL = "d035-tenant-b@auspex.dev"
+# Every workspace these tests create, so the fixture can remove them.
+SCRATCH_WORKSPACES = ["d035-tenant-b", "d035-userless"]
 
 
-def _sc(native_reasoning: bool) -> CapabilityScorecard:
+def _sc(native_reasoning: bool, *, model: str = TEST_MODEL, base_url: str = TEST_BASE):
     return CapabilityScorecard(
-        base_url=TEST_BASE, model=TEST_MODEL, reachable=True, native_reasoning=native_reasoning
+        base_url=base_url, model=model, reachable=True, native_reasoning=native_reasoning
     )
 
 
@@ -64,10 +67,18 @@ def default_endpoint_is_the_test_one(client, settings):
         yield client
     finally:
         client.app.state.settings = real
-        _db(settings, lambda pool: pool.execute(
-            "DELETE FROM llm_endpoint_scorecards WHERE endpoint_fingerprint = $1",
-            endpoint_fingerprint(TEST_BASE, TEST_MODEL),
-        ))
+
+        async def cleanup(pool):
+            await pool.execute(
+                "DELETE FROM llm_endpoint_scorecards WHERE base_url LIKE $1",
+                "%d035-%",
+            )
+            await pool.execute("DELETE FROM users WHERE email = $1", TENANT_B_EMAIL)
+            await pool.execute(
+                "DELETE FROM workspaces WHERE name = ANY($1::text[])", SCRATCH_WORKSPACES
+            )
+
+        _db(settings, cleanup)
 
 
 def _shown(client) -> bool:
@@ -108,6 +119,22 @@ def test_a_scorecard_in_the_analysts_own_workspace_is_not_the_deployments(
     _db(settings, write_in_analyst_workspace)
 
     assert _shown(client) is False
+
+
+def test_a_probe_dialled_by_another_name_is_recorded_as_the_deployments(
+    default_endpoint_is_the_test_one, settings
+):
+    """Local Ollama: the container is configured with host.docker.internal, the
+    host-side harness can only dial localhost. Recorded under the dialled name,
+    the probe is one the route never looks up."""
+    client = default_endpoint_is_the_test_one
+    dialled = _sc(native_reasoning=True, base_url="http://d035-dialled-by-host.test/v1")
+
+    _db(settings, lambda pool: save_deployment_scorecard(pool, dialled))
+    assert _shown(client) is False  # the bug, as a control
+
+    _db(settings, lambda pool: save_deployment_scorecard(pool, dialled, as_base_url=TEST_BASE))
+    assert _shown(client) is True
 
 
 def test_the_newest_deployment_probe_wins(default_endpoint_is_the_test_one, settings):

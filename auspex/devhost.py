@@ -26,8 +26,11 @@ def pin_host_defaults() -> None:
     # (NVD/KEV/EPSS) from every app start. Scheduler tests drive run_cycle()
     # directly with fake feeds; host-run live checks override INGEST_ENABLED=true.
     os.environ.setdefault("INGEST_ENABLED", "false")
-    # No LLM_BASE_URL pin: the primary dev endpoint (Scout via Northflank, D-015)
+    # No LLM_BASE_URL pin: the primary dev endpoint (Z.ai's general API, D-034)
     # is a public URL that resolves identically from host and container, so .env
     # is the single source of truth. Only if you flip .env back to the local
     # Ollama secondary (host.docker.internal) do host runs need
-    # LLM_BASE_URL=http://localhost:11434/v1 — set it in your shell for that case.
+    # LLM_BASE_URL=http://localhost:11434/v1 — set it in your shell for that case,
+    # and give scripts/llm_harness.py `--deployment-base-url
+    # http://host.docker.internal:11434/v1` so its scorecard is recorded under the
+    # name the container looks up (D-035).

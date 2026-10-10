@@ -124,8 +124,18 @@ async def load_latest_scorecard(
 DEPLOYMENT_WORKSPACE = "__deployment__"
 
 
-async def save_deployment_scorecard(pool: asyncpg.Pool, sc: CapabilityScorecard) -> str:
-    """Record a probe of the deployment's configured endpoint (D-035)."""
+async def save_deployment_scorecard(
+    pool: asyncpg.Pool, sc: CapabilityScorecard, *, as_base_url: str | None = None
+) -> str:
+    """Record a probe of the deployment's configured endpoint (D-035).
+
+    `as_base_url`: the URL the DEPLOYMENT configures, when the prober had to
+    reach the same endpoint by another name. Local Ollama is the case: the
+    container is configured with `http://host.docker.internal:11434/v1`, a
+    host-side harness can only dial `http://localhost:11434/v1`, and a
+    fingerprint taken from the dialled URL is one the route never looks up."""
+    if as_base_url is not None:
+        sc = sc.model_copy(update={"base_url": as_base_url})
     workspace_id = await pool.fetchval(
         "INSERT INTO workspaces (name) VALUES ($1)"
         " ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id",
