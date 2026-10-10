@@ -55,7 +55,7 @@ from auspex.alerts import normalize, score_alert
 from auspex.alerts.render import deterministic_triage_block
 from auspex.auth import AuthContext, resolve_user
 from auspex.classify import Category, classify, shortcut_answer
-from auspex.classify.observables import ObservableType
+from auspex.classify.observables import ObservableType, extract_observables
 from auspex.config import Settings
 from auspex.enrich import EnrichmentService, persist_enrichment, render_ioc_answer
 from auspex.kb import (
@@ -652,6 +652,12 @@ async def chat(
                 enrichment=request.app.state.enrichment,
                 kb=request.app.state.kb,
                 observables=classification.observables,
+                # D-039: what the ANALYST supplied earlier in the session may be
+                # looked up; the model's own answers supply nothing.
+                supplied=tuple(
+                    o for r in rows if r["role"] == "user"
+                    for o in extract_observables(r["content"])
+                ),
             ),
             PgProposalStore(pool),
             mode="native_tools",

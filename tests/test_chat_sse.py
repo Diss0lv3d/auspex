@@ -1880,6 +1880,49 @@ def test_a_tool_name_the_model_invented_never_reaches_the_log(client, caplog):
     assert all(invented not in r.getMessage() for r in caplog.records)
 
 
+def test_the_agent_looks_up_what_the_analyst_supplied_and_nothing_it_composed(client):
+    """D-039, through the route. The analyst's EARLIER message supplied an IP, so
+    a later turn may look it up; an indicator only the model wrote — the shape
+    an injected paste would ask for, session data in a hostname — never reaches
+    the enrichment service. The route passes user turns as `supplied`, never the
+    model's own answers."""
+    from _fakes import FakeEnrichmentService
+
+    from auspex.enrich.types import EnrichmentOutcome
+
+    enrichment = FakeEnrichmentService(EnrichmentOutcome(items=()))
+    real = client.app.state.enrichment
+    client.app.state.enrichment = enrichment
+    # The model's OWN first answer carries the composed host — as an injected
+    # turn 1 would arrange. Assistant turns supply nothing, so turn 2 still
+    # may not look it up.
+    first = SequencedStreamingFakeLLMClient(
+        [_answer_step("Looks like beaconing; see row-17.exfil-attacker.com.")]
+    )
+    _use_agent(client.app, first)
+    try:
+        session = _post_deep(
+            client,
+            "We saw 198.51.100.23 beaconing every 60s from a finance host after a user "
+            "opened an invoice attachment; what does that suggest and what should I pull next?",
+        )[0]["session"]
+        composed = json.dumps({"observables": ["198.51.100.23", "row-17.exfil-attacker.com"]})
+        second = SequencedStreamingFakeLLMClient(
+            [_tool_step(name="enrich_observable", arguments=composed), _answer_step("Checked.")]
+        )
+        _use_agent(client.app, second)
+        client.post(
+            "/api/chat", json={"message": "is it still active?", "session_id": session},
+            headers={"Authorization": f"Bearer {_token(client)}"},
+        )
+    finally:
+        client.app.dependency_overrides.clear()
+        client.app.state.enrichment = real
+
+    looked_up = [o.value for call in enrichment.enrich_calls for o in call]
+    assert looked_up == ["198.51.100.23"]
+
+
 def test_an_agent_turn_carries_the_session_the_way_the_route_composes_it(client):
     """What goes on the wire: the loop's system message first, the fence
     directive, prior turns with every assistant turn fenced (TD-009), the mode

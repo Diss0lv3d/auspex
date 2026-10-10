@@ -68,6 +68,14 @@ MAX_TOOL_ARG_ITEMS = 25
 # rather than silent — a model shown a clipped page must be able to tell.
 SNIPPET_CHARS = 600
 
+# D-039: why an indicator the model asked about was not looked up. Phrased as a
+# reason the model can act on (ask the analyst), and never as "no signals".
+NOT_SUPPLIED_SKIP = (
+    "not looked up — it does not appear in the analyst's messages or in anything "
+    "a tool returned this turn, and the platform only sends third parties "
+    "indicators someone other than the model supplied; ask the analyst to paste it"
+)
+
 
 def _snippet(text: str) -> tuple[str, bool]:
     clipped = text[:SNIPPET_CHARS]
@@ -195,6 +203,7 @@ def build_capability_registry(
     enrichment: EnrichmentService,
     kb: KnowledgeService,
     observables: tuple[Observable, ...] = (),
+    supplied: tuple[Observable, ...] = (),
 ) -> ToolRegistry:
     """A registry of the platform's READ capabilities, bound to this turn.
 
@@ -203,10 +212,27 @@ def build_capability_registry(
     indicators addressable by their short ids. The services themselves are the
     app-wide singletons — the same objects the shortcut path uses, so breakers,
     caps and provider health are shared rather than duplicated.
+
+    **D-039: only indicators someone other than the model supplied reach a
+    provider.** `observables` (this message) and `supplied` (the analyst's
+    earlier messages in the session — USER turns only, never the model's own
+    answers) seed the set; what the knowledge base returns this turn joins it.
+    An indicator the model composed itself is named as not checked.
     """
     known = {o.obs_id: o for o in observables}
     known.update({o.value: o for o in observables})
     registry = ToolRegistry()
+    allowed: set[str] = {o.obs_id for o in (*observables, *supplied)}
+
+    def _learn(payloads: list[dict]) -> None:
+        """Indicators in knowledge-base records returned this turn were supplied
+        by a source, not composed by the model (D-039). Only HIT payloads: a
+        tool's echo of what it was asked must never launder a request into a
+        supply."""
+        for payload in payloads:
+            for value in payload.values():
+                if isinstance(value, str):
+                    allowed.update(o.obs_id for o in extract(value).observables)
     # The TURN's enrichment budget (review of 1b86070). The service caps each
     # call at ENRICH_MAX_OBSERVABLES, but a loop makes up to nine calls and a
     # model re-asks for what came back over the cap — so per call, one deep
@@ -234,6 +260,8 @@ def build_capability_registry(
                 "detail": "none of these parsed as a supported indicator",
                 "unresolved": unresolved,
             }
+        not_supplied = [o for o in resolved if o.obs_id not in allowed]
+        resolved = [o for o in resolved if o.obs_id in allowed]
         within, beyond = resolved[:enrich_budget], resolved[enrich_budget:]
         outcome = await enrichment.enrich(tuple(within)) if within else None
         items = []
@@ -265,6 +293,9 @@ def build_capability_registry(
             # as the service names its own cap, never as "no signals".
             items.append({"observable": _observable_payload(obs), "sources_answered": 0,
                           "not_checked": CAP_SKIP})
+        for obs in not_supplied:
+            items.append({"observable": _observable_payload(obs), "sources_answered": 0,
+                          "not_checked": NOT_SUPPLIED_SKIP})
         result: dict = {"results": items}
         if outcome and outcome.provider_failures:
             # Named, because "nobody had anything" and "the sources that would
@@ -307,6 +338,8 @@ def build_capability_registry(
             for cve in ids:
                 if cve in hit.ids:
                     by_id[cve].append(_hit_payload(hit))
+        for chunks in by_id.values():
+            _learn(chunks)
         result: dict = {
             "found": {cve: chunks for cve, chunks in by_id.items() if chunks},
             # An id the KB has never heard of is an honest miss, and saying so
@@ -338,7 +371,9 @@ def build_capability_registry(
             # Connected and ignorant is a MISS, not "deferred" — the third of
             # the three truths.
             return {"results": [], "miss": "the knowledge base has no entry for that"}
-        return {"results": [_hit_payload(h) for h in hits]}
+        payloads = [_hit_payload(h) for h in hits]
+        _learn(payloads)
+        return {"results": payloads}
 
     registry.add(
         name="enrich_observable",
@@ -408,6 +443,7 @@ def build_capability_registry(
 
 __all__ = [
     "MAX_TOOL_ARG_ITEMS",
+    "NOT_SUPPLIED_SKIP",
     "SNIPPET_CHARS",
     "build_capability_registry",
 ]
