@@ -1,0 +1,5 @@
+before: no scorecard
+first attempt: probed  (179s)
+recorded: agent_mode=native_tools native_reasoning=True native_tool_calling=True streaming_tool_deltas=True parallel=True tok/s=42.7
+notes: 0
+second attempt: known  (0.0s) — once per fingerprint

@@ -64,3 +64,34 @@ send), and the content ceiling covers it.
 n = 12 hard-legit questions on one model. The thinking ceiling of 20 is one
 observation of a tail, not a distribution. The floor chosen from it is recorded
 as calibrated on this run and is to be re-measured like SHINGLE_WORDS.
+
+---
+
+## Live, after the fix (`239df94`, container rebuilt)
+
+**The offending question through /api/chat ×3**
+(`probe_app_thinking_floor.py`, raw `raw/2026-10-10-glm-4.5-air-app-thinking-floor.log`):
+
+| run | path | output_valid | contract_valid | thinking | longest verbatim run of our configuration in it |
+|---|---|---|---|---|---|
+| 1 | agent | **true** | true | 2380 chars | **19** |
+| 2 | agent | **true** | true | 1930 chars | **28** |
+| 3 | agent | **true** | true | 2140 chars | **19** |
+
+Under the old single floor of 8, **all three** legitimate turns would have been
+cut. Run 2's 28 is the highest legitimate thinking run measured so far. The
+ceiling is therefore 28, not 20, and the margin under 40 is 1.4×, not 2×. The
+recitations (58, and S22's 60) still separate cleanly. **Re-measure before
+trusting 40 on another model**; this is the number to watch.
+
+## D-038 live: the startup probe's code against a real, unmeasured endpoint
+
+`probe_autoprobe_live.py` (raw `raw/2026-10-10-glm-5.3-flash-autoprobe-live.log`)
+ran `autoprobe`, with the real battery and the real client, against
+glm-5.3-flash on the same API. No scorecard existed beforehand. The first
+attempt was **probed** in 179 s and recorded `agent_mode=native_tools`,
+`native_reasoning`, `streaming_tool_deltas`, parallel tool calls and 42.7 tok/s,
+with no notes. The second attempt was **known** in 0.0 s: once per fingerprint
+holds. The rebuilt container's own startup log reads
+`endpoint autoprobe: known` for the configured dev endpoint, so nothing was
+spent.
