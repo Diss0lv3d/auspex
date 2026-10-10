@@ -58,6 +58,10 @@ ActionRisk = ToolLevel
 # What a dry run and an execution return. Both are plain dicts on the wire (the
 # proposal record in S18 is jsonb), so the SDK stays serialisable end to end.
 ActionHandler = Callable[..., Awaitable["ActionOutcome"]]
+# How many of ONE proposal's effects exist right now (TD-028b). Called with the
+# same keyword arguments as `execute` (workspace_id, proposal_id, the action's
+# params). 0 means "looked, and nothing of this proposal's is there".
+EffectsProbe = Callable[..., Awaitable[int]]
 
 
 class ParamType(StrEnum):
@@ -169,6 +173,12 @@ class ActionSpec:
     dry_run: ActionHandler
     execute: ActionHandler
     undo: UndoSpec | None = None
+    # TD-028b: lets the platform check, after `execute` raised, whether any of
+    # this proposal's effects landed. Without it a failure cannot be called
+    # clean, so it is recorded as `incomplete` rather than `failed` — the
+    # honest default for an action that cannot look. A handler, so it is not
+    # part of the declaration's fingerprint (proposal.canonical_spec).
+    observe: EffectsProbe | None = None
 
     def __post_init__(self) -> None:
         validate_spec(self)
@@ -290,6 +300,20 @@ def validate_spec(spec: ActionSpec) -> None:
             raise ActionSpecError(
                 f"{spec.name}: undo.handler is this action's dry_run — a preview "
                 "restores nothing, and the approval was granted on the undo's strength"
+            )
+
+    if spec.observe is not None:
+        # S26 review of D-041, reproduced: `observe=execute` registered, and when
+        # a run failed the platform's "look" ran the action a second time,
+        # unapproved. The look must be its own callable — not the run, not the
+        # preview (which would always say nothing landed), not the put-back.
+        if not callable(spec.observe):
+            raise ActionSpecError(f"{spec.name}: observe must be callable")
+        undo_handler = spec.undo.handler if spec.undo is not None else None
+        if spec.observe in (spec.execute, spec.dry_run) or spec.observe is undo_handler:
+            raise ActionSpecError(
+                f"{spec.name}: observe is this action's own execute, dry_run or undo — "
+                "a look that runs, previews or reverts is not a look"
             )
 
     if not spec.scope:

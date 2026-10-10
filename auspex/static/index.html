@@ -58,6 +58,9 @@
     }
     details.think summary { color: var(--slate); font-size: 13px; cursor: pointer; }
     details.think .r { color: var(--slate); font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; margin-top: 6px; }
+    details.think .step { color: var(--steel); margin: 4px 0; }
+    details.think .step.proposed { color: var(--signal); }
+    details.think .step.error { color: var(--ember); }
     footer { border-top: 1px solid #1c2431; padding: 14px 20px; }
     .composer { display: flex; gap: 10px; max-width: 860px; margin: 0 auto; }
     .composer input { flex: 1; }
@@ -167,7 +170,16 @@
 
     function handleEvent(ev, wrap) {
       if ("session" in ev) { sessionId = ev.session; }
-      else if ("reasoning" in ev) { ensureThink(wrap).textContent += ev.reasoning; }
+      // append(), not textContent +=, which would erase the tool-step lines
+      else if ("reasoning" in ev) { ensureThink(wrap).append(ev.reasoning); }
+      else if ("tool" in ev) {
+        // one agent tool step: the server's line, verbatim — it is exactly
+        // what the output rail scanned. Shown as text: it is the model's.
+        const line = document.createElement("div");
+        line.className = "step " + ev.tool.status;
+        line.textContent = "→ " + ev.tool.call + " · " + ev.tool.status;
+        ensureThink(wrap).appendChild(line);
+      }
       else if ("content" in ev) {
         // reasoning is done once the answer starts — collapse it (stays clickable)
         const think = wrap.querySelector("details.think");

@@ -1,6 +1,103 @@
 # Technical debt — logged the moment it's taken
 
+## TD-041 (S26) — the deployment scorecard never expires
+
+**Where:** `auspex/llm/autoprobe.py`. D-038 probes once per fingerprint
+(base URL + model).
+**Risk:** LOW. A taken shortcut, logged as one. A provider can change what a
+model does under the same name: a silent model update, a thinking toggle
+flipped server-side, tool calling degraded. The fingerprint does not change, so
+nothing re-measures. The scorecard keeps choosing native/two-pass and the agent
+path from a measurement that may no longer be true. The rail's thinking floor
+(D-040) is calibrated per model too, and has the same blind spot.
+**Why taken:** "once per fingerprint" is the smallest spend of the customer's
+inference that makes D-038 true, and nothing yet shows drift.
+**Path to fix:** re-probe on a schedule (weekly, say), or when the agent path
+sees a run of `empty_answer`/no-tool-call turns. Record each re-probe as a new
+row, as the harness already does (the newest probe wins).
+**Trigger:** the first customer deployment, or any observed change in a
+dev model's behaviour under the same name.
+
+## TD-040 (S26) — an endpoint's error text reaches the analyst verbatim
+
+> **RESOLVED the same day (`1f54b37`).** `LLMError.public` gives the class of
+> failure in the platform's words. The chat error frame and the summary's 502 show
+> it, and the log gets the status and the provider's code, never its message.
+> Entry kept as written.
+
+**Where:** `auspex/routes/chat.py`, the `except LLMError` handler.
+`yield _sse({"error": str(err)})` sends the analyst "LLM endpoint error <status>:
+<up to 500 chars of the provider's error body>", and nothing scans it first.
+**Risk:** LOW-MEDIUM, and the problem is the brand rule rather than security.
+A provider error body can name the model or the provider (D-002: the engine is
+never named to the analyst), and the agent path's longer contexts make provider
+400s (context window, content filter) likelier than the single-call path did.
+This predates S26; the 1b86070 review found it.
+**Fix:** show a fixed, brand-safe sentence carrying the status class, and send
+the body to the log only after redaction. **Trigger:** the first provider error
+seen in a customer-facing session, or the next change to that handler.
+
+## TD-039 (S26) — D-037 clause 1 covers only the modes the resolver recognises
+
+> **RESOLVED the same day — D-039 (`52f4fec`).** Burhan delegated the call.
+> Option (a), sharpened: `enrich_observable` looks up only indicators that the
+> analyst supplied (user turns) or that a knowledge-base record returned this
+> turn. A composed indicator never reaches a provider. Entry kept as written.
+
+**Where:** `auspex/routes/chat.py` `CODE_DECIDED_MODES`, and
+`auspex/modes/resolver.py`.
+**Risk:** LOW-MEDIUM. This is a design question and needs Burhan's call. Clause 1
+keeps alert triage and phishing off the agent path because their paste is
+attacker-controlled and would steer tool arguments. The same paste reaches the
+agent path whenever the resolver does not recognise it: "Summarize this
+report: <paste>" resolves to BRIEF, and an alert format `_is_alert_paste` misses
+falls through to IOC_ENRICHMENT or THREAT_INTEL. Injected text can then make
+the model look up an indicator it composed itself, at third-party providers. The
+1b86070 review's example was a public URL whose query string carries session
+data. The tools are READ-only and the turn's enrichment budget is now 8
+(`76be482`), so this is bounded. It is not closed.
+**Options:**
+- (a) `enrich_observable` accepts only indicators that appear in the
+  conversation. This costs the agent indicators it learns from the KB.
+- (b) Clause 1 also takes BRIEF, and any turn carrying a paste-shaped artefact.
+- (c) Accept the bound and document it.
+
+**Trigger:** before any tenant-facing deployment of the agent path.
+
+## TD-038 (S26) — the agent path's rail does not index the tool descriptions or the synthesis nudge
+
+> **RESOLVED the same day (`9e20217`), calibrated first.** The answer's
+> legitimate ceiling against the descriptions is 3 and the tool lines' is 3
+> (floor 8), so they are indexed via `AgentLoop.issued_instructions`. The
+> calibration also found that thinking quotes them, and its own directives,
+> legitimately at 19-20 words. Thinking now has its own floor (D-040, `239df94`).
+> Entry kept as written.
+
+**Where:** `auspex/routes/chat.py`, the agent `leak_index`.
+**Risk:** LOW-MEDIUM, a gap against D-030 decision 2 ("configuration we issued")
+on the only mode that is wired. In native_tools mode the three tool descriptions
+travel in the `tools` parameter, not in the system message. They work as prompts
+(S25), but they are not indexed, so the model can recite one verbatim without
+tripping the rail. Measured by the 1b86070 review. The same holds for
+`_SYNTHESIS_NUDGE`, which is sent at the step cap.
+**Why not fixed on the spot:** the descriptions are written in the domain's own
+vocabulary ("whether the vulnerability is known to be exploited"), and that is
+exactly the case SHINGLE_WORDS was calibrated against. Indexing them unmeasured
+risks the false-positive failure that would get the rail switched off (D-030
+decision 2's own warning).
+**Fix:** add the descriptions and the nudge to the index after re-running
+`docs/probes/s22-outguard/probe_calibrate2.py` with them included, over
+agent-path answers. **Trigger:** the next change to the rail, or before any
+tenant-facing deployment of the agent path.
+
 ## TD-037 (S26) — the deployment's scorecard has only a dev writer
+
+> **RESOLVED — D-038 (`315719c`).** The deployment probes its own endpoint once
+> per fingerprint at startup, in the background, switchable with
+> LLM_AUTOPROBE_ENABLED. A probe that measured nothing is not recorded, and is
+> retried. The "move the guard" note at the end of this entry still stands for
+> the first ROUTE that lets a workspace write a scorecard; the startup probe is
+> not a route.
 
 > **S26, later the same day — the harm is fixed (D-036); the cost remains.**
 > Burhan chose "make two-pass survive a thinking model". A two-pass turn whose
@@ -33,6 +130,12 @@ own `reasoning` events instead of discarding them.
 
 **Trigger:** the first non-dev deployment, or the first dev endpoint change made
 without re-running the harness (the dev deployment's row is per fingerprint).
+
+**S26 — this now gates the agent path too (D-037).** The agent path runs only
+when the deployment scorecard compiles to native_tools. With nothing in a
+production deployment writing that scorecard, **every deep turn in a non-dev
+deployment stays conversational and the agent path is unreachable there.**
+This entry decides whether the S26 wiring ever reaches a customer.
 
 **When it is fixed, move the guard.** Today the reserved workspace is protected
 only where users are provisioned (`get_or_create_user`); the D-035 review showed
@@ -67,7 +170,17 @@ charged for exactly what it spent, and this entry closes with TD-018's reopening
 The trap to avoid meanwhile is "reconciling" it with a one-off refund, which
 would add a second place that knows how to count calls.
 
+**S26 (2026-10-10) — dissolved on the agent path, still open on two-pass.** The
+agent path claims each call as it is made (`1b86070`), and live it claimed
+exactly what it made: 2, 3, 1 units for 2, 3, 1 calls. The conversational
+two-pass path still claims 2 up front, so a pass-1 leak there is still charged
+for the call it prevented. Unchanged: LOW, safe direction, no refund path.
+
 ## TD-034 (S23) — the late-write knows the row was abandoned, not which operation was
+
+> **RESOLVED — S26 (`f263c1d`, D-041).** `abandon` writes `abandoned_from` from
+> the status it replaces, and the late-write matches it. It had to be fixed
+> before TD-028c opened the undo path onto abandoned rows. Entry kept as written.
 **Where:** `auspex/actions/settlement.py` — `_finish_claim`, the second
 statement (the late-write onto a terminal row).
 **Risk:** LOW, and **currently unreachable** — pinned by a test, not by luck.
@@ -186,6 +299,16 @@ roughly one session, and it would have to be measured against the S11 `.eml`
 corpus the way S19's carve-outs were. Not worth it before TD-012.
 
 ## TD-028 (S19) — the proposal status machine has no way back from three states
+
+> **(b), (c), (d) RESOLVED — S26, D-041.**
+> - (b) `203cccc`: a failed run looks. `failed` is checked; otherwise it is
+>   `incomplete`, queued.
+> - (c) `1c6c9bd`: undo from `incomplete` and `abandoned`, returning to where it
+>   started on failure.
+> - (d) `6811d45`: each pending card names its identical twins.
+>
+> What remains is D-041's stated bound (a slow handler on an abandoned run) and
+> TD-025's missing idempotency key. Entry kept as written.
 **Where:** `auspex/actions/settlement.py` (`ActionExecutor.execute` / `.undo`),
 `auspex/routes/proposals.py` (`list_proposals`, pending-only).
 **All four items below were REPRODUCED BY EXECUTION** at S19 Step 0 —
@@ -1093,3 +1216,20 @@ GLM-5.2's parallel case ("I'll run both requests at the same time…") shows it 
 not confined to one model or one prompt shape. **Risk is no longer LOW once the
 agent path is wired to `/api/chat` against this endpoint**; the fix belongs to
 that wiring, not to this detour.
+
+**S26 (2026-10-10) — FIXED, with a bound stated (`39f1afc`).** While tools are
+on the wire, `run_stream` holds a step's content. A tool call turns the held
+text into a `narration` event, which the route shows in the Thinking pane. The
+end of the stream, or passing `NARRATION_HOLD_CHARS = 400` (about twice the
+longest of the 1–201 chars measured on 9 tool-calling steps), releases it as
+answer, and from then on it streams delta by delta. Both consequences are closed
+inside the bound: no narration reached `content` in the live turns, and the
+stored turn equalled the streamed one 4/4 (probe record
+2026-10-10-s26-routing-glm, "Through the running app").
+**The bound, which is what remains of this entry:** narration longer than 400
+chars before a tool call still streams as answer ahead of the result, and the
+stored turn then holds only the last call's content. The route logs it
+("agent answer differs from the streamed content"). Risk **LOW**: nothing
+measured comes within half of it. **Trigger:** that log line appearing, or any
+probe measuring narration over 200 chars. Then re-measure and move the number,
+the way SHINGLE_WORDS is moved.

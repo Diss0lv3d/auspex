@@ -1,11 +1,12 @@
 """SSE chat (/api/chat) + dev model list (/api/models) — S3 step 4, D-016, S4 92/8.
 
 Single-key JSON event protocol over `text/event-stream`; every frame has exactly
-one key: `session` / `reasoning` / `content` / `done` / `error`. The `done` frame
-carries `path` ("shortcut" | "model") and, on the model path, `mode` (the
-resolved response mode) and `contract_valid`: a tri-state — `true` (answer
-conformed to the mode contract), `false` (validated, did NOT conform — structural
-drift, see chat log), or `null` (empty answer, nothing to validate). It is a
+one key: `session` / `reasoning` / `tool` / `content` / `done` / `error`. The
+`done` frame carries `path` ("shortcut" | "model" | "agent") and, on the model
+and agent paths, `mode` (the resolved response mode) and `contract_valid`: a
+tri-state — `true` (answer conformed to the mode contract), `false` (validated,
+did NOT conform — structural drift, see chat log), or `null` (empty answer,
+nothing to validate). It is a
 STRUCTURAL check (sections + enum membership), never a judgement of answer
 quality — a conformant-but-wrong answer still reads `true`.
 
@@ -21,6 +22,13 @@ generates a brief analyst pre-pass (streamed as `reasoning`) then the answer
 (streamed as `content`). It is presented as the platform reasoning — never the
 model's, never "unsupported". Both passes use the same (customer) endpoint, so
 D-005 holds (we never pay for inference).
+
+The agent path (D-031, D-037): a deep turn whose mode the code has not already
+decided, on an endpoint whose deployment scorecard compiles to native_tools,
+runs through `AgentLoop` with the platform's READ tools. Each tool step streams
+as a `tool` frame (`name`, `arguments`, and the D-014 `status` of what actually
+ran), the model's narration and thinking stream as `reasoning`, and the answer
+as `content`. Every model call is claimed as it is made.
 
 The model switcher (`endpoint_id` + /api/models) is INTERNAL/dev-only (D-016
 feature 2): honored only when APP_ENV=dev, invisible + inert in prod, per the
@@ -40,11 +48,14 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from auspex import guard
+from auspex.agent.capabilities import build_capability_registry
+from auspex.agent.loop import AgentLoop, ToolInvocation
+from auspex.agent.permissions import PgProposalStore
 from auspex.alerts import normalize, score_alert
 from auspex.alerts.render import deterministic_triage_block
 from auspex.auth import AuthContext, resolve_user
 from auspex.classify import Category, classify, shortcut_answer
-from auspex.classify.observables import ObservableType
+from auspex.classify.observables import ObservableType, extract_observables
 from auspex.config import Settings
 from auspex.enrich import EnrichmentService, persist_enrichment, render_ioc_answer
 from auspex.kb import (
@@ -59,9 +70,14 @@ from auspex.kb import (
 from auspex.limits import Meter, UsageLimiter
 from auspex.llm.client import LLMClient, LLMError, Usage
 from auspex.llm.registry import DevEndpoint
-from auspex.llm.scorecard import load_deployment_scorecard
+from auspex.llm.scorecard import AgentMode, CapabilityScorecard, load_deployment_scorecard
 from auspex.modes import Mode, contract_for, resolve_mode
-from auspex.outguard import LEAK_COPY, OutputScanner, instruction_index
+from auspex.outguard import (
+    LEAK_COPY,
+    THINKING_SHINGLE_WORDS,
+    OutputScanner,
+    instruction_index,
+)
 from auspex.phishing import decide_verdict, deterministic_phishing_block, parse_email
 
 logger = logging.getLogger("auspex.chat")
@@ -134,11 +150,24 @@ def _pass2_directive(analysis: str) -> str:
 
 @dataclass
 class ChatEndpoint:
-    """The endpoint a turn will run against + whether it reasons natively."""
+    """The endpoint a turn will run against + whether it reasons natively, and
+    the runtime mode its scorecard compiles to (D-005). `agent_mode` is None
+    when nothing measured the endpoint — unknown, which D-037 reads as "not
+    native_tools", never as "probably fine"."""
 
     client: LLMClient
     native_reasoning: bool
     id: str = "default"
+    agent_mode: AgentMode | None = None
+    # Measured streaming its tool calls (`streaming_tool_deltas`). The agent
+    # path only exists streaming, and `native_tools` is decided non-streaming.
+    streams_tools: bool = False
+
+
+# D-037 clause 1: modes whose verdict the CODE computes and validation pins.
+# Their paste is attacker-controlled, and on the agent path the model would be
+# drawing tool arguments from it — unmeasured, and not needed for them to work.
+CODE_DECIDED_MODES = frozenset({Mode.ALERT_TRIAGE, Mode.PHISHING_ANALYSIS})
 
 
 class ChatEndpointResolver:
@@ -209,19 +238,25 @@ def select_dev_endpoint(
     return entry
 
 
-async def _default_native_reasoning(request: Request, auth: AuthContext) -> bool:
-    """Whether the configured default endpoint emits native reasoning, from its
-    persisted scorecard. Unknown ⇒ False (safe default = two-pass fallback).
+async def _default_scorecard(request: Request) -> tuple[CapabilityScorecard, AgentMode] | None:
+    """The configured default endpoint's scorecard and the mode it compiles to,
+    or None if nothing has probed it.
 
     The scorecard is the DEPLOYMENT's (D-035), because the endpoint is: reading
     it from the analyst's workspace found nothing, ever, and every deep turn on a
-    thinking model paid for a two-pass whose first pass its own thinking emptied.
-    `auth` stays in the signature — the route resolves per request — but the
-    endpoint it describes is not per workspace."""
+    thinking model paid for a two-pass whose first pass its own thinking emptied."""
     settings = _settings(request)
-    loaded = await load_deployment_scorecard(
+    return await load_deployment_scorecard(
         request.app.state.pool, settings.llm_base_url, settings.llm_model
     )
+
+
+async def _default_native_reasoning(request: Request, auth: AuthContext) -> bool:
+    """Whether the configured default endpoint emits native reasoning, from its
+    persisted scorecard. Unknown ⇒ False (safe default = two-pass fallback).
+    `auth` stays in the signature — the route resolves per request — but the
+    endpoint it describes is not per workspace."""
+    loaded = await _default_scorecard(request)
     return bool(loaded and loaded[0].native_reasoning)
 
 
@@ -248,17 +283,24 @@ async def get_endpoint_resolver(request: Request, auth: Auth) -> ChatEndpointRes
         return ChatEndpointResolver.unconfigured()
 
     async def _default_factory() -> ChatEndpoint:
-        native = await _default_native_reasoning(request, auth)
-        return ChatEndpoint(LLMClient.from_settings(settings), native, "default")
+        loaded = await _default_scorecard(request)
+        return ChatEndpoint(
+            LLMClient.from_settings(settings),
+            bool(loaded and loaded[0].native_reasoning),
+            "default",
+            agent_mode=loaded[1] if loaded else None,
+            streams_tools=bool(loaded and loaded[0].streaming_tool_deltas),
+        )
 
     return ChatEndpointResolver(configured=True, factory=_default_factory)
 
 
 async def _insert_message(
     pool: asyncpg.Pool, auth: AuthContext, session_id: UUID, role: str, content: str
-) -> None:
-    await pool.execute(
-        "INSERT INTO messages (workspace_id, session_id, role, content) VALUES ($1, $2, $3, $4)",
+) -> UUID:
+    return await pool.fetchval(
+        "INSERT INTO messages (workspace_id, session_id, role, content)"
+        " VALUES ($1, $2, $3, $4) RETURNING id",
         auth.workspace_id,
         session_id,
         role,
@@ -294,26 +336,97 @@ async def _ensure_session(pool: asyncpg.Pool, auth: AuthContext, session_id: UUI
     )
 
 
-async def _history(pool: asyncpg.Pool, auth: AuthContext, session_id: UUID) -> list[dict]:
-    """System prompt + the session's prior turns (oldest first). Reasoning is not
-    persisted, so replayed history is content-only — exactly what the model needs.
-    Assistant turns are fenced as data (TD-009): they may quote feed/KB text that
-    is attacker-influenceable, so injected instructions inside them must be inert.
-    User turns are the human's own input and are replayed unfenced."""
-    rows = await pool.fetch(
-        "SELECT role, content FROM messages"
+async def _session_rows(
+    pool: asyncpg.Pool, auth: AuthContext, session_id: UUID
+) -> list[asyncpg.Record]:
+    return await pool.fetch(
+        "SELECT id, role, content FROM messages"
         " WHERE workspace_id = $1 AND session_id = $2 ORDER BY created_at",
         auth.workspace_id,
         session_id,
     )
-    messages = [
+
+
+def _turns(rows: list[asyncpg.Record], *, exclude: UUID | None = None) -> list[dict]:
+    """The session's turns (oldest first), as replayed to the model. Reasoning is
+    not persisted, so replayed history is content-only — exactly what the model
+    needs. Assistant turns are fenced as data (TD-009): they may quote feed/KB
+    text that is attacker-influenceable, so injected instructions inside them
+    must be inert. User turns are the human's own input and are replayed
+    unfenced. `exclude` leaves out one row BY ID — the agent path's current
+    message, which the loop sends last itself."""
+    return [
+        {
+            "role": r["role"],
+            "content": _fence_assistant(r["content"]) if r["role"] == "assistant" else r["content"],
+        }
+        for r in rows
+        if r["id"] != exclude
+    ]
+
+
+def _history(turns: list[dict]) -> list[dict]:
+    """The conversational path's messages: system prompt, fence directive, turns."""
+    return [
         {"role": "system", "content": CHAT_SYSTEM_PROMPT},
         {"role": "system", "content": HISTORY_FENCE_DIRECTIVE},
+        *turns,
     ]
-    for r in rows:
-        content = _fence_assistant(r["content"]) if r["role"] == "assistant" else r["content"]
-        messages.append({"role": r["role"], "content": content})
-    return messages
+
+
+def _agent_history(prior: list[dict], directive: str) -> list[dict]:
+    """What the agent path sends between the loop's own system message and the
+    analyst's message, which `AgentLoop` appends LAST — so `prior` must not
+    hold the current turn (`_turns(..., exclude=<its row id>)`; matching by
+    content broke when another turn landed in between, review of 1b86070). The
+    composition measured in docs/probes/s26-step0/probe_routing_baseline.py:
+    fence directive, prior turns, mode directive. No CHAT_SYSTEM_PROMPT: the
+    loop's message is this path's system prompt, and two identities would be
+    two instructions."""
+    return [
+        {"role": "system", "content": HISTORY_FENCE_DIRECTIVE},
+        *prior,
+        {"role": "system", "content": directive},
+    ]
+
+
+def _tool_frame(invocation: ToolInvocation) -> dict:
+    """What the analyst is shown of one tool step: one line saying which tool
+    was asked what, and the D-014 status of what actually happened (never the
+    model's account of it). The RESULT stays out: it is data for the model, and
+    the answer is built from it.
+
+    The line is rendered HERE, once, and it is both what the rail scans and the
+    only part of the arguments sent — the page shows it verbatim. Review of
+    1b86070 measured what sending raw arguments cost: a NaN made the frame
+    invalid JSON and an object value threw in the page's renderer (the step
+    vanished after the lookup ran), the page ordered keys differently from the
+    scan (a split run of our configuration was shown whole), and keys reached
+    the wire unscanned. Values only, in the order the model sent them; nested
+    containers are flattened so an escaped newline cannot split a run."""
+    values: list[str] = []
+    stack: list = [invocation.arguments]
+    while stack:
+        value = stack.pop()
+        if isinstance(value, dict):
+            stack.extend(reversed(list(value.values())))
+        elif isinstance(value, list):
+            stack.extend(reversed(value))
+        else:
+            values.append(str(value))
+    return {
+        "name": invocation.name,
+        "status": invocation.status,
+        "call": f"{invocation.name}({', '.join(values)})",
+    }
+
+
+def _add_usage(total: dict | None, usage: Usage) -> dict:
+    """Usage summed across a turn's model calls — an agent turn makes several."""
+    one = _usage_dict(usage)
+    if total is None:
+        return one
+    return {k: total[k] + one[k] for k in one}
 
 
 @router.get("/usage")
@@ -378,7 +491,7 @@ async def chat(
     if shortcut is None and not resolver.configured:
         raise HTTPException(status_code=503, detail="LLM endpoint not configured")
     session_id = await _ensure_session(pool, auth, body.session_id)
-    await _insert_message(pool, auth, session_id, "user", body.message)
+    user_row = await _insert_message(pool, auth, session_id, "user", body.message)
 
     if shortcut is not None:
         # Shortcut path: LLM-free always. ioc_check turns additionally run the
@@ -446,7 +559,8 @@ async def chat(
 
         return _sse_response(shortcut_stream())
 
-    messages = await _history(pool, auth, session_id)
+    rows = await _session_rows(pool, auth, session_id)
+    messages = _history(_turns(rows))
     # Mode resolution (S9): code picks the mode (format beats keywords), and the
     # mode's typed contract COMPILES to the system directive appended here — the
     # spec shapes the prompt, not the other way around (ADR 0007). The contract
@@ -503,6 +617,17 @@ async def chat(
     # has already run, so the only closer needed is event_stream's finally.
     endpoint = await resolver.resolve()
 
+    # D-037: the agent path, for any deep turn the code has not already decided,
+    # on an endpoint MEASURED to call tools natively — and to stream them, since
+    # this path only exists streaming. Unprobed, prompted_tools and plan_only
+    # endpoints all stay conversational.
+    agent_path = (
+        endpoint.agent_mode == "native_tools"
+        and endpoint.streams_tools
+        and mode not in CODE_DECIDED_MODES
+    )
+    path = "agent" if agent_path else "model"
+
     # TD-018 (S19): bound the NUMBER of inference calls a workspace can cause.
     # Claimed HERE — after the endpoint resolves, before a single call is made —
     # and for the calls this turn will actually make: the two-pass fallback is
@@ -510,8 +635,12 @@ async def chat(
     # under-count the exact configuration that costs the most (D-016/TD-002).
     # Shortcut turns never reach this line, which is the point: an IOC check, a
     # CVE lookup and a definition stay working for a workspace at its ceiling.
-    calls_this_turn = 1 if endpoint.native_reasoning else 2
-    allowance = await UsageLimiter(pool).claim(
+    # An agent turn claims its FIRST call here, so a workspace at its ceiling
+    # still gets a 429 rather than a stream; every later call is claimed by the
+    # loop as it is made (D-031 decision 4).
+    limiter = UsageLimiter(pool)
+    calls_this_turn = 1 if (agent_path or endpoint.native_reasoning) else 2
+    allowance = await limiter.claim(
         workspace_id=auth.workspace_id, meter=Meter.INFERENCE_CALLS, units=calls_this_turn
     )
     if not allowance.allowed:
@@ -531,13 +660,52 @@ async def chat(
     # values the answer is pinned to echo), not the two-pass analysis (the answer
     # is built from it). Listing the strings explicitly is the point — indexing
     # "every system message" would fire on the turn's own data.
-    leak_index = instruction_index(
-        [
+    if agent_path:
+        loop = AgentLoop(
+            build_capability_registry(
+                enrichment=request.app.state.enrichment,
+                kb=request.app.state.kb,
+                observables=classification.observables,
+                # D-039: what the ANALYST supplied earlier in the session may be
+                # looked up; the model's own answers supply nothing.
+                supplied=tuple(
+                    o for r in rows if r["role"] == "user"
+                    for o in extract_observables(r["content"])
+                ),
+            ),
+            PgProposalStore(pool),
+            mode="native_tools",
+            workspace_id=auth.workspace_id,
+            session_id=session_id,
+            max_tokens=CHAT_ANSWER_MAX_TOKENS,
+        )
+        agent_history = _agent_history(
+            _turns(rows, exclude=user_row), contract.system_directive()
+        )
+        # D-031 decision 5: on this path the configuration we issued is what the
+        # loop composes — its system message, the tool and parameter
+        # descriptions, the step-cap nudge (TD-038) — plus the two directives
+        # in its history.
+        issued = [
+            *loop.issued_instructions(loop.wire_specs()),
+            HISTORY_FENCE_DIRECTIVE,
+            contract.system_directive(),
+        ]
+    else:
+        issued = [
             CHAT_SYSTEM_PROMPT,
             HISTORY_FENCE_DIRECTIVE,
             contract.system_directive(),
             PASS1_DIRECTIVE,
         ]
+    leak_index = instruction_index(issued)
+    # D-040: the model's OWN thinking quotes its instructions while it reasons
+    # (measured: 19-20 words on legitimate questions), so on the "thinking"
+    # channel the rail waits for a recitation. Everything else — the answer, the
+    # tool lines, narration, a two-pass analysis — keeps the answer's floor.
+    thinking_floor = (
+        instruction_index(issued, shingle=THINKING_SHINGLE_WORDS),
+        THINKING_SHINGLE_WORDS,
     )
 
     async def event_stream():
@@ -545,7 +713,62 @@ async def chat(
         content_parts: list[str] = []
         finish_reason = None
         usage = None
-        scanner = OutputScanner(leak_index)
+        scanner = OutputScanner(leak_index, floors={"thinking": thinking_floor})
+        agent_done = None
+        refused = None
+        first_call_claimed = True
+
+        async def claim_next() -> bool:
+            """The loop asks before every model call. The first was claimed
+            before the stream opened; every later one is claimed now, so the
+            turn is charged for exactly the calls the endpoint served."""
+            nonlocal first_call_claimed, refused
+            if first_call_claimed:
+                first_call_claimed = False
+                return True
+            more = await limiter.claim(
+                workspace_id=auth.workspace_id, meter=Meter.INFERENCE_CALLS, units=1
+            )
+            if not more.allowed:
+                refused = more
+            return more.allowed
+
+        async def agent_answer():
+            """The loop's events onto the SSE protocol. Narration is the model
+            saying what it is about to do, so it goes to the Thinking pane with
+            the reasoning; a tool step is shown as what HAPPENED; the answer
+            streams as content. Each is model output, and each goes through the
+            rail on the channel of the pane it is shown in — tool frames on one
+            literal channel, never one per call (STATE follow-up 11)."""
+            nonlocal finish_reason, usage, agent_done
+            async with aclosing(
+                loop.run_stream(
+                    endpoint.client, body.message, history=agent_history, claim=claim_next
+                )
+            ) as events:
+                async for ev in events:
+                    if ev.kind in ("reasoning", "narration"):
+                        # Both show in the Thinking pane; only the model's own
+                        # thinking gets the recitation floor (D-040).
+                        channel = "thinking" if ev.kind == "reasoning" else "narration"
+                        if scanner.feed(ev.text, channel=channel):
+                            return
+                        yield _sse({"reasoning": ev.text})
+                    elif ev.kind == "content":
+                        if scanner.feed(ev.text, channel="content"):
+                            return
+                        content_parts.append(ev.text)
+                        yield _sse({"content": ev.text})
+                    elif ev.kind == "tool":
+                        frame = _tool_frame(ev.invocation)
+                        if scanner.feed(frame["call"], channel="tool"):
+                            return
+                        yield _sse({"tool": frame})
+                    elif ev.kind == "usage" and ev.usage:
+                        usage = _add_usage(usage, ev.usage)
+                    elif ev.kind == "done":
+                        agent_done = ev
+                        finish_reason = ev.finish_reason
 
         async def native_answer():
             """One call; the model's own reasoning and its answer stream on their
@@ -559,7 +782,7 @@ async def chat(
             ) as events:
                 async for ev in events:
                     if ev.kind == "reasoning":
-                        if scanner.feed(ev.text, channel="reasoning"):
+                        if scanner.feed(ev.text, channel="thinking"):
                             return
                         yield _sse({"reasoning": ev.text})
                     elif ev.kind == "content":
@@ -573,7 +796,11 @@ async def chat(
                         usage = _usage_dict(ev.usage)
 
         try:
-            if endpoint.native_reasoning:
+            if agent_path:
+                async with aclosing(agent_answer()) as frames:
+                    async for frame in frames:
+                        yield frame
+            elif endpoint.native_reasoning:
                 async with aclosing(native_answer()) as frames:
                     async for frame in frames:
                         yield frame
@@ -639,12 +866,35 @@ async def chat(
                             usage = _usage_dict(ev.usage)
         except LLMError as err:
             # Endpoint failure: report it, persist nothing as the assistant turn.
-            yield _sse({"error": str(err)})
+            # The analyst gets the platform's sentence; the log gets the status
+            # and the provider's code — never its message, which can name the
+            # engine and can echo the request (TD-040).
+            logger.warning("endpoint error: status=%s code=%s", err.status, err.code)
+            yield _sse({"error": err.public})
             return
         finally:
             await endpoint.client.aclose()
 
         answer = "".join(content_parts)
+        if agent_done is not None:
+            # What the route persists is the loop's answer: the last call's
+            # content. With the TD-036 hold it is also everything the analyst
+            # read as answer; the two differ only past the hold's bound.
+            if agent_done.text != answer:
+                logger.info("agent answer differs from the streamed content (TD-036 bound)")
+            # The loop owns what counts as an answer (`_terminal_reason`): a
+            # blank one is no answer, so nothing is stored or validated.
+            answer = "" if agent_done.stop_reason == "empty_answer" else agent_done.text
+            logger.info(
+                "agent turn: mode=%s steps=%d tools=%s stop=%s",
+                mode.value,
+                agent_done.step,
+                # Registered names only: an unknown one is whatever the model
+                # sent, and model output stays out of the log.
+                [i.name if i.name in loop.registry else "<unregistered>"
+                 for i in agent_done.invocations],
+                agent_done.stop_reason,
+            )
         leak = scanner.result()
         if not leak.ok:
             # The answer started reproducing our own configuration (TD-012). Two
@@ -668,10 +918,34 @@ async def chat(
                     "done": {
                         "finish_reason": "output_guard",
                         "usage": usage,
-                        "path": "model",
+                        "path": path,
                         "mode": mode.value,
                         "contract_valid": None,
                         "output_valid": False,
+                    }
+                }
+            )
+            return
+        if refused is not None:
+            # The ceiling was reached between two of the loop's calls. The tool
+            # steps already shown stay shown; there is no answer to store.
+            logger.info(
+                "workspace %s refused mid-turn: %s at %d/%s",
+                auth.workspace_id,
+                refused.meter.value,
+                refused.used,
+                refused.limit,
+            )
+            yield _sse({"error": refused.refusal_text})
+            yield _sse(
+                {
+                    "done": {
+                        "finish_reason": "usage_refused",
+                        "usage": usage,
+                        "path": path,
+                        "mode": mode.value,
+                        "contract_valid": None,
+                        "output_valid": True,
                     }
                 }
             )
@@ -695,7 +969,7 @@ async def chat(
                 "done": {
                     "finish_reason": finish_reason,
                     "usage": usage,
-                    "path": "model",
+                    "path": path,
                     "mode": mode.value,
                     "contract_valid": (result.ok if result else None),
                     "output_valid": True,

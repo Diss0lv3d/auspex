@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import asyncpg
 import pytest
+from _fakes import FORBIDDEN_ENGINE_NAMES
 
 from auspex.enrich.types import (
     EnrichmentOutcome,
@@ -803,6 +804,27 @@ def test_summary_valid_contract_and_citations(client):
     assert body["evidence_total"] == len(cites)
     assert body["evidence_shown"] == len(cites)  # well under the cap here
     assert fake.closed  # the seam client is always closed
+
+
+def test_a_summary_endpoint_error_is_told_in_the_platforms_words(client):
+    """TD-040, the second surface: the summary's 502 detail embedded
+    `str(LLMError)`, the provider's own error body."""
+    from auspex.llm.client import LLMError
+
+    class _Failing(_FakeSummaryLLM):
+        async def chat(self, messages, *, max_tokens=None, temperature=None):
+            raise LLMError(400, "model glm-4.5-air does not exist for this zhipu key")
+
+    created = _create(client, EMAIL_PASTE)
+    fake = _Failing("")
+    resp = _summary(client, created["investigation_id"], fake)
+
+    assert resp.status_code == 502
+    detail = resp.json()["detail"]
+    assert "rejected the request" in detail
+    for name in FORBIDDEN_ENGINE_NAMES:
+        assert name not in detail.lower(), name
+    assert fake.closed
 
 
 def test_summary_guard_flags_fabricated_and_uncited_claims(client):

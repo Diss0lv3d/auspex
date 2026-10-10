@@ -17,6 +17,7 @@ from auspex.db import create_pool
 from auspex.enrich import EnrichmentService
 from auspex.ingest import IngestScheduler
 from auspex.kb import KnowledgeService
+from auspex.llm.autoprobe import autoprobe
 from auspex.llm.registry import load_dev_registry
 from auspex.migrations import run_migrations
 from auspex.routes import (
@@ -68,8 +69,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # when INGEST_ENABLED=false or the KB is off.
             app.state.ingest = IngestScheduler.from_settings(settings, app.state.kb, app.state.pool)
             app.state.ingest_task = asyncio.create_task(app.state.ingest.run())
+            # D-038: measure the configured endpoint once per fingerprint, in the
+            # background — the port binds now and deep turns stay on the safe
+            # default ("unknown") until the scorecard lands.
+            if settings.llm_autoprobe_enabled and settings.llm_base_url:
+                app.state.autoprobe_task = asyncio.create_task(
+                    autoprobe(app.state.pool, settings)
+                )
             yield
         finally:
+            probing = getattr(app.state, "autoprobe_task", None)
+            if probing is not None:
+                probing.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await probing
             task = getattr(app.state, "ingest_task", None)
             if task is not None:
                 task.cancel()

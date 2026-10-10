@@ -15,9 +15,15 @@ These tests hold two lines that are easy to lose:
 import pytest
 from _fakes import FakeEnrichmentService, FakeKnowledgeService
 
-from auspex.agent.capabilities import MAX_TOOL_ARG_ITEMS, SNIPPET_CHARS, build_capability_registry
+from auspex.agent.capabilities import (
+    MAX_TOOL_ARG_ITEMS,
+    NOT_SUPPLIED_SKIP,
+    SNIPPET_CHARS,
+    build_capability_registry,
+)
 from auspex.agent.registry import ToolLevel
 from auspex.classify.observables import extract
+from auspex.enrich.service import CAP_SKIP, ENRICH_MAX_OBSERVABLES
 from auspex.enrich.types import (
     EnrichmentOutcome,
     ObservableEnrichment,
@@ -149,13 +155,17 @@ async def test_enrichment_resolves_the_turns_own_observables_by_short_id():
     assert "not_checked" not in entry
 
 
-async def test_enrichment_also_accepts_an_indicator_the_message_never_carried():
-    """A loop may reason its way to an indicator that was not in the message.
-    Refusing that would make the agent strictly less capable than the shortcut
-    path it wraps — and the parse goes through the SAME extractor, so a defanged
-    form is handled without a second opinion about what a domain is."""
+async def test_a_defanged_indicator_is_refanged_by_the_shared_extractor():
+    """The parse goes through the SAME extractor the route uses, so a defanged
+    form is handled without a second opinion about what a domain is.
+
+    (Until D-039 this test was "accepts an indicator the message never
+    carried". That case is now the one refused — an indicator only the model
+    supplied — and the S24 reason for allowing it, reasoning one's way to an
+    indicator through DATA, is kept by `test_an_indicator_one_of_our_tools_
+    returned_was_supplied`.)"""
     service = FakeEnrichmentService(EnrichmentOutcome(items=()))
-    registry = _build(enrichment=service, observables=())
+    registry = _build(enrichment=service, observables=_obs("is evil[.]example[.]com bad?"))
 
     await registry.get("enrich_observable").handler({"observables": ["evil[.]example[.]com"]})
 
@@ -170,7 +180,7 @@ async def test_an_indicator_that_does_not_parse_is_reported_not_dropped():
     """A model that mangled a hash must SEE that it did. Silently dropping the
     argument returns a confident answer about a different question."""
     service = FakeEnrichmentService(EnrichmentOutcome(items=()))
-    registry = _build(enrichment=service, observables=())
+    registry = _build(enrichment=service, observables=_obs("check 8.8.8.8"))
 
     result = await registry.get("enrich_observable").handler(
         {"observables": ["8.8.8.8", "not an indicator at all"]}
@@ -193,7 +203,7 @@ async def test_one_argument_holding_three_indicators_checks_all_three():
     packed = "185.220.101.5 and 45.83.64.1 and 91.219.236.166"
     assert len(_obs(packed)) == 3, "control broken: the input does not hold three"
     service = FakeEnrichmentService(EnrichmentOutcome(items=()))
-    registry = _build(enrichment=service, observables=())
+    registry = _build(enrichment=service, observables=_obs(packed))
 
     result = await registry.get("enrich_observable").handler({"observables": [packed]})
 
@@ -215,7 +225,7 @@ async def test_a_bare_comma_separated_string_is_not_answered_about_its_first_ind
     csv = "8.8.8.8, 1.1.1.1, 9.9.9.9"
     assert len(_obs(csv)) == 3, "control broken: the input does not hold three"
     service = FakeEnrichmentService(EnrichmentOutcome(items=()))
-    registry = _build(enrichment=service, observables=())
+    registry = _build(enrichment=service, observables=_obs(csv))
 
     # Not a list — the bare-string branch, exactly as a model would send it.
     result = await registry.get("enrich_observable").handler({"observables": csv})
@@ -230,12 +240,19 @@ async def test_more_indicators_than_the_boundary_carries_says_how_many_it_droppe
     ITEMS, so they get their own key rather than being folded into `omitted`."""
     packed = " ".join(f"10.0.0.{i}" for i in range(1, MAX_TOOL_ARG_ITEMS + 6))
     assert len(_obs(packed)) == MAX_TOOL_ARG_ITEMS + 5, "control broken"
-    service = FakeEnrichmentService(EnrichmentOutcome(items=()))
-    registry = _build(enrichment=service, observables=())
+    service = _LooksUpEverything()
+    registry = _build(enrichment=service, observables=_obs(packed))
 
     result = await registry.get("enrich_observable").handler({"observables": [packed]})
 
-    assert len(service.enrich_calls[0]) == MAX_TOOL_ARG_ITEMS
+    # The boundary carries MAX_TOOL_ARG_ITEMS; of those, the turn's budget is
+    # looked up and the rest are NAMED as not checked (review of 1b86070 moved
+    # that split from the service into the tool — it used to hand all 25 over).
+    assert len(result["results"]) == MAX_TOOL_ARG_ITEMS
+    assert len(service.enrich_calls[0]) == ENRICH_MAX_OBSERVABLES
+    assert sum(1 for r in result["results"] if r.get("not_checked") == CAP_SKIP) == (
+        MAX_TOOL_ARG_ITEMS - ENRICH_MAX_OBSERVABLES
+    )
     assert result["omitted_observables"] == 5
     assert "omitted" not in result  # one argument item went in; none was dropped
 
@@ -511,3 +528,129 @@ async def test_no_tool_result_names_the_engine_or_the_provider_behind_it():
 
     for forbidden in ("llama", "scout", "qwen", "ollama", "northflank", "openai", "gpt"):
         assert forbidden not in blob
+
+
+# -- the turn's enrichment budget (review of 1b86070) -------------------------
+
+
+class _LooksUpEverything(FakeEnrichmentService):
+    """Answers every observable it is handed as looked up — so the count of
+    observables it was handed IS the count of third-party lookups."""
+
+    def __init__(self):
+        super().__init__(EnrichmentOutcome(items=()))
+
+    async def enrich(self, observables):
+        self.enrich_calls.append(observables)
+        return EnrichmentOutcome(
+            items=tuple(ObservableEnrichment(observable=o, sources_answered=1) for o in observables)
+        )
+
+
+def _ips(start: int, n: int) -> list[str]:
+    return [f"203.0.113.{i}" for i in range(start, start + n)]
+
+
+async def test_a_turn_enriches_no_more_indicators_than_the_shortcut_path_would():
+    """Review of 1b86070, Medium. The enrichment cap applied PER CALL, and a loop
+    makes up to nine calls — re-asking for what came back over the cap is the
+    natural thing for a model to do. One deep turn could drive hundreds of
+    lookups against provider keys and breakers every tenant shares, while TD-018
+    counted nine inference calls. The registry is built per turn, so the turn's
+    budget is the shortcut path's per-turn bound: ENRICH_MAX_OBSERVABLES."""
+    service = _LooksUpEverything()
+    registry = _build(enrichment=service, observables=_obs(" ".join(_ips(1, 12))))
+    enrich = registry.get("enrich_observable").handler
+
+    for start in (1, 5, 9):
+        last = await enrich({"observables": _ips(start, 4)})
+
+    sent = [o for call in service.enrich_calls for o in call]
+    assert len(sent) == ENRICH_MAX_OBSERVABLES
+    # What the budget refused is NAMED as not checked, never as no signals.
+    refused = [r for r in last["results"] if "not_checked" in r]
+    assert [r["not_checked"] for r in refused] == [CAP_SKIP] * 4
+    assert [r["observable"]["value"] for r in refused] == _ips(9, 4)
+
+
+async def test_the_budget_belongs_to_one_turn():
+    """A fresh registry is a fresh turn — the bound is per turn, not per process."""
+    message = _obs(" ".join(_ips(1, ENRICH_MAX_OBSERVABLES)))
+    first = _LooksUpEverything()
+    await _build(enrichment=first, observables=message).get("enrich_observable").handler(
+        {"observables": _ips(1, ENRICH_MAX_OBSERVABLES)}
+    )
+    second = _LooksUpEverything()
+    await _build(enrichment=second, observables=message).get("enrich_observable").handler(
+        {"observables": _ips(1, 4)}
+    )
+
+    assert len(second.enrich_calls[0]) == 4
+
+
+# -- D-039: only indicators someone other than the model supplied --------------
+
+
+async def test_an_indicator_nobody_supplied_never_reaches_a_provider():
+    """TD-039. An injection in a pasted artefact can make the model COMPOSE an
+    indicator — session data in a hostname label, say — and a lookup sends it to
+    third parties, some of which resolve what they are asked about. The model
+    may only look up what the analyst or one of our own sources supplied; a
+    composed indicator is named as not checked, and the service never sees it."""
+    service = _LooksUpEverything()
+    registry = _build(enrichment=service, observables=_obs("check 203.0.113.9 please"))
+
+    result = await registry.get("enrich_observable").handler(
+        {"observables": ["203.0.113.9", "acme-payroll-row-17.exfil-attacker.com"]}
+    )
+
+    sent = [o.value for call in service.enrich_calls for o in call]
+    assert sent == ["203.0.113.9"]
+    refused = [r for r in result["results"] if "not_checked" in r]
+    assert [r["observable"]["value"] for r in refused] == ["acme-payroll-row-17.exfil-attacker.com"]
+    assert refused[0]["not_checked"] == NOT_SUPPLIED_SKIP
+
+
+async def test_an_indicator_from_an_earlier_analyst_message_was_supplied():
+    """The analyst's own earlier messages in the session supplied it, so it may
+    be looked up now — the route passes them as `supplied`."""
+    service = _LooksUpEverything()
+    registry = build_capability_registry(
+        enrichment=service, kb=FakeKnowledgeService(),
+        observables=_obs("and what about the other one?"),
+        supplied=_obs("yesterday we saw 198.51.100.23 beaconing"),
+    )
+
+    await registry.get("enrich_observable").handler({"observables": ["198.51.100.23"]})
+
+    assert [o.value for call in service.enrich_calls for o in call] == ["198.51.100.23"]
+
+
+async def test_an_indicator_one_of_our_tools_returned_was_supplied():
+    """The loop reasoning its way to an indicator THROUGH DATA — a knowledge-base
+    record naming a C2 host — is what S24 wanted to keep, and it is kept: what a
+    tool returned this turn may be looked up. Defanged text is refanged by the
+    same extractor the route uses."""
+    hit = _cve_hit(text="Campaign infrastructure included evil[.]example[.]com as C2.")
+    service = _LooksUpEverything()
+    registry = _build(enrichment=service, kb=FakeKnowledgeService(hits=[hit]))
+
+    await registry.get("search_knowledge").handler({"query": "campaign infrastructure"})
+    await registry.get("enrich_observable").handler({"observables": ["evil.example.com"]})
+
+    assert [o.value for call in service.enrich_calls for o in call] == ["evil.example.com"]
+
+
+async def test_the_models_own_earlier_answer_supplies_nothing():
+    """An assistant turn is model output: an injection in turn 1 can make the
+    model WRITE the composed indicator into its answer, and turn 2 must not
+    treat that as supplied. The route passes only USER messages."""
+    service = _LooksUpEverything()
+    registry = _build(enrichment=service, observables=())
+
+    result = await registry.get("enrich_observable").handler(
+        {"observables": ["acme-payroll-row-17.exfil-attacker.com"]}
+    )
+
+    assert service.enrich_calls == []
+    assert result["results"][0]["not_checked"] == NOT_SUPPLIED_SKIP

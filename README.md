@@ -8,7 +8,7 @@ LLM**. You bring an OpenAI-compatible endpoint; the platform adapts to whatever
 it can actually do. We never pay for inference, and neither does a pilot.
 
 > **Status: pre-beta.** Everything described below is built, tested and running
-> — 1109 tests, `docker compose up` green. The [What Auspex does not do
+> — 1217 tests, `docker compose up` green. The [What Auspex does not do
 > yet](#what-auspex-does-not-do-yet) section is not a roadmap wish-list; it is
 > the honest boundary of what you get today, and it is worth reading before the
 > feature list.
@@ -102,7 +102,10 @@ A turn that starts reproducing its own instructions is cut off mid-stream, told
 to the analyst plainly, and **not persisted** — a stored assistant turn replays
 into every later turn of that session, so a leak that was saved would become a
 permanent one. The threshold is calibrated on live model output, not chosen: 34
-real answers, a legitimate ceiling of 6 shared words, a floor of 8. See
+real answers, a legitimate ceiling of 6 shared words, a floor of 8. A thinking
+model's own thinking is held to a higher floor of 40: it reasons by quoting its
+instructions (measured at 19–20 words on legitimate questions), while a
+recitation runs 58 or more ([D-040](DECISIONS.md)). See
 [D-030](DECISIONS.md) and the honesty section for what it does not cover.
 
 ### Capability-negotiated agent runtime
@@ -110,7 +113,11 @@ real answers, a legitimate ceiling of 6 shared words, a floor of 8. See
 The platform probes the endpoint you bring and compiles its agent loop to what
 that model can actually do — native tool-calling, prompted tools, or plan-only —
 and reports a capability scorecard rather than assuming a feature set and
-failing strangely.
+failing strangely. The deployment measures its configured endpoint itself, once
+per endpoint, in the background at startup ([D-038](DECISIONS.md);
+`LLM_AUTOPROBE_ENABLED` turns it off). Deep chat turns use the loop only when
+that scorecard says native tool-calling; each tool step streams to the Thinking pane as it runs,
+and every model call is counted against the workspace's ceiling as it is made.
 
 ### Per-workspace spend ceilings
 
@@ -126,10 +133,19 @@ keep working. `GET /api/usage`.
 
 Read this part. A demo that only walks the happy path is a demo that lies.
 
-- **The deep path is conversational-only.** The agent loop is built, tested and
-  capability-negotiated, but it is **not wired into `/api/chat`** — deep turns
-  are analysis and reasoning, not autonomous tool-calling. Proposals are created
-  through the investigation and action surfaces.
+- **The agent reads, it does not act.** A deep turn goes through the agent
+  loop (enrichment, CVE lookup and knowledge-base search, each step shown as it
+  runs) only on an endpoint measured to call them: the deployment's
+  capability scorecard must say it calls tools natively and streams them, and an
+  endpoint nobody has probed stays conversational. Alert triage and phishing analysis
+  never take it, because their verdicts are computed in code (D-037). It sends
+  third parties only indicators that you, or a knowledge-base record, supplied:
+  an indicator the model composed is never looked up (D-039). The agent
+  cannot propose an action from chat; proposals are created through the
+  investigation and action surfaces. When an endpoint narrates before a tool
+  call, the first 400 characters of each step are held back so the narration
+  is not shown as answer (TD-036). Narration longer than that would still
+  reach the analyst ahead of the result.
 - **`EXECUTABLE_SYSTEMS` is `{"auspex"}`.** Actions execute against Auspex's own
   store — an observable annotation is real, durable and undoable. There is **no
   firewall, no EDR, no ticketing integration**. The contract, the approval gate,
@@ -144,12 +160,16 @@ Read this part. A demo that only walks the happy path is a demo that lies.
   judge whether an answer was influenced. An injection that produced a confident
   wrong answer looks exactly like an answer; only a verdict the platform computed
   in code can contradict one, which is what the 92/8 split is for.
-- **A failed action can leave effects it denies.** If a handler dies after its
-  write lands, the row says `failed` and the write is really in the table; there
-  is no idempotency key and no partial-effect reasoning (TD-028b). A claim whose
-  process died is at least *visible* now — it appears in the approvals queue and
-  a human can abandon it, which records that nobody knows whether it ran rather
-  than guessing (TD-028a, fixed).
+- **A failed action says what it left behind only if it can look.** When a
+  handler dies, the platform asks the action what of that proposal's effects
+  exist. Nothing → `failed`, a checked fact. Something, or no way to look →
+  `incomplete`, which joins the approvals queue. A human can put it back or keep
+  it, and can also put back a claim they abandoned (D-041). An action that
+  declares no way to look is never `failed`, only `incomplete`. One bound
+  remains: a handler that is merely *slow* on a run a human abandoned can land
+  its write after the put-back. When it does, its answer is recorded on the
+  row, never dropped. There is still no idempotency key, which matters the day
+  an action reaches a network.
 - **Definition ranking is measured on eleven queries, not a benchmark.** The
   definition path fuses over documents and picks the page a question is most
   *about*, by title/question overlap in code (`auspex/kb/canonical.py`) — 7 of 7
@@ -176,6 +196,7 @@ Read this part. A demo that only walks the happy path is a demo that lies.
                   │ shortcut answers  │   │ deep path          │
                   │ • IOC enrichment  │   │ • rate ceiling     │
                   │ • CVE lookup (KB) │   │ • typed contracts  │
+                  │                   │   │ • read-tool agent  │
                   │ • definitions (KB)│   │ • SSE streaming    │
                   │   ZERO inference  │   │   customer LLM     │
                   └─────────┬─────────┘   └─────────┬──────────┘
@@ -208,7 +229,7 @@ off-corpus question returns an honest miss instead of a confident wrong answer.
 ## Development
 
 ```bash
-./ci.sh          # the gate: ruff + 1109 tests + container build + installed-dist check
+./ci.sh          # the gate: ruff + 1217 tests + container build + installed-dist check
 make check       # same thing
 make up / down   # stack lifecycle
 ```

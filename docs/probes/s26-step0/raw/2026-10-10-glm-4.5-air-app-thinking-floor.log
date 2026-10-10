@@ -1,0 +1,3 @@
+run 1: path=agent mode=definition output_valid=True finish=stop contract_valid=True errors=0 thinking=2380 chars, longest verbatim run=19
+run 2: path=agent mode=definition output_valid=True finish=stop contract_valid=True errors=0 thinking=1930 chars, longest verbatim run=28
+run 3: path=agent mode=definition output_valid=True finish=stop contract_valid=True errors=0 thinking=2140 chars, longest verbatim run=19

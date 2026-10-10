@@ -18,6 +18,7 @@ and everything else stays proposal-only.
 import asyncio
 import dataclasses
 import json
+import uuid
 from unittest import mock
 
 import pytest
@@ -31,6 +32,7 @@ from auspex.actions import (
     ActionRisk,
     ActionScope,
     ActionSpec,
+    ActionSpecError,
     ExecutionRefused,
     ParamType,
     ProposalSettlement,
@@ -347,7 +349,11 @@ def test_canonical_spec_covers_every_declared_field(spec):
     # Handlers are excluded on purpose: we cannot detect that someone changed
     # what a function BODY does, and pretending otherwise would make the check
     # look stronger than it is (proposal.py module docstring).
-    assert {f.name for f in dataclasses.fields(ActionSpec)} - {"dry_run", "execute"} == (
+    # `observe` (S26, TD-028b) is a handler too: it says how to LOOK at effects,
+    # and what it looks at is already declared by `scope`.
+    assert {f.name for f in dataclasses.fields(ActionSpec)} - {
+        "dry_run", "execute", "observe"
+    } == (
         set(canon) - {"v"}
     )
     assert {f.name for f in dataclasses.fields(ActionParam)} == set(canon["params"][0])
@@ -741,7 +747,9 @@ async def _wedge(pool, settlement, workspace_id, pid, *, age_seconds: float, sta
     await pool.execute(
         """
         UPDATE proposals
-           SET status = $2, claimed_at = now() - make_interval(secs => $3::double precision)
+           SET status = $2, claimed_at = now() - make_interval(secs => $3::double precision),
+               -- a live claim keeps its own token; a simulated dead one gets one
+               claim_token = COALESCE(claim_token, gen_random_uuid())
          WHERE id = $1::uuid
         """,
         str(pid),
@@ -1111,56 +1119,46 @@ async def test_the_abandon_route_refuses_a_fresh_claim_and_accepts_a_dead_one(
     ]
 
 
-async def test_an_undo_cannot_start_on_a_row_abandoned_during_execute(
+async def test_a_run_abandoned_mid_flight_can_be_put_back(
     pool, registry, spec, workspace_id, an_observable
 ):
-    """S23 review — the guarantee that keeps a measured bound unreachable.
+    """TD-028(c), and the reversal of an S23 pin.
 
-    `_finish_claim`'s late-write matches on `status = 'abandoned'`, and the
-    status does not record WHICH operation was abandoned: `execute` and `undo`
-    both land there. Probed directly, an `undo` late-write DOES stamp an
-    `undo_result` onto a row abandoned during `execute` — the statement is one
-    column short of its own intent (TD-034).
-
-    Nothing can reach it, and this is why: an undo claims `WHERE status =
-    'executed'`, so an undo handler can only ever be in flight on a row that was
-    executed, and abandon then moves that row out of `undoing` — never out of
-    `executing`. That is a guarantee of the *claim*, not of the late-write, so it
-    is pinned HERE. If someone later loosens the undo claim, this fails and
-    points at the statement that has to be tightened with it.
+    Until S26 this test was "an undo cannot start on a row abandoned during
+    execute": it kept TD-034's late-write unreachable by keeping the cleanup
+    path shut, so a human who abandoned a run whose write HAD landed could see
+    the note and could not remove it. TD-034 is now fixed structurally
+    (`abandoned_from`, f263c1d), so the door opens: `abandoned` means nobody
+    knows what landed, and an undo — keyed on this proposal, removing exactly
+    what it created — is the cleanup a human chooses.
     """
-    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
-    pid = proposal["id"]
-    await settlement.settle(
-        workspace_id=workspace_id, proposal_id=pid, decision="approved", decided_by=None
-    )
-    # The row a slow execute handler holds, old enough for a human to abandon.
-    await pool.execute(
-        "UPDATE proposals SET status = 'executing', claimed_at = now() - interval '1 hour'"
-        " WHERE id = $1::uuid",
-        str(pid),
-    )
-    abandoned = await settlement.abandon(
-        workspace_id=workspace_id, proposal_id=pid, decided_by=None
-    )
-    assert abandoned.won and abandoned.proposal["status"] == "abandoned"
+    settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
+    # The run's write landed, then the process holding the claim died.
+    await spec.execute(workspace_id=workspace_id, proposal_id=str(pid),
+                       observable_id=an_observable, note="landed before the crash")
+    await _wedge(pool, settlement, workspace_id, pid,
+                 age_seconds=STALE_CLAIM_SECONDS + 60, state="executing")
+    assert (await settlement.abandon(workspace_id=workspace_id, proposal_id=pid,
+                                     decided_by=None)).won
 
-    with pytest.raises(ExecutionRefused) as caught:
-        await ActionExecutor(pool, registry).undo(
-            workspace_id=workspace_id, proposal_id=pid
-        )
-    assert caught.value.reason == "not_executed"
+    outcome = await ActionExecutor(pool, registry).undo(
+        workspace_id=workspace_id, proposal_id=pid)
 
     row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
-    assert row["status"] == "abandoned"
-    assert row["undo_result"] is None
+    assert row["status"] == "undone" and outcome.detail == {"removed": 1}
+    assert row["abandoned_from"] == "executing"  # the history stays readable
+    assert 0 == await pool.fetchval(
+        "SELECT count(*) FROM observable_notes WHERE proposal_id = $1::uuid", str(pid))
 
 
 async def test_the_undo_claim_itself_refuses_an_abandoned_row(
     pool, registry, spec, workspace_id, an_observable
 ):
-    """S24 review — the test above names the wrong statement, so this one pins
-    the right one.
+    """S24 review — pins the undo CLAIM itself, not the read before it.
+
+    (S26: undo from `abandoned` is now allowed (TD-028c), so what this guards is
+    the general form — the claim moves the row only out of the exact status the
+    read saw. A stale read must never drag a row out of a status it did not see.)
 
     `test_an_undo_cannot_start_on_a_row_abandoned_during_execute` asserts
     `not_executed`, which is the READ-then-check at settlement.py:530. Its
@@ -1209,3 +1207,759 @@ async def test_the_undo_claim_itself_refuses_an_abandoned_row(
     row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
     assert row["status"] == "abandoned"  # not dragged into 'undoing'
     assert row["undo_result"] is None  # TD-034's late-write never gets a row
+
+
+# -- TD-034: the late-write knows WHICH operation was abandoned (S26) ----------
+
+
+@pytest.mark.parametrize("state", ["executing", "undoing"])
+async def test_abandon_records_which_operation_it_abandoned(
+    pool, registry, spec, workspace_id, an_observable, state
+):
+    """`abandoned` alone does not say whether a run or a put-back was lost, and
+    every later decision about the row — whose late answer may land, what a
+    cleanup means — depends on which. Written by the same statement that moves
+    the row, from the status it moved it out of."""
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await _wedge(pool, settlement, workspace_id, pid,
+                 age_seconds=STALE_CLAIM_SECONDS + 60, state=state)
+
+    abandoned = await settlement.abandon(workspace_id=workspace_id, proposal_id=pid,
+                                         decided_by=None)
+
+    assert abandoned.won
+    assert abandoned.proposal["abandoned_from"] == state
+
+
+async def test_a_late_undo_answer_never_lands_on_a_run_that_was_abandoned(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """TD-034, measured in docs/probes/s23-step0/probe_late_write.py and driven
+    here the same way: an undo's late answer stamped `undo_result` onto a row
+    abandoned during EXECUTE — an answer for an undo that never began. The
+    late-write now matches the operation it belongs to."""
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await _wedge(pool, settlement, workspace_id, pid,
+                 age_seconds=STALE_CLAIM_SECONDS + 60, state="executing")
+    assert (await settlement.abandon(workspace_id=workspace_id, proposal_id=pid,
+                                     decided_by=None)).won
+
+    # An undo would hold a claim of its OWN — never the run's abandoned one.
+    landed = await ActionExecutor(pool, registry)._finish_claim(
+        pid, uuid.uuid4(), from_status="undoing", to_status="undone", column="undo_result",
+        payload={"would": "an undo that never began"},
+    )
+
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert landed is False
+    assert row["status"] == "abandoned" and row["undo_result"] is None
+
+
+async def test_a_late_run_answer_still_lands_on_the_run_that_was_abandoned(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """The control: the late-write S22 deliberately allowed still works for the
+    operation it belongs to."""
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await _wedge(pool, settlement, workspace_id, pid,
+                 age_seconds=STALE_CLAIM_SECONDS + 60, state="executing")
+    abandoned = await settlement.abandon(workspace_id=workspace_id, proposal_id=pid,
+                                         decided_by=None)
+    assert abandoned.won
+
+    await ActionExecutor(pool, registry)._finish_claim(
+        pid, abandoned.proposal["abandoned_token"], from_status="executing",
+        to_status="executed", column="result", payload={"would": "the run, late"},
+    )
+
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert row["status"] == "abandoned" and row["result"] == {"would": "the run, late"}
+
+
+# -- TD-028(b): a failed execute must not deny effects that landed (S26) -------
+
+
+async def _approved(pool, registry, spec, workspace_id, an_observable):
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    await settlement.settle(workspace_id=workspace_id, proposal_id=proposal["id"],
+                            decision="approved", decided_by=None)
+    return settlement, proposal["id"]
+
+
+def _with(spec, **changes) -> ActionRegistry:
+    r = ActionRegistry()
+    r.register(dataclasses.replace(spec, **changes))
+    return r
+
+
+async def test_a_run_that_failed_after_its_write_landed_says_so(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """TD-028(b), reproduced at S19 Step 0: the handler's INSERT landed, then it
+    raised, and the row said `failed` — the surface reported that nothing
+    happened while the note was really in the table. The executor now asks the
+    action what of THIS proposal's effects exist, and a row with effects is
+    `incomplete`: something happened, and a human has to decide about it."""
+    async def writes_then_dies(**kwargs):
+        await spec.execute(**kwargs)
+        raise RuntimeError("died after the write")
+
+    settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
+    with pytest.raises(RuntimeError):
+        await ActionExecutor(pool, _with(spec, execute=writes_then_dies)).execute(
+            workspace_id=workspace_id, proposal_id=pid)
+
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert row["status"] == "incomplete"
+    assert row["result"] == {"error": "RuntimeError", "effects": "present"}
+    assert 1 == await pool.fetchval(
+        "SELECT count(*) FROM observable_notes WHERE proposal_id = $1::uuid", str(pid))
+    queued = [p["id"] for p in await settlement.pending(workspace_id=workspace_id)]
+    assert pid in queued, "a row whose effects landed needs a human"
+
+
+async def test_a_run_that_failed_before_writing_is_failed_and_checked(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """`failed` now means what it says, because it was checked: the action
+    looked, and nothing of this proposal's exists."""
+    settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
+    with pytest.raises(RuntimeError):
+        await ActionExecutor(pool, _with(
+            spec, execute=mock.AsyncMock(side_effect=RuntimeError("died first")))
+        ).execute(workspace_id=workspace_id, proposal_id=pid)
+
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert row["status"] == "failed"
+    assert row["result"] == {"error": "RuntimeError", "effects": "none"}
+
+
+async def test_an_action_that_cannot_look_is_incomplete_never_failed(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """An action that declares no way to observe its effects cannot support
+    "nothing happened", so the platform does not say it — the first third-party
+    action will be exactly this shape."""
+    settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
+    with pytest.raises(RuntimeError):
+        await ActionExecutor(pool, _with(
+            spec, observe=None, execute=mock.AsyncMock(side_effect=RuntimeError("x")))
+        ).execute(workspace_id=workspace_id, proposal_id=pid)
+
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert row["status"] == "incomplete"
+    assert row["result"]["effects"] == "unknown"
+
+
+async def test_a_look_that_itself_fails_is_unknown_not_none(
+    pool, registry, spec, workspace_id, an_observable
+):
+    settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
+    with pytest.raises(RuntimeError):
+        await ActionExecutor(pool, _with(
+            spec,
+            observe=mock.AsyncMock(side_effect=ConnectionError("db away")),
+            execute=mock.AsyncMock(side_effect=RuntimeError("x")),
+        )).execute(workspace_id=workspace_id, proposal_id=pid)
+
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert (row["status"], row["result"]["effects"]) == ("incomplete", "unknown")
+
+
+def test_the_builtin_action_can_observe_its_own_effects(spec):
+    """The one executable action ships able to look, so its `failed` is a
+    checked fact rather than a hope."""
+    assert spec.observe is not None
+
+
+async def test_the_approval_surface_says_what_landed_when_a_run_fails(pool, client, route_ws):
+    """The 500 used to name only the row's status; an analyst reading `failed`
+    concluded nothing happened. Now it says what the action found."""
+    ws, obs_id = route_ws
+    app_spec = client.app.state.action_registry.get("annotate_observable")
+
+    async def writes_then_dies(**kwargs):
+        await app_spec.execute(**kwargs)
+        raise RuntimeError("died after the write")
+
+    real = client.app.state.action_registry
+    client.app.state.action_registry = _with(app_spec, execute=writes_then_dies)
+    try:
+        registry = ActionRegistry()
+        registry.register_all(build_builtin_actions(pool))
+        _, proposal = await _file(pool, registry, registry.get("annotate_observable"), ws, obs_id)
+        resp = client.post(f"/api/proposals/{proposal['id']}/approve", headers=_hdr(client))
+    finally:
+        client.app.state.action_registry = real
+
+    assert resp.status_code == 500
+    detail = resp.json()["detail"]
+    assert "incomplete" in detail and "landed" in detail and "undo" in detail
+
+
+# -- TD-028(c): the cleanup path is open where effects are unknown (S26) -------
+
+
+async def _incomplete(pool, registry, spec, workspace_id, an_observable):
+    """A run whose write landed and which then raised: `incomplete` (TD-028b)."""
+    async def writes_then_dies(**kwargs):
+        await spec.execute(**kwargs)
+        raise RuntimeError("died after the write")
+
+    settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
+    with pytest.raises(RuntimeError):
+        await ActionExecutor(pool, _with(spec, execute=writes_then_dies)).execute(
+            workspace_id=workspace_id, proposal_id=pid)
+    assert (await settlement.get(workspace_id=workspace_id, proposal_id=pid))[
+        "status"] == "incomplete"
+    return settlement, pid
+
+
+async def test_an_incomplete_run_can_be_put_back(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """TD-028(c): `put_back` is keyed on the proposal and would delete exactly
+    the orphaned row, and the gate (`status = 'executed'`) kept it shut. An
+    incomplete run is precisely the case that needs it."""
+    settlement, pid = await _incomplete(pool, registry, spec, workspace_id, an_observable)
+
+    outcome = await ActionExecutor(pool, registry).undo(
+        workspace_id=workspace_id, proposal_id=pid)
+
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert row["status"] == "undone" and outcome.detail == {"removed": 1}
+    assert 0 == await pool.fetchval(
+        "SELECT count(*) FROM observable_notes WHERE proposal_id = $1::uuid", str(pid))
+    assert pid not in [p["id"] for p in await settlement.pending(workspace_id=workspace_id)]
+
+
+async def test_a_failed_cleanup_returns_to_where_it_started(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """An undo that raises used to put the row back to `executed` — true only
+    when it started there. A cleanup of an incomplete run that fails is still
+    an incomplete run; calling it executed would claim a success that never
+    happened."""
+    settlement, pid = await _incomplete(pool, registry, spec, workspace_id, an_observable)
+    broken_undo = dataclasses.replace(
+        spec.undo, handler=mock.AsyncMock(side_effect=RuntimeError("undo died")))
+
+    with pytest.raises(RuntimeError):
+        await ActionExecutor(pool, _with(spec, undo=broken_undo)).undo(
+            workspace_id=workspace_id, proposal_id=pid)
+
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert row["status"] == "incomplete" and row["claimed_at"] is None
+    assert row["undo_result"] == {"error": "RuntimeError"}
+
+
+async def test_a_checked_failure_has_nothing_to_put_back(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """`failed` now means the action looked and nothing landed, so there is
+    nothing to undo — and saying `undone` about it would report a put-back of
+    nothing (the TD-028(c) question, answered)."""
+    settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
+    with pytest.raises(RuntimeError):
+        await ActionExecutor(pool, _with(
+            spec, execute=mock.AsyncMock(side_effect=RuntimeError("died first")))
+        ).execute(workspace_id=workspace_id, proposal_id=pid)
+
+    with pytest.raises(ExecutionRefused) as caught:
+        await ActionExecutor(pool, registry).undo(workspace_id=workspace_id, proposal_id=pid)
+
+    assert caught.value.reason == "nothing_to_undo"
+    assert (await settlement.get(workspace_id=workspace_id, proposal_id=pid))[
+        "status"] == "failed"
+
+
+async def test_an_incomplete_run_is_put_back_through_the_surface(pool, client, route_ws):
+    ws, obs_id = route_ws
+    app_spec = client.app.state.action_registry.get("annotate_observable")
+
+    async def writes_then_dies(**kwargs):
+        await app_spec.execute(**kwargs)
+        raise RuntimeError("died after the write")
+
+    registry = ActionRegistry()
+    registry.register_all(build_builtin_actions(pool))
+    _, proposal = await _file(pool, registry, registry.get("annotate_observable"), ws, obs_id)
+    hdr = _hdr(client)
+    real = client.app.state.action_registry
+    client.app.state.action_registry = _with(app_spec, execute=writes_then_dies)
+    try:
+        assert client.post(f"/api/proposals/{proposal['id']}/approve",
+                           headers=hdr).status_code == 500
+    finally:
+        client.app.state.action_registry = real
+
+    queued = client.get("/api/proposals", headers=hdr).json()["proposals"]
+    assert [p["status"] for p in queued if p["id"] == str(proposal["id"])] == ["incomplete"]
+    undone = client.post(f"/api/proposals/{proposal['id']}/undo", headers=hdr)
+    assert undone.status_code == 200, undone.text
+    assert undone.json()["proposal"]["status"] == "undone"
+
+
+async def test_a_failed_cleanup_through_the_surface_says_where_the_row_is(
+    pool, client, route_ws
+):
+    """The undo route's 500 said "the action remains executed" — false for a
+    put-back that started from incomplete or abandoned."""
+    ws, obs_id = route_ws
+    app_spec = client.app.state.action_registry.get("annotate_observable")
+
+    async def writes_then_dies(**kwargs):
+        await app_spec.execute(**kwargs)
+        raise RuntimeError("died after the write")
+
+    broken_undo = dataclasses.replace(
+        app_spec.undo, handler=mock.AsyncMock(side_effect=RuntimeError("undo died")))
+    registry = ActionRegistry()
+    registry.register_all(build_builtin_actions(pool))
+    _, proposal = await _file(pool, registry, registry.get("annotate_observable"), ws, obs_id)
+    hdr = _hdr(client)
+    real = client.app.state.action_registry
+    client.app.state.action_registry = _with(
+        app_spec, execute=writes_then_dies, undo=broken_undo)
+    try:
+        client.post(f"/api/proposals/{proposal['id']}/approve", headers=hdr)
+        resp = client.post(f"/api/proposals/{proposal['id']}/undo", headers=hdr)
+    finally:
+        client.app.state.action_registry = real
+
+    assert resp.status_code == 500
+    assert "incomplete" in resp.json()["detail"] and "executed" not in resp.json()["detail"]
+
+
+# -- TD-028(d): the approver is told when they are asked the same thing twice --
+
+
+async def test_two_identical_requests_each_name_the_other(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """A model calling one action twice files two rows an approver cannot tell
+    apart. Deduping is deliberately NOT the fix (D-014: whether a second intent
+    was a mistake is the human's call), so each card names its twins instead —
+    same action, same arguments, same declaration, still awaiting a decision."""
+    settlement, first = await _file(pool, registry, spec, workspace_id, an_observable,
+                                    note="same words")
+    _, second = await _file(pool, registry, spec, workspace_id, an_observable,
+                            note="same words")
+    _, other = await _file(pool, registry, spec, workspace_id, an_observable,
+                           note="different words")
+
+    queued = {p["id"]: p for p in await settlement.pending(workspace_id=workspace_id)}
+
+    assert queued[first["id"]]["identical_pending"] == [second["id"]]
+    assert queued[second["id"]]["identical_pending"] == [first["id"]]
+    assert queued[other["id"]]["identical_pending"] == []
+
+
+async def test_deciding_one_twin_leaves_the_other_waiting_and_alone(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Not a dedupe: rejecting one leaves the other a real, separate request —
+    and it stops naming a twin that no longer awaits a decision."""
+    settlement, first = await _file(pool, registry, spec, workspace_id, an_observable,
+                                    note="same words")
+    _, second = await _file(pool, registry, spec, workspace_id, an_observable,
+                            note="same words")
+    await settlement.settle(workspace_id=workspace_id, proposal_id=first["id"],
+                            decision="rejected", decided_by=None)
+
+    queued = {p["id"]: p for p in await settlement.pending(workspace_id=workspace_id)}
+
+    assert first["id"] not in queued
+    assert queued[second["id"]]["identical_pending"] == []
+
+
+async def test_a_twin_in_another_workspace_is_never_named(
+    pool, registry, spec, workspace_id, other_workspace_id, an_observable
+):
+    """The twin lookup is a query across rows, so tenancy must be part of it
+    (D-008): another workspace's identical request is not this approver's to
+    know about, and its id must never reach this card."""
+    settlement, mine = await _file(pool, registry, spec, workspace_id, an_observable,
+                                   note="same words")
+    await settlement.file(
+        workspace_id=other_workspace_id, spec=spec,
+        arguments={"observable_id": an_observable, "note": "same words"},
+        dry_run=await spec.dry_run(workspace_id=workspace_id, observable_id=an_observable,
+                                   note="same words"),
+    )
+
+    queued = {p["id"]: p for p in await settlement.pending(workspace_id=workspace_id)}
+
+    assert queued[mine["id"]]["identical_pending"] == []
+
+
+async def test_the_card_on_the_surface_names_its_twins(pool, client, route_ws):
+    ws, obs_id = route_ws
+    registry = ActionRegistry()
+    registry.register_all(build_builtin_actions(pool))
+    spec = registry.get("annotate_observable")
+    _, first = await _file(pool, registry, spec, ws, obs_id, note="same words")
+    _, second = await _file(pool, registry, spec, ws, obs_id, note="same words")
+
+    listed = client.get("/api/proposals", headers=_hdr(client)).json()["proposals"]
+    shown = {p["id"]: p for p in listed}
+
+    assert shown[str(first["id"])]["identical_pending"] == [str(second["id"])]
+
+
+# -- review of D-041: a claim is identified by a token, not by a status --------
+
+
+async def test_an_abandoned_undo_cannot_finish_a_fresh_undo_s_claim(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Review of 1c6c9bd, MEDIUM, reproduced. Since undo may start from
+    `abandoned`, two undos can be in flight on one row, and a claim was known
+    only by its status string: U1 (slow) is abandoned, U2 cleans up and removes
+    the note, then U1 raises — and its finish matched U2's claim, putting the
+    row back to `executed` while U2's own success was dropped. The row said
+    `executed` with no note left."""
+    release_u1, u1_ran = asyncio.Event(), asyncio.Event()
+    release_u2, u2_removed = asyncio.Event(), asyncio.Event()
+
+    async def slow_failing_undo(**_):
+        u1_ran.set()
+        await release_u1.wait()
+        raise RuntimeError("U1 died late")
+
+    async def removes_then_waits(**kwargs):
+        out = await spec.undo.handler(**kwargs)  # the note is gone now
+        u2_removed.set()
+        await release_u2.wait()
+        return out
+
+    settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
+    await ActionExecutor(pool, registry).execute(workspace_id=workspace_id, proposal_id=pid)
+    u1 = ActionExecutor(pool, _with(spec, undo=dataclasses.replace(
+        spec.undo, handler=slow_failing_undo)))
+    u2 = ActionExecutor(pool, _with(spec, undo=dataclasses.replace(
+        spec.undo, handler=removes_then_waits)))
+    t1 = asyncio.create_task(u1.undo(workspace_id=workspace_id, proposal_id=pid))
+    t2 = None
+    try:
+        await asyncio.wait_for(u1_ran.wait(), timeout=10)
+        await pool.execute(
+            "UPDATE proposals SET claimed_at = now() - interval '1 hour' WHERE id = $1::uuid",
+            str(pid))
+        assert (await settlement.abandon(workspace_id=workspace_id, proposal_id=pid,
+                                         decided_by=None)).won
+        t2 = asyncio.create_task(u2.undo(workspace_id=workspace_id, proposal_id=pid))
+        await asyncio.wait_for(u2_removed.wait(), timeout=10)
+        # U2 holds the claim mid-flight; NOW U1's late failure arrives.
+        release_u1.set()
+        with pytest.raises(RuntimeError):
+            await asyncio.wait_for(t1, timeout=10)
+    finally:
+        release_u1.set()
+        release_u2.set()
+        if t2 is not None:
+            await asyncio.wait_for(t2, timeout=10)
+
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert row["status"] == "undone", "a late failure finished a claim it did not hold"
+    assert row["undo_result"]["detail"] == {"removed": 1}
+    assert 0 == await pool.fetchval(
+        "SELECT count(*) FROM observable_notes WHERE proposal_id = $1::uuid", str(pid))
+
+
+async def test_a_run_s_late_answer_is_kept_even_after_its_clean_up(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Review finding 6: D-041's stated bound — a slow run abandoned and put
+    back can land its write afterwards — was real, and the one record that
+    would show it happened was thrown away (the late-write required the row to
+    still be `abandoned`). It lands now, without moving the row: `undone` with
+    a `result` is a row that says the run finished after its put-back."""
+    release, ran = asyncio.Event(), asyncio.Event()
+
+    async def slow_run(**kwargs):
+        ran.set()
+        await release.wait()
+        return await spec.execute(**kwargs)
+
+    settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
+    task = asyncio.create_task(ActionExecutor(pool, _with(spec, execute=slow_run)).execute(
+        workspace_id=workspace_id, proposal_id=pid))
+    try:
+        await asyncio.wait_for(ran.wait(), timeout=10)
+        await pool.execute(
+            "UPDATE proposals SET claimed_at = now() - interval '1 hour' WHERE id = $1::uuid",
+            str(pid))
+        assert (await settlement.abandon(workspace_id=workspace_id, proposal_id=pid,
+                                         decided_by=None)).won
+        await ActionExecutor(pool, registry).undo(workspace_id=workspace_id, proposal_id=pid)
+    finally:
+        release.set()
+        await asyncio.wait_for(task, timeout=10)
+
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert row["status"] == "undone"
+    assert row["result"] and "Attached" in row["result"]["would"], "the late answer was dropped"
+
+
+async def test_a_put_back_does_not_wear_the_previous_attempt_s_answer(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Review finding 7: the undo claim kept the previous attempt's
+    `undo_result`, so an in-flight (or abandoned) put-back showed an earlier
+    attempt's error as if it were its own."""
+    release, ran = asyncio.Event(), asyncio.Event()
+
+    async def slow_undo(**kwargs):
+        ran.set()
+        await release.wait()
+        return await spec.undo.handler(**kwargs)
+
+    settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
+    await ActionExecutor(pool, registry).execute(workspace_id=workspace_id, proposal_id=pid)
+    with pytest.raises(RuntimeError):
+        await ActionExecutor(pool, _with(spec, undo=dataclasses.replace(
+            spec.undo, handler=mock.AsyncMock(side_effect=RuntimeError("first try"))))
+        ).undo(workspace_id=workspace_id, proposal_id=pid)
+    task = asyncio.create_task(ActionExecutor(pool, _with(spec, undo=dataclasses.replace(
+        spec.undo, handler=slow_undo))).undo(workspace_id=workspace_id, proposal_id=pid))
+    try:
+        await asyncio.wait_for(ran.wait(), timeout=10)
+        mid = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    finally:
+        release.set()
+        await asyncio.wait_for(task, timeout=10)
+
+    assert mid["status"] == "undoing" and mid["undo_result"] is None
+
+
+# -- review of D-041: an incomplete row has a way out besides undo ------------
+
+
+async def test_an_incomplete_run_can_be_kept_as_it_is(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Review finding 3. `incomplete` joined the queue with ONE door out — undo.
+    A human who looks at what landed and wants it kept had no way to say so,
+    and the row stayed in the queue forever: TD-028a's "every door shut",
+    visible this time and still undismissable. `keep` is that decision,
+    claim-first like every other, and recorded with who made it."""
+    settlement, pid = await _incomplete(pool, registry, spec, workspace_id, an_observable)
+
+    kept = await settlement.keep(workspace_id=workspace_id, proposal_id=pid, decided_by=None)
+
+    assert kept.won and kept.proposal["status"] == "kept"
+    assert pid not in [p["id"] for p in await settlement.pending(workspace_id=workspace_id)]
+    assert 1 == await pool.fetchval(
+        "SELECT count(*) FROM observable_notes WHERE proposal_id = $1::uuid", str(pid))
+
+
+async def test_an_incomplete_run_of_an_action_with_no_undo_is_not_stuck(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """The shape the reviewer named: a WRITE action that declares no undo (legal
+    under validate_spec — the likely first third-party action). Undo refuses
+    it, so keep is the only way out — and it must exist."""
+    no_undo = _with(spec, undo=None)
+    no_undo_spec = no_undo.get("annotate_observable")
+
+    async def writes_then_dies(**kwargs):
+        await spec.execute(**kwargs)
+        raise RuntimeError("died after the write")
+
+    # Filed AND run under the no-undo declaration — otherwise the fingerprint
+    # check refuses the run as a changed action before it starts.
+    settlement, pid = await _approved(pool, no_undo, no_undo_spec, workspace_id, an_observable)
+    with pytest.raises(RuntimeError):
+        await ActionExecutor(pool, _with(no_undo_spec, execute=writes_then_dies)).execute(
+            workspace_id=workspace_id, proposal_id=pid)
+    assert (await settlement.get(workspace_id=workspace_id, proposal_id=pid))[
+        "status"] == "incomplete"
+    with pytest.raises(ExecutionRefused) as refused:
+        await ActionExecutor(pool, no_undo).undo(workspace_id=workspace_id, proposal_id=pid)
+    assert refused.value.reason == "no_undo"
+
+    assert (await settlement.keep(workspace_id=workspace_id, proposal_id=pid,
+                                  decided_by=None)).won
+
+
+async def test_only_an_incomplete_run_can_be_kept(
+    pool, registry, spec, workspace_id, an_observable
+):
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+
+    result = await settlement.keep(workspace_id=workspace_id, proposal_id=proposal["id"],
+                                   decided_by=None)
+
+    assert result.outcome is Settlement.ALREADY_DECIDED
+    assert result.current_status == "pending_approval"
+
+
+async def test_a_kept_run_can_still_be_put_back(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Keeping is a decision about what landed, not a lock on it: the human who
+    kept it can change their mind, and the put-back removes exactly this
+    proposal's effects as it does from `executed`."""
+    settlement, pid = await _incomplete(pool, registry, spec, workspace_id, an_observable)
+    await settlement.keep(workspace_id=workspace_id, proposal_id=pid, decided_by=None)
+
+    await ActionExecutor(pool, registry).undo(workspace_id=workspace_id, proposal_id=pid)
+
+    assert (await settlement.get(workspace_id=workspace_id, proposal_id=pid))[
+        "status"] == "undone"
+
+
+async def test_keep_through_the_surface(pool, client, route_ws):
+    ws, obs_id = route_ws
+    app_spec = client.app.state.action_registry.get("annotate_observable")
+
+    async def writes_then_dies(**kwargs):
+        await app_spec.execute(**kwargs)
+        raise RuntimeError("died after the write")
+
+    registry = ActionRegistry()
+    registry.register_all(build_builtin_actions(pool))
+    _, proposal = await _file(pool, registry, registry.get("annotate_observable"), ws, obs_id)
+    _, pending = await _file(pool, registry, registry.get("annotate_observable"), ws, obs_id,
+                             note="still pending")
+    hdr = _hdr(client)
+    real = client.app.state.action_registry
+    client.app.state.action_registry = _with(app_spec, execute=writes_then_dies)
+    try:
+        client.post(f"/api/proposals/{proposal['id']}/approve", headers=hdr)
+    finally:
+        client.app.state.action_registry = real
+
+    kept = client.post(f"/api/proposals/{proposal['id']}/keep", headers=hdr)
+    early = client.post(f"/api/proposals/{pending['id']}/keep", headers=hdr)
+
+    assert kept.status_code == 200 and kept.json()["proposal"]["status"] == "kept"
+    assert early.status_code == 409
+
+
+# -- review of D-041: what an effects probe may be, and what its answer means --
+
+
+@pytest.mark.parametrize("slot", ["execute", "dry_run", "undo"])
+def test_the_look_cannot_be_the_run_the_preview_or_the_put_back(spec, slot):
+    """Review finding 4, reproduced: `observe=execute` registered happily, and
+    when a run failed the platform's "look" ran the action a SECOND time,
+    unapproved — one more note, and the row went `incomplete`. The same rails
+    the undo slot has (S18 Step 0), for the same reason."""
+    handler = {"execute": spec.execute, "dry_run": spec.dry_run,
+               "undo": spec.undo.handler}[slot]
+
+    with pytest.raises(ActionSpecError):
+        dataclasses.replace(spec, observe=handler)
+
+
+def test_the_look_must_be_callable(spec):
+    with pytest.raises(ActionSpecError):
+        dataclasses.replace(spec, observe=3)
+
+
+@pytest.mark.parametrize("answer", [None, True, "0", 0.0, [], -1])
+async def test_only_a_count_of_zero_means_nothing_landed(
+    pool, registry, spec, workspace_id, an_observable, answer
+):
+    """Review finding 4, reproduced: an `observe` that forgot its `return` gave
+    `None`, which read as falsy — `failed`, effects `none` — while the write was
+    in the table. "Nothing landed" is a claim; only an int 0 makes it."""
+    settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
+    with pytest.raises(RuntimeError):
+        await ActionExecutor(pool, _with(
+            spec, observe=mock.AsyncMock(return_value=answer),
+            execute=mock.AsyncMock(side_effect=RuntimeError("x")))
+        ).execute(workspace_id=workspace_id, proposal_id=pid)
+
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert (row["status"], row["result"]["effects"]) == ("incomplete", "unknown")
+
+
+async def test_a_failure_recorded_before_anyone_looked_can_still_be_put_back(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Review finding 5. A `failed` row written before 203cccc carries
+    `{"error": ...}` and no `effects` — nothing was checked — and the S19
+    reproduction of TD-028b is exactly such a row, with its note really in the
+    table. Refusing it as "checked that nothing of it landed" told a falsehood
+    about it. Only a failure that LOOKED is refused."""
+    settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
+    await spec.execute(workspace_id=workspace_id, proposal_id=str(pid),
+                       observable_id=an_observable, note="written before S26")
+    await pool.execute(
+        "UPDATE proposals SET status = 'failed', result = '{\"error\": \"RuntimeError\"}'"
+        " WHERE id = $1::uuid", str(pid))
+
+    outcome = await ActionExecutor(pool, registry).undo(
+        workspace_id=workspace_id, proposal_id=pid)
+
+    assert outcome.detail == {"removed": 1}
+    assert (await settlement.get(workspace_id=workspace_id, proposal_id=pid))[
+        "status"] == "undone"
+
+
+async def test_a_huge_request_still_files_and_still_finds_its_twin(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """The twin index (S26 review, 811 ms -> 3.9 ms at 20k pending) is on an md5
+    of the arguments, not the arguments: a model can send any size of note, and
+    a btree row past ~2.7 KB would make FILING the proposal fail. Pinned with a
+    note well past that."""
+    huge = "x" * 20_000
+    settlement, first = await _file(pool, registry, spec, workspace_id, an_observable, note=huge)
+    _, second = await _file(pool, registry, spec, workspace_id, an_observable, note=huge)
+
+    queued = {p["id"]: p for p in await settlement.pending(workspace_id=workspace_id)}
+
+    assert queued[first["id"]]["identical_pending"] == [second["id"]]
+
+
+async def test_a_read_that_did_not_look_for_twins_does_not_say_there_are_none(
+    pool, client, route_ws
+):
+    """Review of 6811d45: `_public` sent `identical_pending: []` on GET /{id} and
+    on every decision response — where nobody looked — which reads as "no
+    twins" while two may be waiting. Not looked: null."""
+    ws, obs_id = route_ws
+    registry = ActionRegistry()
+    registry.register_all(build_builtin_actions(pool))
+    spec = registry.get("annotate_observable")
+    _, first = await _file(pool, registry, spec, ws, obs_id, note="same words")
+    await _file(pool, registry, spec, ws, obs_id, note="same words")
+
+    one = client.get(f"/api/proposals/{first['id']}", headers=_hdr(client)).json()
+
+    assert one["identical_pending"] is None
+
+
+async def test_a_failed_run_of_an_action_with_no_undo_is_not_promised_one(
+    pool, client, route_ws
+):
+    """Review of 203cccc: the 500 promised "undo will remove what landed" for
+    an action that declares no undo. It names the door that exists: keep."""
+    ws, obs_id = route_ws
+    app_spec = client.app.state.action_registry.get("annotate_observable")
+    no_undo = dataclasses.replace(app_spec, undo=None)
+
+    async def writes_then_dies(**kwargs):
+        await app_spec.execute(**kwargs)
+        raise RuntimeError("died after the write")
+
+    filing = ActionRegistry()
+    filing.register(dataclasses.replace(
+        build_builtin_actions(pool)[0], undo=None))
+    _, proposal = await _file(pool, filing, filing.get("annotate_observable"), ws, obs_id)
+    real = client.app.state.action_registry
+    client.app.state.action_registry = _with(no_undo, execute=writes_then_dies)
+    try:
+        resp = client.post(f"/api/proposals/{proposal['id']}/approve", headers=_hdr(client))
+    finally:
+        client.app.state.action_registry = real
+
+    detail = resp.json()["detail"]
+    assert resp.status_code == 500 and "keep" in detail and "undo will" not in detail

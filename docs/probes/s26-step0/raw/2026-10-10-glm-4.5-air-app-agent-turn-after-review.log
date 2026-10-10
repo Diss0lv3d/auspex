@@ -1,0 +1,43 @@
+S26 — the agent path through the running app
+==============================================================================
+
+[C  KB-shaped, no observable]  HTTP 200  wall 13.5s
+  path=agent mode=threat_intel contract_valid=True output_valid=True finish=stop
+  first frame at: {'session': 0.0, 'reasoning': 2.6, 'tool': 3.5, 'content': 9.7, 'done': 13.5}
+  units claimed: 2   usage: {'prompt_tokens': 2678, 'completion_tokens': 818, 'total_tokens': 3496}
+  tool: search_knowledge(Office macro scheduled task persistence) -> executed
+  tools before the answer: True
+  reasoning: 2029 chars   content: 2062 chars in 307 frames   errors: []
+  persisted == streamed content: True
+  answer: '\n## Summary\nThis scenario involves an adversary using an Office macro to create a scheduled task, representing a combination of persistence techniques. The attacker leverages Office application startup mechanisms (T1137.001) to establish persistence through scheduled task execution (T1053.005), likely aiming for long-term access to the finance workstation.\n\n## Key facts\n- **TTPs**: \n  - T1137.001: Office Template Macros - Adversaries abuse Office templates by inserting VBA macros that execute when Office applications start\n  - T1053.005: Scheduled Task - Uses Windows Task Scheduler to execute programs at system startup or on a scheduled basis for persistence\n- **Affected systems**: Finance w'
+
+[B' IOC narrative]  HTTP 200  wall 22.1s
+  path=agent mode=ioc_enrichment contract_valid=True output_valid=True finish=stop
+  first frame at: {'session': 0.0, 'reasoning': 2.3, 'tool': 5.3, 'content': 19.4, 'done': 22.1}
+  units claimed: 2   usage: {'prompt_tokens': 3007, 'completion_tokens': 859, 'total_tokens': 3866}
+  tool: enrich_observable(185.220.101.5) -> executed
+  tool: search_knowledge(Log4Shell exploitation) -> executed
+  tools before the answer: True
+  reasoning: 2163 chars   content: 1510 chars in 215 frames   errors: []
+  persisted == streamed content: True
+  answer: '\n## Indicators\n- 185.220.101.5 (IPv4 address)\n\n## Assessment\nThe IP address 185.220.101.5 has concerning characteristics:\n- **Reputation**: Malicious according to AbuseIPDB (100% confidence, 378 reports in last 90 days)\n- **Suspicious activity**: Associated with Tor exit nodes (OTX: 70% confidence, 50 threat pulse references)\n- **Payload pattern**: The string "${jndi:ldap://x}" is a classic Log4Shell exploitation attempt\n- **Target**: Payroll application - high-value target for financial gain\n\nThe combination of a malicious IP address with Tor exit node associations and a Log4Shell payload pattern strongly indicates this is a deliberate exploitation attempt. The confidence in the malicious a'
+
+[A  no-tool question]  HTTP 200  wall 8.0s
+  path=agent mode=threat_intel contract_valid=False output_valid=True finish=stop
+  first frame at: {'session': 0.0, 'reasoning': 5.5, 'content': 7.8, 'done': 8.0}
+  units claimed: 1   usage: {'prompt_tokens': 827, 'completion_tokens': 250, 'total_tokens': 1077}
+  tools before the answer: True
+  reasoning: 668 chars   content: 581 chars in 33 frames   errors: []
+  persisted == streamed content: True
+  answer: "\nI'd be happy to help you write a status update for your manager! However, I'll need some specific information about what you worked on this week to create an appropriate update. \n\nCould you please provide details such as:\n- What projects or tasks you completed\n- Any challenges you encountered and how you addressed them\n- Key accomplishments or milestones reached\n- Any blockers or issues that need attention\n- What you're planning for next week\n\nOnce you share these details, I can help you structure a professional status update that highlights your progress and contributions."
+
+[X  CEF alert (control)]  HTTP 200  wall 11.2s
+  path=model mode=alert_triage contract_valid=True output_valid=True finish=stop
+  first frame at: {'session': 0.0, 'reasoning': 2.3, 'content': 8.8, 'done': 11.2}
+  units claimed: 1   usage: {'prompt_tokens': 669, 'completion_tokens': 590, 'total_tokens': 1259}
+  tools before the answer: True
+  reasoning: 1857 chars   content: 715 chars in 146 frames   errors: []
+  persisted == streamed content: True
+  answer: '## Risk\nCRITICAL\n\n## Reasoning\nThe alert has a CRITICAL severity rating and contains multiple high-confidence indicators of malicious activity. The presence of a base64-encoded PowerShell command (powershell -enc SQBFAFgA) with high confidence (90%) and MITRE mapping to T1059.001 (Command and Scripting Interpreter: PowerShell) strongly suggests active malware execution. The deterministic scoring system has already evaluated these factors and assigned a CRITICAL risk level with a score of 90/100.\n\n## Recommendation\nEscalate immediately — contain the host and investigate the process tree. The alert is pending enrichment, so re-run after IOC verdicts populate; the score may shift based on addit'
+
+==============================================================================

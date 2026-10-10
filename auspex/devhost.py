@@ -26,6 +26,10 @@ def pin_host_defaults() -> None:
     # (NVD/KEV/EPSS) from every app start. Scheduler tests drive run_cycle()
     # directly with fake feeds; host-run live checks override INGEST_ENABLED=true.
     os.environ.setdefault("INGEST_ENABLED", "false")
+    # Hermetic tests: app startup would otherwise probe the configured LLM
+    # endpoint (D-038) whenever its fingerprint has no deployment scorecard —
+    # live inference from a test run. Autoprobe tests inject the probe.
+    os.environ.setdefault("LLM_AUTOPROBE_ENABLED", "false")
     # No LLM_BASE_URL pin: the primary dev endpoint (Z.ai's general API, D-034)
     # is a public URL that resolves identically from host and container, so .env
     # is the single source of truth. Only if you flip .env back to the local

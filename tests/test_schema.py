@@ -1,5 +1,7 @@
 """Schema v0 invariants, asserted against the live database (reality over memory)."""
 
+import re
+
 import asyncpg
 
 from auspex.db import create_pool
@@ -227,3 +229,42 @@ async def test_messages_role_is_constrained(client, settings):
     finally:
         await conn.execute("DELETE FROM workspaces WHERE name = 't-schema'")
         await conn.close()
+
+
+async def test_startup_survives_every_status_a_proposal_can_be_in(client, settings):
+    """S26 review, HIGH: every boot re-runs every migration, and an earlier block
+    that re-adds the status CHECK with an older list validated every existing
+    row against it. One `incomplete` row (TD-028b) — then a restart — and the
+    whole migration rolled back: the app could not start. Idempotence was only
+    ever tested on rows that had no new status in them.
+
+    So: one row in EVERY status the constraint allows, then the startup
+    migration, twice. The list is read from the live constraint itself, so a
+    status added later is covered without editing this test."""
+    conn = await _connect(settings)
+    try:
+        definition = await conn.fetchval(
+            "SELECT pg_get_constraintdef(oid) FROM pg_constraint"
+            " WHERE conname = 'proposals_status_check'"
+        )
+        statuses = re.findall(r"'([a-z_]+)'::text", definition)
+        assert {"incomplete", "abandoned", "pending_approval"} <= set(statuses)
+        ws = await conn.fetchval(
+            "INSERT INTO workspaces (name) VALUES ('t-every-status') RETURNING id"
+        )
+        for status in statuses:
+            await conn.execute(
+                "INSERT INTO proposals (workspace_id, tool_name, tool_level, tool_input, status)"
+                " VALUES ($1, 'annotate_observable', 'write', '{}'::jsonb, $2)",
+                ws, status,
+            )
+    finally:
+        await conn.close()
+
+    pool = await create_pool(settings.database_url, retries=2, delay=0.5)
+    try:
+        await run_migrations(pool)
+        await run_migrations(pool)
+    finally:
+        await pool.execute("DELETE FROM workspaces WHERE name = 't-every-status'")
+        await pool.close()

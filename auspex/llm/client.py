@@ -35,11 +35,32 @@ from auspex.config import Settings
 
 
 class LLMError(Exception):
-    """HTTP-level failure from the endpoint. Message is best-effort extracted."""
+    """HTTP-level failure from the endpoint. Message is best-effort extracted.
 
-    def __init__(self, status: int, message: str):
+    `str(err)` carries the provider's own error body, which can name the model
+    and the provider. It is for the server, never the analyst (TD-040): what an
+    analyst is shown is `public`, and what is logged is `status` and `code`."""
+
+    def __init__(self, status: int, message: str, *, code: str | None = None):
         self.status = status
+        self.code = code  # the provider's error code, when its envelope has one
         super().__init__(f"LLM endpoint error {status}: {message}")
+
+    @property
+    def public(self) -> str:
+        """The failure in the platform's words: what class of thing went wrong,
+        never the provider's text (D-002)."""
+        if self.status == 0:
+            kind = "could not be reached"
+        elif self.status in (401, 403):
+            kind = "refused the platform's credentials"
+        elif self.status == 429:
+            kind = "is busy (rate-limited)"
+        elif 400 <= self.status < 500:
+            kind = "rejected the request"
+        else:
+            kind = "failed"
+        return f"The platform's engine {kind}. No answer was saved — try again in a moment."
 
 
 class LLMUnreachable(LLMError):
@@ -57,8 +78,16 @@ class ToolCall:
     arguments: str = ""  # raw JSON string, per OpenAI convention (probe finding 3)
 
     def parse_arguments(self) -> dict[str, Any]:
-        """Raises ValueError on malformed JSON — callers decide how to score it."""
-        parsed = json.loads(self.arguments or "{}")
+        """Raises ValueError on malformed JSON — callers decide how to score it.
+
+        Including JSON nested past the parser's depth, which raises
+        RecursionError: every caller catches ValueError, so a model that nested
+        its arguments ~10k deep killed the whole turn instead of one step
+        (review of 1b86070)."""
+        try:
+            parsed = json.loads(self.arguments or "{}")
+        except RecursionError as err:
+            raise ValueError("tool arguments nested too deeply") from err
         if not isinstance(parsed, dict):
             raise ValueError(f"tool arguments not an object: {type(parsed).__name__}")
         return parsed
@@ -108,13 +137,16 @@ def tool_spec(name: str, description: str, properties: dict, required: list[str]
 def _extract_error(status: int, content_type: str, text: str) -> LLMError:
     """Finding 0: error bodies may be JSON envelopes or raw text — never assume."""
     message = text.strip()[:500]
+    code = None
     if "json" in content_type:
         try:
             envelope = json.loads(text)
-            message = str((envelope.get("error") or {}).get("message") or message)
-        except ValueError:
+            error = envelope.get("error") or {}
+            message = str(error.get("message") or message)
+            code = str(error["code"]) if error.get("code") is not None else None
+        except (ValueError, AttributeError):
             pass
-    return LLMError(status, message)
+    return LLMError(status, message, code=code)
 
 
 def _thinking(part: dict[str, Any]) -> str:

@@ -63,6 +63,10 @@ EXECUTABLE_SYSTEMS = frozenset({"auspex"})
 # a firewall rule change has a different honest ceiling than a note.
 STALE_CLAIM_SECONDS = 300
 
+# The statuses a put-back may start from (TD-028c): the action ran, or what it
+# left behind is unknown. Not `failed` — that one looked and found nothing.
+UNDOABLE_FROM = frozenset({"executed", "incomplete", "kept", "abandoned"})
+
 
 class Settlement(StrEnum):
     """Why a settle attempt ended the way it did — distinguishable in code, so a
@@ -173,6 +177,16 @@ class ProposalSettlement:
         any other, so it comes back from the same query rather than from a
         second endpoint nobody would call.
 
+        Each pending row carries `identical_pending` (TD-028d): the other
+        requests awaiting a decision in this workspace for the same action, with
+        the same arguments, under the same declaration. Not a dedupe — whether a
+        second identical intent was a mistake is the human's call (D-014) — but
+        an approver must be able to see they are being asked twice.
+
+        An `incomplete` row belongs here as well (TD-028b): a run failed after
+        some of its effects landed, or the action cannot look, and only a human
+        can decide whether to put them back.
+
         Deliberately NOT a reaper. A timer cannot know whether the handler ran
         before the process died, so anything it decided would be a guess: back
         to `approved` invites a second run of a half-run action, `failed` claims
@@ -182,13 +196,26 @@ class ProposalSettlement:
         """
         rows = await self._pool.fetch(
             """
-            SELECT * FROM proposals
-            WHERE workspace_id = $1::uuid
-              AND (status = 'pending_approval'
-                   OR (claimed_at IS NOT NULL
-                       AND claimed_at < now() - make_interval(secs => $3::double precision)))
-            ORDER BY created_at DESC
-            LIMIT $2
+            SELECT p.*,
+                   CASE WHEN p.status = 'pending_approval' THEN ARRAY(
+                       SELECT q.id FROM proposals q
+                        WHERE q.workspace_id = p.workspace_id
+                          AND q.status = 'pending_approval'
+                          AND q.id <> p.id
+                          AND q.tool_name = p.tool_name
+                          AND md5(q.tool_input::text) = md5(p.tool_input::text)
+                          AND q.tool_input = p.tool_input
+                          AND q.spec_fingerprint IS NOT DISTINCT FROM p.spec_fingerprint
+                        ORDER BY q.created_at
+                        LIMIT 20
+                   ) ELSE ARRAY[]::uuid[] END AS identical_pending
+              FROM proposals p
+             WHERE p.workspace_id = $1::uuid
+               AND (p.status IN ('pending_approval', 'incomplete')
+                    OR (p.claimed_at IS NOT NULL
+                        AND p.claimed_at < now() - make_interval(secs => $3::double precision)))
+             ORDER BY p.created_at DESC
+             LIMIT $2
             """,
             str(workspace_id),
             limit,
@@ -215,11 +242,18 @@ class ProposalSettlement:
         working, and killing it from under itself would manufacture the
         half-executed row this state exists to describe. Same claim-first device
         as `settle` — the WHERE clause is the whole guarantee.
+
+        `abandoned_from` records WHICH operation was given up on (TD-034): the
+        SET list reads the row as it was, so `status` there is the claim's —
+        `executing` or `undoing` — at the instant it is replaced. And
+        `abandoned_token` records WHICH CLAIM: the only one whose late answer
+        may still land (S26 review of D-041).
         """
         row = await self._pool.fetchrow(
             """
             UPDATE proposals
-               SET status = 'abandoned', claimed_at = NULL,
+               SET status = 'abandoned', abandoned_from = status,
+                   abandoned_token = claim_token, claim_token = NULL, claimed_at = NULL,
                    decided_at = now(), decided_by = $3::uuid
              WHERE id = $1::uuid
                AND workspace_id = $2::uuid
@@ -231,6 +265,42 @@ class ProposalSettlement:
             str(workspace_id),
             str(decided_by) if decided_by is not None else None,
             float(STALE_CLAIM_SECONDS),
+        )
+        if row is not None:
+            return SettleResult(Settlement.CLAIMED, _as_dict(row))
+        current = await self.get(workspace_id=workspace_id, proposal_id=proposal_id)
+        if current is None:
+            return SettleResult(Settlement.NOT_FOUND)
+        return SettleResult(
+            Settlement.ALREADY_DECIDED, current, current_status=current["status"]
+        )
+
+    async def keep(
+        self,
+        *,
+        workspace_id: UUID | str,
+        proposal_id: UUID | str,
+        decided_by: UUID | str | None,
+    ) -> SettleResult:
+        """A human looked at an incomplete run and keeps what landed.
+
+        `incomplete` joined the queue with ONE door out — undo — so a human who
+        wanted what landed to stay had no way to say so, and an action that
+        declares no undo could never leave the queue at all (S26 review of
+        D-041). This is that decision, claim-first like `settle` and `abandon`,
+        recorded with who made it. It is not a lock: a kept run can still be put
+        back (UNDOABLE_FROM).
+        """
+        row = await self._pool.fetchrow(
+            """
+            UPDATE proposals
+               SET status = 'kept', decided_at = now(), decided_by = $3::uuid
+             WHERE id = $1::uuid AND workspace_id = $2::uuid AND status = 'incomplete'
+            RETURNING *
+            """,
+            str(proposal_id),
+            str(workspace_id),
+            str(decided_by) if decided_by is not None else None,
         )
         if row is not None:
             return SettleResult(Settlement.CLAIMED, _as_dict(row))
@@ -407,9 +477,10 @@ class ActionExecutor:
         # proposal is the same race as two approvers, and gets the same answer.
         claimed = await self._pool.fetchrow(
             """
-            UPDATE proposals SET status = 'executing', claimed_at = now()
+            UPDATE proposals
+               SET status = 'executing', claimed_at = now(), claim_token = gen_random_uuid()
              WHERE id = $1::uuid AND workspace_id = $2::uuid AND status = 'approved'
-            RETURNING id
+            RETURNING claim_token
             """,
             str(proposal_id),
             str(workspace_id),
@@ -426,16 +497,22 @@ class ActionExecutor:
                 workspace_id=workspace_id, proposal_id=str(proposal_id), **args
             )
         except Exception as exc:
+            # TD-028b: a raise is not "nothing happened". The handler may have
+            # written before it died, so ask the action what of THIS proposal's
+            # exists. Only a look that found nothing earns `failed`.
+            effects = await _effects(spec, workspace_id, proposal_id, args)
             await self._finish_claim(
                 proposal_id,
+                claimed["claim_token"],
                 from_status="executing",
-                to_status="failed",
+                to_status="failed" if effects == "none" else "incomplete",
                 column="result",
-                payload={"error": type(exc).__name__},
+                payload={"error": type(exc).__name__, "effects": effects},
             )
             raise
         await self._finish_claim(
             proposal_id,
+            claimed["claim_token"],
             from_status="executing",
             to_status="executed",
             column="result",
@@ -446,6 +523,7 @@ class ActionExecutor:
     async def _finish_claim(
         self,
         proposal_id: UUID | str,
+        token: UUID,
         *,
         from_status: str,
         to_status: str,
@@ -469,7 +547,21 @@ class ActionExecutor:
         The claim is the right to write the answer. When it has been taken, the
         answer is still recorded — on the row the human already owns, without
         moving it. `abandoned` says the answer was lost; this is that answer
-        arriving late, which is strictly more than the human had before.
+        arriving late, which is strictly more than the human had before. Only
+        the answer for the operation that WAS abandoned (TD-034): an undo's late
+        answer on a row whose run was abandoned is an answer for an undo that
+        never began.
+
+        **Which claim is a TOKEN, not a status** (S26 review of D-041). Once
+        undo could start from `abandoned`, two undos could be in flight on one
+        row, and matching the claim by `status = 'undoing'` let an abandoned
+        undo's late failure finish the FRESH undo's claim — the row went back
+        to `executed` with the note already removed. The first statement now
+        lands only for the claim that still holds the row; the late-write only
+        for the claim a human abandoned (`abandoned_token`), into its own
+        column if that is still empty, WHATEVER the row has become since — an
+        `undone` row whose run answered late is a row that says so (D-041's
+        stated bound, made visible instead of dropped).
 
         Returns True if the claim was still held.
         """
@@ -487,8 +579,9 @@ class ActionExecutor:
                    result = CASE WHEN $5 THEN $2::jsonb ELSE result END,
                    undo_result = CASE WHEN $5 THEN undo_result ELSE $2::jsonb END,
                    undone_at = CASE WHEN $6 THEN now() ELSE undone_at END,
-                   claimed_at = NULL
-             WHERE id = $1::uuid AND status = $4
+                   claimed_at = NULL,
+                   claim_token = NULL
+             WHERE id = $1::uuid AND status = $4 AND claim_token = $7::uuid
             RETURNING id
             """,
             str(proposal_id),
@@ -497,6 +590,7 @@ class ActionExecutor:
             from_status,
             is_result,
             stamp_undone_at,
+            str(token),
         )
         if won is not None:
             return True
@@ -506,31 +600,65 @@ class ActionExecutor:
                SET result = CASE WHEN $3 THEN $2::jsonb ELSE result END,
                    undo_result = CASE WHEN $3 THEN undo_result ELSE $2::jsonb END
              WHERE id = $1::uuid
-               AND status = 'abandoned'
+               AND abandoned_token = $4::uuid
                AND (CASE WHEN $3 THEN result ELSE undo_result END) IS NULL
             """,
             str(proposal_id),
             json.dumps(payload),
             is_result,
+            str(token),
         )
         return False
 
     async def undo(self, *, workspace_id: UUID | str, proposal_id: UUID | str) -> ActionOutcome:
-        """Put an executed action back.
+        """Put an action back — an executed one, or one whose effects are
+        unknown (TD-028c).
 
         An undo that is declared and never run is a promise nobody checked, which
         is why TD-023 called this out and why the executed path ships with a test
         that actually runs it.
+
+        **Where a put-back may start.** `executed` (the S18 path); `incomplete`,
+        a run that failed after something of it landed or could not look
+        (TD-028b); and `abandoned`, a claim a human gave up on, whose effects
+        nobody knows. The last two are exactly the rows whose cleanup the old
+        gate (`status = 'executed'`) shut — while `put_back`, keyed on the
+        proposal, would have removed exactly the orphaned effects. Not
+        `failed`: the action looked and nothing of it landed, so there is
+        nothing to put back, and `undone` would report a put-back of nothing.
+
+        **The claim moves the row only out of the status the read saw.** That
+        status is also where a failed put-back RETURNS: before S26 every failed
+        undo went back to `executed`, which for a cleanup of an incomplete run
+        would claim a success that never happened.
+
+        Bound, stated: a row abandoned during a run whose handler is merely slow
+        (TD-028a) can be put back while that handler is still alive, and a write
+        it lands afterwards outlives the undo. Abandon requires a claim older
+        than STALE_CLAIM_SECONDS, and every action that can run today is a single
+        local statement.
         """
         proposal = await self._settlement.get(
             workspace_id=workspace_id, proposal_id=proposal_id
         )
         if proposal is None:
             raise ExecutionRefused("not_found", "no such proposal in this workspace")
-        if proposal["status"] != "executed":
+        was = proposal["status"]
+        if was == "failed" and (proposal["result"] or {}).get("effects") == "none":
+            raise ExecutionRefused(
+                "nothing_to_undo",
+                "the action failed and checked that nothing of it landed — there is "
+                "nothing to put back",
+            )
+        # A `failed` row with no `effects` predates the look (written before
+        # 203cccc): nothing was checked, so it is treated like `incomplete` —
+        # the S19 reproduction of TD-028b is exactly such a row (S26 review).
+        legacy_failure = was == "failed"
+        if was not in UNDOABLE_FROM and not legacy_failure:
             raise ExecutionRefused(
                 "not_executed",
-                f"proposal is {proposal['status']} — only an executed action can be undone",
+                f"proposal is {was} — only an executed, incomplete, kept or "
+                "abandoned action can be put back",
             )
         spec = self._registry.get(proposal["tool_name"])
         if spec is None or spec.undo is None:
@@ -538,14 +666,19 @@ class ActionExecutor:
                 "no_undo",
                 f"{proposal['tool_name']} declares no undo — it cannot be put back",
             )
+        # A fresh put-back starts with an empty answer: an earlier attempt's
+        # result is not this attempt's (S26 review of D-041).
         claimed = await self._pool.fetchrow(
             """
-            UPDATE proposals SET status = 'undoing', claimed_at = now()
-             WHERE id = $1::uuid AND workspace_id = $2::uuid AND status = 'executed'
-            RETURNING id
+            UPDATE proposals
+               SET status = 'undoing', claimed_at = now(),
+                   claim_token = gen_random_uuid(), undo_result = NULL
+             WHERE id = $1::uuid AND workspace_id = $2::uuid AND status = $3
+            RETURNING claim_token
             """,
             str(proposal_id),
             str(workspace_id),
+            was,
         )
         if claimed is None:
             raise ExecutionRefused("already_undone", "this proposal is already being undone")
@@ -557,14 +690,16 @@ class ActionExecutor:
         except Exception as exc:
             await self._finish_claim(
                 proposal_id,
+                claimed["claim_token"],
                 from_status="undoing",
-                to_status="executed",
+                to_status=was,
                 column="undo_result",
                 payload={"error": type(exc).__name__},
             )
             raise
         await self._finish_claim(
             proposal_id,
+            claimed["claim_token"],
             from_status="undoing",
             to_status="undone",
             column="undo_result",
@@ -572,6 +707,29 @@ class ActionExecutor:
             stamp_undone_at=True,
         )
         return outcome
+
+
+async def _effects(
+    spec: ActionSpec, workspace_id: UUID | str, proposal_id: UUID | str, args: dict
+) -> str:
+    """What of one proposal's effects exist after its handler raised: 'none',
+    'present', or 'unknown'. Unknown whenever the action cannot look, or the
+    look itself fails — a failed look is not evidence of absence."""
+    if spec.observe is None:
+        return "unknown"
+    try:
+        found = await spec.observe(
+            workspace_id=workspace_id, proposal_id=str(proposal_id), **args
+        )
+    except Exception:
+        return "unknown"
+    # "Nothing landed" is a claim, and only a count of zero makes it: a probe
+    # that forgot its `return` gives None, which is falsy and would read as
+    # `failed` while the write sits in the table (S26 review). bool is an int
+    # subclass and is not a count either.
+    if type(found) is not int or found < 0:
+        return "unknown"
+    return "present" if found > 0 else "none"
 
 
 def _outcome_json(outcome: ActionOutcome) -> dict:
@@ -586,6 +744,7 @@ def _outcome_json(outcome: ActionOutcome) -> dict:
 __all__ = [
     "EXECUTABLE_SYSTEMS",
     "STALE_CLAIM_SECONDS",
+    "UNDOABLE_FROM",
     "ActionExecutor",
     "ExecutionRefused",
     "ProposalSettlement",

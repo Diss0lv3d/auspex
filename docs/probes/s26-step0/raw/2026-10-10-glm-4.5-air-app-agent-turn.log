@@ -1,0 +1,44 @@
+S26 — the agent path through the running app
+==============================================================================
+
+[C  KB-shaped, no observable]  HTTP 200  wall 12.4s
+  path=agent mode=threat_intel contract_valid=True output_valid=True finish=stop
+  first frame at: {'session': 0.0, 'reasoning': 2.2, 'tool': 2.7, 'content': 8.2, 'done': 12.4}
+  units claimed: 2   usage: {'prompt_tokens': 2500, 'completion_tokens': 719, 'total_tokens': 3219}
+  tool: search_knowledge({'query': 'Office macro scheduled task creation ATT&CK'}) -> executed
+  tools before the answer: True
+  reasoning: 1550 chars   content: 1818 chars in 285 frames   errors: []
+  persisted == streamed content: True
+  answer: '\n## Summary\nThis scenario involves an Office macro creating a scheduled task on a finance workstation, which maps to ATT&CK techniques T1137.001 (Office Template Macros) and T1053.005 (Scheduled Task). This is a classic persistence technique where adversaries use legitimate system features to maintain access.\n\n## Key facts\n- **T1137.001**: Office Template Macros - Adversaries abuse Microsoft Office templates to execute VBA code when Office applications start\n- **T1053.005**: Scheduled Task - Adversaries use Windows Task Scheduler to create scheduled tasks for initial or recurring execution of malicious code\n- The combination indicates the macro likely created a scheduled task to execute mali'
+
+[B' IOC narrative]  HTTP 200  wall 20.6s
+  path=agent mode=ioc_enrichment contract_valid=True output_valid=True finish=stop
+  first frame at: {'session': 0.0, 'reasoning': 2.8, 'tool': 6.2, 'content': 17.9, 'done': 20.6}
+  units claimed: 3   usage: {'prompt_tokens': 5484, 'completion_tokens': 922, 'total_tokens': 6406}
+  tool: enrich_observable({'observables': ['185.220.101.5']}) -> executed
+  tool: search_knowledge({'query': 'Log4Shell'}) -> executed
+  tool: search_knowledge({'query': 'CVE-2021-44228'}) -> executed
+  tools before the answer: True
+  reasoning: 2244 chars   content: 1385 chars in 199 frames   errors: []
+  persisted == streamed content: True
+  answer: '\n## Indicators\n- **185.220.101.5** (IPv4 address)\n\n## Assessment\nThe IP address 185.220.101.5 shows concerning signals:\n- **AbuseIPDB**: Malicious (100% confidence, 378 reports in last 90 days)\n- **OTX**: Suspicious (70% confidence, associated with Tor exit nodes)\n- **InternetDB**: Unknown but flagged as Tor exit node\n\nThe observed pattern "${jndi:ldap://x}" is a classic Log4Shell exploitation attempt targeting CVE-2021-44228. This is a CRITICAL severity vulnerability (CVSS 10.0) with extremely high exploit probability (EPSS 0.99999) and is known to be exploited by ransomware actors.\n\n**Confidence**: High - The combination of malicious IP reputation and the exact Log4Shell exploitation patte'
+
+[A  no-tool question]  HTTP 200  wall 6.4s
+  path=agent mode=threat_intel contract_valid=False output_valid=True finish=stop
+  first frame at: {'session': 0.0, 'reasoning': 2.7, 'content': 6.1, 'done': 6.4}
+  units claimed: 1   usage: {'prompt_tokens': 827, 'completion_tokens': 249, 'total_tokens': 1076}
+  tools before the answer: True
+  reasoning: 652 chars   content: 594 chars in 34 frames   errors: []
+  persisted == streamed content: True
+  answer: "\nI'd be happy to help you write a status update for your manager! However, I'll need some more specific information about your week to create an accurate and useful update. Could you please share:\n\n- What projects or tasks you worked on this week\n- Key accomplishments or deliverables completed\n- Any challenges or blockers you encountered\n- Progress toward goals or milestones\n- What you're planning to focus on next week\n\nOnce you provide these details, I can help you structure a professional status update that highlights your contributions and keeps your manager informed of your progress."
+
+[X  CEF alert (control)]  HTTP 200  wall 12.1s
+  path=model mode=alert_triage contract_valid=True output_valid=True finish=stop
+  first frame at: {'session': 0.0, 'reasoning': 2.9, 'content': 10.4, 'done': 12.1}
+  units claimed: 1   usage: {'prompt_tokens': 669, 'completion_tokens': 463, 'total_tokens': 1132}
+  tools before the answer: True
+  reasoning: 1504 chars   content: 441 chars in 93 frames   errors: []
+  persisted == streamed content: True
+  answer: '## Risk — CRITICAL\n## Reasoning — The alert has a CRITICAL severity rating, high confidence (90%), contains an encoded PowerShell command line, involves a suspicious/dual-use process, and maps to MITRE technique T1059.001 (Command and Scripting Interpreter: PowerShell).\n## Recommendation — Escalate immediately — contain the host and investigate the process tree. · ⏳ pending enrichment — re-run after IOC verdicts populate; score may shift'
+
+==============================================================================

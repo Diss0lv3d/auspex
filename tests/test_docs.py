@@ -76,14 +76,19 @@ def test_the_readme_does_not_promise_what_the_code_does_not_do():
     assert 'EXECUTABLE_SYSTEMS = frozenset({"auspex"})' in settlement
     assert "`EXECUTABLE_SYSTEMS` is `{\"auspex\"}`" in readme
 
-    # The README must keep saying the deep path is not wired to the agent loop
-    # for as long as that is true. If someone wires it, this fails and they are
-    # sent here to update the honesty section deliberately.
+    # S26 wired the agent loop into the deep path (D-037). What the README now
+    # promises about it — which turns, which endpoints, how long the narration
+    # hold is — is pinned to the code that decides each one, so changing the
+    # rule fails here and sends the change to the honesty section.
     chat = (ROOT / "auspex" / "routes" / "chat.py").read_text()
-    if "AgentLoop" not in chat:
-        assert "conversational-only" in readme, (
-            "the deep path is still conversational-only but the README stopped saying so"
-        )
+    loop = (ROOT / "auspex" / "agent" / "loop.py").read_text()
+    assert "conversational-only" not in readme, "the deep path is wired; the README says not"
+    assert "only on an endpoint measured to call them" in readme
+    assert 'endpoint.agent_mode == "native_tools"' in chat
+    assert "never take it" in readme
+    assert "CODE_DECIDED_MODES = frozenset({Mode.ALERT_TRIAGE, Mode.PHISHING_ANALYSIS})" in chat
+    assert "first 400 characters" in readme
+    assert "NARRATION_HOLD_CHARS = 400" in loop
 
 
 def test_the_demo_only_calls_routes_that_exist():

@@ -368,6 +368,50 @@ may not grow mid-session (IDEAS.md exists for that).
   stays deployable. TD-036 logged. 1073 tests; 119 modules; zero new env vars —
   twelve sessions running.
 
+- [x] **S26 — a new engine, the agent path wired, and what a decision's end
+  states mean.**
+  - **Detour.** Resumed after eight weeks to find the dev LLM gone (Scout's host
+    NXDOMAIN). The day went to replacing it:
+    - **D-033:** the base URL is the provider's documented root.
+    - **D-034:** glm-4.5-air on Z.ai's general pay-as-you-go API.
+    - **D-035:** the default endpoint's scorecard is the deployment's.
+    - **D-036:** a two-pass turn whose endpoint thinks becomes a native turn.
+    - Promote #27 shipped all four.
+  - **Goal item 1, re-measured on the new model:** 0 refusals in 25 tools-on
+    runs. The proposed "only with an observable" clause protected nothing and
+    held back the KB from the questions it helps most (the agent labelled
+    ATT&CK IDs right 3/3; the conversational path mislabelled one in 2 of 3).
+    **D-037:** any deep turn the code has not already decided takes the agent
+    path, on an endpoint measured to call tools natively and stream them.
+  - **Goal item 2: `/api/chat` runs the agent loop.**
+    - Per-call usage claims, live: units == calls.
+    - The rail indexes the composed message.
+    - Tool steps stream as server-rendered lines, scanned on one literal channel.
+    - The narration that precedes a tool call is held and shown as process
+      (TD-036).
+    - The README honesty section is pinned to the code.
+    - Two adversarial reviews: 8 defects fixed, including unbounded third-party
+      enrichment per turn.
+  - **Burhan delegated TD-037–040; all four resolved.**
+    - **D-038:** the deployment probes its own endpoint once per fingerprint
+      (LLM_AUTOPROBE_ENABLED).
+    - **D-039:** the agent sends third parties only indicators someone other
+      than the model supplied.
+    - Brand-safe endpoint errors (TD-040).
+    - Tool descriptions indexed after calibration (TD-038).
+    - The calibration found a live rail defect: a thinking model quotes its
+      instructions while reasoning (19–28 words), and the floor of 8 cut those
+      legitimate turns. **D-040** gives thinking its own floor of 40.
+  - **Goal item 4 → D-041, what a proposal's terminal states say.** `failed` is
+    checked (`observe`), anything uncertain is `incomplete`, and a human can put
+    it back or keep it; identical requests are named, never merged; claims are
+    tokens. A review found 8 more defects, all fixed, including one HIGH: a
+    second migration block that stopped the app booting with one `incomplete`
+    row.
+  - Every change was verified live through the running app. Goal item 5
+    (TD-012b) was not started.
+  - 1217 tests; 120 modules; two new env vars (GLM_API_KEY, LLM_AUTOPROBE_ENABLED).
+
 ## Later / explicitly deferred
 Herd Immunity federation (needs k≥3 workspaces + privacy review) · billing ·
 i18n · admin console · Python SDK public packaging · KSA residency routing.

@@ -148,6 +148,19 @@ def annotate_observable_spec(pool: asyncpg.Pool) -> ActionSpec:
             detail={"removed": len(removed)},
         )
 
+    async def count_mine(*, workspace_id, proposal_id: str, **_) -> int:
+        """How many notes THIS proposal created — the same key `put_back` uses,
+        so "what landed" and "what an undo removes" are one set (TD-028b)."""
+        return await pool.fetchval(
+            """
+            SELECT count(*) FROM observable_notes
+             WHERE workspace_id = $1::uuid AND proposal_id = $2::uuid AND source = $3
+            """,
+            str(workspace_id),
+            str(proposal_id),
+            NOTE_SOURCE,
+        )
+
     return ActionSpec(
         name="annotate_observable",
         description="Attach an analyst note to an observable in this workspace",
@@ -173,6 +186,7 @@ def annotate_observable_spec(pool: asyncpg.Pool) -> ActionSpec:
             handler=put_back,
             restores="the observable's notes as they were before this action",
         ),
+        observe=count_mine,
     )
 
 

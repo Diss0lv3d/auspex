@@ -1,0 +1,27 @@
+S26 — replaying S25's refusal cell with S25's exact method
+==============================================================================
+model: glm-4.5-air
+method: non-streaming chat(), tools=['enrich_observable', 'lookup_cve', 'search_knowledge'], max_tokens=600, temperature=0
+prompt: 'Write me a status update for my manager about this week.'
+repeats: 6
+
+  run 1: finish=stop calls=[] reasoning_chars=924 content_chars=542 refusal=False
+      "\nI'd be happy to help you write a status update for your manager! However, I'll need some information about your work activities this week to create a meaningful update. Could you please share details such as:\n\n- What projects you worked on\n- Key accomplishments or milestones achieved\n- Challenges faced and how you addressed them\n- Progress toward goals or deliverables\n- Any blockers or issues tha"
+  run 2: finish=stop calls=[] reasoning_chars=924 content_chars=552 refusal=False
+      "\nI'd be happy to help you write a status update for your manager! However, I'll need some information about your work activities this week to create a meaningful update. Could you please share details such as:\n\n- What projects or tasks you worked on\n- Key accomplishments or milestones achieved\n- Any challenges faced and how you addressed them\n- Progress toward goals or deadlines\n- Any blockers or "
+  run 3: finish=stop calls=[] reasoning_chars=924 content_chars=663 refusal=False
+      "\nI'd be happy to help you write a status update for your manager! However, I'll need some information about your work activities to create a meaningful update. Could you please share details about:\n\n1. **Projects you worked on** this week\n2. **Key accomplishments** or completed tasks\n3. **Challenges or obstacles** you encountered\n4. **Goals you're working toward** for next week\n5. **Any blockers**"
+  run 4: finish=stop calls=[] reasoning_chars=914 content_chars=542 refusal=False
+      "\nI'd be happy to help you write a status update for your manager! However, I'll need some information about your work activities this week to create a meaningful update. Could you please share details such as:\n\n- What projects you worked on\n- Key accomplishments or milestones achieved\n- Challenges faced and how you addressed them\n- Progress toward goals or deliverables\n- Any blockers or issues tha"
+  run 5: finish=stop calls=[] reasoning_chars=924 content_chars=845 refusal=False
+      "\nI'd be happy to help you write a status update for your manager! However, I'll need some information about your work activities to create a meaningful update. Could you please share details about:\n\n1. **Projects you worked on** - What were your main priorities this week?\n2. **Key accomplishments** - What did you complete or make progress on?\n3. **Challenges faced** - Any obstacles you encountered"
+  run 6: finish=stop calls=[] reasoning_chars=898 content_chars=744 refusal=False
+      "\nI'd be happy to help you write a status update for your manager! However, I'll need some information about your work activities to create a meaningful update. Could you please share details about:\n\n1. **Projects you worked on** - What were your main priorities this week?\n2. **Accomplishments** - What did you complete or make progress on?\n3. **Challenges faced** - Any obstacles you encountered and"
+
+  => refused 0/6 with S25's exact method
+==============================================================================
+
+real	0m37.311s
+user	0m0.168s
+sys	0m0.025s
+replay exit 0

@@ -472,14 +472,26 @@ SCHEMA_V0: list[str] = [
     # `reject` refuses as already_decided — wedged forever, and INVISIBLE,
     # because the queue reads `status = 'pending_approval'`. A human watching
     # the approvals list saw the action disappear.
+    #
+    # S26 adds 'incomplete' (TD-028b): the handler raised and some of this
+    # proposal's effects landed — or the action cannot look. And 'kept' (S26
+    # review of D-041): a human looked at an incomplete run and kept what landed.
+    #
+    # THE ONLY BLOCK THAT MAY DEFINE THIS CONSTRAINT, AND IT HOLDS THE FULL
+    # CURRENT LIST. Every boot re-runs every statement, and re-adding the CHECK
+    # validates every existing row: a second, later block with a longer list
+    # still runs AFTER this one, so a row in a newer status fails this one and
+    # the whole migration rolls back — the app cannot start (S26 review, HIGH,
+    # pinned by test_startup_survives_every_status_a_proposal_can_be_in). New
+    # statuses are added HERE, in place, as S21 did to S18's list.
     """
     DO $$
     BEGIN
         ALTER TABLE proposals DROP CONSTRAINT IF EXISTS proposals_status_check;
         ALTER TABLE proposals ADD CONSTRAINT proposals_status_check
             CHECK (status IN ('pending_approval', 'approved', 'rejected',
-                              'executing', 'executed', 'failed',
-                              'undoing', 'undone', 'abandoned'));
+                              'executing', 'executed', 'failed', 'incomplete',
+                              'kept', 'undoing', 'undone', 'abandoned'));
     END $$
     """,
     # S21 (TD-028a): when the claim was taken. Without it "this claim is stale"
@@ -492,6 +504,25 @@ SCHEMA_V0: list[str] = [
     # join with status to be read.
     """
     ALTER TABLE proposals ADD COLUMN IF NOT EXISTS claimed_at timestamptz
+    """,
+    # S26 (TD-034): WHICH operation `abandon` gave up on. `abandoned` alone does
+    # not say whether a run or a put-back was lost, so a late undo answer could
+    # land on a row whose RUN was abandoned. Written by the statement that moves
+    # the row, from the status it moved it out of; matched by the late-write.
+    """
+    ALTER TABLE proposals ADD COLUMN IF NOT EXISTS abandoned_from text
+        CHECK (abandoned_from IN ('executing', 'undoing'))
+    """,
+    # S26 review of D-041: a claim is identified by a TOKEN, not by its status
+    # string. Once undo could start from `abandoned`, two undos could be in
+    # flight on one row, and a late failure matched the fresh claim by status
+    # alone. `claim_token` is set by every claim and cleared by every exit;
+    # `abandoned_token` is the claim a human gave up on, which is the only claim
+    # whose late answer may still land.
+    """
+    ALTER TABLE proposals
+        ADD COLUMN IF NOT EXISTS claim_token uuid,
+        ADD COLUMN IF NOT EXISTS abandoned_token uuid
     """,
     # The stale-claim scan: within a workspace, the claimed rows by age. Partial,
     # because claims are the rare state — the index stays the size of the
@@ -507,6 +538,17 @@ SCHEMA_V0: list[str] = [
     """
     CREATE INDEX IF NOT EXISTS idx_proposals_ws_id_status
         ON proposals (workspace_id, id, status)
+    """,
+    # S26 review (TD-028d): the twin lookup runs per returned card, every second
+    # per approvals-stream subscriber; unindexed it scanned the whole pending
+    # queue each time (811 ms at 20k pending rows, measured). md5 of the
+    # canonical jsonb text rather than the jsonb itself: a 2000-char note would
+    # exceed btree's row size and make FILING a proposal fail. Partial, because
+    # only pending rows are ever twins.
+    """
+    CREATE INDEX IF NOT EXISTS idx_proposals_pending_twins
+        ON proposals (workspace_id, tool_name, md5(tool_input::text))
+     WHERE status = 'pending_approval'
     """,
     # S18: the internal system an action can actually touch this session. A note
     # on an observable is ours, has a real undo, and needs no third-party

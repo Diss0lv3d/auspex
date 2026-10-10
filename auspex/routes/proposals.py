@@ -3,8 +3,9 @@
 GET  /api/proposals                  — what is waiting, each with its card
 POST /api/proposals/{id}/approve     — claim it, then run it
 POST /api/proposals/{id}/reject      — claim it, and do not
-POST /api/proposals/{id}/undo        — put an executed action back
+POST /api/proposals/{id}/undo        — put back an executed, incomplete or abandoned action
 POST /api/proposals/{id}/abandon     — declare a dead claim dead (TD-028a)
+POST /api/proposals/{id}/keep        — keep what an incomplete run left (D-041)
 
 Four things about this surface are deliberate:
 
@@ -96,12 +97,48 @@ def _public(row: dict) -> dict:
         # with a claim five minutes old is the one thing an approver must be
         # able to tell apart from a run that started a second ago (TD-028a).
         "claimed_at": row["claimed_at"].isoformat() if row.get("claimed_at") else None,
+        # Which operation a human gave up on (TD-034): `executing` or `undoing`.
+        "abandoned_from": row.get("abandoned_from"),
+        # The other requests awaiting a decision that ask exactly this (TD-028d)
+        # — computed only by the queue read. Where nobody looked it is null,
+        # never [] (which would read as "no twins").
+        "identical_pending": (
+            [str(i) for i in row["identical_pending"]] if "identical_pending" in row else None
+        ),
         "arguments": row["tool_input"],
         "card": row["card"],
         "spec_fingerprint": row["spec_fingerprint"],
         "result": row["result"],
         "undo_result": row["undo_result"],
     }
+
+
+# What a failed run's 500 says, by what the action found (TD-028b). The status
+# alone read as "nothing happened" when the write had landed.
+_EFFECTS_COPY = {
+    "none": "the action checked and nothing of it landed",
+    "present": "part of it landed before it failed",
+    "unknown": "it cannot tell whether any of it landed",
+}
+
+
+def _failure_detail(row: dict | None, can_put_back: bool) -> str:
+    """Names the door that exists (S26 review): undo only where the action
+    declares one, and keep — for what landed — always."""
+    if row is None:
+        return "the action was approved and failed while running"
+    effects = (row.get("result") or {}).get("effects")
+    found = _EFFECTS_COPY.get(effects, "its effects were not checked")
+    if effects in ("present", "unknown"):
+        found += (
+            " — undo will remove what landed, or keep it as it is"
+            if can_put_back
+            else " — this action declares no undo: keep it as it is, or clean up by hand"
+        )
+    return (
+        f"the action was approved and failed while running: {found}; "
+        f"its proposal is {row['status']}"
+    )
 
 
 def _settlement(request: Request) -> ProposalSettlement:
@@ -245,6 +282,28 @@ async def abandon(request: Request, auth: Auth, proposal_id: UUID) -> dict:
     return {"settled": "abandoned", "proposal": _public(result.proposal)}
 
 
+@router.post("/{proposal_id}/keep")
+async def keep(request: Request, auth: Auth, proposal_id: UUID) -> dict:
+    """Keep what an incomplete run left (S26 review of D-041).
+
+    The run failed after some of it landed, or could not look; a human has
+    looked and keeps it. Without this an incomplete row's only door out was
+    undo — closed outright for an action that declares none. 409 for anything
+    not incomplete: the request was fine, the row is not in that state.
+    """
+    result = await _settlement(request).keep(
+        workspace_id=auth.workspace_id, proposal_id=proposal_id, decided_by=auth.user_id
+    )
+    if result.outcome is Settlement.NOT_FOUND:
+        raise HTTPException(status_code=404, detail="no such proposal")
+    if result.outcome is Settlement.ALREADY_DECIDED:
+        raise HTTPException(
+            status_code=409,
+            detail=f"proposal is {result.current_status} — only an incomplete run can be kept",
+        )
+    return {"settled": "kept", "proposal": _public(result.proposal)}
+
+
 @router.post("/{proposal_id}/approve")
 async def approve(request: Request, auth: Auth, proposal_id: UUID) -> dict:
     """Approve and run. The claim is what makes this exactly-once; the re-check
@@ -287,10 +346,10 @@ async def approve(request: Request, auth: Auth, proposal_id: UUID) -> dict:
         row = await _settlement(request).get(
             workspace_id=auth.workspace_id, proposal_id=proposal_id
         )
+        spec = request.app.state.action_registry.get(row["tool_name"]) if row else None
         raise HTTPException(
             status_code=500,
-            detail="the action was approved and failed while running; "
-            f"its proposal is {row['status'] if row else 'unknown'}",
+            detail=_failure_detail(row, can_put_back=bool(spec and spec.undo)),
         ) from None
 
     row = await _settlement(request).get(
@@ -310,7 +369,8 @@ async def approve(request: Request, auth: Auth, proposal_id: UUID) -> dict:
 
 @router.post("/{proposal_id}/undo")
 async def undo(request: Request, auth: Auth, proposal_id: UUID) -> dict:
-    """Put an executed action back. Only what this approval added (TD-023)."""
+    """Put an action back: executed, incomplete or abandoned (TD-028c). Only
+    what this approval added (TD-023)."""
     try:
         outcome = await _executor(request).undo(
             workspace_id=auth.workspace_id, proposal_id=proposal_id
@@ -320,8 +380,14 @@ async def undo(request: Request, auth: Auth, proposal_id: UUID) -> dict:
         raise HTTPException(status_code=status, detail=refused.detail) from None
     except Exception:
         logger.exception("undo of %s failed", proposal_id)
+        # A failed put-back returns the row to where it started (TD-028c) —
+        # executed, incomplete or abandoned — so say which, from the row.
+        row = await _settlement(request).get(
+            workspace_id=auth.workspace_id, proposal_id=proposal_id
+        )
         raise HTTPException(
-            status_code=500, detail="the undo failed; the action remains executed"
+            status_code=500,
+            detail=f"the undo failed; the proposal is {row['status'] if row else 'unknown'}",
         ) from None
     row = await _settlement(request).get(
         workspace_id=auth.workspace_id, proposal_id=proposal_id

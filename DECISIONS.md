@@ -1005,3 +1005,258 @@ skips pass 1 entirely, as before.
 
 **What this supersedes.** Nothing. D-016 stands — the scorecard still chooses
 first; this is what two-pass does when the stream proves the scorecard wrong.
+
+## D-037 — Which deep turns take the agent path: any the code has not already decided, on an endpoint measured to call tools (2026-10-10, S26)
+
+**Context.** D-031 settled *how* the agent path streams. Which turns take it was
+left open behind one S25 observation: offered tools, Scout refused a question no
+tool answers. The rule proposed on 2026-08-16 (agent path only when the
+classifier found an observable) existed to keep such questions away from the
+tools. Every measurement it rested on was of Scout, which no longer exists.
+Re-measured on glm-4.5-air: docs/probes/2026-10-10-s26-routing-glm.md.
+
+**Decision.** A DEEP turn takes the agent path if and only if
+
+1. its mode is **not** `ALERT_TRIAGE` or `PHISHING_ANALYSIS`, **and**
+2. the configured endpoint's **deployment scorecard** (D-035) compiles to
+   `native_tools` (`decide_agent_mode`).
+
+Every other deep turn takes the conversational path exactly as before (native or
+two-pass, D-016/D-036). Shortcut turns are untouched: the 92/8 gate still runs
+first, in code.
+
+**Why the observable clause is dropped.** It protected nothing, and it cost
+something:
+- the refusal it guarded against did not happen in **0 of 25** tools-on runs,
+  across S25's exact method, the 2×2, and the route's full composition. Scout's
+  own record is 0 of 12 under the route's conditions;
+- its positive case barely exists, because a short question carrying an observable
+  is answered by the 92/8 shortcut before it is ever deep. The probe's own example
+  was a CVE card;
+- its negative case is where the tools helped most. On a KB-shaped question with
+  no observable, the conversational path mislabelled an ATT&CK ID in 2 of 3 runs,
+  while the agent path searched the KB and labelled all 3 correctly. Both paths
+  conformed to the mode contract 3/3, in comparable time.
+
+**Why clause 1 stays.** In those two modes the code has already computed the
+verdict (the S10 alert scorer, the S11 phishing verdict), and validation pins the rendered answer to
+it. The pasted alert or email is attacker-controlled, so on the agent path the
+model would be drawing **tool arguments** from it. That combination has not been
+measured, and it is not needed for those modes to work.
+
+**Why clause 2 is the scorecard, and what each outcome means.**
+- **Unprobed endpoint → conversational.** No assumption is made that an endpoint
+  calls tools; this is the same fail-safe as `channel_for`.
+- **`prompted_tools` → conversational**, until it is probed against a streaming
+  surface (D-031 scope: its tags arrive in content).
+- **`plan_only` → conversational.** A loop built with zero tools still sends
+  "Use the provided tools", and that composition was measured inventing a tool
+  call as prose. The loop never runs tool-less on this route.
+- **Dev-switcher endpoints** carry no agent mode and stay conversational.
+
+**Cost, stated.** A measured agent turn made **2–3** model calls where the
+conversational path makes one. Each call is claimed against the workspace's
+hourly ceiling as it is made (D-031 decision 4, TD-018), so the ceiling holds and
+the turn's real spend is what gets counted. This is still the customer's
+inference (D-005).
+
+**What this supersedes.** Nothing ratified. The 2026-08-16 proposal was never
+ratified, and STATE.md standing follow-up 10 closes with this entry.
+
+## D-038 — The deployment probes its own endpoint, once per fingerprint (2026-10-10, S26)
+
+**Context.** TD-037. The deployment scorecard (D-035) decides native vs two-pass
+reasoning (D-016), and since D-037 also whether deep turns take the agent path.
+Its only writer was a developer running `scripts/llm_harness.py`, so every
+non-dev deployment read "unknown": two-pass on every deep turn, and no agent
+path at all. Whether the platform may spend the customer's inference to measure
+the endpoint unasked was left as a D-005 question. Burhan delegated the call
+("do what you think is best").
+
+**Decision.** At startup a background task runs the capability battery
+(`auspex/llm/capability.py`) against the configured endpoint. It does this only
+if the endpoint's fingerprint (base URL + model, never the key) has no
+deployment scorecard, and records the result. The cost is about 15 requests,
+once per endpoint.
+- **A probe that measured nothing is not recorded.** That covers an unreachable
+  endpoint and one where basic chat failed (a wrong key or model). The key is
+  not in the fingerprint, so recording a wrong-key probe would pin plan_only
+  even after the key was fixed. Such a probe is retried at 1m, 5m, 15m and 1h,
+  because a scale-to-zero endpoint asleep at startup is normal.
+- **Workers starting together probe once.** The probe runs under a Postgres
+  advisory lock and re-checks for a scorecard under it.
+- **The app never waits on the probe or fails because of it.** The port binds
+  immediately, and deep turns stay on the safe default ("unknown") until the
+  scorecard lands.
+- **`LLM_AUTOPROBE_ENABLED` is the operator's say.** An operator who will not
+  have the platform spend inference unasked turns it off and manages the
+  scorecard with the harness. Host and test runs pin it off, like
+  `INGEST_ENABLED`.
+
+**Why.** The capability-negotiated runtime is flagship #1 in CLAUDE.md: "probe
+the customer's LLM endpoint, compile the agent loop to what the model can
+actually do". Without a writer it compiled nothing outside dev. Measuring once
+per fingerprint is the smallest spend that makes it true, and it is
+switchable.
+
+**And the agent path needs one more measurement (same day, `48fb195`).**
+`native_tools` is decided from a non-streaming probe, but the agent path only
+exists streaming. D-037 clause 2 therefore also requires
+`streaming_tool_deltas`.
+
+**What this supersedes.** Nothing. D-036 still covers a two-pass turn on an
+endpoint that thinks before its scorecard lands.
+
+## D-039 — The agent sends third parties only indicators someone other than the model supplied (2026-10-10, S26)
+
+**Context.** TD-039, from the review of the S26 wiring. D-037 clause 1 keeps
+alert triage and phishing off the agent path, because their paste is
+attacker-controlled and would steer tool arguments. The same paste reaches the
+agent path whenever the mode resolver does not recognise it: "summarize this
+report: <paste>" is BRIEF, and an unrecognised alert format falls through.
+There, an injection can make the model **compose** an indicator, for example a
+hostname whose label carries data from the session, and `enrich_observable`
+would send it to third-party providers, some of which resolve what they are
+asked about. Burhan delegated the call ("do what you think is best").
+
+**Decision.** `enrich_observable` looks up an indicator only if someone other
+than the model supplied it:
+- the analyst, in **user** turns of this session, current or earlier; or
+- a **knowledge-base record** returned by a tool this turn.
+
+Anything else is reported as `not_checked`, with a reason the model can act on
+(ask the analyst to paste it), and the enrichment service never sees it. The
+model's own earlier answers supply nothing, because an injected turn 1 can make
+the model write the composed indicator into its answer. A tool's echo of what
+it was asked supplies nothing, because that would launder a request into a
+supply.
+
+**Why this and not more excluded modes.** Excluding modes one at a time (option
+b) depends on the resolver recognising every shape a paste can take, and it
+cannot. Accepting the bound (option c) leaves the channel open at 8 lookups
+per turn. This closes the channel itself, and it costs one thing: the agent can
+no longer look up an indicator it knows only from its own training, which is
+also where its fabrications come from. S24's reason for allowing unsupplied
+indicators ("a loop may reason its way to an indicator") is kept wherever the
+reasoning ran through data the platform returned.
+
+**Scope.** Only `enrich_observable` reaches a third party. `lookup_cve` and
+`search_knowledge` still accept model-composed queries, because they go to our
+own index. D-037 clause 1 stands unchanged, since those modes' verdicts are
+code-owned for their own reasons.
+
+**What this supersedes.** Nothing ratified. It reverses the S24 test
+"enrichment also accepts an indicator the message never carried" and is
+recorded in that test's docstring.
+
+## D-040 — A thinking model's own thinking is held to a recitation floor (2026-10-10, S26)
+
+**Context.** Before TD-038's extension could be indexed, it was calibrated on the
+agent path (docs/probes/2026-10-10-s26-rail-calibration-glm.md: 12 hard-legit
+questions plus 2 recitations, per channel, glm-4.5-air). The calibration found
+a defect unrelated to TD-038. A thinking model reasons **by quoting its
+instructions**: on a legitimate question its thinking quoted 19 words of the
+DEFINITION mode directive, and on another 20 words of a tool description. D-030
+decision 3's single floor, `SHINGLE_WORDS = 8`, was calibrated on Scout, which
+had no native thinking. It cut those turns with LEAK_COPY and stored nothing,
+on both native paths, before S26's wiring touched anything.
+
+**Decision.** The output scanner takes per-channel floors. The model's own
+thinking is scanned on a `thinking` channel at `THINKING_SHINGLE_WORDS = 40`.
+That is about twice the legitimate ceiling measured (20) and under the
+recitations measured (58 here, 60 in S22). Every other channel keeps 8: the
+answer, the tool lines, the agent's narration (the model's prose, never seen
+quoting instructions), and a two-pass analysis (content written under
+PASS1_DIRECTIVE, which S22 calibrated).
+
+**What it costs, stated.** A quotation of our configuration up to 39 words in the
+Thinking pane is no longer cut. Such quotes are the model's normal reasoning,
+and the rail's purpose (D-030) is the wholesale dump an injection produces,
+which the floor still cuts. The run is still never persisted, because thinking
+is never stored.
+
+**Calibrated, like SHINGLE_WORDS.** n = 12 on one model. Re-run
+`docs/probes/s26-step0/probe_calibrate_agent.py` to move it.
+
+**What this supersedes.** D-030 decision 3 for the thinking channel only. For
+every other channel it stands as ratified.
+
+**D-040 addendum (2026-10-10, same day, live).** Through the app, the offending
+question ×3 carried thinking runs of 19, **28** and 19 words, and all three
+passed. The old floor would have cut all three. The legitimate ceiling is now 28,
+and the margin under 40 is 1.4×. The floor is unchanged: recitations run 58 and
+60. It is the number to re-measure first on any other model.
+
+## D-041 — What a proposal's terminal states say (2026-10-10, S26)
+
+**Context.** TD-028 (b/c/d) and TD-034, all four deferred since S19 to "terminal
+state semantics". Four defects had one cause:
+- a failed run reported "nothing happened" while its write was in the table (b);
+- the cleanup that would remove exactly the orphan was gated shut (c);
+- an approver could not tell two identical requests apart (d);
+- a late answer could land on the wrong abandoned operation (TD-034).
+
+Goal item 4 of S26; Burhan asked for it to proceed.
+
+**Decision.**
+1. **`failed` is a checked fact.** After a handler raises, the executor asks
+   the action what of **this proposal's** effects exist, through a new
+   optional `ActionSpec.observe` keyed on `proposal_id`.
+   - Nothing → `failed`.
+   - Something, no way to look, or a look that itself failed → **`incomplete`**.
+   - The result records `effects: none | present | unknown`.
+   - An action that cannot look is never `failed`. That is the shape the first
+     third-party action will have, and the honest default for it.
+2. **`incomplete` needs a human**, so it joins the approvals queue.
+3. **A put-back may start where effects are unknown.** `undo` is allowed from
+   `executed`, `incomplete` and `abandoned` (either operation). It is not
+   allowed from `failed`, because nothing landed and `undone` would report a
+   put-back of nothing. The claim moves the row only out of the exact status
+   the read saw, and a failed put-back returns there, never to `executed`
+   unless it started there.
+4. **`abandoned` records what it gave up on** (`abandoned_from`), and a late
+   answer lands only for that operation (TD-034).
+5. **Identical requests are named, never merged.** Each pending card carries
+   `identical_pending`: other pending requests in the workspace for the same
+   action, arguments and declaration. Merging them would have the platform
+   decide that a second intent was a mistake (D-014).
+
+**Bound, stated.** A run a human abandoned whose handler was merely slow can be
+put back while it is still alive, and a write it lands afterwards outlives the
+put-back. Abandon needs a claim older than STALE_CLAIM_SECONDS, and every
+executable action today is a single local statement. There is still no
+idempotency key. That matters the day an action reaches a network (TD-025).
+
+**What this supersedes.** S23's pin "an undo cannot start on a row abandoned
+during execute", which kept TD-034 unreachable by keeping the cleanup shut.
+TD-034 is now fixed structurally. Nothing ratified is overturned: D-024
+(an approval is decided once) and the no-reaper rule (S21) stand.
+
+**D-041 addendum (2026-10-10, same day — the review).** An adversarial review of
+the four commits found eight defects. All eight are fixed, each with a test
+that failed first. The design changed in three places:
+- **A claim is a token, not a status.** Once undo could start from
+  `abandoned`, two undos could be in flight on one row, and a late failure
+  finished the fresh one's claim. The row said `executed` with nothing left.
+  `claim_token` is minted by every claim, and a finish lands only for the token
+  that holds the row. `abandoned_token` names the one claim whose late answer
+  may still land: into its own column if empty, without moving the row. So a
+  run that answers after its clean-up (this decision's stated bound) is now
+  **recorded** on the `undone` row, not dropped.
+- **`kept`** is a seventh exit. A human keeps what an incomplete run left
+  (`POST /keep`). Without it an incomplete row of an action that declares no
+  undo could never leave the queue. A kept run can still be put back.
+- **`abandoned` stays out of the queue, deliberately.** Item 2 queues
+  `incomplete` because nobody has decided about it yet. An abandoned row is
+  itself a human's decision, and its put-back remains available.
+
+Also fixed:
+- a second status-CHECK block that stopped the app booting with one
+  `incomplete` row;
+- `observe` gets the undo slot's rails, and only an int 0 means "nothing";
+- pre-S26 `failed` rows are no longer refused as "checked";
+- the twin lookup is indexed (811 → 3.9 ms at 20k pending);
+- the surface's copy now claims only what it knows.
+
+**The bound is unchanged.** A merely slow handler on an abandoned run can land
+after its put-back, and it is now visible when it does.
