@@ -8,7 +8,7 @@ LLM**. You bring an OpenAI-compatible endpoint; the platform adapts to whatever
 it can actually do. We never pay for inference, and neither does a pilot.
 
 > **Status: pre-beta.** Everything described below is built, tested and running
-> — 1233 tests, `docker compose up` green. The [What Auspex does not do
+> — 1242 tests, `docker compose up` green. The [What Auspex does not do
 > yet](#what-auspex-does-not-do-yet) section is not a roadmap wish-list; it is
 > the honest boundary of what you get today, and it is worth reading before the
 > feature list.
@@ -147,6 +147,15 @@ Read this part. A demo that only walks the happy path is a demo that lies.
   call, the first 400 characters of each step are held back so the narration
   is not shown as answer (TD-036). Narration longer than that would still
   reach the analyst ahead of the result.
+- **A code-decided verdict is held until it passes; nothing else is.** For alert
+  triage and phishing analysis, whose Risk or Verdict the platform computes in
+  code, the written answer is checked against its contract and the code's
+  verdict before the analyst sees it. If it fails it is re-asked once, and then
+  replaced by the code's own rendering (D-043); the analyst is never shown a
+  verdict off the code's. Every other mode streams as it is written, and a
+  non-conforming answer there is reported in the done frame, not repaired. On
+  the dev engine 60 of 60 answers conformed
+  (docs/probes/2026-10-10-s27-contract-drift.md); a customer's engine may not.
 - **`EXECUTABLE_SYSTEMS` is `{"auspex"}`.** Actions execute against Auspex's own
   store — an observable annotation is real, durable and undoable. There is **no
   firewall, no EDR, no ticketing integration**. The contract, the approval gate,
@@ -230,7 +239,7 @@ off-corpus question returns an honest miss instead of a confident wrong answer.
 ## Development
 
 ```bash
-./ci.sh          # the gate: ruff + 1233 tests + container build + installed-dist check
+./ci.sh          # the gate: ruff + 1242 tests + container build + installed-dist check
 make check       # same thing
 make up / down   # stack lifecycle
 ```

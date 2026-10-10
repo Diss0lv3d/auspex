@@ -90,6 +90,10 @@ def test_the_readme_does_not_promise_what_the_code_does_not_do():
     assert "first 400 characters" in readme
     assert "NARRATION_HOLD_CHARS = 400" in loop
 
+    # D-043: which answers are held before the analyst sees them.
+    assert "A code-decided verdict is held until it passes; nothing else is." in readme
+    assert "hold = mode in CODE_DECIDED_MODES and not agent_path" in chat
+
 
 def test_the_demo_only_calls_routes_that_exist():
     """A demo that 404s in front of a stranger is worse than no demo."""

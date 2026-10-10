@@ -10,6 +10,13 @@ nothing to validate). It is a
 STRUCTURAL check (sections + enum membership), never a judgement of answer
 quality — a conformant-but-wrong answer still reads `true`.
 
+For the two modes whose verdict the CODE decides (alert triage, phishing), the
+answer is held until it passes, re-asked once if it does not, and replaced by
+the code's own rendering if the re-ask fails too (D-043, TD-012(b)): the analyst
+is never shown a Risk/Verdict off the code's pin. `contract_repair` on the done
+frame says which happened — `null`, `"reasked"` or `"code_rendered"` — and
+`contract_valid` describes the answer the analyst actually received.
+
 The 92/8 split (S4 step 4): every turn is classified in code BEFORE the model
 is touched. Shortcut categories (greeting/identity/ioc_check/cve_lookup/
 definition) stream a deterministic answer with zero LLM calls — the `done`
@@ -52,7 +59,7 @@ from auspex.agent.capabilities import build_capability_registry
 from auspex.agent.loop import AgentLoop, ToolInvocation
 from auspex.agent.permissions import PgProposalStore
 from auspex.alerts import normalize, score_alert
-from auspex.alerts.render import deterministic_triage_block
+from auspex.alerts.render import deterministic_triage_answer, deterministic_triage_block
 from auspex.auth import AuthContext, resolve_user
 from auspex.classify import Category, classify, shortcut_answer
 from auspex.classify.observables import ObservableType, extract_observables
@@ -79,6 +86,7 @@ from auspex.outguard import (
     instruction_index,
 )
 from auspex.phishing import decide_verdict, deterministic_phishing_block, parse_email
+from auspex.phishing.render import deterministic_phishing_answer
 
 logger = logging.getLogger("auspex.chat")
 
@@ -576,10 +584,14 @@ async def chat(
     # PINNED to the code level at validation below — a steered swap to a
     # different (even in-enum) level fails the contract, in code, not by prompt.
     pinned_values: dict[str, str | tuple[str, ...]] | None = None
+    # D-043: what the analyst reads if the written answer fails twice — the
+    # contract's sections rendered by code from the verdict it already computed.
+    code_answer: str | None = None
     if mode is Mode.ALERT_TRIAGE:
         envelope = normalize(body.message)
         risk = score_alert(envelope)
         pinned_values = {"Risk": risk.risk_level}
+        code_answer = deterministic_triage_answer(risk)
         messages.append({"role": "system", "content": deterministic_triage_block(envelope, risk)})
         logger.info(
             "alert triage: fmt=%s risk=%s score=%s deep=%s signals=%s",
@@ -602,6 +614,7 @@ async def chat(
         email_env = parse_email(body.message)
         verdict = decide_verdict(email_env)
         pinned_values = {"Verdict": verdict.allowed}
+        code_answer = deterministic_phishing_answer(verdict)
         messages.append(
             {"role": "system", "content": deterministic_phishing_block(email_env, verdict)}
         )
@@ -627,6 +640,10 @@ async def chat(
         and mode not in CODE_DECIDED_MODES
     )
     path = "agent" if agent_path else "model"
+    # D-043: the code-decided modes hold their answer until it has passed. They
+    # never take the agent path (D-037 clause 1), so only the conversational
+    # paths hold.
+    hold = mode in CODE_DECIDED_MODES and not agent_path
 
     # TD-018 (S19): bound the NUMBER of inference calls a workspace can cause.
     # Claimed HERE — after the endpoint resolves, before a single call is made —
@@ -698,6 +715,11 @@ async def chat(
             contract.system_directive(),
             PASS1_DIRECTIVE,
         ]
+        if hold:
+            # The re-ask's directive is configuration we may issue this turn, so
+            # it is indexed from the start (D-043 item 7). Rendered for an empty
+            # draft: that carries every fixed sentence and the pin lines.
+            issued.append(contract.repair_directive(None, pinned_values))
     leak_index = instruction_index(issued)
     # D-040: the model's OWN thinking quotes its instructions while it reasons
     # (measured: 19-20 words on legitimate questions), so on the "thinking"
@@ -717,6 +739,7 @@ async def chat(
         agent_done = None
         refused = None
         first_call_claimed = True
+        repair = None  # D-043: None | "reasked" | "code_rendered"
 
         async def claim_next() -> bool:
             """The loop asks before every model call. The first was claimed
@@ -789,11 +812,78 @@ async def chat(
                         if scanner.feed(ev.text, channel="content"):
                             return
                         content_parts.append(ev.text)
-                        yield _sse({"content": ev.text})
+                        if not hold:
+                            yield _sse({"content": ev.text})
                     elif ev.kind == "finish":
                         finish_reason = ev.finish_reason
                     elif ev.kind == "usage" and ev.usage:
                         usage = _usage_dict(ev.usage)
+
+        async def repaired_answer():
+            """D-043. A held answer that failed its contract or its pin — or
+            came back empty — is asked for once more, then answered by the code.
+
+            The re-ask is the turn's messages plus a directive compiled from the
+            contract and the pins; the failed draft is not sent back, because it
+            is model output that a paste may have steered. It is claimed before
+            it is made (TD-018). Its thinking streams like the first attempt's,
+            and its content is held, scanned and validated the same way. A re-ask
+            the ceiling refuses, or that the endpoint fails, is not an error the
+            analyst has to read: the code already knows the verdict."""
+            nonlocal repair, usage, finish_reason
+            draft = "".join(content_parts)
+            first = contract.validate(draft, pinned=pinned_values) if draft.strip() else None
+            if first is not None and first.ok:
+                return
+            logger.info(
+                "contract drift: mode=%s (%s); re-asking once",
+                mode.value,
+                first.reason() if first is not None else "empty answer",
+            )
+            retry_parts: list[str] = []
+            more = await limiter.claim(
+                workspace_id=auth.workspace_id, meter=Meter.INFERENCE_CALLS, units=1
+            )
+            if not more.allowed:
+                logger.info("contract re-ask refused by the ceiling; the code answers")
+            else:
+                directive = contract.repair_directive(first, pinned_values)
+                try:
+                    async with aclosing(
+                        endpoint.client.chat_stream(
+                            [*messages, {"role": "system", "content": directive}],
+                            max_tokens=CHAT_ANSWER_MAX_TOKENS,
+                            temperature=0,
+                        )
+                    ) as events:
+                        async for ev in events:
+                            if ev.kind == "reasoning":
+                                if scanner.feed(ev.text, channel="thinking"):
+                                    return
+                                yield _sse({"reasoning": ev.text})
+                            elif ev.kind == "content":
+                                if scanner.feed(ev.text, channel="content"):
+                                    return
+                                retry_parts.append(ev.text)
+                            elif ev.kind == "finish":
+                                finish_reason = ev.finish_reason
+                            elif ev.kind == "usage" and ev.usage:
+                                usage = _add_usage(usage, ev.usage)
+                except LLMError as err:
+                    logger.warning(
+                        "contract re-ask failed: status=%s code=%s; the code answers",
+                        err.status,
+                        err.code,
+                    )
+                    retry_parts = []
+            retry = "".join(retry_parts)
+            second = contract.validate(retry, pinned=pinned_values) if retry.strip() else None
+            if second is not None and second.ok:
+                content_parts[:] = [retry]
+                repair = "reasked"
+            else:
+                content_parts[:] = [code_answer]
+                repair = "code_rendered"
 
         try:
             if agent_path:
@@ -859,11 +949,16 @@ async def chat(
                             if scanner.feed(ev.text, channel="content"):
                                 break
                             content_parts.append(ev.text)
-                            yield _sse({"content": ev.text})
+                            if not hold:
+                                yield _sse({"content": ev.text})
                         elif ev.kind == "finish":
                             finish_reason = ev.finish_reason
                         elif ev.kind == "usage" and ev.usage:
                             usage = _usage_dict(ev.usage)
+            if hold and not scanner.tripped:
+                async with aclosing(repaired_answer()) as frames:
+                    async for frame in frames:
+                        yield frame
         except LLMError as err:
             # Endpoint failure: report it, persist nothing as the assistant turn.
             # The analyst gets the platform's sentence; the log gets the status
@@ -921,6 +1016,7 @@ async def chat(
                         "path": path,
                         "mode": mode.value,
                         "contract_valid": None,
+                        "contract_repair": repair,
                         "output_valid": False,
                     }
                 }
@@ -945,11 +1041,15 @@ async def chat(
                         "path": path,
                         "mode": mode.value,
                         "contract_valid": None,
+                        "contract_repair": repair,
                         "output_valid": True,
                     }
                 }
             )
             return
+        if hold and answer:
+            # Sent only now: it has passed, been re-asked, or been replaced.
+            yield _sse({"content": answer})
         if answer:
             await _insert_message(pool, auth, session_id, "assistant", answer)
         # Post-hoc contract validation (specs → validators): a streamed answer
@@ -972,6 +1072,7 @@ async def chat(
                     "path": path,
                     "mode": mode.value,
                     "contract_valid": (result.ok if result else None),
+                    "contract_repair": repair,
                     "output_valid": True,
                 }
             }
