@@ -1180,3 +1180,9 @@ is never stored.
 
 **What this supersedes.** D-030 decision 3 for the thinking channel only. For
 every other channel it stands as ratified.
+
+**D-040 addendum (2026-10-10, same day, live).** Through the app, the offending
+question ×3 carried thinking runs of 19, **28** and 19 words, and all three
+passed. The old floor would have cut all three. The legitimate ceiling is now 28,
+and the margin under 40 is 1.4×. The floor is unchanged: recitations run 58 and
+60. It is the number to re-measure first on any other model.
