@@ -177,3 +177,73 @@ HTTP 200, a full answer, no `sensitive` finish. One prompt — not a clearance.
 | glm-4.7-flash | 429 overloaded | — | — | — |
 
 (rt = reasoning tokens)
+
+---
+
+## The platform's own measurement — capability battery + 40-task harness
+
+Run through the REAL client after D-033 (`e09e6f9`, `9431e03`), via
+`scripts/llm_harness.py --model <m>` with `LLM_BASE_URL=https://api.z.ai/api/paas/v4`;
+raw runs in `docs/probes/harness-run-glm-*.json`, scorecard rows in workspace `dev`.
+Same battery, same 40 tasks, same `PROBE_MAX_TOKENS` as every earlier endpoint.
+
+| model | valid calls | loop completion | wall (40 tasks) | tok/s | $/1M in / out | verdict |
+|---|---|---|---|---|---|---|
+| **glm-4.5-air** | **100 %** | **95.0 %** | **348 s** | 59.2 | $0.20 / $1.10 | native_tools |
+| glm-5.3-flash | 100 % | 95.0 % | 1012 s | 41.0 | $0.15 / $0.50 | native_tools |
+| glm-5.2 | 100 % | 92.5 % | 694 s | 58.3 | $1.40 / $4.40 | native_tools |
+| glm-4.7-flashx | 100 % | 87.5 % | 757 s | **1.6** | $0.07 / $0.40 | native_tools |
+| _earlier: qwen3:14b (D-013)_ | _100 %_ | _87.5 %_ | | | _local_ | |
+| _earlier: Llama-4-Scout (D-015)_ | _100 %_ | _77.5 %_ | | _~90_ | _self-hosted_ | |
+
+All four batteries agree: reachable, **native_reasoning True** (only measurable
+since `9431e03`), native tools, parallel tools, `tool_choice` named + required,
+tool-role round trip, streaming + streamed tool deltas + usage in stream,
+`json_object` yes, **`json_schema` no (adherence 0.0 — the silent ignore of
+Finding 5)**. Zero invalid tool calls across ~300 calls.
+
+- **glm-4.7-flashx** is cheapest on paper and unusable on the day: its throughput
+  probe measured 1.6 tok/s, its json_schema probe hit a ReadTimeout, and it hung
+  once in the wire probe (Finding 11).
+- **glm-5.3-flash** matches glm-4.5-air's completion at a lower price, but took
+  2.9× the wall time and cannot disable thinking.
+- **glm-5.2** costs 7× glm-4.5-air on input and 4× on output, took 2× the wall
+  time, and completed fewer tasks.
+
+## Through the running app — what the analyst actually sees
+
+`docs/probes/s26-zai/probe_app_deep_turn.py`, two deep questions via
+`/api/chat`, app rebuilt with `.env` → glm-4.5-air.
+
+**As configured (no scorecard in the user's workspace → two-pass, D-016):**
+
+| question | wall | first reasoning | first content | Thinking pane | calls |
+|---|---|---|---|---|---|
+| Kerberoasting → DA + detections | 28.1 s | never | 25.5 s | **0 chars** | 2 |
+| phishing handover note | 12.1 s | never | 10.6 s | **0 chars** | 2 |
+
+Pass 1 runs at `CHAT_REASONING_MAX_TOKENS = 256`; the model's own thinking
+consumes it before any content, and pass 1 keeps only content — so the Thinking
+pane is empty and pass 2 is grounded in `«»`. A whole inference call per turn,
+billed, for nothing.
+
+**With a scorecard visible to the user's workspace (native path):**
+
+| question | wall | first reasoning | first content | Thinking pane | calls |
+|---|---|---|---|---|---|
+| Kerberoasting → DA + detections | 23.9 s | **3.0 s** | 19.8 s | **4916 chars** | 1 |
+| phishing handover note | 7.5 s | **2.6 s** | 5.1 s | **904 chars** | 1 |
+
+The output rail did not trip on either reasoning stream. To measure this, the
+`dev` workspace's glm-4.5-air scorecard row was copied into workspace `default`
+(row `b747b841-bc11-49e6-b133-b277f3ec1950`) — **a hand-seeded dev row, left in
+place so dev runs the native path, and the reason STATE follow-up 9 is now a
+decision rather than a note**: the only writer of scorecards (the harness)
+writes to `dev`; the only reader (`_default_native_reasoning`) reads the
+analyst's workspace. Found by the adversarial review of `9431e03`, reproduced
+hermetically there and live here.
+
+**Observed, not pursued:** asked for a handover note with no facts supplied, the
+model invented specifics ("active for 72 hours with 12 reported attempts, 2
+successful compromises") on both paths, and the contract validator passed it.
+A model-side fabrication the output contract does not catch.

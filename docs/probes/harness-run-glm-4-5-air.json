@@ -1,0 +1,715 @@
+{
+  "summary": {
+    "endpoint": "https://api.z.ai/api/paas/v4",
+    "model": "glm-4.5-air",
+    "tasks": 40,
+    "tool_calls": 74,
+    "valid_call_rate": 1.0,
+    "loop_completion_rate": 0.95,
+    "per_category_completion": {
+      "chain2": 1.0,
+      "chain3": 1.0,
+      "enum_stress": 1.0,
+      "no_tool": 1.0,
+      "parallel": 0.833,
+      "single": 0.875
+    },
+    "violations": {},
+    "wall_seconds": 348.4,
+    "agent_mode": "native_tools"
+  },
+  "scorecard": {
+    "base_url": "https://api.z.ai/api/paas/v4",
+    "model": "glm-4.5-air",
+    "reachable": true,
+    "native_reasoning": true,
+    "native_tool_calling": true,
+    "parallel_tool_calls": true,
+    "tool_choice_named": true,
+    "tool_choice_required": true,
+    "tool_role_roundtrip": true,
+    "streaming": true,
+    "streaming_tool_deltas": true,
+    "usage_in_stream": true,
+    "json_object_mode": true,
+    "json_schema_mode": false,
+    "schema_adherence_rate": 0.0,
+    "valid_call_rate": 1.0,
+    "loop_completion_rate": 0.95,
+    "max_context_tokens": null,
+    "tokens_per_second": 59.2,
+    "notes": []
+  },
+  "results": [
+    {
+      "task": "S01",
+      "category": "single",
+      "steps": 2,
+      "valid": 1,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "lookup_ip"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nBased on the threat reputation lookup for IP 203.0.113.7:\n\n**Reputation Summary:**\n- **Overall Reputation:** Malicious\n- **Threat Score:** 94/100 (highly suspicious)\n- **Country:** XZ (unknown/placeholder)\n- **Threat Tags:** Command & Control (C2) server, Botnet activity\n\nThis IP address has a very"
+    },
+    {
+      "task": "S02",
+      "category": "single",
+      "steps": 2,
+      "valid": 1,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "lookup_domain"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nBased on the threat reputation lookup, the domain **cdn-assets.example.test** appears to be safe. Here are the details:\n\n- **Reputation**: Benign\n- **Score**: 3 (low risk score)\n- **Category**: CDN (Content Delivery Network)\n\nThe domain has a benign reputation and is categorized as a Content Delive"
+    },
+    {
+      "task": "S03",
+      "category": "single",
+      "steps": 2,
+      "valid": 1,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "lookup_hash"
+      ],
+      "completed": false,
+      "required_ok": true,
+      "evidence_ok": false,
+      "restraint_ok": true,
+      "final_answer": "\nThe SHA-256 hash \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\" has a verdict of \"unknown\" in the malware intelligence database. This means it is not associated with any known malware family."
+    },
+    {
+      "task": "S04",
+      "category": "single",
+      "steps": 2,
+      "valid": 1,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "get_alert"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nBased on alert A-1002, here are the details you requested:\n\n- **Severity**: medium\n- **Source IP**: 198.51.100.23\n\nThe alert is titled \"Suspicious login pattern\" and also involves host \"srv-db-001\" and user \"svc-backup\"."
+    },
+    {
+      "task": "S05",
+      "category": "single",
+      "steps": 2,
+      "valid": 1,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "get_asset"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nThe asset ws-fin-042 is owned by the finance department and has a criticality rating of \"crown-jewel\"."
+    },
+    {
+      "task": "S06",
+      "category": "single",
+      "steps": 2,
+      "valid": 1,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "search_events"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nThere were 137 events mentioning 203.0.113.7 in the last 24 hours."
+    },
+    {
+      "task": "S07",
+      "category": "single",
+      "steps": 2,
+      "valid": 1,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "lookup_ip"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nBased on the threat lookup results for IP 192.0.2.10:\n\n- **Reputation**: Benign\n- **Threat Score**: 2 (low)\n- **Country**: US\n- **Threat Tags**: None\n\nThis IP address is **not a threat**. It has a benign reputation with a low threat score and no associated threat tags."
+    },
+    {
+      "task": "S08",
+      "category": "single",
+      "steps": 2,
+      "valid": 1,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "lookup_hash"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nThe hash `bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb` is **unknown** in malware intelligence databases. This means it is not currently identified as known malware."
+    },
+    {
+      "task": "C201",
+      "category": "chain2",
+      "steps": 3,
+      "valid": 2,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "get_alert",
+        "lookup_ip"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nVerdict: **MALICIOUS**\n\nAlert A-1001 shows high-severity outbound beaconing from IP 203.0.113.7. The IP reputation lookup confirms this is a malicious command and control server with a 94/100 score, tagged as both \"c2\" and \"botnet\". This represents a confirmed botnet beaconing attempt."
+    },
+    {
+      "task": "C202",
+      "category": "chain2",
+      "steps": 3,
+      "valid": 2,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "get_alert",
+        "lookup_domain"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nHere are the results for alert A-1003 and the domain reputation check:\n\n**Alert A-1003:**\n- Title: \"Phishing URL clicked\"\n- Severity: Medium\n- Domain: login-portal.example.test\n- Host: ws-hr-011\n- User: m.khan\n\n**Domain Reputation for login-portal.example.test:**\n- Reputation: Malicious\n- Score: 91"
+    },
+    {
+      "task": "C203",
+      "category": "chain2",
+      "steps": 3,
+      "valid": 2,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "get_alert",
+        "lookup_hash"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nThe malware family involved in alert A-1004 is RedLoader."
+    },
+    {
+      "task": "C204",
+      "category": "chain2",
+      "steps": 3,
+      "valid": 2,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "get_alert",
+        "get_asset"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nAlert A-1001 shows outbound beaconing detected on host ws-fin-042 with high severity. The criticality of the affected host ws-fin-042 is **crown-jewel**."
+    },
+    {
+      "task": "C205",
+      "category": "chain2",
+      "steps": 3,
+      "valid": 2,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "get_alert",
+        "search_events"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nHere are the results for alert A-1002 and the event count for its source IP:\n\n**Alert A-1002 Details:**\n- Title: \"Suspicious login pattern\"\n- Severity: Medium\n- Source IP: 198.51.100.23\n- Host: srv-db-001\n- User: svc-backup\n\n**Event Count for Source IP (198.51.100.23) over last 48 hours:**\n- 12 eve"
+    },
+    {
+      "task": "C206",
+      "category": "chain2",
+      "steps": 3,
+      "valid": 2,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "lookup_ip",
+        "create_ticket"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nIP 203.0.113.99 has been identified as malicious (reputation score: 88, phishing tag). A HIGH severity ticket has been created with ID TCK-1616 titled 'Malicious IP investigation'."
+    },
+    {
+      "task": "C207",
+      "category": "chain2",
+      "steps": 3,
+      "valid": 2,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "lookup_domain",
+        "propose_quarantine"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nDomain login-portal.example.test is confirmed malicious (phishing, score 91). Quarantine proposal PRP-208 has been filed for host ws-hr-011 citing this malicious domain as the reason. The proposal is pending approval."
+    },
+    {
+      "task": "C208",
+      "category": "chain2",
+      "steps": 3,
+      "valid": 2,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "get_alert",
+        "lookup_ip"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nBased on the alert A-1005 and the IP lookup results:\n\n**Alert Details:**\n- Title: \"Port scan from internal host\"\n- Severity: Low\n- Source IP: 192.0.2.10\n- Host: ws-it-003\n- User: t.ali\n\n**IP Reputation:**\n- IP: 192.0.0.10\n- Reputation: Benign\n- Score: 2 (low risk)\n- Country: US\n- Tags: None\n\n**Asse"
+    },
+    {
+      "task": "C209",
+      "category": "chain2",
+      "steps": 2,
+      "valid": 2,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "search_events",
+        "get_asset"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\n**Summary:**\n\n- **User svc-backup activity**: 41 events detected in the last 72 hours\n- **Asset srv-db-001**: \n  - Owner: platform\n  - Criticality: high\n  - OS: linux\n\nThe backup user (svc-backup) has shown moderate activity with 41 events over the 72-hour period, and the database server srv-db-001"
+    },
+    {
+      "task": "C210",
+      "category": "chain2",
+      "steps": 3,
+      "valid": 2,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "lookup_hash",
+        "create_ticket"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nThe hash cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc has been identified as malicious GreyDuck malware. A high-severity incident ticket (TCK-9684) has been created titled \"GreyDuck infection\" to address this threat."
+    },
+    {
+      "task": "C301",
+      "category": "chain3",
+      "steps": 3,
+      "valid": 3,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "get_alert",
+        "lookup_ip",
+        "get_asset"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nHigh risk: Crown-jewel finance workstation beaconing to malicious botnet C2 IP."
+    },
+    {
+      "task": "C302",
+      "category": "chain3",
+      "steps": 5,
+      "valid": 4,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "get_alert",
+        "lookup_ip",
+        "get_asset",
+        "create_ticket"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nFull triage of A-1001 completed:\n\n**Alert Details:**\n- Alert ID: A-1001\n- Title: Outbound beaconing detected\n- Severity: High\n- Source IP: 203.0.113.7\n- Host: ws-fin-042\n- User: j.doe\n\n**IP Reputation:**\n- IP: 203.0.113.7\n- Reputation: Malicious (score: 94)\n- Country: XZ\n- Tags: C2, botnet\n\n**Asset"
+    },
+    {
+      "task": "C303",
+      "category": "chain3",
+      "steps": 4,
+      "valid": 3,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "get_alert",
+        "lookup_domain",
+        "search_events"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nBased on the analysis of alert A-1003:\n\n**Alert Details:**\n- Title: \"Phishing URL clicked\"\n- Severity: Medium\n- Domain: login-portal.example.test\n- Host: ws-hr-011\n- User: m.khan\n\n**Domain Reputation:**\n- Domain: login-portal.example.test\n- Reputation: Malicious\n- Score: 91 (high confidence)\n- Cate"
+    },
+    {
+      "task": "C304",
+      "category": "chain3",
+      "steps": 5,
+      "valid": 4,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "get_alert",
+        "lookup_hash",
+        "get_asset",
+        "propose_quarantine"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nCompleted all requested tasks for alert A-1004:\n\n1. **Alert A-1004**: High severity malware hash alert on host ws-eng-107 (user: r.chen)\n2. **Hash lookup**: SHA-256 hash identified as RedLoader malware family (malicious verdict, first seen 2026-05-01)\n3. **Asset check**: ws-eng-107 is owned by engi"
+    },
+    {
+      "task": "C305",
+      "category": "chain3",
+      "steps": 2,
+      "valid": 3,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "lookup_ip",
+        "search_events",
+        "get_asset"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nThe IP 203.0.113.7 has a high malicious reputation score of 94 and is associated with botnet command and control activity, generating 137 security events in the last 24 hours. This represents a critical threat to the crown-jewel finance system ws-fin-042, which requires immediate investigation and "
+    },
+    {
+      "task": "C306",
+      "category": "chain3",
+      "steps": 3,
+      "valid": 3,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "get_alert",
+        "lookup_ip",
+        "search_events"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nBased on the analysis of alert A-1002:\n\n**Alert Details:**\n- Title: \"Suspicious login pattern\" (Medium severity)\n- Source IP: 198.51.100.23\n- User: svc-backup\n- Host: srv-db-001\n\n**Additional Context:**\n- The source IP (198.51.100.23) has a \"suspicious\" reputation with a score of 55 and is tagged a"
+    },
+    {
+      "task": "C307",
+      "category": "chain3",
+      "steps": 3,
+      "valid": 3,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "get_alert",
+        "lookup_ip",
+        "get_asset"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nno action needed"
+    },
+    {
+      "task": "C308",
+      "category": "chain3",
+      "steps": 3,
+      "valid": 4,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "get_alert",
+        "get_alert",
+        "lookup_ip",
+        "lookup_ip"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nBased on the analysis of both alerts, **A-1001 is more urgent**. Here's the comparison:\n\n**Alert A-1001:**\n- Severity: High\n- Activity: Outbound beaconing detected\n- Source IP: 203.0.113.7 (malicious reputation, score 94)\n- Tags: c2, botnet\n- Host: ws-fin-042 (workstation)\n- User: j.doe\n\n**Alert A-"
+    },
+    {
+      "task": "C309",
+      "category": "chain3",
+      "steps": 4,
+      "valid": 3,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "get_alert",
+        "lookup_hash",
+        "create_ticket"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nCompleted all requested tasks:\n\n1. **Alert A-1004**: Retrieved - shows malware hash observed on ws-eng-107 with severity high\n2. **Hash lookup**: Confirmed the SHA-256 hash belongs to RedLoader malware family (first seen 2026-05-01)\n3. **Ticket created**: TCK-7937 opened with title \"RedLoader on ws"
+    },
+    {
+      "task": "C310",
+      "category": "chain3",
+      "steps": 2,
+      "valid": 2,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "lookup_domain",
+        "search_events"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nBased on the investigation:\n\n**Domain Reputation:**\n- Domain: update-check.example.test\n- Reputation: Suspicious\n- Score: 48 (moderate concern)\n- Category: Unclassified\n\n**Event Count:**\n- 0 events detected in the last 24 hours\n\n**Verdict:**\nThe domain update-check.example.test has a suspicious rep"
+    },
+    {
+      "task": "P01",
+      "category": "parallel",
+      "steps": 2,
+      "valid": 2,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "lookup_ip",
+        "lookup_ip"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nHere's a comparison of the reputations for both IP addresses:\n\n**203.0.113.7:**\n- Reputation: **Malicious** (high risk)\n- Score: 94 (out of 100)\n- Country: XZ\n- Tags: C2 (Command & Control), Botnet\n\n**198.51.100.23:**\n- Reputation: **Suspicious** (moderate risk)\n- Score: 55 (out of 100)\n- Country: "
+    },
+    {
+      "task": "P02",
+      "category": "parallel",
+      "steps": 2,
+      "valid": 2,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "lookup_domain",
+        "lookup_ip"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nHere are the reputation results for both:\n\n**Domain: login-portal.example.test**\n- Reputation: Malicious\n- Score: 91\n- Category: Phishing\n\n**IP: 203.0.113.99**\n- Reputation: Malicious\n- Score: 88\n- Country: XZ\n- Tags: Phishing\n\n**Comparison:**\nBoth the domain and IP address have malicious reputatio"
+    },
+    {
+      "task": "P03",
+      "category": "parallel",
+      "steps": 2,
+      "valid": 2,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "lookup_hash",
+        "lookup_hash"
+      ],
+      "completed": false,
+      "required_ok": true,
+      "evidence_ok": false,
+      "restraint_ok": true,
+      "final_answer": "\nBoth hashes returned \"unknown\" verdicts from the malware intelligence lookup. This means neither hash is currently identified as malicious in the database. Since both hashes are unknown, I cannot determine which one is \"worse\" - they both appear to be benign or at least not flagged as malware."
+    },
+    {
+      "task": "P04",
+      "category": "parallel",
+      "steps": 2,
+      "valid": 2,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "get_alert",
+        "get_alert"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nA-1001: High severity outbound beaconing detected from IP 203.0.113.7 on host ws-fin-042 for user j.doe.\n\nA-1004: High severity malware hash observed on host ws-eng-107 for user r.chen."
+    },
+    {
+      "task": "P05",
+      "category": "parallel",
+      "steps": 2,
+      "valid": 2,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "get_asset",
+        "get_asset"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nBased on the asset information:\n\n**ws-fin-042** is more critical than **srv-db-001**.\n\nHere's the comparison:\n\n- **ws-fin-042**: Criticality level = \"crown-jewel\" (owned by finance, Windows OS)\n- **srv-db-001**: Criticality level = \"high\" (owned by platform, Linux OS)\n\n\"Crown-jewel\" represents the "
+    },
+    {
+      "task": "P06",
+      "category": "parallel",
+      "steps": 2,
+      "valid": 2,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "search_events",
+        "search_events"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nOver the past 24 hours:\n- 203.0.113.7: 137 events\n- ws-fin-042: 89 events"
+    },
+    {
+      "task": "N01",
+      "category": "no_tool",
+      "steps": 1,
+      "valid": 0,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nC2 beaconing refers to the periodic communication between malware or compromised systems and a command and control server to receive instructions, send stolen data, or report status."
+    },
+    {
+      "task": "N02",
+      "category": "no_tool",
+      "steps": 1,
+      "valid": 0,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nA **vulnerability** is a weakness or flaw in a system, application, or network that could be exploited to cause harm. It's like an unlocked door or a broken window - it represents a potential security weakness that exists regardless of whether anyone is trying to take advantage of it.\n\nAn **exploit"
+    },
+    {
+      "task": "N03",
+      "category": "no_tool",
+      "steps": 1,
+      "valid": 0,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nHello team! Hope you're all having a productive and safe day!"
+    },
+    {
+      "task": "N04",
+      "category": "no_tool",
+      "steps": 1,
+      "valid": 0,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nA SHA-256 hash is a cryptographic function that takes any input data (text, files, etc.) and produces a unique 256-bit (64-character hexadecimal) fixed-size output. It's designed to be a one-way function - you can easily compute the hash from the input, but it's computationally infeasible to revers"
+    },
+    {
+      "task": "F01",
+      "category": "enum_stress",
+      "steps": 2,
+      "valid": 1,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "create_ticket"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nTicket created successfully! \n\n**Ticket ID:** TCK-1036  \n**Title:** Test severity mapping  \n**Severity:** Medium  \n**Status:** Open  \n**Description:** harness enum check"
+    },
+    {
+      "task": "F02",
+      "category": "enum_stress",
+      "steps": 2,
+      "valid": 1,
+      "invalid": 0,
+      "violations": [],
+      "calls_made": [
+        "propose_quarantine"
+      ],
+      "completed": true,
+      "required_ok": true,
+      "evidence_ok": true,
+      "restraint_ok": true,
+      "final_answer": "\nThe quarantine proposal has been filed successfully. The proposal ID is **PRP-693**."
+    }
+  ]
+}
