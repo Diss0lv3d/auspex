@@ -1,0 +1,48 @@
+{
+  "status": 200,
+  "seconds": 7.51,
+  "content_type": "application/json; charset=UTF-8",
+  "request": {
+    "model": "glm-5.2",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Give me a JSON object with keys name (string) and age (int) for a fictional analyst."
+      }
+    ],
+    "response_format": {
+      "type": "json_object"
+    },
+    "temperature": 0,
+    "max_tokens": 2000
+  },
+  "body": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "{\"name\":\"Elena Rostova\",\"age\":29}",
+          "reasoning_content": "1.  **Analyze the Request:**\n    *   Target: JSON object.\n    *   Keys required: `name` (string), `age` (int).\n    *   Content: Fictional analyst.\n    *   Constraints: Must output a valid JSON object. Must use the specified JSON object structure (defaulting to `{\"answer\":\"$your_answer\"}` if unsure, but the prompt asks for a JSON object with keys `name` and `age`. Wait, the system prompt says \"If unsure, please default to using {\"answer\":\"$your_answer\"}\". However, the user explicitly asks for a JSON object with keys `name` and `age`. I should provide exactly what the user asks for, but maybe wrap it or just output the JSON directly. Let's look at the system prompt carefully: \"You should always follow the instructions and output a valid JSON object. Please use the specified JSON object structure according to the instructions. If unsure, please default to using {\"answer\":\"$your_answer\"}. Ensure to always use \"```\"End the code block to indicate the end of the JSON object.\" Wait, the system prompt has a typo: `\"```\"End the code block`. It probably means \"End the code block with ```\".\n    *   Let's just output the JSON object with `name` and `age` inside a markdown code block.\n\n2.  **Formulate the JSON:**\n    ```json\n    {\n      \"name\": \"Alex Mercer\",\n      \"age\": 32\n    }\n    ```\n\n3.  **Format the Output:**\n    *   The system prompt says: \"Ensure to always use \"```\"End the code block to indicate the end of the JSON object.\" This is a bit garbled, but it clearly wants a markdown code block ending with ```.\n    *   Let's output:\n    ```json\n    {\n      \"name\": \"Alex Mercer\",\n      \"age\": 32\n    }\n    ```\n\n4.  **Double check constraints:**\n    *   Valid JSON object? Yes.\n    *   Keys: `name` (string), `age` (int)? Yes.\n    *   Fictional analyst? Yes, \"Alex Mercer\" sounds like an analyst name.\n    *   End with ```? Yes.\n\n5.  **Refine Output:**\n    ```json\n    {\n      \"name\": \"Elena Rostova\",\n      \"age\": 29\n    }\n    ```\n    (Just picking another name to be safe, Elena Rostova, Data Analyst).",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1791621221,
+    "id": "202610101633340a913357d57f4fd4",
+    "model": "glm-5.2",
+    "object": "chat.completion",
+    "request_id": "202610101633340a913357d57f4fd4",
+    "usage": {
+      "completion_tokens": 552,
+      "completion_tokens_details": {
+        "reasoning_tokens": 528
+      },
+      "prompt_tokens": 94,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 646
+    }
+  }
+}

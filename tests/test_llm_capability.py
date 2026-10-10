@@ -41,3 +41,22 @@ async def test_native_reasoning_absent_when_no_reasoning_field():
     sc = await probe_capabilities(_ProbeFake(basic_reasoning=""))
     assert sc.reachable is True
     assert sc.native_reasoning is False
+
+
+async def test_native_reasoning_detected_when_spelled_reasoning_content():
+    """The same detection through the other spelling: a fake whose basic-probe
+    answer is parsed from a Z.ai-shaped body, so the field name is the only
+    difference from the test above."""
+    from auspex.llm.client import LLMClient
+
+    class _ZaiShaped(_ProbeFake):
+        async def chat(self, messages, **kwargs) -> ChatResult:
+            blob = " ".join(m.get("content") or "" for m in messages)
+            if "pong" in blob:
+                return LLMClient.parse_completion({"choices": [{"message": {
+                    "content": "pong", "reasoning_content": "The user wants pong."}}]})
+            return ChatResult(content="", finish_reason="stop")
+
+    sc = await probe_capabilities(_ZaiShaped())
+    assert sc.reachable is True
+    assert sc.native_reasoning is True

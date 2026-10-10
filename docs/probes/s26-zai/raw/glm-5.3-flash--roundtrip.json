@@ -1,0 +1,91 @@
+{
+  "status": 200,
+  "seconds": 5.83,
+  "content_type": "application/json; charset=UTF-8",
+  "request": {
+    "model": "glm-5.3-flash",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What's the weather in Riyadh in celsius?"
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_probe1",
+            "type": "function",
+            "function": {
+              "name": "get_weather",
+              "arguments": "{\"city\": \"Riyadh\", \"unit\": \"celsius\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_probe1",
+        "content": "{\"temp_c\": 43, \"condition\": \"sunny\"}"
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "description": "Get current weather for a city.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string"
+              },
+              "unit": {
+                "type": "string",
+                "enum": [
+                  "celsius",
+                  "fahrenheit"
+                ]
+              }
+            },
+            "required": [
+              "city"
+            ]
+          }
+        }
+      }
+    ],
+    "temperature": 0,
+    "max_tokens": 2000
+  },
+  "body": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "It's currently **43\u00b0C** and sunny in Riyadh. Quite hot out there \u2014 stay hydrated and seek shade if you're heading outside! \u2600\ufe0f",
+          "reasoning_content": "The user asked for the weather in Riyadh in celsius. I got the result: 43\u00b0C, sunny. Let me provide a concise answer.",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1791621402,
+    "id": "20261010163636c29c0e00fa0145a6",
+    "model": "glm-5.3-flash",
+    "object": "chat.completion",
+    "request_id": "20261010163636c29c0e00fa0145a6",
+    "usage": {
+      "completion_tokens": 63,
+      "completion_tokens_details": {
+        "reasoning_tokens": 30
+      },
+      "prompt_tokens": 224,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 287
+    }
+  }
+}

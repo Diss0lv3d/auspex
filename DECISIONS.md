@@ -843,3 +843,165 @@ ratified decision.
 **What this supersedes.** Nothing. D-010 (work lands on `staging`; `main` moves
 only through `/promote`) and D-028 (CI runs `./ci.sh` and nothing else) both stand
 unchanged — this names what enforces them.
+
+## D-033 — The endpoint's URL is the customer's; its response shape is measured, not configured (2026-10-10, S26)
+
+**Context.** The customer brings the LLM (D-005), but `auspex/llm/client.py`
+hardcoded `/v1/chat/completions` and `/v1/models` under `LLM_BASE_URL`. That
+held for the three endpoints we had (Ollama, vLLM, Scout) and broke on the first
+provider whose API root is not `/v1`: Z.ai serves `https://api.z.ai/api/paas/v4`.
+Worse than a clean failure, measured live: under that root `GET .../v1/models`
+answers **200** while `POST .../v1/chat/completions` answers **404** — the
+liveness check would have passed for an endpoint chat could not reach
+(docs/probes/2026-10-10-zai-endpoint.md). Burhan proposed making the URL and the
+response JSON part of the environment so nothing provider-specific is hardcoded.
+The principle was accepted; the mechanism below was Burhan's choice between the
+two put to him.
+
+**Decision 1 — `LLM_BASE_URL` is the API root exactly as the provider documents
+it for the OpenAI SDK.** The client appends only the operation (`/chat/completions`,
+`/models`) — never a version segment. Every OpenAI-compatible provider publishes
+that value (`https://api.openai.com/v1`, `https://api.z.ai/api/paas/v4`,
+`http://localhost:11434/v1`), so a customer copies it rather than translating it.
+**No new variable**: the existing one changes meaning. Pre-D-033 values (a bare
+host) now 404 at `/models`, and the liveness note says what to fix rather than
+reading like an outage.
+
+**Decision 2 — response-shape variants are handled in code and detected by the
+capability probe, never configured.** The known variance is small and named: the
+thinking text arrives as `reasoning` (Ollama, newer vLLM) or `reasoning_content`
+(Z.ai, DeepSeek, older vLLM). The client accepts both. A field-name variable was
+rejected because the customer cannot be expected to know it, and getting it wrong
+fails SILENTLY — reasoning reads as absent while the tokens are still billed —
+which is exactly the *not-measured renders as not-present* collapse the
+capability scorecard exists to prevent. Measurement already covers it:
+`native_reasoning` is set from what the basic probe actually returned.
+
+**Decision 3 — a request pass-through (`LLM_EXTRA_BODY`) is admissible, and only
+on measurement.** Provider-specific *request* switches (Z.ai's `thinking`,
+`reasoning_effort`, `tool_stream`) ARE the customer's to set — like `LLM_MODEL`,
+they belong to their endpoint, not to us (D-026 governs tunables that are ours).
+One optional JSON variable merged into every request body would cover any
+provider. It is born only if a measurement shows the default request costs the
+platform something it must not pay; until then it does not exist.
+
+**What this supersedes.** Nothing ratified. D-005 (customer-supplied endpoint),
+D-015's `.env`-is-the-single-source-of-truth and D-016's `native_reasoning` all
+stand; this makes them true for endpoints whose root is not `/v1`.
+
+## D-034 — Primary dev LLM: glm-4.5-air on Z.ai's general API (2026-10-10, S26)
+
+**Supersedes D-015's primary assignment** (Scout on Northflank). D-015's
+evidence stands as history; its endpoint does not exist — the Northflank
+hostname is NXDOMAIN (measured 2026-10-10). qwen3:14b on local Ollama stays the
+secondary/offline endpoint (D-013), now spelled `…:11434/v1` (D-033).
+
+**How it was decided.** Burhan supplied a pay-as-you-go Z.ai key, asked for
+GLM-5.2 to be tested, and delegated the choice: *"if you feel we can use some
+other model that is cheap and efficient from their suite then use that."*
+Four models ran the platform's own battery and 40-task harness through the real
+client (docs/probes/2026-10-10-zai-endpoint.md):
+
+| model | completion | wall | $/1M in/out |
+|---|---|---|---|
+| glm-4.5-air | 95.0 % | 348 s | 0.20 / 1.10 |
+| glm-5.3-flash | 95.0 % | 1012 s | 0.15 / 0.50 |
+| glm-5.2 | 92.5 % | 694 s | 1.40 / 4.40 |
+| glm-4.7-flashx | 87.5 % | 757 s (1.6 tok/s) | 0.07 / 0.40 |
+
+All 100 % valid calls, all `native_tools`. **glm-4.5-air** completes as much as
+anything measured, in half the time of the next best, at a seventh of
+GLM-5.2's input price. It is the best loop-completion rate any dev endpoint has
+posted (qwen3 87.5 %, Scout 77.5 %).
+
+**Constraints this carries.**
+- **General endpoint only** (`https://api.z.ai/api/paas/v4`), **pay-as-you-go
+  only.** The Coding Plan's terms forbid its quota behind our own application.
+- **Dev only.** Z.ai processes in Singapore; under org policy no KSA-tenant data
+  may ever route through it. Customers bring their own endpoint (D-005); this
+  decision is about what WE build against.
+- **glm-4.5-air is the oldest model in the catalog** (2025-07). No deprecation
+  notice exists today; if one appears, glm-5.3-flash is the measured fallback
+  (same completion, slower).
+- **The key lives in `.env` as both `GLM_API_KEY` (Burhan's name for it) and
+  `LLM_API_KEY`** — gitignored, never printed, never committed.
+- **Prose precedes tool calls on this endpoint** (TD-036 triggered) and **the
+  chat route only takes the native-reasoning path if the analyst's workspace has
+  a scorecard** (STATE follow-up 9; a hand-seeded dev row covers it for now).
+  Both are owed before the agent path is wired to `/api/chat` against it.
+
+## D-035 — The default endpoint's scorecard is the deployment's (2026-10-10, S26)
+
+**Context.** `LLM_BASE_URL` / `LLM_MODEL` configure ONE endpoint for the whole
+deployment, but its scorecard was stored per workspace: the only writer
+(`scripts/llm_harness.py`) saved to a workspace named `dev`, the only reader
+(`_default_native_reasoning`, chat.py) read the analyst's. They never met. The
+default endpoint therefore always read as "not a thinking model", and on a
+thinking model the two-pass fallback it chose was measured broken through the
+running app: the model's own thinking consumed pass 1's 256 tokens, the Thinking
+pane stayed empty, and every deep turn paid for a second call that bought
+nothing (docs/probes/2026-10-10-zai-endpoint.md). STATE follow-up 9 had carried
+the symptom since S24 as a note. Burhan: "let's fix the bug".
+
+**Decision.** A deployment-configured endpoint has a deployment-scoped scorecard.
+It lives in one reserved system workspace, `__deployment__`
+(`DEPLOYMENT_WORKSPACE`, auspex/llm/scorecard.py — the name's one home). The
+harness writes there (`save_deployment_scorecard`); the chat route reads there
+(`load_deployment_scorecard`). Unknown still reads as False — the safe two-pass
+default (D-016) is unchanged for an endpoint nobody has probed.
+
+**Why a reserved workspace and not a nullable `workspace_id`.** D-008 puts
+`workspace_id` on every row of every table, and the schema test enforces it.
+**Why not "look the fingerprint up in any workspace".** That is a cross-tenant
+read: the first time a tenant configures or probes its own endpoint, its row
+would decide another tenant's turn. The reserved workspace is read by every
+analyst request but written by no tenant — `get_or_create_user` refuses the
+name, so no user can ever be provisioned into it.
+
+**What it does not do.** Nothing in a production deployment writes this
+scorecard yet: the harness is a dev script. A fresh deployment still reads
+"unknown" and takes two-pass until someone probes it — and two-pass is broken on
+thinking models. Logged as TD-037 rather than solved here, because the fix
+(probing the customer's endpoint at startup or on configuration) spends the
+customer's inference without a turn asking for it, which is D-005's to decide.
+
+**What this supersedes.** Nothing ratified. D-008 stands (the row keeps its
+workspace); D-016's safe default stands. Pre-existing rows in workspace `dev`
+are left as history: they are probes of endpoints, not of tenants, and nothing
+reads them.
+
+## D-036 — A two-pass turn whose endpoint thinks becomes a native turn (2026-10-10, S26)
+
+**Context.** D-016 picks the reasoning path from the endpoint's scorecard: native
+if it emits its own reasoning, else two passes (pass 1 a brief analysis →
+Thinking pane, pass 2 the answer). An endpoint nobody has probed reads as
+"unknown" and takes two passes — the D-035 fix made the scorecard findable, and
+TD-037 records that nothing in a production deployment writes it. On a
+**thinking** endpoint that two-pass is broken, measured on glm-4.5-air: its own
+thinking fills pass 1's 256-token budget (`R×245 C×9`, `R×220 C×34`), the pane
+shows a cut-off fragment or nothing, and the model's real thinking is
+discarded. Two remedies were put to Burhan — probe the customer's endpoint
+unasked, or make two-pass survive a thinking model. **He chose the second.**
+
+**Decision.** The endpoint tells us inside the turn. If pass 1's FIRST text
+event is the model's own reasoning, the endpoint thinks natively: the route
+stops pass 1 at that event (closing the stream, so the endpoint stops
+generating) and spends the turn's second claimed call on the **native** answer —
+the turn's own messages, the answer budget, reasoning and content streamed on
+their own fields through the same rail. If pass 1's first text is content, the
+turn is an ordinary two-pass, exactly as before; a late reasoning event does not
+switch it (the analyst is already reading that analysis).
+
+**Why the first event and not a scorecard write.** Recording "this endpoint
+thinks" from inside a turn would be an analyst request writing deployment-scoped
+state (D-035's reserved workspace, which no tenant request writes). The signal
+is cheap to re-read every turn: measured 1.3–2.2 s to the first event.
+
+**Cost, stated.** No extra calls: two claimed, two made (pass 1 abandoned + the
+native call) — the same count two-pass always claimed (TD-018). What remains is
+one abandoned pass-1 per turn on an unprobed thinking endpoint: its prompt
+tokens and the time to its first event. A probed endpoint (scorecard present)
+skips pass 1 entirely, as before.
+
+**What this supersedes.** Nothing. D-016 stands — the scorecard still chooses
+first; this is what two-pass does when the stream proves the scorecard wrong.

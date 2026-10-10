@@ -29,6 +29,7 @@ org policy that multi-LLM / BYO-LLM stays internal infrastructure.
 
 import json
 import logging
+from contextlib import aclosing
 from dataclasses import dataclass
 from typing import Annotated
 from uuid import UUID
@@ -58,7 +59,7 @@ from auspex.kb import (
 from auspex.limits import Meter, UsageLimiter
 from auspex.llm.client import LLMClient, LLMError, Usage
 from auspex.llm.registry import DevEndpoint
-from auspex.llm.scorecard import load_latest_scorecard
+from auspex.llm.scorecard import load_deployment_scorecard
 from auspex.modes import Mode, contract_for, resolve_mode
 from auspex.outguard import LEAK_COPY, OutputScanner, instruction_index
 from auspex.phishing import decide_verdict, deterministic_phishing_block, parse_email
@@ -210,10 +211,16 @@ def select_dev_endpoint(
 
 async def _default_native_reasoning(request: Request, auth: AuthContext) -> bool:
     """Whether the configured default endpoint emits native reasoning, from its
-    persisted scorecard. Unknown ⇒ False (safe default = two-pass fallback)."""
+    persisted scorecard. Unknown ⇒ False (safe default = two-pass fallback).
+
+    The scorecard is the DEPLOYMENT's (D-035), because the endpoint is: reading
+    it from the analyst's workspace found nothing, ever, and every deep turn on a
+    thinking model paid for a two-pass whose first pass its own thinking emptied.
+    `auth` stays in the signature — the route resolves per request — but the
+    endpoint it describes is not per workspace."""
     settings = _settings(request)
-    loaded = await load_latest_scorecard(
-        request.app.state.pool, auth.workspace_id, settings.llm_base_url, settings.llm_model
+    loaded = await load_deployment_scorecard(
+        request.app.state.pool, settings.llm_base_url, settings.llm_model
     )
     return bool(loaded and loaded[0].native_reasoning)
 
@@ -539,38 +546,73 @@ async def chat(
         finish_reason = None
         usage = None
         scanner = OutputScanner(leak_index)
-        try:
-            if endpoint.native_reasoning:
-                # Native path: one call; reasoning + content stream on their own fields.
-                async for ev in endpoint.client.chat_stream(
+
+        async def native_answer():
+            """One call; the model's own reasoning and its answer stream on their
+            own fields, both through the rail. The native path, and the path a
+            two-pass turn switches to when its endpoint turns out to think (D-036)."""
+            nonlocal finish_reason, usage
+            async with aclosing(
+                endpoint.client.chat_stream(
                     messages, max_tokens=CHAT_ANSWER_MAX_TOKENS, temperature=0
-                ):
+                )
+            ) as events:
+                async for ev in events:
                     if ev.kind == "reasoning":
                         if scanner.feed(ev.text, channel="reasoning"):
-                            break
+                            return
                         yield _sse({"reasoning": ev.text})
                     elif ev.kind == "content":
                         if scanner.feed(ev.text, channel="content"):
-                            break
+                            return
                         content_parts.append(ev.text)
                         yield _sse({"content": ev.text})
                     elif ev.kind == "finish":
                         finish_reason = ev.finish_reason
                     elif ev.kind == "usage" and ev.usage:
                         usage = _usage_dict(ev.usage)
+
+        try:
+            if endpoint.native_reasoning:
+                async with aclosing(native_answer()) as frames:
+                    async for frame in frames:
+                        yield frame
             else:
                 # Two-pass fallback: pass 1 = brief analyst reasoning → Thinking pane.
                 analysis_parts: list[str] = []
-                async for ev in endpoint.client.chat_stream(
-                    [*messages, {"role": "system", "content": PASS1_DIRECTIVE}],
-                    max_tokens=CHAT_REASONING_MAX_TOKENS,
-                    temperature=0,
-                ):
-                    if ev.kind == "content":
-                        if scanner.feed(ev.text, channel="reasoning"):
+                thinks_natively = False
+                async with aclosing(
+                    endpoint.client.chat_stream(
+                        [*messages, {"role": "system", "content": PASS1_DIRECTIVE}],
+                        max_tokens=CHAT_REASONING_MAX_TOKENS,
+                        temperature=0,
+                    )
+                ) as events:
+                    async for ev in events:
+                        if ev.kind == "reasoning" and ev.text and not analysis_parts:
+                            # D-036: the endpoint's FIRST text is its own thinking,
+                            # so it is a thinking model the scorecard did not know
+                            # about (TD-037). Measured on one: its thinking fills
+                            # pass 1's small budget, the analysis comes back empty
+                            # or cut off, and the pane shows nothing of what it
+                            # thought. Stop here — `aclosing` drops the connection
+                            # so the endpoint stops generating — and spend the
+                            # turn's second claimed call on the native answer.
+                            thinks_natively = True
                             break
-                        analysis_parts.append(ev.text)
-                        yield _sse({"reasoning": ev.text})
+                        if ev.kind == "content":
+                            if scanner.feed(ev.text, channel="reasoning"):
+                                break
+                            analysis_parts.append(ev.text)
+                            yield _sse({"reasoning": ev.text})
+                if thinks_natively:
+                    logger.info(
+                        "two-pass endpoint thinks natively; turn switched to native"
+                        " (probe it to skip pass 1: TD-037)"
+                    )
+                    async with aclosing(native_answer()) as frames:
+                        async for frame in frames:
+                            yield frame
                 analysis = "".join(analysis_parts).strip()
                 # A leak in pass 1 ENDS the turn. `break` leaves only its own
                 # loop, and a tripped scanner returns None from every later
@@ -579,7 +621,7 @@ async def chat(
                 # S23 review measured both halves: a second inference call on
                 # the customer's endpoint, and the full pass-2 answer reaching
                 # the analyst after the rail had already fired.
-                if not scanner.tripped:
+                if not scanner.tripped and not thinks_natively:
                     # pass 2 = the answer, grounded in the private analysis → content.
                     async for ev in endpoint.client.chat_stream(
                         [*messages, {"role": "system", "content": _pass2_directive(analysis)}],

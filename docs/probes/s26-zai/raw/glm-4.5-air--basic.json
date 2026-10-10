@@ -1,0 +1,42 @@
+{
+  "status": 200,
+  "seconds": 2.57,
+  "content_type": "application/json; charset=UTF-8",
+  "request": {
+    "model": "glm-4.5-air",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Reply with exactly: pong"
+      }
+    ],
+    "temperature": 0,
+    "max_tokens": 2000
+  },
+  "body": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "content": "pong",
+          "reasoning_content": "\nWe are given a user instruction: \"Reply with exactly: pong\"\n This means we must output the string \"pong\" and nothing else.\n However, note that the instruction says \"exactly\", so we must be cautious about any extra characters, spaces, or newlines.\n Since the user's message is \"Reply with exactly: pong\", we are to output only the word \"pong\".\n But note: the example output in the instruction is \"pong\", so we output that without any additional text.",
+          "role": "assistant"
+        }
+      }
+    ],
+    "created": 1791621390,
+    "id": "20261010163628fb766c928a3f403d",
+    "model": "glm-4.5-air",
+    "object": "chat.completion",
+    "request_id": "20261010163628fb766c928a3f403d",
+    "usage": {
+      "completion_tokens": 105,
+      "prompt_tokens": 10,
+      "prompt_tokens_details": {
+        "cached_tokens": 9
+      },
+      "total_tokens": 115
+    }
+  }
+}

@@ -1,5 +1,47 @@
 # Technical debt — logged the moment it's taken
 
+## TD-037 (S26) — the deployment's scorecard has only a dev writer
+
+> **S26, later the same day — the harm is fixed (D-036); the cost remains.**
+> Burhan chose "make two-pass survive a thinking model". A two-pass turn whose
+> pass 1 opens with the model's own thinking now abandons pass 1 and answers
+> natively — the Thinking pane fills, no extra calls. What is LEFT of this entry
+> is the price of not knowing: one abandoned pass-1 per turn (prompt tokens +
+> ~1.3–2.2 s to the first event) on an unprobed thinking endpoint. Risk drops to
+> LOW. The text below is the entry as written before D-036.
+
+**Where:** `auspex/llm/scorecard.py` `save_deployment_scorecard` — its one
+caller is `scripts/llm_harness.py`.
+**Risk:** MEDIUM for any deployment whose endpoint thinks natively. D-035 made
+the writer and the reader agree on scope, but only a developer running the
+harness ever writes. A customer deployment reads "unknown", takes the two-pass
+fallback, and on a thinking model that fallback is measured broken: pass 1's
+256 tokens are consumed by the model's own thinking, the Thinking pane is empty,
+and every deep turn pays for a second call (docs/probes/2026-10-10-zai-endpoint.md,
+"Through the running app": 0 chars, 2 calls; native: 4916 chars from 3.0 s, 1 call).
+
+**Why not fixed with D-035.** The fix spends the customer's inference without a
+turn asking for it — the capability battery is ~15 requests. Whether the
+platform may do that at startup, on configuration change, or only on an explicit
+"probe my endpoint" action is a D-005 question, not a bug fix.
+
+**What would fix it.** Probe the configured endpoint once per fingerprint (not
+per start) and `save_deployment_scorecard` the result — `native_reasoning`
+alone needs only the basic probe, one request. **Or** make two-pass survive a
+thinking model: pass 1 keeps only `content`, so it could forward the endpoint's
+own `reasoning` events instead of discarding them.
+
+**Trigger:** the first non-dev deployment, or the first dev endpoint change made
+without re-running the harness (the dev deployment's row is per fingerprint).
+
+**When it is fixed, move the guard.** Today the reserved workspace is protected
+only where users are provisioned (`get_or_create_user`); the D-035 review showed
+a directly-inserted `__deployment__` user resolves at `resolve_user` (no route
+can create one, and anyone who can INSERT could poison the scorecard directly,
+so it is not exploitable now). The first route that lets a workspace probe or
+write a scorecard must refuse `DEPLOYMENT_WORKSPACE` at `resolve_user` too, with
+a regression test that inserts such a user and expects 401.
+
 ## TD-035 (S24) — a pass-1 leak is charged for the call it prevented
 **Where:** `auspex/routes/chat.py` — the TD-018 usage claim, taken before the
 first inference call.
@@ -1015,3 +1057,39 @@ does it.
 **Trigger:** the first customer endpoint that emits content before a tool call,
 or any endpoint whose probe records non-zero content chars on a tool-calling
 turn. Until then this is a named assumption, not an outage.
+
+**S26 Step 0 — a SECOND consequence, measured, that this entry did not name.**
+Driving the shape directly (`docs/probes/s26-step0/probe_misbehaving_stream.py`,
+case `prose_before_tool_call`) shows the ordering hazard is only half of it. The
+turn also ends with a `done.text` holding **only the last call's content**,
+while the analyst read every step's content concatenated:
+
+    analyst READ:   'This IP looks benign to me. Actually it is MALICIOUS (score 88).'
+    route PERSISTS: 'Actually it is MALICIOUS (score 88).'
+
+So the conversation as reloaded from Postgres is not the conversation the
+analyst was shown — and the half that disappears is precisely the half the tool
+result contradicted. Recorded, deliberately NOT fixed: the fix is the same
+buffer this entry already costs, and inventing a second one (concatenating every
+step's content into `done.text`) would persist prose the tool results refuted,
+which is worse than dropping it. Same trigger, same measurement still owed.
+
+**S26 (2026-10-10) — TRIGGERED, and the owed measurement is taken.** The first
+non-Scout endpoint we connected trips this entry's own trigger: on Z.ai, prose
+precedes tool calls on four of five models
+(docs/probes/2026-10-10-zai-endpoint.md, Finding 9). Streamed, the ordering is
+identical across three of them — reasoning, then the whole sentence, then the
+whole tool call in ONE delta:
+
+    glm-4.7-flashx   reasoning x61 → content x14 → tool_call x1
+    glm-4.5-air      reasoning x76 → content x15 → tool_call x1
+    glm-4.5-flash    reasoning x75 → content x15 → tool_call x1
+    content: "I'll get the current weather in Riyadh for you in celsius."
+
+So the buffer this entry describes is now a known size: one sentence of
+narration, released or dropped when the step's `finish_reason` arrives. The
+prose is benign intent-narration on every sample, not a premature verdict — but
+GLM-5.2's parallel case ("I'll run both requests at the same time…") shows it is
+not confined to one model or one prompt shape. **Risk is no longer LOW once the
+agent path is wired to `/api/chat` against this endpoint**; the fix belongs to
+that wiring, not to this detour.

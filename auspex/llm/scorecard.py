@@ -29,7 +29,7 @@ class CapabilityScorecard(BaseModel):
     model: str
 
     reachable: bool = False
-    native_reasoning: bool = False  # emits a separate `reasoning` field (thinking model)
+    native_reasoning: bool = False  # emits thinking on its own field (thinking model)
     native_tool_calling: bool = False
     parallel_tool_calls: bool = False
     tool_choice_named: bool = False  # tool_choice={"type":"function",...} honored
@@ -111,3 +111,47 @@ async def load_latest_scorecard(
     if row is None:
         return None
     return CapabilityScorecard(**json.loads(row["scorecard"])), row["agent_mode"]
+
+
+# The default endpoint is configured per DEPLOYMENT (LLM_BASE_URL / LLM_MODEL),
+# not per workspace, so its scorecard is deployment-scoped too (D-035): it lives
+# in this one reserved system workspace. D-008 holds — the row still carries a
+# workspace_id — and no analyst request ever reads ANOTHER TENANT's workspace:
+# it reads this one, which no user can be provisioned into (auth.get_or_create_user
+# refuses the name). Before D-035 the only writer (the harness) wrote to a
+# workspace called 'dev' while the only reader read the analyst's, so the
+# default endpoint never found its own scorecard.
+DEPLOYMENT_WORKSPACE = "__deployment__"
+
+
+async def save_deployment_scorecard(
+    pool: asyncpg.Pool, sc: CapabilityScorecard, *, as_base_url: str | None = None
+) -> str:
+    """Record a probe of the deployment's configured endpoint (D-035).
+
+    `as_base_url`: the URL the DEPLOYMENT configures, when the prober had to
+    reach the same endpoint by another name. Local Ollama is the case: the
+    container is configured with `http://host.docker.internal:11434/v1`, a
+    host-side harness can only dial `http://localhost:11434/v1`, and a
+    fingerprint taken from the dialled URL is one the route never looks up."""
+    if as_base_url is not None:
+        sc = sc.model_copy(update={"base_url": as_base_url})
+    workspace_id = await pool.fetchval(
+        "INSERT INTO workspaces (name) VALUES ($1)"
+        " ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id",
+        DEPLOYMENT_WORKSPACE,
+    )
+    return await save_scorecard(pool, workspace_id, sc)
+
+
+async def load_deployment_scorecard(
+    pool: asyncpg.Pool, base_url: str, model: str
+) -> tuple[CapabilityScorecard, AgentMode] | None:
+    """The newest probe of the deployment's configured endpoint, or None if it
+    has never been probed — which the caller must treat as unknown, not as no."""
+    workspace_id = await pool.fetchval(
+        "SELECT id FROM workspaces WHERE name = $1", DEPLOYMENT_WORKSPACE
+    )
+    if workspace_id is None:
+        return None
+    return await load_latest_scorecard(pool, workspace_id, base_url, model)

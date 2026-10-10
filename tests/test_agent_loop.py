@@ -181,6 +181,25 @@ async def test_missing_required_parameter_reported():
 # -- step cap ----------------------------------------------------------------
 
 
+async def test_a_turn_the_endpoint_never_answered_says_so():
+    """The blocking half of the S26 Step-0 finding. `run` and `run_stream`
+    answer the same question two ways; if only one of them learned to name an empty
+    answer, the two would disagree about what happened — which is the drift
+    `wire_specs`/`_initial_messages` were extracted to prevent."""
+    reg, _ = _make_registry()
+    client = FakeLLMClient([ChatResult(content="", finish_reason="length", reasoning="thinking…")])
+
+    result = await _loop(reg, InMemoryProposalStore()).run(client, "Is 203.0.113.99 a threat?")
+
+    assert result.stopped_reason == "empty_answer"
+    assert result.content == ""
+
+    # Control: the same turn with an answer in it must NOT be renamed.
+    answered = FakeLLMClient([ChatResult(content="It is malicious.", finish_reason="stop")])
+    control = await _loop(reg, InMemoryProposalStore()).run(answered, "Is 203.0.113.99 a threat?")
+    assert control.stopped_reason == "final_answer"
+
+
 async def test_step_cap_triggers_synthesis_pass():
     reg, _ = _make_registry()
     # Model keeps calling tools forever; cap=2 → 2 tool turns + 1 synthesis turn.

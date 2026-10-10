@@ -9,7 +9,7 @@ REGISTRY = {
     "endpoints": [
         {"id": "scout", "label": "Fast", "base_url": "https://scout.test",
          "model": "some/model", "api_key_env": "SCOUT_KEY", "native_reasoning": False},
-        {"id": "qwen", "label": "Deep — shows reasoning", "base_url": "http://localhost:11434",
+        {"id": "qwen", "label": "Deep — shows reasoning", "base_url": "http://localhost:11434/v1",
          "model": "qwen3:14b", "api_key_env": None, "native_reasoning": True},
     ]
 }

@@ -8,7 +8,8 @@ Measures:
 - valid-call rate      = well-formed tool calls / all tool calls emitted
 - loop-completion rate = tasks where every required tool ran validly AND the
                          final answer contains the expected evidence
-Persists a scorecard row (workspace 'dev') and writes the raw run JSON next to
+Persists a DEPLOYMENT-scoped scorecard row (D-035 — the scope the chat route
+reads) and writes the raw run JSON next to
 the probe docs. Verdict comes from decide_agent_mode — code, not vibes.
 """
 
@@ -33,7 +34,7 @@ from auspex.config import get_settings  # noqa: E402
 from auspex.db import create_pool  # noqa: E402
 from auspex.llm.capability import PROBE_MAX_TOKENS, probe_capabilities  # noqa: E402
 from auspex.llm.client import LLMClient, LLMError, ToolCall  # noqa: E402
-from auspex.llm.scorecard import decide_agent_mode, save_scorecard  # noqa: E402
+from auspex.llm.scorecard import decide_agent_mode, save_deployment_scorecard  # noqa: E402
 from scripts.harness_tasks import SYSTEM_PROMPT, TASKS, TOOL_SPECS, Task, execute_tool  # noqa: E402
 
 
@@ -136,6 +137,13 @@ async def main() -> None:
     parser.add_argument("--no-db", action="store_true", help="skip the scorecard insert")
     parser.add_argument("--limit", type=int, default=0, help="run only the first N tasks")
     parser.add_argument("--model", default="", help="override LLM_MODEL for this run")
+    parser.add_argument(
+        "--deployment-base-url",
+        default="",
+        help="record the scorecard under the LLM_BASE_URL the deployment (the app "
+        "container) is configured with, when this host dials it by another name — "
+        "local Ollama: http://host.docker.internal:11434/v1 (D-035)",
+    )
     cli = parser.parse_args()
 
     settings = get_settings()
@@ -152,12 +160,14 @@ async def main() -> None:
             print(f"endpoint unreachable ({detail}) — aborting, nothing measured")
             sys.exit(1)
 
-        # context hint: vLLM exposes max_model_len on /v1/models; Ollama needs
-        # its native /api/show. Generic code gets None if neither answers.
+        # context hint: vLLM exposes max_model_len on {root}/models; Ollama needs
+        # its native /api/show, which lives beside its OpenAI root, not under
+        # it (D-033: base_url IS the root, e.g. http://host:11434/v1). Generic
+        # code gets None if neither answers.
         max_ctx = None
         try:
             async with httpx.AsyncClient(timeout=10.0) as http:
-                r = await http.get(f"{client.base_url}/v1/models")
+                r = await http.get(f"{client.base_url}/models")
                 if r.status_code == 200:
                     entry = next(
                         (m for m in r.json().get("data", []) if m.get("id") == client.model),
@@ -166,7 +176,8 @@ async def main() -> None:
                     max_ctx = entry.get("max_model_len")
                 if max_ctx is None:
                     r = await http.post(
-                        f"{client.base_url}/api/show", json={"model": client.model}
+                        f"{client.base_url.removesuffix('/v1')}/api/show",
+                        json={"model": client.model},
                     )
                     if r.status_code == 200:
                         info = r.json().get("model_info", {})
@@ -239,12 +250,12 @@ async def main() -> None:
         if not cli.no_db:
             pool = await create_pool(settings.database_url, retries=2, delay=0.5)
             try:
-                workspace_id = await pool.fetchval(
-                    "INSERT INTO workspaces (name) VALUES ('dev')"
-                    " ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id"
+                # Deployment-scoped (D-035): the chat route reads the scorecard of
+                # the endpoint the DEPLOYMENT configured, so that is where it goes.
+                row_id = await save_deployment_scorecard(
+                    pool, sc, as_base_url=cli.deployment_base_url or None
                 )
-                row_id = await save_scorecard(pool, workspace_id, sc)
-                print(f"scorecard row {row_id} saved (workspace 'dev', mode={mode})")
+                print(f"scorecard row {row_id} saved (deployment scope, mode={mode})")
             finally:
                 await pool.close()
 

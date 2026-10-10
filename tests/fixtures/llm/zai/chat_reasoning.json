@@ -1,0 +1,29 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "pong",
+        "reasoning_content": "1.  **Analyze the Request:**\n    *   Input: \"Reply with exactly: pong\"\n    *   Constraint: The reply must be *exactly* \"pong\" (no extra text, no punctuation unless specified, just the word).\n\n2.  **Formulate the Output:**\n    *   Output: pong\n\n3.  **Verify against constraints:**\n    *   Is it exactly \"pong\"? Yes.\n    *   Are there any extra spaces, newlines, or formatting? No.\n\n4.  **Final Output Generation:** pong",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1791621173,
+  "id": "20261010163250f5323b9846514ae6",
+  "model": "glm-5.2",
+  "object": "chat.completion",
+  "request_id": "20261010163250f5323b9846514ae6",
+  "usage": {
+    "completion_tokens": 117,
+    "completion_tokens_details": {
+      "reasoning_tokens": 116
+    },
+    "prompt_tokens": 17,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 134
+  }
+}
