@@ -888,3 +888,44 @@ platform something it must not pay; until then it does not exist.
 **What this supersedes.** Nothing ratified. D-005 (customer-supplied endpoint),
 D-015's `.env`-is-the-single-source-of-truth and D-016's `native_reasoning` all
 stand; this makes them true for endpoints whose root is not `/v1`.
+
+## D-034 — Primary dev LLM: glm-4.5-air on Z.ai's general API (2026-10-10, S26)
+
+**Supersedes D-015's primary assignment** (Scout on Northflank). D-015's
+evidence stands as history; its endpoint does not exist — the Northflank
+hostname is NXDOMAIN (measured 2026-10-10). qwen3:14b on local Ollama stays the
+secondary/offline endpoint (D-013), now spelled `…:11434/v1` (D-033).
+
+**How it was decided.** Burhan supplied a pay-as-you-go Z.ai key, asked for
+GLM-5.2 to be tested, and delegated the choice: *"if you feel we can use some
+other model that is cheap and efficient from their suite then use that."*
+Four models ran the platform's own battery and 40-task harness through the real
+client (docs/probes/2026-10-10-zai-endpoint.md):
+
+| model | completion | wall | $/1M in/out |
+|---|---|---|---|
+| glm-4.5-air | 95.0 % | 348 s | 0.20 / 1.10 |
+| glm-5.3-flash | 95.0 % | 1012 s | 0.15 / 0.50 |
+| glm-5.2 | 92.5 % | 694 s | 1.40 / 4.40 |
+| glm-4.7-flashx | 87.5 % | 757 s (1.6 tok/s) | 0.07 / 0.40 |
+
+All 100 % valid calls, all `native_tools`. **glm-4.5-air** completes as much as
+anything measured, in half the time of the next best, at a seventh of
+GLM-5.2's input price. It is the best loop-completion rate any dev endpoint has
+posted (qwen3 87.5 %, Scout 77.5 %).
+
+**Constraints this carries.**
+- **General endpoint only** (`https://api.z.ai/api/paas/v4`), **pay-as-you-go
+  only.** The Coding Plan's terms forbid its quota behind our own application.
+- **Dev only.** Z.ai processes in Singapore; under org policy no KSA-tenant data
+  may ever route through it. Customers bring their own endpoint (D-005); this
+  decision is about what WE build against.
+- **glm-4.5-air is the oldest model in the catalog** (2025-07). No deprecation
+  notice exists today; if one appears, glm-5.3-flash is the measured fallback
+  (same completion, slower).
+- **The key lives in `.env` as both `GLM_API_KEY` (Burhan's name for it) and
+  `LLM_API_KEY`** — gitignored, never printed, never committed.
+- **Prose precedes tool calls on this endpoint** (TD-036 triggered) and **the
+  chat route only takes the native-reasoning path if the analyst's workspace has
+  a scorecard** (STATE follow-up 9; a hand-seeded dev row covers it for now).
+  Both are owed before the agent path is wired to `/api/chat` against it.
