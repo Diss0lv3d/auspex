@@ -17,8 +17,9 @@ import asyncio
 
 import asyncpg
 import pytest
+from starlette.requests import Request
 
-from auspex.auth import get_or_create_user
+from auspex.auth import AuthContext, get_or_create_user
 from auspex.db import create_pool
 from auspex.llm.scorecard import (
     DEPLOYMENT_WORKSPACE,
@@ -27,6 +28,7 @@ from auspex.llm.scorecard import (
     save_deployment_scorecard,
     save_scorecard,
 )
+from auspex.routes.chat import get_endpoint_resolver
 
 TEST_BASE = "https://d035-deployment-scope.test/v1"
 TEST_MODEL = "d035-model"
@@ -121,6 +123,47 @@ def test_a_scorecard_in_the_analysts_own_workspace_is_not_the_deployments(
     assert _shown(client) is False
 
 
+@pytest.mark.parametrize("other", ["another tenant", "a userless workspace"])
+def test_no_other_workspace_decides_the_deployments_endpoint(
+    default_endpoint_is_the_test_one, settings, other
+):
+    """D-035 rejects "look the fingerprint up in any workspace" as a cross-tenant
+    read. A reader that widened the scope — any workspace but the caller's, or
+    any workspace nobody belongs to (the legacy `dev` one is exactly that) — would
+    let tenant B's probe decide tenant A's turn."""
+    client = default_endpoint_is_the_test_one
+    assert _shown(client) is False  # control
+
+    async def write_elsewhere(pool):
+        if other == "another tenant":
+            _, ws = await get_or_create_user(
+                pool, email=TENANT_B_EMAIL, workspace_name="d035-tenant-b"
+            )
+        else:
+            ws = await pool.fetchval(
+                "INSERT INTO workspaces (name) VALUES ('d035-userless') RETURNING id"
+            )
+        await save_scorecard(pool, ws, _sc(native_reasoning=True))
+
+    _db(settings, write_elsewhere)
+
+    assert _shown(client) is False
+
+
+def test_a_deployment_probe_of_another_model_is_not_the_defaults(
+    default_endpoint_is_the_test_one, settings
+):
+    """The deployment workspace holds one row per FINGERPRINT. When LLM_MODEL
+    changes — Scout to glm-4.5-air, this very session — the previous model's
+    probe must not decide the new one's mode."""
+    client = default_endpoint_is_the_test_one
+    _db(settings, lambda pool: save_deployment_scorecard(
+        pool, _sc(native_reasoning=True, model=TEST_MODEL + "-previous")
+    ))
+
+    assert _shown(client) is False
+
+
 def test_a_probe_dialled_by_another_name_is_recorded_as_the_deployments(
     default_endpoint_is_the_test_one, settings
 ):
@@ -135,6 +178,41 @@ def test_a_probe_dialled_by_another_name_is_recorded_as_the_deployments(
 
     _db(settings, lambda pool: save_deployment_scorecard(pool, dialled, as_base_url=TEST_BASE))
     assert _shown(client) is True
+
+
+def test_the_chat_resolver_itself_reads_the_deployment_scorecard(
+    default_endpoint_is_the_test_one, settings
+):
+    """/api/models reports the same function, but the defect lived in the path a
+    deep turn takes: `get_endpoint_resolver` → `resolve()`. Driven directly (no
+    model call — resolve() only builds a client) so a refactor of that path
+    cannot drift back to the analyst's workspace while /api/models stays right."""
+    client = default_endpoint_is_the_test_one
+    _db(settings, lambda pool: save_deployment_scorecard(pool, _sc(native_reasoning=True)))
+
+    async def resolve_as_the_analyst():
+        pool = client.app.state.pool
+        user_id, workspace_id = await get_or_create_user(pool, email=DEV_EMAIL)
+
+        async def receive():
+            return {"type": "http.request", "body": b"{}", "more_body": False}
+
+        request = Request(
+            {"type": "http", "method": "POST", "path": "/api/chat", "headers": [],
+             "app": client.app},
+            receive,
+        )
+        auth = AuthContext(user_id=user_id, workspace_id=workspace_id, via="jwt")
+        endpoint = await (await get_endpoint_resolver(request, auth)).resolve()
+        try:
+            return endpoint.id, endpoint.native_reasoning, endpoint.client.base_url
+        finally:
+            await endpoint.client.aclose()
+
+    endpoint_id, native, base_url = client.portal.call(resolve_as_the_analyst)
+
+    assert (endpoint_id, base_url) == ("default", TEST_BASE.rstrip("/"))  # it IS the default
+    assert native is True
 
 
 def test_the_newest_deployment_probe_wins(default_endpoint_is_the_test_one, settings):
