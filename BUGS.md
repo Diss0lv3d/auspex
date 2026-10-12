@@ -40,3 +40,25 @@ are never deleted.
 - **Evidence:** docs/probes/2026-10-12-b002-definition-rail-trip.md (the runs
   and the route's log line); docs/probes/fe-stream/raw-layers-glm-default.log.
 - **Status:** open.
+
+## B-003 — after a deploy, the browser keeps running the old chat page
+
+- **Found:** 2026-10-12, F1 (Claude), live-checking D-052's page change in a
+  real browser against the rebuilt container.
+- **What happened:** `docker compose up -d --build app` shipped a new
+  `index.html` (a curl of `/` showed its new `// <page-logic>` block). A
+  Playwright browser that had loaded the page about 25 minutes earlier then
+  navigated to `http://localhost:8000/`, signed in and ran a turn. The
+  turn ran on the **old** page.
+- **Evidence:** observed in that browser:
+  - `performance.getEntriesByType('navigation')[0].transferSize` was `0`;
+  - `typeof indicatorText` was `"undefined"`;
+  - `send.toString()` did not contain `createPacer`.
+
+  The page's response headers (curl GET `/`, same time) were
+  `HTTP/1.1 200 OK`, `last-modified: Mon, 12 Oct 2026 02:20:02 GMT` and
+  `etag: "cfd58c52621be79d7de8d54fed5fa25d"`, with **no `cache-control`**.
+  `auspex/routes/ui.py` serves `index.html` and `timeline.html` with
+  `FileResponse` and no extra headers. Re-checkable at any time with
+  `curl -s -D - -o /dev/null localhost:8000/`.
+- **Status:** open.
