@@ -1,38 +1,97 @@
 # STATE — Auspex
 
-_Last updated: 2026-10-12 — **sessions split into three tracks (D-051)**, between
-sessions. S28 CLOSED on 2026-10-11 (session-end ritual run). `./ci.sh` green
-on 2026-10-12 with D-051: **1293 tests, 120 modules**. `/api/health/ready` 200.
-`./scripts/demo.sh` exited 0 at S28's close (not re-run: D-051 changed no app
-code). Branch `staging`. **Promote #30 shipped at B1's Step 0 (2026-10-12):**
-`d0bf773` on main (D-046…D-050, the review fixes, the alert key fix, D-051),
-back-merge `f681915`; `./ci.sh` green fresh (1293), PR CI pass, ready 200. The
-promote slate is empty._
+_Last updated: 2026-10-12 — **F1 CLOSED** (session-end ritual run). `./ci.sh`
+green at F1's close: **1315 tests, 120 modules**. `/api/health/ready` 200.
+`./scripts/demo.sh` exited 0 at F1's close. Branch `staging`. Promote #30
+(`d0bf773`, back-merge `f681915`) shipped at the start of 2026-10-12.
+**Promote slate: NOT EMPTY**: F1's work (D-052, D-053, D-054, the approvals
+panel, B-003's fix) and B1's two commits (`bbb382a`, `c0780d3`)._
 
 ## Tracks (D-051) — read this first
 
 | Track | Prompt | Last closed | Next | Status |
 |---|---|---|---|---|
 | backend | `NEXT-SESSION-BE.md` | S28 (2026-10-11) | S29 | paused |
-| front end | `NEXT-SESSION-FE.md` | none yet | F1 | **focus** |
-| bugs | `NEXT-SESSION-BUGS.md` | none yet | B1 | ready: B-001 open |
+| front end | `NEXT-SESSION-FE.md` | F1 (2026-10-12) | F2 | **focus** |
+| bugs | `NEXT-SESSION-BUGS.md` | none yet | B1 | **in progress in a paused window** (B-001 fixing) |
 
 - **Focus: front end.** Burhan, 2026-10-10, after S28's ritual: "before moving
   on with more backend development we need to improve on the FE so lets shift
   our focus there and pause BE for a bit."
-- **That pivot was nearly lost.** It was said after the ritual had committed
-  the S29 prompt, and the window died a minute later. Recovered on 2026-10-12
-  from the session transcript, with two findings:
-  - **B-001**: "dig deeper" on an IP the IOC check knew nothing about answered
-    that it is Amazon's "based on WHOIS". It is Google's.
-  - **The slow reasoning Burhan watched ran on the local qwen3:14b** (the dev
-    endpoint switcher), not the dev endpoint: 3 min 13 s for one turn.
-
-  Both are in docs/probes/2026-10-12-b001-ip-owner-claim.md. They were saved
-  before any pytest run, which purges that chat.
-- **Promote slate: empty** since promote #30 (B1, 2026-10-12). Whatever
-  lands on staging next is the next slate.
+- **B1 is mid-session in another window, paused by Burhan on 2026-10-12.**
+  - Two windows ran at once that morning: F1 here, B1 there. Both ran Step 0's
+    `/promote`. B1 opened PR #30 while F1's `ci.sh` ran, and merged it 4 s
+    before F1's merge. The promote is correct; F1 verified it.
+  - Burhan paused B1 and F1 carried on. B1 has committed `bbb382a` and
+    `c0780d3`, and left `docs/probes/b1-b001/` uncommitted. **That folder is
+    B1's; do not touch it.**
+  - **Resume B1 in its own window, or close it, before starting another
+    session** (D-051: one session at a time).
+  - Running two at once is parked in IDEAS ("Parallel tracks"). Adopting it
+    needs a new D-entry that overturns D-051's one-at-a-time rule.
+- **That pivot was nearly lost** (2026-10-10). Recovered from the session
+  transcript; evidence in docs/probes/2026-10-12-b001-ip-owner-claim.md.
 - Standing rules every track obeys: `SESSION-RULES.md`. Bugs: `BUGS.md`.
+
+## F1 — what happened (front-end track's first session)
+
+F1 ran 2026-10-12. At the start ritual Burhan named nothing else he had seen on
+the page, and added **all three candidates** to the goal. Mid-session he
+picked from options four times (the stream, links, the panel's shape, the
+ledger's unit) and asked for B-003 to be fixed in F1.
+
+1. **Promote #30**, with the collision above.
+2. **Goal: where a deep turn's reasoning loses its speed — measured first**
+   (docs/probes/2026-10-12-f1-stream-layers.md). Three layers on the same
+   runs, plus the page in a real browser, both endpoints:
+   - the server adds ~1 ms a delta (p50; 4.6 ms max);
+   - the page ~3 ms to paint (p50; 41 ms max), with no long tasks;
+   - **the endpoint is the whole of it**. glm-4.5-air bursts at ~1000
+     chars/s with 1-13 s silences between an agent turn's calls. qwen3:14b
+     runs 139-171 chars/s.
+
+   B-001's 3 min 13 s qwen turn was not reproduced (a cold start is 4.7 s).
+3. **D-052 (Burhan picked all four options):**
+   - a `status` frame before every model call, tool and held answer;
+   - a working line ("Thinking · 3 s");
+   - pacing bounded at 200 ms (live max 200.4 ms);
+   - the switcher's local endpoint relabelled "Local (slow)".
+4. **D-053, safe markdown in answers.**
+   - A pure parser plus a DOM builder, with no `innerHTML` anywhere.
+   - Links are clickable, https only, and show their real host. That was
+     Burhan's call, over the recommendation to leave them literal; the risk
+     is stated in D-053.
+   - Code spans are neutral.
+   - Live: an `<img onerror>`/`<script>` in an answer is text and never runs.
+5. **The approvals panel** (docs/superpowers/specs/2026-10-12-approvals-panel-design.md).
+   - Every door the API has, by status. Two clicks for the doors that run
+     something, disarming after 5 s. Decided cards stay for the session.
+   - Live on real proposals: approve → done → undo → undone, and a reject
+     (docs/probes/2026-10-12-f1-approvals-panel-live.md).
+   - Fixed during the run: the open panel covered Send, and a rejected card
+     still showed its undo line.
+6. **D-054, the cost ledger.** One `turn_spend` row per deep turn, failed
+   turns included. Each answer gets a line, and the chat its total
+   (`GET /api/chat/sessions/{id}/spend`). Live, a 4-call turn's row matched
+   its line exactly.
+7. **B-003 fixed** (`4693084`): the pages are served `no-cache`, so a deploy
+   reaches an open browser. A page cached before the fix needs one reload.
+
+**Found and logged, not fixed:** B-002 (the rail stops a definition question on
+the agent path 3 of 4 times: TD-044's trigger, live) and B-004 (a note on a
+recorded indicator is refused as "doesn't exist").
+
+**How the work was proven.**
+- The page's logic lives in a `// <page-logic>` block, run under Node by
+  `tests/js/page_logic.test.mjs` (32 tests) inside the pytest gate
+  (`tests/test_page_logic.py`).
+- The test element factory is frozen, so a builder that edits an element
+  after creating it fails as it would on a real DOM. That caught a real bug.
+- Mutants were run on every guard: the loop 2/2, the route 4/4, the page
+  3/3 + 3/3.
+- Every page change was checked in headless Chromium against the rebuilt
+  container.
+- About 60 inference calls on Z.ai, plus local qwen runs.
 
 ## S28 — what happened (backend track's last session)
 
@@ -133,13 +192,22 @@ Phase 4:
 - **S28: the agent's spend bounded per tool, an approval that never ran given
   doors, the agent's lookups recorded, note requests routed to a mode they can
   meet, and the engine no longer naming another vendor on 18/45 held-out
-  identity questions.**
+  identity questions;**
+- **F1 (front end): the endpoint measured as the whole of the slowness; the
+  page saying what a turn waits on and pacing what arrives (D-052); answers in
+  safe markdown (D-053); every approvals door on the page; and every deep
+  turn's spend recorded and shown (D-054).**
 
-The ROADMAP through S20 is complete; S21–S28 were each scoped by a decision.
+The ROADMAP through S20 is complete; S21–S28 and F1 were each scoped by a
+decision.
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: empty.** Promote #30 (`d0bf773`, back-merge `f681915`)
-   shipped everything through D-051 at B1's Step 0.
+1. **Promote slate: NOT EMPTY.** Everything after promote #30's back-merge
+   (`f681915`) is on staging only: F1's work (D-052, D-053, D-054, the
+   approvals panel, B-003's fix, B-002/B-004 logged) and B1's `bbb382a` and
+   `c0780d3`. At F1's close that was 29 files, +2434.
+   - **The first session of any track runs `/promote` as its Step 0 — but
+     only ONE window at a time** (the 2026-10-12 collision).
    - Read `git diff origin/main..staging --stat`, never the commit list.
    - **The two untracked overview files stay untracked — Burhan's call,
      2026-10-10.** `Auspex-Product-Architecture-Overview.pdf` and
@@ -176,10 +244,16 @@ The ROADMAP through S20 is complete; S21–S28 were each scoped by a decision.
      D-050's `action_request` directive.
    - Every live S28 turn read `output_valid: true` (about 8 turns). The
      legitimate ceiling has not been re-calibrated.
+   - **F1: the trigger fired as a live false positive (B-002).** A definition
+     question on the agent path was cut 3 of 4 times. The match was 40 words
+     of the definition contract's section spec on the THINKING channel, at
+     exactly `THINKING_SHINGLE_WORDS`. The re-calibration is now a bug's
+     evidence, not a precaution.
 5. **The card stream still emits only new cards, never status changes.** A
    client watching `/stream` is not told when a claim goes stale, or when a row
    becomes `incomplete`/`kept`/`withdrawn`, or rejoins the queue as a stale
-   approval (D-048). The polled list is where those surface.
+   approval (D-048). The polled list is where those surface, and **F1's
+   approvals panel polls it every 5 s** (TD-046).
 6. **TD-031 / TD-032 / TD-033 are ratified bounds, not a backlog.** Do **not**
    re-open the guard regex.
 7. **TD-005 trigger, still armed:** cve pool > 300k chunks, curated pool > 5k,
@@ -201,6 +275,8 @@ The ROADMAP through S20 is complete; S21–S28 were each scoped by a decision.
      has never seen is refused (`NothingToPropose`) and answered honestly. The
      agent does not look the indicator up first, which would record it and let
      the proposal file (IDEAS).
+   - **F1, live: B-004.** A note-only request in a new chat on an indicator the
+     workspace HAS recorded was refused as "doesn't exist". That is false.
 10. **D-041's bound, and TD-025.**
     - A merely slow handler on an abandoned run can land after its put-back.
       It is recorded on the row, not prevented.
@@ -230,6 +306,19 @@ The ROADMAP through S20 is complete; S21–S28 were each scoped by a decision.
     - A refused over-budget call shows in the turn as `· error`.
     - The cause is KB coverage (IDEAS: ATT&CK groups and software).
 
+15. **Model-written links are clickable now (D-053, Burhan's call).** They are
+    https only, show their real host, and open with `noopener noreferrer`. A
+    poisoned answer can still put a clickable link in front of an analyst; the
+    host beside it is the mitigation, not a prevention.
+16. **The page's logic is a tested block; the page is one 808-line file**
+    (TD-045). Split it into modules past ~1000 lines, as its own change, with
+    no-cache on the scripts too (B-003).
+17. **The spend ledger (D-054) counts what a turn's own ending records.** A turn
+    cut by a dropped connection may record nothing (TD-048).
+
+**Closed at F1, so they leave this list:** none of the above closed. F1 added
+#15–#17.
+
 **Closed at S28, so they leave this list:**
 - the old #2, "S27's own code has had no second-pass review" (done; three
   findings);
@@ -244,7 +333,9 @@ The ROADMAP through S20 is complete; S21–S28 were each scoped by a decision.
 2. **Open debt.**
    - Still open: TD-014 … TD-025, TD-027, TD-029, TD-030, TD-031/032/033,
      TD-035 (the two-pass path only), **TD-036 (trigger fired, S28)**,
-     **TD-044 (trigger fired again, S28)**.
+     **TD-044 (trigger fired again, S28; live false positive at F1: B-002)**,
+     and F1's TD-045 … TD-048 (the page in one file, the panel polling, a full
+     response per page load, spend unrecorded on a dropped connection).
    - **Closed at S28:** TD-042, TD-043.
    - Closed earlier: TD-012, TD-018, TD-026, TD-028, TD-034, TD-037…TD-041.
 3. **The KB bootstrap needs outbound HTTPS once per fresh volume**, and ingest
@@ -326,6 +417,23 @@ The ROADMAP through S20 is complete; S21–S28 were each scoped by a decision.
   and probes that create observables delete only what they created (S28
   probes do both).
 - **THE DEMO IS ONE COMMAND: `./scripts/demo.sh`** (~3 min, end to end).
+- **F1 session-end (2026-10-12):** staging, identity `bh3082336888-cell`.
+  `./ci.sh` **green, 1315 tests, 120 modules**, `/api/health/ready` **200**,
+  `./scripts/demo.sh` **exits 0**.
+- **Node is part of the gate now.** `tests/test_page_logic.py` runs
+  `node --test tests/js/page_logic.test.mjs`. Node missing is a failure, not
+  a skip. Local Node is v24, and GitHub's ubuntu runner ships it.
+- **The Playwright MCP writes to `.playwright-mcp/`** (gitignored since F1).
+  It can only save screenshots under the repo. Use
+  `browser_run_code_unsafe` when an action and its screenshot must be one step:
+  the working line and armed doors live for seconds.
+- **A page cached before B-003's fix needs one reload**; after it, every load
+  asks. `FileResponse` sends a full 200 even to a matching ETag (TD-047).
+- **Measuring the stream:** `docs/probes/fe-stream/probe_layers.py` runs the
+  app in-process (:8011) with the endpoint stamped, so the endpoint and route
+  layers are timed on one completion. `page_paint.js` is the page layer.
+- **Two windows on one repo collide** (2026-10-12). Check `ps` for a second
+  `claude` in this directory when something moves that you did not move.
 
 ## Reference intelligence (from the SARA Open architecture study)
 Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
@@ -339,11 +447,15 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 ## Next session should
 **Pick a track (D-051); the Tracks table at the top has the ids.** Paste the
 prompt file of the track you mean. `/session-start` with no track asks.
-- **F1, front end, the focus** (`NEXT-SESSION-FE.md`): promote first, ask
-  Burhan what else he saw on the page, then measure where a deep turn's
-  reasoning loses its speed (endpoint, server or page) before fixing it.
-- **B1, bugs** (`NEXT-SESSION-BUGS.md`): B-001, the invented IP owner.
-  Reproduce on both endpoints, find why the follow-up had no tools, and fix it
-  with a pinned fixture.
+**First: B1 is mid-session in a paused window.** Finish it there or close it
+before anything else starts (one session at a time).
+- **B1, bugs** (`NEXT-SESSION-BUGS.md`, in progress): B-001, the invented IP
+  owner. Its window already ran Step 0 (promote #30).
+- **F2, front end, the focus** (`NEXT-SESSION-FE.md`):
+  - promote first;
+  - then Burhan uses F1's page by hand, and his list outranks the rest;
+  - then the goal, a chat that survives a reload: a list of your chats, and
+    opening one shows its stored turns and spend.
 - **S29, backend, paused** (`NEXT-SESSION-BE.md`): the review of S28's code,
-  TD-036 and TD-044, as written at S28's close.
+  TD-036 and TD-044, as written at S28's close. B-002 is now TD-044's live
+  evidence.
