@@ -123,6 +123,11 @@ status changes.
 
 ## TD-045 (F1) — the chat page is one 808-line file
 
+**Closed (F2, `e99302d`):** the page is markup, `css/chat.css`,
+`js/page-logic.js` (a module the Node tests import) and `js/chat.js`, served
+no-cache from an allow-list; D-057's CSP followed (`0aac79e`). Entry kept as
+written.
+
 **Where:** `auspex/static/index.html`. It holds the styles, the
 `// <page-logic>` block that Node tests, and the DOM wiring for the stream,
 markdown, the working line, the approvals panel and the spend lines.
