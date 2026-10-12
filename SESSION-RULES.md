@@ -125,8 +125,17 @@ change to those modes keeps `contract_repair` honest.
 
 - **Model and tool text reach the page as text, never as HTML.** The page
   writes them with `textContent`/`append` (`auspex/static/index.html`);
-  `innerHTML` holds only fixed templates. Rendering markdown or any rich
-  format from model text is a decision, not a refactor (IDEAS has the line).
+  `innerHTML` holds only fixed templates.
+  - The answer bubble renders a safe markdown subset (D-053). A pure parser
+    builds elements the page chose, with `createElement` and text nodes, and
+    https-only links that show their host.
+  - Widening that subset, or rendering any other pane, is a new decision, not
+    a refactor.
+- **The page's logic lives in its `// <page-logic>` block**: pure functions,
+  run under Node by `tests/js/page_logic.test.mjs` inside the pytest gate.
+  New page behaviour goes there, with tests, and the DOM wiring stays thin.
+- **The stream is paced on the page within 200 ms (D-052)**, and a `status`
+  frame says what a turn is waiting on. A new wait gets an announcement.
 - Colours, fonts and voice are D-002's (CLAUDE.md, Brand). Labels are
   brand-safe: the engine is "the platform's engine", never a model or vendor.
 - A page change is verified in a real browser against the rebuilt container,
