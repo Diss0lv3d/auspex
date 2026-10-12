@@ -1,0 +1,3 @@
+direct endpoint : first reasoning  2.60s | 595 frames, 2886 chars over  7.38s =  390.9 chars/s | mean frame  4.9 chars | max gap 1.25s | first answer at  9.99s
+through /api/chat: first reasoning  2.24s | 341 frames, 1714 chars over  6.44s =  266.1 chars/s | mean frame  5.0 chars | max gap 2.17s | first answer at  9.40s
+   path=agent mode=definition
