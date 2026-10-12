@@ -1,20 +1,19 @@
 # STATE — Auspex
 
-_Last updated: 2026-10-12 — **B1 CLOSED** (session-end ritual run), after F1.
-`./ci.sh` green at B1's close: **1323 tests, 120 modules**. `/api/health/ready`
-200. `./scripts/demo.sh` exited 0 at B1's close. Branch `staging`.
-**F2 in flight:** promote #31 (`7ac1900`, back-merge `730332a`) shipped at
-F2's Step 0 with F1's and B1's work, after B-007 (GitHub's Node prints TAP;
-fixed `b8ee7fd`) turned its first run red. **Promote slate: IDEAS-only** (two
-F2 entries)._
+_Last updated: 2026-10-12 — **F2 CLOSED** (session-end ritual run), after B1.
+`./ci.sh` green at F2's close: **1360 tests, 121 modules**. `/api/health/ready`
+200. `./scripts/demo.sh` exited 0 at F2's close. Branch `staging`. Promote #32
+(`6f898c5`, back-merge `1a9e774`) shipped all of F2 at its close; promote #31
+(`7ac1900`, back-merge `730332a`) had shipped F1's and B1's work at F2's Step 0.
+**Promote slate: EMPTY** but for F2's session-end docs._
 
 ## Tracks (D-051) — read this first
 
 | Track | Prompt | Last closed | Next | Status |
 |---|---|---|---|---|
 | backend | `NEXT-SESSION-BE.md` | S28 (2026-10-11) | S29 | paused |
-| front end | `NEXT-SESSION-FE.md` | F1 (2026-10-12) | F2 | **focus** |
-| bugs | `NEXT-SESSION-BUGS.md` | B1 (2026-10-12) | B2 | ready: B-002 on top; B-004, B-005, B-006 open |
+| front end | `NEXT-SESSION-FE.md` | F2 (2026-10-12) | F3 | **focus** |
+| bugs | `NEXT-SESSION-BUGS.md` | B1 (2026-10-12) | B2 | ready: B-002 on top; B-004, B-005, B-006, B-008 open |
 
 - **Focus: front end.** Burhan, 2026-10-10, after S28's ritual: "before moving
   on with more backend development we need to improve on the FE so lets shift
@@ -29,6 +28,61 @@ F2 entries)._
 - **That pivot was nearly lost** (2026-10-10). Recovered from the session
   transcript; evidence in docs/probes/2026-10-12-b001-ip-owner-claim.md.
 - Standing rules every track obeys: `SESSION-RULES.md`. Bugs: `BUGS.md`.
+
+## F2 — what happened (front-end track's second session)
+
+F2 ran 2026-10-12, alone. Burhan's calls: fix B-007 inside Step 0's promote;
+the sign-in kept in the tab's sessionStorage (D-056); an always-on chat
+sidebar; a reopened turn brings back its proposals only, with no new storage;
+the route named `/turns`; all three candidates into F2; the page split as a
+logic module plus one DOM module; the CSP in the same session (D-057);
+subagent-driven execution for the reload plan, native for the split.
+
+1. **Promote #31 at Step 0, after B-007.** GitHub's runner Node printed TAP, so
+   F1's page-logic floor found no `ℹ pass` line: the PR went red while
+   `./ci.sh` was green locally. Fixed by naming the reporter (`b8ee7fd`).
+2. **Burhan's hands-on test of F1's page** matched what was predicted; nothing
+   new was logged. He asked where analyst notes go (nothing reads them back:
+   IDEAS) and proposed incident management with bring-your-own integrations
+   (IDEAS; a phase of its own, with prerequisites on record).
+3. **Goal: a chat survives a reload.** Spec
+   docs/superpowers/specs/2026-10-12-chat-survives-reload-design.md, plan
+   docs/superpowers/plans/2026-10-12-chat-survives-reload.md; 8 tasks, each
+   reviewed by a fresh agent.
+   - `GET /api/chat/sessions` and `GET /api/chat/sessions/{id}/turns`, paired
+     by the pure `auspex/chat_history.py`, scoped to the workspace AND the
+     user (a foreign chat is a 404 like a missing one).
+   - The page: sign-in in sessionStorage with Sign out (D-056); the sidebar;
+     the open chat in the URL hash; a reopened chat with its spend lines and
+     its proposals, whose Review brings back the card's doors (Undo).
+   - The whole-branch review (opus) found an `openChat` race that could switch
+     chats under a streaming turn; it and ten small guards were fixed in one
+     wave. Live: docs/probes/2026-10-12-f2-chat-reload-live.md.
+   - TD-050 and TD-052 logged; B-008 logged.
+4. **S26's chat edges** (`627e370`, `6445546`, `86b9c72`): an empty answer
+   says so; errors in the server's own words; narration on its own line.
+   docs/probes/2026-10-12-f2-s26-edges-live.md.
+5. **Narrow screens** (docs/probes/2026-10-12-f2-narrow-screen.md, with
+   before/after screenshots): the header 132 → 101 px with no wrapped label;
+   one backdrop that closes either overlay (tap or Esc), one open at a time; a
+   full-width approvals panel on a phone; dark scrollbars.
+6. **TD-045 closed, then D-057.** Spec
+   docs/superpowers/specs/2026-10-12-page-split-csp-design.md. `index.html` is
+   62 lines of markup; `css/chat.css`, `js/page-logic.js` (the Node tests
+   import it) and `js/chat.js`, served no-cache from an allow-list. The chat
+   page carries a strict CSP; TD-051 narrows to /timeline. The review (opus)
+   found R7's guard incomplete and D-057 overstating `connect-src`; both fixed.
+   docs/probes/2026-10-12-f2-page-split-csp.md.
+7. **Promote #32** at the close.
+
+**Data note.** Deleting the probe user `fe-probe@auspex.dev` in the reload
+probe also deleted F1's probe chats (F1's evidence lives in docs/probes).
+
+**How the work was proven.** Every change shipped with a test that failed
+first, and mutants were run on every guard. Each page change was checked in
+headless Chromium against the rebuilt container. Two whole-branch reviews ran
+on the most capable model. About 15 engine calls on Z.ai, plus Burhan's own
+hands-on turns.
 
 ## B1 — what happened (bugs track's first session)
 
@@ -244,15 +298,17 @@ Phase 4:
   safe markdown (D-053); every approvals door on the page; and every deep
   turn's spend recorded and shown (D-054);**
 - **B1 (bugs): the network a source names reaches the analyst and the model,
-  beside the verdict, never as one (D-055, B-001).**
+  beside the verdict, never as one (D-055, B-001);**
+- **F2 (front end): a chat survives a reload (list, reopen, sign-in kept for
+  the tab, D-056); S26's chat edges; narrow screens; the page split into
+  modules (TD-045) under a strict CSP (D-057).**
 
-The ROADMAP through S20 is complete; S21–S28, F1 and B1 were each scoped by a
-decision or a bug.
+The ROADMAP through S20 is complete; S21–S28, F1, B1 and F2 were each scoped by
+a decision or a bug.
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: IDEAS-only.** Promote #31 (`7ac1900`, back-merge
-   `730332a`) shipped F1's and B1's work and B-007's fix at F2's Step 0.
-   Since then staging holds only F2's two IDEAS entries.
+1. **Promote slate: EMPTY** but for F2's session-end docs. Promote #32
+   (`6f898c5`, back-merge `1a9e774`) shipped all of F2.
    - **The first session of any track runs `/promote` as its Step 0 — but
      only ONE window at a time** (the 2026-10-12 collision).
    - Read `git diff origin/main..staging --stat`, never the commit list.
@@ -357,9 +413,11 @@ decision or a bug.
     https only, show their real host, and open with `noopener noreferrer`. A
     poisoned answer can still put a clickable link in front of an analyst; the
     host beside it is the mitigation, not a prevention.
-16. **The page's logic is a tested block; the page is one 808-line file**
-    (TD-045). Split it into modules past ~1000 lines, as its own change, with
-    no-cache on the scripts too (B-003).
+16. **The chat page is markup, a stylesheet and two modules (TD-045 closed,
+    F2), under a strict CSP (D-057).** Its functions are module-scoped now:
+    a probe drives the page through its DOM, not through `busy`/`openChat`
+    from the console. A new page file goes on `auspex/routes/ui.py`'s
+    allow-list and into package-data.
 17. **The spend ledger (D-054) counts what a turn's own ending records.** A turn
     cut by a dropped connection may record nothing (TD-048).
 18. **An address's network now comes from one source (D-055, TD-049).** Only
@@ -369,6 +427,31 @@ decision or a bug.
     tools, glm forged a `⟦DATA⟧` block with invented platform lines (B-005).
     Both models added specifics nobody supplied. Every customer endpoint that
     is not `native_tools` takes this path (D-037).
+
+20. **F2's reload work, the bounds.**
+    - A reopened chat's turns are paired by time (TD-050); nothing indexes
+      `proposals.session_id` (TD-052).
+    - A reopened turn's proposal line keeps its old status after a door is
+      used in the panel, until the chat is reopened.
+    - A proposal summary the rail may have cut can come back in a reopened
+      turn (the approvals panel already serves the same stored card).
+    - B-008: at the usage ceiling, each retry in a new chat leaves an empty
+      chat in the sidebar.
+21. **The sign-in token sits in the tab's sessionStorage (D-056); D-057's CSP
+    is its guard.** A script that did run could still navigate the token out
+    (D-057, as corrected). /timeline has no CSP (TD-051). No test pins `style=`
+    in the markup or in `chat.js`'s `innerHTML` templates, which the CSP
+    relies on.
+22. **F2's deferred minors** (kept so they are not lost): the 50-chat cut has
+    no exact-boundary test; pairing edge cases no write path produces are
+    untested; a malformed stored card would 500 the turns route; the busy
+    gating and the foreign-hash path are proven live, not by tests; a hash
+    pasted mid-turn is refused silently; a dropped stream still reads
+    "[connection lost]"; `ci.sh`'s installed-dist check covers `*.py` only
+    (TD-053).
+
+**Closed at F2, so they leave this list:** #16's split (TD-045, done; #16 now
+records what the split left). F2 added #20–#22.
 
 **Closed at B1, so they leave this list:** none of the above closed. B1 added
 #18–#19.
@@ -391,9 +474,13 @@ decision or a bug.
    - Still open: TD-014 … TD-025, TD-027, TD-029, TD-030, TD-031/032/033,
      TD-035 (the two-pass path only), **TD-036 (trigger fired, S28)**,
      **TD-044 (trigger fired again, S28; live false positive at F1: B-002)**,
-     F1's TD-045 … TD-048 (the page in one file, the panel polling, a full
-     response per page load, spend unrecorded on a dropped connection), and
-     B1's TD-049 (only AbuseIPDB names an address's network).
+     F1's TD-046 … TD-048 (the panel polling, a full response per load — now
+     four: the page and its three files — and spend unrecorded on a dropped
+     connection), B1's TD-049 (only AbuseIPDB names an address's network), and
+     F2's TD-050 (turns paired by time), TD-051 (narrowed: /timeline has no
+     CSP), TD-052 (no index on `proposals.session_id`) and TD-053 (the gate's
+     dist check covers `*.py` only).
+   - **Closed at F2:** TD-045.
    - **Closed at S28:** TD-042, TD-043.
    - Closed earlier: TD-012, TD-018, TD-026, TD-028, TD-034, TD-037…TD-041.
 3. **The KB bootstrap needs outbound HTTPS once per fresh volume**, and ingest
@@ -432,6 +519,16 @@ decision or a bug.
   `gh` switch was re-run before every call. All three containers are healthy,
   `./ci.sh` is **green, 1292 tests, 120 modules**, `/api/health/ready` returns
   **200**, and `./scripts/demo.sh` **exits 0**.
+- **F2 session-end (2026-10-12):** staging, identity `bh3082336888-cell`. All
+  three containers are healthy, `./ci.sh` is **green, 1360 tests, 121
+  modules**, `/api/health/ready` returns **200**, `./scripts/demo.sh` **exits
+  0**. Promote #32 merged.
+- **GitHub's runner Node prints TAP when its output is captured** (B-007);
+  local Node v24 prints spec either way. The page-logic gate names its
+  reporter. Anything else that parses Node's output must too.
+- **The Playwright MCP writes only under the repo** (`.playwright-mcp/`,
+  git-ignored); it refuses the scratchpad. Copy kept evidence into
+  `docs/probes/`.
 - **`gh` flips to the work account unpredictably** (S16, S18, #27). Re-check
   before EVERY call: `gh auth switch --hostname github.com --user bh3082336888-cell`.
 - **`gh pr merge` works.** `gh pr edit` still fails with a Projects-classic
@@ -515,14 +612,16 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 **Pick a track (D-051); the Tracks table at the top has the ids.** Paste the
 prompt file of the track you mean. `/session-start` with no track asks.
 One window at a time (D-051).
-- **F2, front end, the focus** (`NEXT-SESSION-FE.md`):
-  - promote first;
-  - then Burhan uses F1's page by hand, and his list outranks the rest;
-  - then the goal, a chat that survives a reload: a list of your chats, and
-    opening one shows its stored turns and spend.
+- **F3, front end, the focus** (`NEXT-SESSION-FE.md`):
+  - Burhan uses F2's page by hand first (reload, the sidebar, reopen, Review
+    and Undo, a phone), and his list outranks the rest;
+  - then the default goal: the timeline page joins the chat page — its script
+    out of the page and D-057's CSP on it (closes TD-051);
+  - candidates, only if Burhan picks them: analyst notes shown (IDEAS), TD-047
+    (304s), the stale proposal line after Undo, the "[connection lost]" copy.
 - **S29, backend, paused** (`NEXT-SESSION-BE.md`): the review of S28's code,
-  TD-036 and TD-044, as written at S28's close. B-002 is now TD-044's live
+  TD-036 and TD-044, as written at S28's close. B-002 is TD-044's live
   evidence.
-- **B2, bugs** (`NEXT-SESSION-BUGS.md`): promote first, then ask Burhan which
-  open bug. The default is B-002, the top open entry, a rail false positive
-  on the definition contract; B-004, B-005 and B-006 follow.
+- **B2, bugs** (`NEXT-SESSION-BUGS.md`): ask Burhan which open bug. The
+  default is B-002 (a rail false positive on the definition contract); B-004,
+  B-005, B-006 and B-008 follow.
