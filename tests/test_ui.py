@@ -165,4 +165,5 @@ def test_index_lists_and_reopens_chats(client):
     assert "Reopened · answers and spend only; reasoning and tool steps aren't kept." in body
     assert "That chat is not available to you." in body
     chats_code = body.split("// <chats-dom>", 1)[1].split("// </chats-dom>", 1)[0]
+    assert "renderReopenedTurn(" in chats_code and "/turns" in chats_code  # floor: the block is the real one
     assert "innerHTML" not in chats_code
