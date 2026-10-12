@@ -280,3 +280,82 @@ def test_another_analysts_chats_never_appear(client, settings, reader, neighbour
     assert listed(token) == [str(mine)]
     assert listed(n_token) == [str(theirs)]
     assert listed(o_token) == [str(far)]
+
+
+def test_a_reopened_chat_pairs_each_turn(client, settings, reader):
+    token, uid, ws = reader
+    chat = _new_chat(settings, ws, uid)
+    _say(settings, ws, chat, "user", "check 185.220.101.133 and add a note", 1)
+    note = _file(settings, ws, chat, 1.5, status="executed")
+    first = _say(settings, ws, chat, "assistant", "## Verdict\nsuspicious", 2)
+    _spent(settings, ws, chat, 2, message_id=first, calls=4, prompt=2800, completion=300)
+    _say(settings, ws, chat, "user", "dig deeper", 3)
+    _spent(settings, ws, chat, 3.5, calls=2, prompt=None, completion=None, ending="endpoint_error")
+    _say(settings, ws, chat, "user", "8.8.8.8", 5)
+    _say(settings, ws, chat, "assistant", "No signal.", 5.2)
+
+    resp = client.get(f"/api/chat/sessions/{chat}/turns", headers=_h(token))
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["id"] == str(chat)
+    one, two, three = body["turns"]
+    assert one["question"] == "check 185.220.101.133 and add a note"
+    assert one["answer"] == "## Verdict\nsuspicious"
+    assert one["spend"] == {"engine_calls": 4, "prompt_tokens": 2800, "completion_tokens": 300,
+                            "ending": "stop"}
+    assert one["proposals"] == [{
+        "id": str(note), "action": "annotate_observable",
+        "summary": "Attach a note to ipv4 203.0.113.9", "status": "executed",
+        "decided_at": None, "claimed_at": None, "result": {"effects": None},
+    }]
+    assert two["answer"] is None
+    assert two["spend"] == {"engine_calls": 2, "prompt_tokens": None, "completion_tokens": None,
+                            "ending": "endpoint_error"}
+    assert three["answer"] == "No signal." and three["spend"] is None and three["proposals"] == []
+
+
+def test_a_turn_the_output_check_cut_comes_back_without_its_text(client, settings, reader):
+    """The route stores nothing of a cut turn (auspex/routes/chat.py, the
+    output_guard ending returns before the insert), so replay cannot resurrect
+    what the rail stopped."""
+    token, uid, ws = reader
+    chat = _new_chat(settings, ws, uid)
+    _say(settings, ws, chat, "user", "what is kerberoasting?", 1)
+    _spent(settings, ws, chat, 2, calls=3, ending="output_guard")
+    [turn] = client.get(f"/api/chat/sessions/{chat}/turns", headers=_h(token)).json()["turns"]
+    assert turn["answer"] is None and turn["spend"]["ending"] == "output_guard"
+
+
+def test_a_foreign_chat_is_a_404_like_a_missing_one(client, settings, reader, neighbour, outsider):
+    token, uid, ws = reader
+    mine = _new_chat(settings, ws, uid)
+    _say(settings, ws, mine, "user", "mine", 0.5)
+    # The owner reads it: so the 404s below are this route's, not a missing route's.
+    assert client.get(f"/api/chat/sessions/{mine}/turns", headers=_h(token)).status_code == 200
+    n_token, n_uid, n_ws = neighbour
+    theirs = _new_chat(settings, n_ws, n_uid)
+    _say(settings, n_ws, theirs, "user", "the neighbour's", 1)
+    o_token, o_uid, o_ws = outsider
+    far = _new_chat(settings, o_ws, o_uid)
+    _say(settings, o_ws, far, "user", "another workspace's", 2)
+
+    missing = client.get("/api/chat/sessions/00000000-0000-0000-0000-0000000000ff/turns",
+                         headers=_h(token))
+    assert missing.status_code == 404
+    for chat in (theirs, far):
+        resp = client.get(f"/api/chat/sessions/{chat}/turns", headers=_h(token))
+        assert resp.status_code == 404
+        assert resp.json() == missing.json()  # no oracle for "exists, not yours"
+
+
+def test_another_workspaces_proposal_never_attaches(client, settings, reader, outsider):
+    """A proposal row is reached only through a chat you own AND your
+    workspace: one filed under another workspace never shows, even pointing
+    at your chat."""
+    token, uid, ws = reader
+    chat = _new_chat(settings, ws, uid)
+    _say(settings, ws, chat, "user", "one", 1)
+    _, _, o_ws = outsider
+    _file(settings, o_ws, chat, 1.5)
+    [turn] = client.get(f"/api/chat/sessions/{chat}/turns", headers=_h(token)).json()["turns"]
+    assert turn["proposals"] == []

@@ -62,7 +62,7 @@ from auspex.agent.permissions import PgProposalStore
 from auspex.alerts import normalize, score_alert
 from auspex.alerts.render import deterministic_triage_answer, deterministic_triage_block
 from auspex.auth import AuthContext, resolve_user
-from auspex.chat_history import title_of
+from auspex.chat_history import pair_turns, title_of
 from auspex.classify import Category, classify, shortcut_answer
 from auspex.classify.observables import ObservableType, extract_observables
 from auspex.config import Settings
@@ -577,6 +577,36 @@ async def list_sessions(request: Request, auth: Auth) -> dict:
         ],
         "complete": len(rows) <= CHAT_LIST_LIMIT,
     }
+
+
+@router.get("/chat/sessions/{session_id}/turns")
+async def session_turns(request: Request, auth: Auth, session_id: UUID) -> dict:
+    """F2: one chat's turns, oldest first, paired on the server
+    (auspex/chat_history.py). Owned like the chat itself: another analyst's
+    chat is a 404 like a missing one. Proposals are reached only through this
+    owned chat AND this workspace. What is stored is what was shown: a turn the
+    rail cut stored no answer."""
+    pool = request.app.state.pool
+    await _ensure_session(pool, auth, session_id)
+    messages = await pool.fetch(
+        "SELECT id, role, content, created_at FROM messages"
+        " WHERE workspace_id = $1 AND session_id = $2 ORDER BY created_at, id",
+        auth.workspace_id,
+        session_id,
+    )
+    spend = await pool.fetch(
+        "SELECT message_id, engine_calls, prompt_tokens, completion_tokens, ending, created_at"
+        "  FROM turn_spend WHERE workspace_id = $1 AND session_id = $2 ORDER BY created_at, id",
+        auth.workspace_id,
+        session_id,
+    )
+    proposals = await pool.fetch(
+        "SELECT id, tool_name, status, card, decided_at, claimed_at, result, created_at"
+        "  FROM proposals WHERE workspace_id = $1 AND session_id = $2 ORDER BY created_at, id",
+        auth.workspace_id,
+        session_id,
+    )
+    return {"id": str(session_id), "turns": pair_turns(messages, spend, proposals)}
 
 
 @router.get("/models")
