@@ -137,3 +137,18 @@ def test_a_proposal_in_the_chat_opens_its_card_in_the_panel(client):
     body = client.get("/").text
     handler = body.split('"tool" in ev', 1)[1].split("else if", 1)[0]
     assert "openApprovals(ev.tool.proposal.id)" in handler
+
+
+def test_the_sign_in_is_kept_for_the_tab_only(client):
+    """D-056: the token survives a reload in sessionStorage (never
+    localStorage), is checked on load, and has a way out. Storage that throws
+    must leave the page working, so the only storage calls are the three
+    guarded helpers."""
+    body = client.get("/").text
+    assert "localStorage" not in body
+    assert body.count("sessionStorage.") == 3
+    for call in ("sessionStorage.getItem(TOKEN_KEY)", "sessionStorage.setItem(TOKEN_KEY, t)",
+                 "sessionStorage.removeItem(TOKEN_KEY)"):
+        assert f"try {{ {call}" in body or f"try {{ return {call}" in body, call
+    assert "/api/auth/whoami" in body
+    assert 'id="signout"' in body
