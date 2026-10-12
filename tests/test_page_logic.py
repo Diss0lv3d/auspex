@@ -19,8 +19,11 @@ NODE_TESTS = Path(__file__).parent / "js" / "page_logic.test.mjs"
 def test_the_pages_pacing_and_indicator_logic_pass_their_node_tests():
     node = shutil.which("node")
     assert node, "Node is required to run the page's logic tests (tests/js/)"
-    run = subprocess.run(  # noqa: S603 — argv is node, a flag and our own test file
-        [node, "--test", str(NODE_TESTS)], capture_output=True, text=True, timeout=60
+    # The reporter is named: without it, Node before 23 prints TAP when its output
+    # is captured, and the floor below would find no "ℹ pass" line (B-007).
+    run = subprocess.run(  # noqa: S603 — argv is node, flags and our own test file
+        [node, "--test", "--test-reporter=spec", str(NODE_TESTS)],
+        capture_output=True, text=True, timeout=60,
     )
     assert run.returncode == 0, run.stdout[-4000:] + run.stderr[-2000:]
     # A file that defined no tests also exits 0. The floor is the count this
