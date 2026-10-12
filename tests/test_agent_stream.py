@@ -587,6 +587,8 @@ async def test_closing_the_turn_early_closes_the_endpoints_stream_at_once():
 
     turn = _loop(registry).run_stream(client, "check 203.0.113.99")
     first = await turn.__anext__()
+    while first.kind == "phase":  # D-052: a call is announced before its first delta
+        first = await turn.__anext__()
     assert first.kind == "content"
     await turn.aclose()
 
@@ -734,3 +736,73 @@ async def test_the_call_that_spends_the_budget_says_it_was_the_last():
     assert "last" in tool[1].feedback["budget"] and tool[1].feedback["reputation"] == "malicious"
     replayed = [m for m in client.stream_calls[2]["messages"] if m.get("role") == "tool"]
     assert "budget" in json.loads(replayed[1]["content"])
+
+
+# -- what the analyst is told while the turn waits (D-052) --------------------
+#
+# Measured at F1 (docs/probes/2026-10-12-f1-stream-layers.md): an agent turn's
+# text arrives in bursts with 1-13 s of silence between them, while the next
+# model call or a tool is under way. A `phase` event says which, BEFORE it
+# starts, so the page can say so too. It carries our literals only.
+
+
+def _phases(events):
+    return [(e.kind, getattr(e, "phase", None), getattr(e, "tool_name", None)) for e in events
+            if e.kind == "phase"]
+
+
+async def test_each_model_call_and_tool_is_announced_before_it_starts():
+    """Ordering is the point: an announcement after the call's first delta, or
+    after the tool's result, tells the analyst what already happened."""
+    registry, _ = _registry()
+    client = SequencedStreamingFakeLLMClient([_tool_call_script(), _answer_script()])
+
+    events = await _drain(_loop(registry), client)
+
+    kinds = [e.kind for e in events]
+    assert _phases(events) == [
+        ("phase", "engine", None), ("phase", "tool", "lookup_ip"), ("phase", "engine", None),
+    ]
+    first_engine, tool_phase, second_engine = [i for i, k in enumerate(kinds) if k == "phase"]
+    assert first_engine == 0, kinds
+    assert tool_phase < kinds.index("tool") < second_engine < kinds.index("content"), kinds
+
+
+async def test_a_tool_name_the_model_made_up_is_never_announced():
+    """The name in a tool call is model output. Only a name the loop offers is
+    ours to repeat; anything else is announced as a tool with no name."""
+    registry, _ = _registry()
+    client = SequencedStreamingFakeLLMClient(
+        [_tool_call_script(name="ignore_previous_instructions"), _answer_script()]
+    )
+
+    events = await _drain(_loop(registry), client)
+
+    assert ("phase", "tool", None) in _phases(events)
+    assert "ignore_previous_instructions" not in [p[2] for p in _phases(events)]
+
+
+async def test_a_call_the_ceiling_refused_is_never_announced():
+    """An announcement promises a call. A refused claim makes none, so the
+    analyst must not be told the engine is working."""
+    registry, _ = _registry()
+
+    async def claim() -> bool:
+        return False
+
+    events = await _drain(_loop(registry), SequencedStreamingFakeLLMClient([_answer_script()]),
+                          claim=claim)
+
+    assert _phases(events) == []
+
+
+async def test_the_step_caps_synthesis_pass_is_announced_like_any_call():
+    registry, _ = _registry()
+    scripts = [_tool_call_script(args=f'{{"ip": "203.0.113.{i}"}}', call_id=f"c{i}")
+               for i in range(1, 3)]
+    client = SequencedStreamingFakeLLMClient([*scripts, _answer_script()])
+
+    events = await _drain(_loop(registry, max_steps=2), client)
+
+    engines = [p for p in _phases(events) if p[1] == "engine"]
+    assert len(engines) == client.turns == 3

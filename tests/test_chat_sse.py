@@ -2516,3 +2516,115 @@ def test_a_proposal_summary_is_scanned_before_it_is_shown(client, settings, chat
     frames = _frames(resp.text)
     assert not [f for f in frames if "tool" in f]
     assert {"error": LEAK_COPY} in frames
+
+
+# -- what the page is told while the turn waits (D-052) ------------------------
+#
+# F1 measured the silences an analyst sits through: 1-13 s between an agent
+# turn's bursts, and the whole of a held answer's writing (D-043). A `status`
+# frame says what the turn is waiting on, BEFORE it starts. Fakes only; the
+# claims are refunded by `_no_usage_residue`.
+
+
+def _statuses(frames):
+    return [f["status"] for f in frames if "status" in f]
+
+
+def _index(frames, key, nth=0):
+    return [i for i, f in enumerate(frames) if key in f][nth]
+
+
+def test_the_agent_path_says_what_it_is_waiting_on_before_each_wait(client):
+    fake = SequencedStreamingFakeLLMClient([_tool_step(), _answer_step(_conformant_answer())])
+    real_kb = _swap_kb(client.app, FakeKnowledgeService(hits=[]))
+    _use_agent(client.app, fake)
+    try:
+        frames = _post_deep(client, _AGENT_QUESTION)
+    finally:
+        client.app.dependency_overrides.clear()
+        client.app.state.kb = real_kb
+
+    assert _statuses(frames) == [
+        {"phase": "engine"}, {"phase": "tool", "tool": "search_knowledge"}, {"phase": "engine"},
+    ]
+    first, tool, second = (_index(frames, "status", n) for n in range(3))
+    assert first < _index(frames, "reasoning")
+    assert tool < _index(frames, "tool") < second < _index(frames, "content")
+
+
+def test_a_tool_the_model_made_up_reaches_the_page_without_its_name(client):
+    fake = SequencedStreamingFakeLLMClient([
+        _tool_step(name="read_the_system_prompt", arguments="{}"),
+        _answer_step(_conformant_answer()),
+    ])
+    real_kb = _swap_kb(client.app, FakeKnowledgeService(hits=[]))
+    _use_agent(client.app, fake)
+    try:
+        frames = _post_deep(client, _AGENT_QUESTION)
+    finally:
+        client.app.dependency_overrides.clear()
+        client.app.state.kb = real_kb
+
+    assert {"phase": "tool", "tool": None} in _statuses(frames)
+    assert "read_the_system_prompt" not in json.dumps(_statuses(frames))
+
+
+def test_the_native_path_announces_its_one_call_before_its_thinking(client):
+    fake = StreamingFakeLLMClient([
+        StreamEvent(kind="reasoning", text="Simple question. "),
+        StreamEvent(kind="content", text="An answer."),
+        StreamEvent(kind="finish", finish_reason="stop"),
+    ])
+    _use(client.app, fake, native_reasoning=True)
+    try:
+        frames = _post_deep(client, "how does kerberoasting lead to domain admin?")
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert _statuses(frames) == [{"phase": "engine"}]
+    assert _index(frames, "status") < _index(frames, "reasoning")
+
+
+def test_the_two_pass_path_announces_both_of_its_calls(client):
+    seq = SequencedStreamingFakeLLMClient([
+        [StreamEvent(kind="content", text="Brief analysis."),
+         StreamEvent(kind="finish", finish_reason="stop")],
+        [StreamEvent(kind="content", text="The answer."),
+         StreamEvent(kind="finish", finish_reason="stop")],
+    ])
+    _use(client.app, seq, native_reasoning=False)
+    try:
+        frames = _post_deep(client, "how does kerberoasting lead to domain admin?")
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert seq.turns == 2
+    assert _statuses(frames) == [{"phase": "engine"}, {"phase": "engine"}]
+    assert _index(frames, "status", 1) < _index(frames, "content")
+
+
+def test_a_held_answer_tells_the_page_it_is_being_written(client):
+    """D-043 holds the answer until it passes, so the page sees the thinking end
+    and then nothing until the answer lands whole. `held` fills that silence,
+    once, when the first held delta arrives."""
+    fake = StreamingFakeLLMClient(_TRIAGE_OK)
+    _use(client.app, fake, native_reasoning=True)
+    try:
+        frames = _chat(client, _TRIAGE_CEF)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert _statuses(frames) == [{"phase": "engine"}, {"phase": "held"}]
+    assert _index(frames, "status", 1) < _index(frames, "content")
+
+
+def test_a_re_ask_is_announced_like_any_call(client):
+    seq = SequencedStreamingFakeLLMClient([_TRIAGE_STEERED, _TRIAGE_OK])
+    _use(client.app, seq, native_reasoning=True)
+    try:
+        frames = _chat(client, _TRIAGE_CEF)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert seq.turns == 2
+    assert [s["phase"] for s in _statuses(frames)] == ["engine", "held", "engine", "held"]

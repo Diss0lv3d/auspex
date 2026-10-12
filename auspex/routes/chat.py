@@ -233,6 +233,19 @@ def _sse(event: dict) -> str:
     return f"data: {json.dumps(event)}\n\n"
 
 
+# D-052: what the turn is about to wait on, sent BEFORE the wait starts so the
+# page can say so. Our literals only; a tool is named only when the loop offers
+# it (AgentStreamEvent.tool_name), never by the name the model wrote.
+_ENGINE_STATUS = _sse({"status": {"phase": "engine"}})
+_HELD_STATUS = _sse({"status": {"phase": "held"}})
+
+
+def _status_frame(ev) -> str:
+    if ev.phase == "tool":
+        return _sse({"status": {"phase": "tool", "tool": ev.tool_name}})
+    return _ENGINE_STATUS
+
+
 def select_dev_endpoint(
     registry: dict[str, DevEndpoint], app_env: str, endpoint_id: str | None
 ) -> DevEndpoint | None:
@@ -813,6 +826,8 @@ async def chat(
                         ):
                             return
                         yield _sse({"tool": frame})
+                    elif ev.kind == "phase":
+                        yield _status_frame(ev)
                     elif ev.kind == "usage" and ev.usage:
                         usage = _add_usage(usage, ev.usage)
                     elif ev.kind == "done":
@@ -824,6 +839,7 @@ async def chat(
             own fields, both through the rail. The native path, and the path a
             two-pass turn switches to when its endpoint turns out to think (D-036)."""
             nonlocal finish_reason, usage
+            yield _ENGINE_STATUS
             async with aclosing(
                 endpoint.client.chat_stream(
                     messages, max_tokens=CHAT_ANSWER_MAX_TOKENS, temperature=0
@@ -840,6 +856,8 @@ async def chat(
                         content_parts.append(ev.text)
                         if not hold:
                             yield _sse({"content": ev.text})
+                        elif len(content_parts) == 1:
+                            yield _HELD_STATUS
                     elif ev.kind == "finish":
                         finish_reason = ev.finish_reason
                     elif ev.kind == "usage" and ev.usage:
@@ -874,6 +892,7 @@ async def chat(
                 logger.info("contract re-ask refused by the ceiling; the code answers")
             else:
                 directive = contract.repair_directive(first, pinned_values)
+                yield _ENGINE_STATUS
                 try:
                     async with aclosing(
                         endpoint.client.chat_stream(
@@ -891,6 +910,8 @@ async def chat(
                                 if scanner.feed(ev.text, channel="content"):
                                     return
                                 retry_parts.append(ev.text)
+                                if len(retry_parts) == 1:
+                                    yield _HELD_STATUS
                             elif ev.kind == "finish":
                                 finish_reason = ev.finish_reason
                             elif ev.kind == "usage" and ev.usage:
@@ -924,6 +945,7 @@ async def chat(
                 # Two-pass fallback: pass 1 = brief analyst reasoning → Thinking pane.
                 analysis_parts: list[str] = []
                 thinks_natively = False
+                yield _ENGINE_STATUS
                 async with aclosing(
                     endpoint.client.chat_stream(
                         [*messages, {"role": "system", "content": PASS1_DIRECTIVE}],
@@ -966,6 +988,7 @@ async def chat(
                 # the analyst after the rail had already fired.
                 if not scanner.tripped and not thinks_natively:
                     # pass 2 = the answer, grounded in the private analysis → content.
+                    yield _ENGINE_STATUS
                     async for ev in endpoint.client.chat_stream(
                         [*messages, {"role": "system", "content": _pass2_directive(analysis)}],
                         max_tokens=CHAT_ANSWER_MAX_TOKENS,
@@ -977,6 +1000,8 @@ async def chat(
                             content_parts.append(ev.text)
                             if not hold:
                                 yield _sse({"content": ev.text})
+                            elif len(content_parts) == 1:
+                                yield _HELD_STATUS
                         elif ev.kind == "finish":
                             finish_reason = ev.finish_reason
                         elif ev.kind == "usage" and ev.usage:
