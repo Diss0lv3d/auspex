@@ -128,3 +128,19 @@ are never deleted.
   verbatim, with their done frames), made by
   docs/probes/b1-b001/probe_app_dig_deeper.py.
 - **Status:** open.
+
+## B-007 — the page-logic gate fails on GitHub, where Node prints TAP
+
+- **Found:** 2026-10-12, F2 (Claude), at Step 0's promote: PR #31's CI went
+  red on both runs (38210286431, 38210290164) while `./ci.sh` passed locally.
+- **What happened:** `tests/test_page_logic.py` ran `node --test` without
+  naming a reporter, then looked for the spec reporter's `ℹ pass 32` line.
+  All 32 Node tests passed on the runner, but its Node (the one
+  `ubuntu-latest` ships; `ci.yml` installs none) printed TAP (`# pass 32`)
+  because its output was captured. Local Node v24 prints spec either way.
+  F1's work had never run on GitHub before this push.
+- **Evidence:** the failed run's log (`1 failed, 1322 passed`; the captured
+  output ends `# pass 32`). Reproduced in `node:20-alpine` and
+  `node:22-alpine`: the default prints `# pass 32`;
+  `--test-reporter=spec` prints `ℹ pass 32`.
+- **Status:** fixed `b8ee7fd` (F2), on Burhan's call: the promote could not land red.
