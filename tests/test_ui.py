@@ -278,3 +278,12 @@ def test_the_timeline_page_has_no_csp_yet(client):
     """TD-051's remainder: timeline.html still runs an inline script, which the
     chat page's policy would block."""
     assert "content-security-policy" not in client.get("/timeline").headers
+
+
+def test_a_throw_while_a_turn_ends_cannot_leave_the_composer_busy(client):
+    """R7 (F2's final review): `busy` was cleared at the end of send()'s finally,
+    after the paint and the cleanup, so a throw there left the composer stuck
+    and every chat switch refused. It is cleared first."""
+    js = client.get("/js/chat.js").text
+    ending = js.split("async function send()", 1)[1].split("} finally {", 1)[1]
+    assert ending.lstrip().startswith("busy = false;")

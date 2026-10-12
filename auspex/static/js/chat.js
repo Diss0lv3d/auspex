@@ -272,12 +272,13 @@ async function send() {
     paint(pacer.flush());
     showError(wrap, "[connection lost]");
   } finally {
+    busy = false;  // first: a throw below must not leave the composer stuck (R7)
     paint(pacer.flush());
     open = false;
     clearInterval(ticker);
     working.remove();
     showChatSpend();
-    busy = false; loadChats();
+    loadChats();
     $("send").disabled = false; $("prompt").disabled = false; $("prompt").focus();
   }
 }
