@@ -672,10 +672,13 @@
     // D-054: this chat's total, from the server, so turns that ended badly count.
     async function showChatSpend() {
       if (!sessionId || !token) return;
+      const asked = sessionId;  // write only if this is still the open chat when the reply lands
       try {
-        const r = await fetch("/api/chat/sessions/" + encodeURIComponent(sessionId) + "/spend",
+        const r = await fetch("/api/chat/sessions/" + encodeURIComponent(asked) + "/spend",
           { headers: { "Authorization": "Bearer " + token } });
-        if (r.ok) $("chat-spend").textContent = chatSpendText(await r.json()) || "";
+        if (!r.ok) return;
+        const text = chatSpendText(await r.json()) || "";
+        if (asked === sessionId) $("chat-spend").textContent = text;
       } catch (e) { /* the total is a convenience; the per-answer lines stand */ }
     }
 
