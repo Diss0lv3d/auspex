@@ -5,8 +5,8 @@
 **Where:** `GET /api/chat/sessions/{id}/turns` (`auspex/routes/chat.py` ~603-607)
 filters the workspace's proposals by `session_id`; the indexes in
 `auspex/migrations.py` cover workspace plus status, claim and id, none the session.
-**Risk:** LOW today. Every reopen scans the workspace's proposals. This path has
-no figure for this path and none is on file: not measured.
+**Risk:** LOW today. Every reopen scans the workspace's proposals. The reopen
+path itself is not measured.
 **Why taken:** F2 added the read path and no migration (spec: no migration); a
 workspace's proposal count is small while one analyst uses it.
 **Path to fix:** `CREATE INDEX ... ON proposals (session_id, created_at)` in the
