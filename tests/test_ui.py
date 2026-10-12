@@ -168,3 +168,14 @@ def test_index_lists_and_reopens_chats(client):
     # floor: the extracted block is the real one
     assert "renderReopenedTurn(" in chats_code and "/turns" in chats_code
     assert "innerHTML" not in chats_code
+
+
+def test_an_error_is_shown_in_the_servers_own_words(client):
+    """S26's UX edge. The usage refusal, the leak stop and an endpoint failure
+    each arrive as a full sentence that says what happened; the page used to
+    call all three "[endpoint error]", and wrapped the HTTP refusals (the input
+    rail's 400, the usage ceiling's 429) in square brackets."""
+    body = client.get("/").text
+    assert "[endpoint error]" not in body
+    assert '"[" + detail + "]"' not in body
+    assert "showError(wrap, ev.error)" in body

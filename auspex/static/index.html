@@ -731,7 +731,9 @@
         b.classList.add("md");
         b.replaceChildren(...markdownNodes(answerText.get(b), el));
       }
-      else if ("error" in ev) { showError(wrap, "[endpoint error] " + ev.error); }
+      // The server's sentence already says what happened: an engine failure, the
+      // usage ceiling, or the output rail stopping the turn (S26).
+      else if ("error" in ev) { showError(wrap, ev.error); }
       else if ("done" in ev) {
         // S26: a turn that ended with no answer says so, not just a Thinking pane.
         const note = noAnswerNote(ev.done, { content: !!wrap.querySelector(".bubble"), error: !!wrap.querySelector(".err") });
@@ -789,10 +791,11 @@
           body: JSON.stringify({ message: text, session_id: sessionId, endpoint_id: endpointId }),
         });
         if (!r.ok) {
-          // HTTP errors carry a JSON detail, not SSE frames — surface it.
-          let detail = "request failed (" + r.status + ")";
-          try { detail = (await r.json()).detail || detail; } catch (e) {}
-          ensureBubble(wrap).textContent = "[" + detail + "]";
+          // HTTP errors carry a JSON detail, not SSE frames — the server's own
+          // sentence (the input rail's 400, the usage ceiling's 429), as is.
+          let detail = "The request failed (" + r.status + ").";
+          try { const d = (await r.json()).detail; if (typeof d === "string" && d) detail = d; } catch (e) {}
+          showError(wrap, detail);
           return;
         }
         const reader = r.body.getReader();
