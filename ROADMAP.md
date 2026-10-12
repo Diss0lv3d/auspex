@@ -510,9 +510,22 @@ BUGS.md) have their own sections at the end, before "Later".
 
 ## Track: bugs (D-051)
 
-- [ ] **B1 — B-001: the platform invented an IP's owner.** Reproduce on both
-  endpoints, find why "dig deeper" had no tools, fix the cause with a test that
-  fails first and the offending answer pinned as a fixture.
+- [x] **B1 — B-001: the platform invented an IP's owner.** (2026-10-12)
+  Promote #30 at Step 0 (it collided with F1's window: STATE.md).
+  - **Reproduced** (docs/probes/2026-10-12-b1-b001-fix.md): glm-4.5-air took
+    the agent path and looked the IP up, 0/3 invented; qwen3:14b took the
+    conversational path with no tools (D-037), and answered Amazon 3/3.
+  - **Root cause:** AbuseIPDB named Google LLC on turn 1 and a low score
+    dropped it, so the IOC check said "unknown to them".
+  - **D-055 (Burhan's call):** the network a source names is kept beside the
+    verdict, never as one; shown in the IOC check, handed to the agent
+    (`a90e18a`). Live: qwen names Google LLC 3/3.
+  - The offending answer is pinned (tests/fixtures/enrich/); 3/3 mutants.
+  - TD-049 (only AbuseIPDB names the network). B-005 and B-006 were logged.
+  - 1323 tests; 120 modules; no new env vars.
+- [ ] **B2 — the top open bug, B-002 by default** (a definition question on
+  the agent path stopped as a leak; TD-044 live). Promote first, ask Burhan
+  which bug, re-measure the rail's floors before touching them.
 
 ## Later / explicitly deferred
 Herd Immunity federation (needs k≥3 workspaces + privacy review) · billing ·
