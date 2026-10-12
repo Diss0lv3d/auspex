@@ -11,3 +11,4 @@ dist/
 # Dev-only model-switcher config (D-016) + local compose overrides — never committed.
 dev-endpoints.json
 docker-compose.override.yml
+.playwright-mcp/
