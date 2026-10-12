@@ -152,3 +152,17 @@ def test_the_sign_in_is_kept_for_the_tab_only(client):
         assert f"try {{ {call}" in body or f"try {{ return {call}" in body, call
     assert "/api/auth/whoami" in body
     assert 'id="signout"' in body
+
+
+def test_index_lists_and_reopens_chats(client):
+    """F2: the sidebar lists your chats and reopens one from its stored turns;
+    the open chat's id lives in the hash; a reopened chat says what is not
+    kept rather than showing an empty Thinking pane."""
+    body = client.get("/").text
+    assert 'id="chats"' in body and 'id="new-chat"' in body and 'id="chats-toggle"' in body
+    assert '"/api/chat/sessions"' in body and '"/turns"' in body
+    assert '"#chat="' in body
+    assert "Reopened · answers and spend only; reasoning and tool steps aren't kept." in body
+    assert "That chat is not available to you." in body
+    chats_code = body.split("// <chats-dom>", 1)[1].split("// </chats-dom>", 1)[0]
+    assert "innerHTML" not in chats_code

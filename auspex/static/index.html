@@ -113,10 +113,50 @@
     .card .note { color: var(--ember); font-size: 12.5px; margin-top: 6px; white-space: pre-wrap; }
     .card .note.ok { color: var(--aurora); }
     .proposal .review { margin-left: 8px; padding: 2px 8px; font-size: 12px; }
+    /* The chat list (docs/superpowers/specs/2026-10-12-chat-survives-reload-design.md). */
+    .sidebar {
+      position: fixed; top: 0; left: 0; bottom: 0; width: 260px; z-index: 11;
+      background: var(--surface); border-right: 1px solid #1c2431; overflow-y: auto; padding: 16px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .sidebar-head { display: flex; align-items: center; gap: 8px; }
+    .sidebar-head .mark { flex: 1; }
+    #new-chat { width: 100%; }
+    .chat-item {
+      display: block; width: 100%; text-align: left; background: transparent; color: var(--text);
+      border: 1px solid transparent; border-radius: 8px; padding: 8px 10px; font-weight: 400;
+    }
+    .chat-item:hover:not(:disabled) { border-color: #232d3d; }
+    .chat-item.current { border-color: var(--steel); }
+    .chat-item .t { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
+    .chat-item .m { display: block; color: var(--slate); font-family: var(--mono); font-size: 11.5px; }
+    .reopened {
+      color: var(--slate); font-size: 12px; text-transform: uppercase; letter-spacing: .8px;
+      border-bottom: 1px solid #1c2431; padding-bottom: 6px; margin-bottom: 18px;
+    }
+    .noanswer { color: var(--slate); margin-top: 4px; }
+    @media (min-width: 900px) {
+      body { padding-left: 260px; }
+      header .mark, #chats-toggle, #chats-close { display: none; }
+    }
+    @media (max-width: 899px) {
+      .sidebar { display: none; }
+      body.chats-open .sidebar { display: flex; }
+    }
   </style>
 </head>
 <body>
+  <nav id="chats" class="sidebar" aria-label="Chats">
+    <div class="sidebar-head">
+      <span class="mark">Auspex<span class="dot">.</span></span>
+      <button id="chats-close" class="ghost">Close</button>
+    </div>
+    <button id="new-chat" class="ghost" disabled>+ New chat</button>
+    <div id="chats-list"></div>
+    <div id="chats-note" class="panel-note">Sign in to see your chats.</div>
+  </nav>
   <header>
+    <button id="chats-toggle" class="ghost">Chats</button>
     <span class="mark">Auspex<span class="dot">.</span></span>
     <span class="tag">the flock sees first</span>
     <span class="spacer"></span>
@@ -507,6 +547,7 @@
     const $ = (id) => document.getElementById(id);
     let token = null;
     let sessionId = null;
+    let busy = false;  // a turn is streaming: the chat cannot be switched under it
 
     // D-056: the sign-in survives a reload in this tab, and dies with the tab.
     // Storage that is blocked or missing leaves the page as it was before F2.
@@ -542,6 +583,10 @@
       $("prompt").disabled = false; $("send").disabled = false; $("prompt").focus();
       loadEndpoints();
       startApprovals();
+      $("new-chat").disabled = false;
+      loadChats();
+      const id = chatIdFromHash(location.hash);
+      if (id) openChat(id);
     }
 
     async function restoreSignIn() {
@@ -636,7 +681,7 @@
     function scroll() { const m = $("transcript"); m.scrollTop = m.scrollHeight; }
 
     function handleEvent(ev, wrap) {
-      if ("session" in ev) { sessionId = ev.session; }
+      if ("session" in ev) { sessionId = ev.session; setHash(sessionId); }
       // append(), not textContent +=, which would erase the tool-step lines
       else if ("reasoning" in ev) { ensureThink(wrap).append(ev.reasoning); }
       else if ("tool" in ev) {
@@ -682,7 +727,8 @@
 
     async function send() {
       const text = $("prompt").value.trim();
-      if (!text || !token) return;
+      if (!text || !token || busy) return;
+      busy = true; renderChats();
       $("prompt").value = ""; $("send").disabled = true; $("prompt").disabled = true;
       addMsg("You", "user").appendChild(Object.assign(document.createElement("div"), { className: "bubble", textContent: text }));
       const wrap = addMsg("Co-analyst", "assistant");
@@ -758,9 +804,113 @@
         clearInterval(ticker);
         working.remove();
         showChatSpend();
+        busy = false; loadChats();
         $("send").disabled = false; $("prompt").disabled = false; $("prompt").focus();
       }
     }
+
+    // <chats-dom>
+    // Thin: what an entry and a reopened turn show come from the page-logic
+    // block; this builds elements from it and talks to /api/chat/sessions.
+    // Every server string is text (D-053's builder for answers).
+    const chats = { list: [], complete: true, failed: false };
+
+    function setHash(id) {
+      history.replaceState(null, "", id ? "#chat=" + id : location.pathname + location.search);
+    }
+
+    function authed(path) { return fetch(path, { headers: { "Authorization": "Bearer " + token } }); }
+
+    async function loadChats() {
+      try {
+        const r = await authed("/api/chat/sessions");
+        if (!r.ok) throw new Error(String(r.status));
+        const body = await r.json();
+        chats.list = body.sessions; chats.complete = body.complete; chats.failed = false;
+      } catch (e) { chats.failed = true; }
+      renderChats();
+    }
+
+    function renderChats() {
+      const now = Date.now();
+      $("chats-list").replaceChildren(...chats.list.map((c) => {
+        const label = chatListLabel(c, now);
+        const b = el("button", { className: c.id === sessionId ? "chat-item current" : "chat-item", disabled: busy, title: label.title },
+          [el("span", { className: "t" }, [label.title]), el("span", { className: "m" }, [label.meta])]);
+        b.addEventListener("click", () => openChat(c.id));
+        return b;
+      }));
+      $("new-chat").disabled = busy || !token;
+      $("chats-note").textContent = !token ? "Sign in to see your chats."
+        : chats.failed ? "Couldn't load your chats."
+        : !chats.list.length ? "No chats yet."
+        : chats.complete ? "" : `Only the ${chats.list.length} most recent are listed.`;
+    }
+
+    function clearTranscript() { $("transcript").replaceChildren(); $("chat-spend").textContent = ""; }
+
+    function newChat(note) {
+      if (busy) return;
+      sessionId = null;
+      setHash(null);
+      clearTranscript();
+      if (note) $("transcript").appendChild(el("div", { className: "noanswer" }, [note]));
+      document.body.classList.remove("chats-open");
+      renderChats();
+      $("prompt").focus();
+    }
+
+    async function openChat(id) {
+      if (busy || !token) return;
+      let r;
+      try { r = await authed("/api/chat/sessions/" + encodeURIComponent(id) + "/turns"); }
+      catch (e) { setStatus("network error", "err"); return; }
+      if (r.status === 404) { newChat("That chat is not available to you."); return; }
+      if (!r.ok) { setStatus("couldn't open that chat", "err"); return; }
+      const { turns } = await r.json();
+      sessionId = id;
+      setHash(id);
+      clearTranscript();
+      $("transcript").appendChild(el("div", { className: "reopened" },
+        ["Reopened · answers and spend only; reasoning and tool steps aren't kept."]));
+      const now = Date.now();
+      for (const turn of turns) renderReopenedTurn(reopenedTurnPlan(turn, now));
+      document.body.classList.remove("chats-open");
+      renderChats();
+      showChatSpend();
+      scroll();
+    }
+
+    function renderReopenedTurn(parts) {
+      let wrap = null;
+      for (const part of parts) {
+        if (part.kind === "question") {
+          addMsg("You", "user").appendChild(el("div", { className: "bubble" }, [part.text]));
+          wrap = addMsg("Co-analyst", "assistant");
+        } else if (part.kind === "answer") {
+          wrap.appendChild(el("div", { className: "bubble md" }, markdownNodes(part.text, el)));
+        } else if (part.kind === "no-answer") {
+          wrap.appendChild(el("div", { className: "noanswer" }, [part.text]));
+        } else if (part.kind === "spend") {
+          wrap.appendChild(el("div", { className: "spend" }, [part.text]));
+        } else if (part.kind === "proposal") {
+          const review = el("button", { className: "ghost review" }, ["Review"]);
+          review.addEventListener("click", () => reviewProposal(part.id));
+          wrap.appendChild(el("div", { className: "proposal" }, [part.text, review]));
+        }
+      }
+    }
+
+    // A proposal from a reopened chat may be decided already, so the queue
+    // does not hold it: fetch it into the decided list, where its doors are.
+    async function reviewProposal(id) {
+      if (!approvals.waiting.some((p) => p.id === id)) {
+        const r = await api("/" + encodeURIComponent(id));
+        if (r.ok && r.body && r.body.id) recordDecided(r.body);
+      }
+      openApprovals(id);
+    }
+    // </chats-dom>
 
     // <approvals-dom>
     // Thin: what a card shows and which doors it gets come from the page-logic
@@ -887,7 +1037,7 @@
         ? "Couldn't refresh the queue; retrying."
         : n ? "" : "Nothing is waiting on you.";
       const nodes = waiting.map(cardFor);
-      if (decided.length) nodes.push(el("div", { className: "divider" }, ["Decided this session"]), ...decided.map(cardFor));
+      if (decided.length) nodes.push(el("div", { className: "divider" }, ["Decided"]), ...decided.map(cardFor));
       $("approvals-list").replaceChildren(...nodes);
       const hl = approvals.scrollTo && $("approvals-list").querySelector(".card.hl");
       if (hl) { hl.scrollIntoView({ block: "nearest" }); approvals.scrollTo = null; }
@@ -902,6 +1052,14 @@
     $("send").addEventListener("click", send);
     $("prompt").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
     $("signout").addEventListener("click", signOut);
+    $("new-chat").addEventListener("click", () => newChat());
+    $("chats-toggle").addEventListener("click", () => document.body.classList.toggle("chats-open"));
+    $("chats-close").addEventListener("click", () => document.body.classList.remove("chats-open"));
+    // A hash pasted into this tab's address bar opens that chat without a reload.
+    window.addEventListener("hashchange", () => {
+      const id = chatIdFromHash(location.hash);
+      if (id && id !== sessionId) openChat(id);
+    });
     restoreSignIn();
   </script>
 </body>
