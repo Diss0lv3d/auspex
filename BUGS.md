@@ -61,7 +61,8 @@ are never deleted.
   `auspex/routes/ui.py` serves `index.html` and `timeline.html` with
   `FileResponse` and no extra headers. Re-checkable at any time with
   `curl -s -D - -o /dev/null localhost:8000/`.
-- **Status:** open.
+- **Status:** fixed `4693084` (F1). Both pages are served `Cache-Control:
+  no-cache`. A page cached before the fix needs one reload.
 
 ## B-004 — a note on a recorded indicator is refused as "doesn't exist"
 
