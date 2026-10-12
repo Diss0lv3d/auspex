@@ -20,4 +20,4 @@ are never deleted.
   the local endpoint (qwen3:14b), on the conversational path.
 - **Evidence:** docs/probes/2026-10-12-b001-ip-owner-claim.md (the stored
   turns, the server log, the RDAP result).
-- **Status:** open.
+- **Status:** fixing (B1).
