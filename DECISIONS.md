@@ -2062,8 +2062,10 @@ font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data:;
 object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`.
 - Scripts only from the page's own origin: an injected `<script>` or `on…=`
   does not run.
-- Fetches only to the platform: an injected script that did run could not send
-  the token anywhere else.
+- Fetches only to the platform: an injected script that did run could not
+  `fetch()` the token elsewhere. It could still carry it out by navigating
+  (`location`, `window.open`, a link), which a CSP does not restrict; the
+  guard against a script running at all is `script-src 'self'` and D-053.
 - No framing, no `<base>`, no form posts, no plugins.
 - The page's styles set through the CSSOM (`el.style.display`) are not governed
   by a CSP; the markup has no `style=` attribute.
