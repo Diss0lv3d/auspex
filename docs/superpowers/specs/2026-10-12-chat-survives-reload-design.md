@@ -60,7 +60,9 @@ Your 50 most recent chats, by their newest message.
 }
 ```
 
-- `title`: the first question's first line, cut at 80 characters with "…".
+- `title`: the first question with its whitespace collapsed, cut at 80
+  characters with "…". (Collapsed rather than first-line, found while
+  planning: a pasted JSON alert's first line is `{`.)
 - A chat with no messages is left out.
 - `spend` is the ledger's sum, the same arithmetic as `/spend`. A chat with no
   rows has `turns: 0` and null token counts.
@@ -217,7 +219,7 @@ The DOM wiring stays thin: the sidebar, the hash, `sessionStorage`, the fetches.
 **pytest.** Rows are inserted straight into Postgres: no inference, hermetic.
 - List:
   - newest first by the latest message;
-  - the title rule: first line, 80 characters;
+  - the title rule: whitespace collapsed, 80 characters;
   - an empty chat is left out;
   - the spend totals match the ledger;
   - `complete` flips past 50.
