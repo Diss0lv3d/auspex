@@ -33,6 +33,16 @@ font-src https://fonts.gstatic.com; connect-src 'self'` and pin it in
 **Trigger:** TD-045's split, any new HTML-rendering surface, or any finding of
 script injection on the page.
 
+**Addendum (F2 final review; D-056 stays as ratified):**
+- "Gone when the tab closes" is not quite true: Duplicate tab copies
+  `sessionStorage`, and session restore or reopen-closed-tab brings it back.
+  The 12 h token lifetime still bounds it.
+- The same-origin `timeline.html` also runs in the tab with access to that
+  storage, and builds HTML with `innerHTML` plus `esc()` from feed-derived
+  observable values (`auspex/static/timeline.html` ~207, ~248). D-053's rule
+  (model and tool text never become HTML) is not the only surface a CSP would
+  guard.
+
 ## TD-050 (F2) — a reopened chat's turns are paired by time
 
 **Where:** `auspex/chat_history.py` `pair_turns`, behind
