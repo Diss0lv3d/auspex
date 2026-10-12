@@ -490,6 +490,7 @@
     // An age in words. "yesterday" is 24 to 48 hours ago, not a calendar day:
     // the page knows no time zone of the analyst's to be right about.
     function relativeTime(then, now) {
+      if (!Number.isFinite(then) || !Number.isFinite(now)) return "";  // an unparseable time says nothing, and throws nothing
       const s = Math.max(0, Math.floor((now - then) / 1000));
       if (s < 60) return "just now";
       const min = Math.floor(s / 60);
@@ -728,7 +729,7 @@
     async function send() {
       const text = $("prompt").value.trim();
       if (!text || !token || busy) return;
-      busy = true; renderChats();
+      busy = true;
       $("prompt").value = ""; $("send").disabled = true; $("prompt").disabled = true;
       addMsg("You", "user").appendChild(Object.assign(document.createElement("div"), { className: "bubble", textContent: text }));
       const wrap = addMsg("Co-analyst", "assistant");
@@ -762,6 +763,7 @@
       showWaiting();
       scroll();
       try {
+        renderChats();  // inside the try: a throw here must not leave busy set
         const sel = $("endpoint");
         const endpointId = sel.hidden ? undefined : sel.value;
         const r = await fetch("/api/chat", {

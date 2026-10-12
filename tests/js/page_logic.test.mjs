@@ -369,6 +369,14 @@ test("a chat's age reads in minutes, hours, yesterday, days, then a date", () =>
   assert.equal(relativeTime(NOON + 5000, NOON), "just now", "a clock a little ahead is not negative");
 });
 
+test("an unparseable time reads as nothing and does not throw", () => {
+  assert.equal(relativeTime(NaN, NOON), "");
+  assert.equal(relativeTime(Date.parse("not a date"), NOON), "");
+  const bad = { id: CHAT, title: "t", last_at: "not a date", spend: { engine_calls: 0 } };
+  assert.doesNotThrow(() => chatListLabel(bad, NOON));
+  assert.equal(chatListLabel(bad, NOON).meta, "");
+});
+
 test("a list entry shows its title, its age and what it spent", () => {
   const chat = (extra) => ({ id: CHAT, title: "We saw 185.220.101.133 beaconing", last_at: "2026-10-12T11:58:00Z",
     spend: { turns: 2, engine_calls: 6, prompt_tokens: 5100, completion_tokens: 900 }, ...extra });
