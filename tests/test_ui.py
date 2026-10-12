@@ -280,10 +280,20 @@ def test_the_timeline_page_has_no_csp_yet(client):
     assert "content-security-policy" not in client.get("/timeline").headers
 
 
-def test_a_throw_while_a_turn_ends_cannot_leave_the_composer_busy(client):
-    """R7 (F2's final review): `busy` was cleared at the end of send()'s finally,
-    after the paint and the cleanup, so a throw there left the composer stuck
-    and every chat switch refused. It is cleared first."""
+def test_a_throw_while_a_turn_ends_cannot_leave_the_composer_stuck(client):
+    """R7, completed after F2's split review: send()'s finally painted the
+    turn's ending before it re-enabled anything, so a throw in that paint left
+    Send and the prompt disabled and the working line ticking. Everything that
+    gives the analyst the composer back now comes first, and the paint is
+    isolated."""
     js = client.get("/js/chat.js").text
-    ending = js.split("async function send()", 1)[1].split("} finally {", 1)[1]
-    assert ending.lstrip().startswith("busy = false;")
+    send = js.split("async function send()", 1)[1].split("\n}\n", 1)[0]
+    ending = send.split("} finally {", 1)[1]
+    first = next(ln.strip() for ln in ending.splitlines()
+                 if ln.strip() and not ln.strip().startswith("//"))
+    assert first == "busy = false;"
+    paint_at = ending.index("paint(pacer.flush())")
+    for reset in ("open = false", "clearInterval(ticker)",
+                  '$("send").disabled = false', '$("prompt").disabled = false'):
+        assert ending.index(reset) < paint_at, reset
+    assert "try { paint(pacer.flush()); }" in ending

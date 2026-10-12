@@ -272,14 +272,17 @@ async function send() {
     paint(pacer.flush());
     showError(wrap, "[connection lost]");
   } finally {
-    busy = false;  // first: a throw below must not leave the composer stuck (R7)
-    paint(pacer.flush());
+    // First, everything that gives the analyst the composer back (R7): a throw
+    // while painting the turn's ending must not leave it looking alive.
+    busy = false;
     open = false;
     clearInterval(ticker);
+    $("send").disabled = false; $("prompt").disabled = false;
+    try { paint(pacer.flush()); } catch (e) { showError(wrap, "This turn's ending could not be shown. Reload to see what was stored."); }
     working.remove();
     showChatSpend();
     loadChats();
-    $("send").disabled = false; $("prompt").disabled = false; $("prompt").focus();
+    $("prompt").focus();
   }
 }
 
