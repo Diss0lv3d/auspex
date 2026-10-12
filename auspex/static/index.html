@@ -32,6 +32,7 @@
     .tag { color: var(--slate); font-size: 13px; }
     .spacer { flex: 1; }
     .auth { display: flex; gap: 8px; align-items: center; }
+    header button, #status { white-space: nowrap; }
     input, button, select {
       font-family: var(--body); font-size: 14px; border-radius: 8px;
       border: 1px solid #232d3d; background: var(--surface); color: var(--text);
@@ -143,6 +144,19 @@
     @media (max-width: 899px) {
       .sidebar { display: none; }
       body.chats-open .sidebar { display: flex; }
+    }
+    /* A phone (F2 narrow pass): the bars give the chat room, and the signed-in
+       status is said by the Sign out button (an error still shows). */
+    @media (max-width: 599px) {
+      header, footer { padding: 10px 12px; }
+      header { gap: 8px; }
+      .tag { display: none; }
+      .auth { flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
+      .auth button, .auth select { padding: 7px 10px; }
+      #email { flex: 1; min-width: 0; width: 9em; }
+      #endpoint { max-width: 9em; }
+      #status.ok { display: none; }
+      .hint { margin-top: 6px; }
     }
   </style>
 </head>

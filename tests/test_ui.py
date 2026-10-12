@@ -187,3 +187,15 @@ def test_the_page_asks_for_dark_scrollbars_and_controls(client):
     body = client.get("/").text
     root = body.split(":root {", 1)[1].split("}", 1)[0]
     assert "color-scheme: dark" in root
+
+
+def test_the_header_keeps_its_labels_whole_on_a_phone(client):
+    """F2 narrow pass: at 390 px the header took 132 px in two rows, and "Sign
+    in", "Sign out", "Approvals · 1" and the status broke over two or three
+    lines. Labels never wrap; below 600 px the tagline goes and the bars are
+    tighter."""
+    body = client.get("/").text
+    assert "header button, #status { white-space: nowrap; }" in body
+    narrow = body.split("@media (max-width: 599px) {", 1)[1].split("\n    }", 1)[0]
+    assert ".tag { display: none; }" in narrow
+    assert "header, footer { padding: 10px 12px; }" in narrow
