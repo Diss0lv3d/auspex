@@ -1,6 +1,6 @@
-"""The chat page's own pacing and indicator logic (D-052), inside the gate.
+"""The chat page's pure logic (D-052), inside the gate.
 
-The logic is JavaScript in auspex/static/index.html, so its behavioural tests
+The logic is JavaScript in auspex/static/js/page-logic.js, so its behavioural tests
 are JavaScript too: tests/js/page_logic.test.mjs, under Node's built-in test
 runner (no dependencies). This runs that file, so `./ci.sh` (D-028: the only
 definition of green) covers it and the README's count stays the pytest count.
@@ -29,4 +29,4 @@ def test_the_pages_pacing_and_indicator_logic_pass_their_node_tests():
     # A file that defined no tests also exits 0. The floor is the count this
     # file holds today; it only ever goes up.
     passed = [line for line in run.stdout.splitlines() if line.startswith("ℹ pass ")]
-    assert passed and int(passed[0].split()[-1]) >= 32, run.stdout[-2000:]
+    assert passed and int(passed[0].split()[-1]) >= 46, run.stdout[-2000:]

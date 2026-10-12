@@ -32,6 +32,7 @@ from auspex.routes.chat import (
     PASS1_DIRECTIVE,
     ChatEndpoint,
     ChatEndpointResolver,
+    _pane_separator,
     get_endpoint_resolver,
 )
 
@@ -2870,3 +2871,54 @@ def test_a_chats_total_is_served_to_its_owner_only(client, settings):
     unknown = client.get("/api/chat/sessions/00000000-0000-0000-0000-0000000000ff/spend",
                          headers={"Authorization": f"Bearer {_token(client)}"})
     assert unknown.status_code == 404
+
+
+# ── S26's UX edge: thinking and narration share the Thinking pane ─────────────
+
+
+def test_the_thinking_pane_breaks_the_line_where_thinking_gives_way_to_narration():
+    """Both stream as `reasoning`, so where one gives way to the other the page
+    ran them together ("...answering.I'll search"). A newline goes between,
+    unless one side already has it; nothing before the first delta, and nothing
+    between two deltas of the same kind."""
+    assert _pane_separator(None, "", "narration", "I'll look.") == ""
+    assert _pane_separator("reasoning", "Think. ", "reasoning", "More.") == ""
+    assert _pane_separator("reasoning", "Think. ", "narration", "I'll look.") == "\n"
+    assert _pane_separator("narration", "I'll look.", "reasoning", "Hmm.") == "\n"
+    assert _pane_separator("reasoning", "Think.\n", "narration", "I'll look.") == ""
+    assert _pane_separator("reasoning", "Think.", "narration", "\nI'll look.") == ""
+
+
+def _agent_thinking(client, steps) -> str:
+    fake = SequencedStreamingFakeLLMClient(steps)
+    kb = FakeKnowledgeService(hits=[])
+    real_kb = _swap_kb(client.app, kb)
+    _use_agent(client.app, fake)
+    try:
+        frames = _post_deep(client, _AGENT_QUESTION)
+    finally:
+        client.app.dependency_overrides.clear()
+        client.app.state.kb = real_kb
+    assert frames[-1]["done"]["path"] == "agent"
+    return "".join(f["reasoning"] for f in frames if "reasoning" in f)
+
+
+def test_narration_starts_on_its_own_line_in_the_thinking_pane(client):
+    answer = _conformant_answer()
+    thinking = _agent_thinking(client, [_tool_step(), _answer_step(answer)])
+    assert "answering. \nI'll search the knowledge base first." in thinking
+    # glm's narration often brings its own newline: it is not doubled.
+    thinking = _agent_thinking(client, [_tool_step(narration="\nI'll search first."),
+                                        _answer_step(answer)])
+    assert "answering. \nI'll search first." in thinking
+
+
+def test_a_tool_step_resets_the_boundary_the_page_already_draws_as_a_line(client):
+    """The tool line is its own element in the pane, so the next call's
+    thinking needs no newline of ours after it."""
+    thinking = _agent_thinking(client, [
+        _tool_step(),
+        _tool_step(arguments='{"query": "golden ticket"}', narration="Now the next one."),
+        _answer_step(_conformant_answer()),
+    ])
+    assert "first.Look it up before answering. \nNow the next one." in thinking

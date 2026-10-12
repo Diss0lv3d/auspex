@@ -144,3 +144,17 @@ are never deleted.
   `node:22-alpine`: the default prints `# pass 32`;
   `--test-reporter=spec` prints `ℹ pass 32`.
 - **Status:** fixed `b8ee7fd` (F2), on Burhan's call: the promote could not land red.
+
+## B-008 — at the usage ceiling, a new chat's question is stored and the turn is then refused
+
+- **Found:** 2026-10-12, F2 final review (Claude), reading the chat route
+  against the new sidebar.
+- **What happened:** at the workspace's usage ceiling, a NEW chat's question
+  is stored (`auspex/routes/chat.py` ~662) and the turn is then refused 429
+  (`auspex/routes/chat.py` ~832) with no session frame and no ledger row. The
+  page never learns the chat's id, so each retry leaves another sidebar chat
+  that reads "No answer was stored", and the `usage_refused` copy ("No answer:
+  the workspace's usage limit was reached") never appears on this path. The
+  ordering is older than F2; the chat list makes it visible.
+- **Evidence:** from reading the code only, not reproduced live.
+- **Status:** open.

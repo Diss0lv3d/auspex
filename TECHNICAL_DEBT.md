@@ -1,5 +1,68 @@
 # Technical debt — logged the moment it's taken
 
+## TD-052 (F2) — no index covers `proposals.session_id`
+
+**Where:** `GET /api/chat/sessions/{id}/turns` (`auspex/routes/chat.py` ~603-607)
+filters the workspace's proposals by `session_id`; the indexes in
+`auspex/migrations.py` cover workspace plus status, claim and id, none the session.
+**Risk:** LOW today. Every reopen scans the workspace's proposals. The reopen
+path itself is not measured.
+**Why taken:** F2 added the read path and no migration (spec: no migration); a
+workspace's proposal count is small while one analyst uses it.
+**Path to fix:** `CREATE INDEX ... ON proposals (session_id, created_at)` in the
+migrations block, or together with TD-050's key.
+**Trigger:** a reopen slower than about 200 ms, or a workspace past about 10k
+proposals.
+
+## TD-051 (F2) — the timeline page sends no Content-Security-Policy
+
+**Narrowed (F2, D-057):** the chat page carries a strict CSP since the split
+(TD-045). What remains is /timeline, which still runs an inline script with
+`onclick` attributes.
+
+**Where:** `auspex/routes/ui.py` serves `index.html` and `timeline.html` with
+only `Cache-Control: no-cache`.
+**Risk:** MEDIUM since D-056. The sign-in token now sits in the tab's
+`sessionStorage`, readable by any script on the page. Nothing in the browser
+stops an injected script; the one guard is D-053's rule that model and tool
+text never become HTML.
+**Why taken:** the pages run one inline script, so a useful CSP needs a nonce
+per response or a hash per script, and every page edit would move the hash.
+That belongs with moving the script into files.
+**Path to fix:** with TD-045's split (scripts in their own files, served
+`no-cache` like the pages), send `Content-Security-Policy: default-src 'self';
+script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+font-src https://fonts.gstatic.com; connect-src 'self'` and pin it in
+`tests/test_ui.py`.
+**Trigger:** TD-045's split, any new HTML-rendering surface, or any finding of
+script injection on the page.
+
+**Addendum (F2 final review; D-056 stays as ratified):**
+- "Gone when the tab closes" is not quite true: Duplicate tab copies
+  `sessionStorage`, and session restore or reopen-closed-tab brings it back.
+  The 12 h token lifetime still bounds it.
+- The same-origin `timeline.html` also runs in the tab with access to that
+  storage, and builds HTML with `innerHTML` plus `esc()` from feed-derived
+  observable values (`auspex/static/timeline.html` ~207, ~248). D-053's rule
+  (model and tool text never become HTML) is not the only surface a CSP would
+  guard.
+
+## TD-050 (F2) — a reopened chat's turns are paired by time
+
+**Where:** `auspex/chat_history.py` `pair_turns`, behind
+`GET /api/chat/sessions/{id}/turns`.
+**Risk:** LOW. A ledger row names its answer (`turn_spend.message_id`), but a
+turn that stored no answer, and every proposal, is placed by time: inside the
+window from its question to the next. Two tabs sending into the SAME chat at
+the same moment can interleave, and a proposal or a failed turn's row can land
+under the other question. One tab cannot: Send is disabled while a turn runs.
+**Why taken:** exact pairing needs a key on `turn_spend` and `proposals` (a
+migration that fixes only new turns), for an edge one tab cannot reach.
+**Path to fix:** store the question's message id on `turn_spend` and
+`proposals` when the turn starts, and pair by it where present.
+**Trigger:** a reopened turn shows a proposal or an ending that belongs to its
+neighbour, or the page gains a way to run two turns in one chat at once.
+
 ## TD-049 (B1) — only AbuseIPDB names an address's network
 
 **Where:** `auspex/enrich/providers/abuseipdb.py` `_network` (D-055). OTX
@@ -59,6 +122,11 @@ from polling to the stream, with the list read once on open.
 status changes.
 
 ## TD-045 (F1) — the chat page is one 808-line file
+
+**Closed (F2, `e99302d`):** the page is markup, `css/chat.css`,
+`js/page-logic.js` (a module the Node tests import) and `js/chat.js`, served
+no-cache from an allow-list; D-057's CSP followed (`0aac79e`). Entry kept as
+written.
 
 **Where:** `auspex/static/index.html`. It holds the styles, the
 `// <page-logic>` block that Node tests, and the DOM wiring for the stream,

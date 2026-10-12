@@ -62,6 +62,7 @@ from auspex.agent.permissions import PgProposalStore
 from auspex.alerts import normalize, score_alert
 from auspex.alerts.render import deterministic_triage_answer, deterministic_triage_block
 from auspex.auth import AuthContext, resolve_user
+from auspex.chat_history import pair_turns, title_of
 from auspex.classify import Category, classify, shortcut_answer
 from auspex.classify.observables import ObservableType, extract_observables
 from auspex.config import Settings
@@ -244,6 +245,18 @@ def _status_frame(ev) -> str:
     if ev.phase == "tool":
         return _sse({"status": {"phase": "tool", "tool": ev.tool_name}})
     return _ENGINE_STATUS
+
+
+def _pane_separator(prev_kind: str | None, prev_tail: str, kind: str, text: str) -> str:
+    """S26: the model's thinking and its narration both stream as `reasoning`
+    into one Thinking pane, so where one gives way to the other the page ran
+    them together. A newline goes between, unless one side already has it. The
+    caller resets `prev_kind` on a tool step: the page draws that as its own line."""
+    if prev_kind is None or prev_kind == kind:
+        return ""
+    if prev_tail.endswith("\n") or text.startswith("\n"):
+        return ""
+    return "\n"
 
 
 def select_dev_endpoint(
@@ -520,6 +533,92 @@ async def session_spend(request: Request, auth: Auth, session_id: UUID) -> dict:
         "prompt_tokens": row["prompt_tokens"],
         "completion_tokens": row["completion_tokens"],
     }
+
+
+# F2: how many chats the list returns, newest message first. No paging: the
+# page says when the list was cut
+# (docs/superpowers/specs/2026-10-12-chat-survives-reload-design.md).
+CHAT_LIST_LIMIT = 50
+
+
+@router.get("/chat/sessions")
+async def list_sessions(request: Request, auth: Auth) -> dict:
+    """F2: your chats, by their newest message, each titled by its first
+    question and totalled like `/spend`. Scoped to the workspace AND the user,
+    as `_ensure_session` is: another analyst's chats never appear. A chat with
+    no messages is left out."""
+    pool = request.app.state.pool
+    rows = await pool.fetch(
+        "SELECT s.id, s.created_at, m.last_at,"
+        "       (SELECT left(q.content, 1000) FROM messages q"
+        "         WHERE q.session_id = s.id AND q.workspace_id = s.workspace_id AND q.role = 'user'"
+        "         ORDER BY q.created_at, q.id LIMIT 1) AS first_question,"
+        "       sp.turns, sp.engine_calls, sp.prompt_tokens, sp.completion_tokens"
+        "  FROM chat_sessions s"
+        "  JOIN LATERAL (SELECT max(created_at) AS last_at FROM messages"
+        "                 WHERE session_id = s.id AND workspace_id = s.workspace_id) m"
+        "    ON m.last_at IS NOT NULL"
+        "  CROSS JOIN LATERAL (SELECT count(*) AS turns,"
+        "                             coalesce(sum(engine_calls), 0) AS engine_calls,"
+        "                             sum(prompt_tokens) AS prompt_tokens,"
+        "                             sum(completion_tokens) AS completion_tokens"
+        "                        FROM turn_spend"
+        "                       WHERE session_id = s.id AND workspace_id = s.workspace_id) sp"
+        " WHERE s.workspace_id = $1 AND s.user_id = $2"
+        " ORDER BY m.last_at DESC, s.id"
+        " LIMIT $3",
+        auth.workspace_id,
+        auth.user_id,
+        CHAT_LIST_LIMIT + 1,
+    )
+    return {
+        "sessions": [
+            {
+                "id": str(r["id"]),
+                "title": title_of(r["first_question"]),
+                "created_at": r["created_at"].isoformat(),
+                "last_at": r["last_at"].isoformat(),
+                "spend": {
+                    "turns": r["turns"],
+                    "engine_calls": r["engine_calls"],
+                    "prompt_tokens": r["prompt_tokens"],
+                    "completion_tokens": r["completion_tokens"],
+                },
+            }
+            for r in rows[:CHAT_LIST_LIMIT]
+        ],
+        "complete": len(rows) <= CHAT_LIST_LIMIT,
+    }
+
+
+@router.get("/chat/sessions/{session_id}/turns")
+async def session_turns(request: Request, auth: Auth, session_id: UUID) -> dict:
+    """F2: one chat's turns, oldest first, paired on the server
+    (auspex/chat_history.py). Owned like the chat itself: another analyst's
+    chat is a 404 like a missing one. Proposals are reached only through this
+    owned chat AND this workspace. What is stored is what was shown: a turn the
+    rail cut stored no answer."""
+    pool = request.app.state.pool
+    await _ensure_session(pool, auth, session_id)
+    messages = await pool.fetch(
+        "SELECT id, role, content, created_at FROM messages"
+        " WHERE workspace_id = $1 AND session_id = $2 ORDER BY created_at, id",
+        auth.workspace_id,
+        session_id,
+    )
+    spend = await pool.fetch(
+        "SELECT message_id, engine_calls, prompt_tokens, completion_tokens, ending, created_at"
+        "  FROM turn_spend WHERE workspace_id = $1 AND session_id = $2 ORDER BY created_at, id",
+        auth.workspace_id,
+        session_id,
+    )
+    proposals = await pool.fetch(
+        "SELECT id, tool_name, status, card, decided_at, claimed_at, result, created_at"
+        "  FROM proposals WHERE workspace_id = $1 AND session_id = $2 ORDER BY created_at, id",
+        auth.workspace_id,
+        session_id,
+    )
+    return {"id": str(session_id), "turns": pair_turns(messages, spend, proposals)}
 
 
 @router.get("/models")
@@ -854,6 +953,7 @@ async def chat(
             rail on the channel of the pane it is shown in — tool frames on one
             literal channel, never one per call (STATE follow-up 11)."""
             nonlocal finish_reason, usage, agent_done
+            pane = {"kind": None, "tail": ""}  # what the Thinking pane showed last
             async with aclosing(
                 loop.run_stream(
                     endpoint.client, body.message, history=agent_history, claim=claim_next
@@ -862,11 +962,15 @@ async def chat(
                 async for ev in events:
                     if ev.kind in ("reasoning", "narration"):
                         # Both show in the Thinking pane; only the model's own
-                        # thinking gets the recitation floor (D-040).
+                        # thinking gets the recitation floor (D-040). The line
+                        # break between them is scanned with the text it leads.
                         channel = "thinking" if ev.kind == "reasoning" else "narration"
-                        if scanner.feed(ev.text, channel=channel):
+                        text = _pane_separator(pane["kind"], pane["tail"], ev.kind, ev.text)
+                        text += ev.text
+                        if scanner.feed(text, channel=channel):
                             return
-                        yield _sse({"reasoning": ev.text})
+                        pane["kind"], pane["tail"] = ev.kind, text[-1:] if text else pane["tail"]
+                        yield _sse({"reasoning": text})
                     elif ev.kind == "content":
                         if scanner.feed(ev.text, channel="content"):
                             return
@@ -882,6 +986,7 @@ async def chat(
                             "\n" + frame["proposal"]["summary"], channel="tool"
                         ):
                             return
+                        pane["kind"] = None  # the page draws the tool step as its own line
                         yield _sse({"tool": frame})
                     elif ev.kind == "phase":
                         if ev.phase == "engine":

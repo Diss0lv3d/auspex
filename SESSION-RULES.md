@@ -130,16 +130,20 @@ change to those modes keeps `contract_repair` honest.
 ## The page (front end)
 
 - **Model and tool text reach the page as text, never as HTML.** The page
-  writes them with `textContent`/`append` (`auspex/static/index.html`);
+  writes them with `textContent`/`append` (`auspex/static/js/chat.js`);
   `innerHTML` holds only fixed templates.
   - The answer bubble renders a safe markdown subset (D-053). A pure parser
     builds elements the page chose, with `createElement` and text nodes, and
     https-only links that show their host.
   - Widening that subset, or rendering any other pane, is a new decision, not
     a refactor.
-- **The page's logic lives in its `// <page-logic>` block**: pure functions,
-  run under Node by `tests/js/page_logic.test.mjs` inside the pytest gate.
-  New page behaviour goes there, with tests, and the DOM wiring stays thin.
+- **The page's logic lives in `auspex/static/js/page-logic.js`**: pure,
+  exported functions, imported by the page (`js/chat.js`) and by
+  `tests/js/page_logic.test.mjs` under Node inside the pytest gate. New page
+  behaviour goes there, with tests, and the DOM wiring stays thin.
+- **The chat page carries a strict CSP (D-057).** No inline script or style
+  and no `on…=` in its markup; its files are served from an allow-list in
+  `auspex/routes/ui.py`. A new external origin needs a D-entry.
 - **The stream is paced on the page within 200 ms (D-052)**, and a `status`
   frame says what a turn is waiting on. A new wait gets an announcement.
 - Colours, fonts and voice are D-002's (CLAUDE.md, Brand). Labels are

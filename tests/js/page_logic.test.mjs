@@ -1,26 +1,17 @@
-// The chat page's own pacing and indicator logic (D-052), run under Node's
-// built-in test runner: no dependencies, no browser. The logic is read from
-// auspex/static/index.html itself, between its `// <page-logic>` markers, so
-// what is tested is what the page runs. tests/test_page_logic.py runs this
-// file inside the pytest gate.
+// The chat page's pure logic (D-052), run under Node's built-in test runner:
+// no dependencies, no browser. It imports auspex/static/js/page-logic.js, the
+// module the page itself imports, so what is tested is what the page runs.
+// tests/test_page_logic.py runs this file inside the pytest gate.
 //
 //   node --test tests/js/page_logic.test.mjs
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
-
-const html = readFileSync(new URL("../../auspex/static/index.html", import.meta.url), "utf8");
-const block = html.match(/\/\/ <page-logic>([\s\S]*?)\/\/ <\/page-logic>/);
-assert.ok(block, "index.html has no // <page-logic> block");
-const {
+import {
   createPacer, indicatorText, markdownNodes,
   doorsFor, statusText, undoText, undoLineFor, askedText, mergeQueue, armDoor, confirmable,
-  spendText, chatSpendText,
-} = new Function(`${block[1]}; return {
-  createPacer, indicatorText, markdownNodes,
-  doorsFor, statusText, undoText, undoLineFor, askedText, mergeQueue, armDoor, confirmable,
-  spendText, chatSpendText,
-};`)();
+  spendText, chatSpendText, chatIdFromHash, relativeTime, chatListLabel, ledgerSpendText, endingText, reopenedTurnPlan,
+  noAnswerNote, overlayAfter,
+} from "../../auspex/static/js/page-logic.js";
 
 const FRAME_MS = 1000 / 60;
 
@@ -342,4 +333,144 @@ test("the chat's total counts every turn the server recorded", () => {
   assert.equal(chatSpendText({ turns: 1, engine_calls: 1, prompt_tokens: null, completion_tokens: null }),
     "This chat: 1 turn · 1 engine call");
   assert.equal(chatSpendText({ turns: 0, engine_calls: 0, prompt_tokens: null, completion_tokens: null }), null);
+});
+
+// -- a chat survives a reload (docs/superpowers/specs/2026-10-12-chat-survives-reload-design.md)
+
+const CHAT = "6b1f0c2e-1d2a-4c3b-9e8f-0a1b2c3d4e5f";
+const NOON = Date.parse("2026-10-12T12:00:00Z");
+
+test("a chat id comes from the hash only when it is a UUID", () => {
+  assert.equal(chatIdFromHash("#chat=" + CHAT), CHAT);
+  assert.equal(chatIdFromHash("#chat=" + CHAT.toUpperCase()), CHAT);
+  for (const bad of ["", "#", "#chat=", "#chat=not-a-uuid", "#chat=" + CHAT + "x",
+    "#other=" + CHAT, "#chat=" + CHAT + "&x=1", null, undefined]) {
+    assert.equal(chatIdFromHash(bad), null, String(bad));
+  }
+});
+
+test("a chat's age reads in minutes, hours, yesterday, days, then a date", () => {
+  const ago = (s) => NOON - s * 1000;
+  assert.equal(relativeTime(ago(5), NOON), "just now");
+  assert.equal(relativeTime(ago(120), NOON), "2 min");
+  assert.equal(relativeTime(ago(3600 * 3), NOON), "3 h");
+  assert.equal(relativeTime(ago(3600 * 30), NOON), "yesterday");
+  assert.equal(relativeTime(ago(86400 * 3), NOON), "3 days");
+  assert.equal(relativeTime(Date.parse("2026-09-01T08:00:00Z"), NOON), "2026-09-01");
+  assert.equal(relativeTime(NOON + 5000, NOON), "just now", "a clock a little ahead is not negative");
+});
+
+test("an unparseable time reads as nothing and does not throw", () => {
+  assert.equal(relativeTime(NaN, NOON), "");
+  assert.equal(relativeTime(Date.parse("not a date"), NOON), "");
+  const bad = { id: CHAT, title: "t", last_at: "not a date", spend: { engine_calls: 0 } };
+  assert.doesNotThrow(() => chatListLabel(bad, NOON));
+  assert.equal(chatListLabel(bad, NOON).meta, "");
+});
+
+test("a list entry shows its title, its age and what it spent", () => {
+  const chat = (extra) => ({ id: CHAT, title: "We saw 185.220.101.133 beaconing", last_at: "2026-10-12T11:58:00Z",
+    spend: { turns: 2, engine_calls: 6, prompt_tokens: 5100, completion_tokens: 900 }, ...extra });
+  assert.deepEqual(chatListLabel(chat(), NOON), { title: "We saw 185.220.101.133 beaconing", meta: "2 min · 6 engine calls" });
+  assert.deepEqual(chatListLabel(chat({ spend: { turns: 0, engine_calls: 0, prompt_tokens: null, completion_tokens: null } }), NOON),
+    { title: "We saw 185.220.101.133 beaconing", meta: "2 min" }, "a chat the engine never ran says only its age");
+  assert.equal(chatListLabel(chat({ title: "" }), NOON).title, "Untitled chat");
+});
+
+test("a ledger row reads like the live spend line, and missing usage is not a zero", () => {
+  assert.equal(ledgerSpendText({ engine_calls: 4, prompt_tokens: 2800, completion_tokens: 300, ending: "stop" }),
+    "4 engine calls · 3.1k tokens (2.8k in · 300 out)");
+  assert.equal(ledgerSpendText({ engine_calls: 1, prompt_tokens: null, completion_tokens: null, ending: "endpoint_error" }),
+    "1 engine call · tokens not reported");
+  assert.equal(ledgerSpendText(null), null);
+});
+
+test("a turn with no answer says why, in words", () => {
+  assert.equal(endingText("endpoint_error"), "No answer: the engine returned an error");
+  assert.equal(endingText("output_guard"), "No answer: stopped by the platform's output check");
+  assert.equal(endingText("usage_refused"), "No answer: the workspace's usage limit was reached");
+  assert.equal(endingText("empty_answer"), "No answer: the engine returned none");
+  assert.equal(endingText(null), "No answer was stored");
+  assert.equal(endingText("toString"), "No answer was stored", "an inherited name is not an ending");
+});
+
+const turn = (extra) => ({ question: "check 8.8.8.8 and add a note", asked_at: "2026-10-12T11:00:00Z",
+  answer: "## Verdict\nclean", spend: { engine_calls: 4, prompt_tokens: 2800, completion_tokens: 300, ending: "stop" },
+  proposals: [], ...extra });
+const filed = (id, status, extra = {}) => ({ id, action: "annotate_observable", summary: "add a note to 8.8.8.8",
+  status, decided_at: null, claimed_at: null, result: { effects: null }, ...extra });
+
+test("a reopened turn is its question, its answer, then what it spent", () => {
+  assert.deepEqual(reopenedTurnPlan(turn(), NOON), [
+    { kind: "question", text: "check 8.8.8.8 and add a note" },
+    { kind: "answer", text: "## Verdict\nclean" },
+    { kind: "spend", text: "4 engine calls · 3.1k tokens (2.8k in · 300 out)" },
+  ]);
+  assert.deepEqual(reopenedTurnPlan(turn({ spend: null }), NOON).map((p) => p.kind), ["question", "answer"],
+    "a shortcut answer has no ledger row, so no spend line");
+});
+
+test("a reopened turn with no answer says why, and still shows what it spent", () => {
+  assert.deepEqual(reopenedTurnPlan(turn({ answer: null,
+    spend: { engine_calls: 2, prompt_tokens: null, completion_tokens: null, ending: "output_guard" } }), NOON), [
+    { kind: "question", text: "check 8.8.8.8 and add a note" },
+    { kind: "no-answer", text: "No answer: stopped by the platform's output check" },
+    { kind: "spend", text: "2 engine calls · tokens not reported" },
+  ]);
+  assert.deepEqual(reopenedTurnPlan(turn({ answer: null, spend: null }), NOON)[1],
+    { kind: "no-answer", text: "No answer was stored" });
+});
+
+test("a reopened turn's proposals carry their current status, worded as the panel words it", () => {
+  const done = filed("11111111-0000-0000-0000-000000000000", "executed", { decided_at: "2026-10-12T11:00:00Z" });
+  const waiting = filed("22222222-0000-0000-0000-000000000000", "pending_approval");
+  assert.deepEqual(reopenedTurnPlan(turn({ proposals: [done, waiting] }), NOON).slice(3), [
+    { kind: "proposal", id: done.id, text: "Proposal: add a note to 8.8.8.8 · Done" },
+    { kind: "proposal", id: waiting.id, text: "Proposal: add a note to 8.8.8.8 · Waiting for your approval" },
+  ]);
+});
+
+test("a stored answer is still text: HTML in it is never built as elements", () => {
+  const stored = '<img src=x onerror="alert(1)"> and <script>steal()</script>';
+  const [, answer] = reopenedTurnPlan(turn({ answer: stored }), NOON);
+  assert.deepEqual(answer, { kind: "answer", text: stored });
+  const nodes = markdownNodes(answer.text, h);
+  assert.deepEqual(walk(nodes).map((n) => n.tag), ["p"]);
+  assert.equal(textOf(nodes[0]), stored);
+});
+
+// -- a turn that ends with no answer says so (S26's UX edge, F2) --------------
+
+test("a turn the engine ended with no answer says so, and why when the budget ran out", () => {
+  const none = { content: false, error: false };
+  assert.equal(noAnswerNote({ path: "agent", finish_reason: "stop" }, none), "No answer: the engine returned none.");
+  assert.equal(noAnswerNote({ path: "model", finish_reason: "length" }, none),
+    "No answer: the engine returned none. It used its whole budget thinking. Try a narrower question.");
+});
+
+test("a turn that answered, explained its error, or took the shortcut gets no note", () => {
+  const done = { path: "agent", finish_reason: "stop" };
+  assert.equal(noAnswerNote(done, { content: true, error: false }), null);
+  assert.equal(noAnswerNote({ ...done, finish_reason: "output_guard" }, { content: false, error: true }), null,
+    "the leak copy already says why");
+  assert.equal(noAnswerNote({ path: "shortcut", finish_reason: "stop" }, { content: false, error: false }), null);
+});
+
+// -- narrow screens: the chat list and the approvals panel overlay the chat (F2) --
+
+test("only one overlay is open at a time", () => {
+  const none = { chats: false, approvals: false };
+  assert.deepEqual(overlayAfter(none, "toggle-chats"), { chats: true, approvals: false });
+  assert.deepEqual(overlayAfter({ chats: true, approvals: false }, "open-approvals"), { chats: false, approvals: true });
+  assert.deepEqual(overlayAfter({ chats: false, approvals: true }, "toggle-chats"), { chats: true, approvals: false });
+  assert.deepEqual(overlayAfter({ chats: true, approvals: false }, "toggle-chats"), none);
+});
+
+test("the backdrop and Esc close whatever is open; a close button closes only its own", () => {
+  const none = { chats: false, approvals: false };
+  assert.deepEqual(overlayAfter({ chats: true, approvals: false }, "dismiss"), none);
+  assert.deepEqual(overlayAfter({ chats: false, approvals: true }, "dismiss"), none);
+  assert.deepEqual(overlayAfter({ chats: false, approvals: true }, "close-chats"), { chats: false, approvals: true });
+  assert.deepEqual(overlayAfter({ chats: true, approvals: false }, "close-approvals"), { chats: true, approvals: false });
+  assert.deepEqual(overlayAfter({ chats: true, approvals: false }, "nonsense"), { chats: true, approvals: false });
 });

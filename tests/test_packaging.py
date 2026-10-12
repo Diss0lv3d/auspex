@@ -102,3 +102,13 @@ def test_build_artifacts_are_excluded_from_the_docker_context():
     ignored = (REPO_ROOT / ".dockerignore").read_text().split()
     assert "build/" in ignored
     assert "*.egg-info/" in ignored
+
+
+def test_the_pages_files_are_packaged():
+    """TD-045: the chat page's CSS and modules ship in the wheel, and the
+    deps-only skeleton satisfies their globs the way it does static/*.html."""
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text()
+    assert '"static/css/*.css"' in pyproject and '"static/js/*.js"' in pyproject
+    skeleton = (REPO_ROOT / "Dockerfile").read_text().split("# App layer")[0]
+    assert "auspex/static/css/placeholder.css" in skeleton
+    assert "auspex/static/js/placeholder.js" in skeleton
