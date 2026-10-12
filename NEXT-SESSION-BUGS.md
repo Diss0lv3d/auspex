@@ -58,6 +58,10 @@ If B-002 closes early, ask Burhan before taking the next open entry:
 - **B-006:** a follow-up on a no-signal IP calls it "clean", because the
   follow-up resolves to `general`. A resolver change is judged by the
   two-battery rule.
+- **B-008:** at the usage ceiling, a new chat's question is stored and then
+  refused with a 429 and no session frame, so each retry leaves another empty
+  chat in the sidebar ("No answer was stored"). Server ordering in
+  `auspex/routes/chat.py` (F2's chat list made it visible).
 
 Constraints: everything in `SESSION-RULES.md`. Bugs-only, this session:
 - **One bug per fix commit.** Each one names its B-id, and BUGS.md gets the
