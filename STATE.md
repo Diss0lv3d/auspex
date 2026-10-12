@@ -4,9 +4,10 @@ _Last updated: 2026-10-12 — **sessions split into three tracks (D-051)**, betw
 sessions. S28 CLOSED on 2026-10-11 (session-end ritual run). `./ci.sh` green
 on 2026-10-12 with D-051: **1293 tests, 120 modules**. `/api/health/ready` 200.
 `./scripts/demo.sh` exited 0 at S28's close (not re-run: D-051 changed no app
-code). Branch `staging`. **Not promoted:** everything after promote #29
-(`31f7fc1`, back-merge `08bebdf`) is on staging only: D-046…D-050, the review
-fixes and D-051._
+code). Branch `staging`. **Promote #30 shipped at B1's Step 0 (2026-10-12):**
+`d0bf773` on main (D-046…D-050, the review fixes, the alert key fix, D-051),
+back-merge `f681915`; `./ci.sh` green fresh (1293), PR CI pass, ready 200. The
+promote slate is empty._
 
 ## Tracks (D-051) — read this first
 
@@ -29,8 +30,8 @@ fixes and D-051._
 
   Both are in docs/probes/2026-10-12-b001-ip-owner-claim.md. They were saved
   before any pytest run, which purges that chat.
-- **Promote slate: NOT EMPTY** (follow-up 1). The first session of any track
-  runs `/promote` as its Step 0.
+- **Promote slate: empty** since promote #30 (B1, 2026-10-12). Whatever
+  lands on staging next is the next slate.
 - Standing rules every track obeys: `SESSION-RULES.md`. Bugs: `BUGS.md`.
 
 ## S28 — what happened (backend track's last session)
@@ -137,12 +138,9 @@ Phase 4:
 The ROADMAP through S20 is complete; S21–S28 were each scoped by a decision.
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: NOT EMPTY.** Everything after promote #29 (`31f7fc1`) is on
-   staging only: D-046…D-050, the review fixes and the alert key fix. That is
-   55 files, +3360.
+1. **Promote slate: empty.** Promote #30 (`d0bf773`, back-merge `f681915`)
+   shipped everything through D-051 at B1's Step 0.
    - Read `git diff origin/main..staging --stat`, never the commit list.
-   - **Promote first: the first session of ANY track (D-051).** The slate now
-     also carries D-051's process files and its docs test.
    - **The two untracked overview files stay untracked — Burhan's call,
      2026-10-10.** `Auspex-Product-Architecture-Overview.pdf` and
      `docs/auspex-overview.html` are his; never commit, move, publish or delete
