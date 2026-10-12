@@ -21,3 +21,22 @@ are never deleted.
 - **Evidence:** docs/probes/2026-10-12-b001-ip-owner-claim.md (the stored
   turns, the server log, the RDAP result).
 - **Status:** fixing (B1).
+
+## B-002 — a definition question on the agent path is stopped as a leak
+
+- **Found:** 2026-10-12, F1 (Claude), by the stream-layer probe against the
+  default endpoint (glm-4.5-air, agent path).
+- **What happened:** "What are the practical differences between EDR and XDR
+  for a small SOC deciding what to buy?" resolved to `definition` and was
+  stopped by the output rail in 3 of 4 agent-path turns: `finish:
+  output_guard`, `output_valid: false`, no answer, and the analyst reads the
+  "stopped mid-stream" copy. The route logged a 40-word match from the
+  definition contract's own section spec ("definition one or two sentences
+  stating what the term means in practice how it shows up in an investigation
+  …"). 40 words is the `thinking` channel's floor (`THINKING_SHINGLE_WORDS`,
+  D-040), the floor TD-044 says to re-measure. The same question on the
+  conversational path passed twice; two threat_intel questions on the agent
+  path passed 3 of 3.
+- **Evidence:** docs/probes/2026-10-12-b002-definition-rail-trip.md (the runs
+  and the route's log line); docs/probes/fe-stream/raw-layers-glm-default.log.
+- **Status:** open.
