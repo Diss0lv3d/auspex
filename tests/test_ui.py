@@ -119,3 +119,21 @@ def test_a_page_is_revalidated_on_every_load_so_a_deploy_reaches_the_browser(cli
     resp = client.get(path)
     assert resp.status_code == 200
     assert "no-cache" in resp.headers.get("cache-control", "")
+
+
+def test_index_has_the_approvals_panel_and_builds_it_without_markup(client):
+    """The approvals panel (docs/superpowers/specs/2026-10-12-approvals-panel-
+    design.md). A card carries the server's strings and the action's arguments,
+    which came from a model's tool call, so everything in it is built from
+    elements and text — never `innerHTML` past the fixed templates."""
+    body = client.get("/").text
+    assert 'id="approvals"' in body and 'id="approvals-panel"' in body
+    panel_code = body.split("// <approvals-dom>", 1)[1].split("// </approvals-dom>", 1)[0]
+    assert "doorsFor(" in panel_code and "/api/proposals" in panel_code
+    assert "innerHTML" not in panel_code
+
+
+def test_a_proposal_in_the_chat_opens_its_card_in_the_panel(client):
+    body = client.get("/").text
+    handler = body.split('"tool" in ev', 1)[1].split("else if", 1)[0]
+    assert "openApprovals(ev.tool.proposal.id)" in handler

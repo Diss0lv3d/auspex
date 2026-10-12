@@ -82,6 +82,36 @@
     .bubble.md a { color: var(--steel); }
     .md-host { color: var(--slate); font-family: var(--mono); font-size: 12px; }
     .err { color: var(--ember); white-space: pre-wrap; margin-top: 6px; }
+    /* The approvals panel (docs/superpowers/specs/2026-10-12-approvals-panel-design.md). */
+    #approvals[hidden], .panel[hidden] { display: none; }
+    .panel {
+      position: fixed; top: 0; right: 0; bottom: 0; width: 380px; max-width: 100vw; z-index: 10;
+      background: var(--surface); border-left: 1px solid #1c2431; overflow-y: auto; padding: 16px;
+    }
+    /* Open on a wide screen, the panel makes room rather than covering the composer. */
+    @media (min-width: 900px) { body.panel-open { padding-right: 380px; } }
+    .panel-head { display: flex; align-items: center; gap: 8px; }
+    .panel-head h2 { font-family: var(--display); font-weight: 600; font-size: 16px; margin: 0; flex: 1; }
+    .panel-note { color: var(--slate); font-size: 12.5px; margin-top: 6px; }
+    .divider { color: var(--slate); font-size: 12px; text-transform: uppercase; letter-spacing: .8px; margin: 18px 0 0; }
+    .card { border: 1px solid #232d3d; border-radius: 10px; padding: 12px; margin: 12px 0; background: var(--night); }
+    .card.hl { border-color: var(--steel); }
+    .card .top { display: flex; gap: 8px; align-items: baseline; }
+    .card .action { font-family: var(--mono); font-size: 13.5px; }
+    .risk { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; padding: 0 6px; border: 1px solid; border-radius: 4px; }
+    .risk.read { color: var(--steel); } .risk.write { color: var(--signal); } .risk.destructive { color: var(--ember); }
+    .card .id { margin-left: auto; color: var(--slate); font-family: var(--mono); font-size: 11px; }
+    .card .status { font-size: 13px; margin-top: 6px; }
+    .card .summary { margin-top: 4px; }
+    .card .meta { color: var(--slate); font-size: 12.5px; margin-top: 4px; }
+    .card .doors { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .card .doors button { padding: 6px 10px; font-size: 13px; }
+    .card .consequence { color: var(--signal); font-size: 12.5px; margin-top: 8px; }
+    button.confirm { background: var(--signal); color: #1d1204; }
+    button.confirm.destructive { background: var(--ember); color: #1a0505; }
+    .card .note { color: var(--ember); font-size: 12.5px; margin-top: 6px; white-space: pre-wrap; }
+    .card .note.ok { color: var(--aurora); }
+    .proposal .review { margin-left: 8px; padding: 2px 8px; font-size: 12px; }
   </style>
 </head>
 <body>
@@ -90,6 +120,7 @@
     <span class="tag">the flock sees first</span>
     <span class="spacer"></span>
     <div class="auth">
+      <button id="approvals" class="ghost" hidden>Approvals</button>
       <select id="endpoint" hidden aria-label="Endpoint"></select>
       <input id="email" type="email" placeholder="you@analyst.dev" autocomplete="off" />
       <button id="signin" class="ghost">Sign in</button>
@@ -103,6 +134,12 @@
       <div class="bubble">Sign in to start. Ask about an alert, an observable, or a concept — answers stream as they are reasoned.</div>
     </div>
   </main>
+
+  <aside id="approvals-panel" class="panel" hidden aria-label="Approvals">
+    <div class="panel-head"><h2>Approvals</h2><button id="approvals-close" class="ghost">Close</button></div>
+    <div id="approvals-note" class="panel-note"></div>
+    <div id="approvals-list"></div>
+  </aside>
 
   <footer>
     <div class="composer">
@@ -290,6 +327,94 @@
         return h(b.type, {}, inlineNodes(b.text, h));
       });
     }
+    // -- The approvals panel (docs/superpowers/specs/2026-10-12-approvals-panel-design.md).
+    // The doors and their rules are the server's (auspex/routes/proposals.py); this
+    // only decides which of them a card shows. A stale approval or a stale claim is
+    // in the queue BECAUSE it is stale, so no page clock decides it.
+    const CONFIRM_MS = 5000;
+
+    function doorsFor(p) {
+      const card = p.card || {};
+      const runs = (door, label, consequence) => ({ door, label, confirm: true, consequence });
+      const undo = card.undo
+        ? [runs("undo", "Undo", "This puts it back: " + card.undo.description)]
+        : [];
+      switch (p.status) {
+        case "pending_approval":
+          return [runs("approve", "Approve", "This runs it now: " + (card.summary || p.action)),
+                  { door: "reject", label: "Reject" }];
+        case "approved":
+          return [runs("execute", "Run now", "This runs the approved action now: " + (card.summary || p.action)),
+                  { door: "withdraw", label: "Withdraw" }];
+        case "executing":
+        case "undoing":
+          return [{ door: "abandon", label: "Abandon", consequence: "Records that nobody knows whether it ran" }];
+        case "incomplete":
+          return [{ door: "keep", label: "Keep as it is" }, ...undo];
+        case "executed":
+        case "kept":
+        case "abandoned":
+          return undo;
+        default:
+          return [];
+      }
+    }
+
+    function ago(iso, now) {
+      const min = Math.max(0, Math.floor((now - Date.parse(iso)) / 60000));
+      return min < 1 ? "under a minute" : min < 60 ? `${min} min` : `${Math.floor(min / 60)} h`;
+    }
+
+    function statusText(p, now) {
+      const effects = (p.result || {}).effects;
+      switch (p.status) {
+        case "pending_approval": return "Waiting for your approval";
+        case "approved": return `Approved ${ago(p.decided_at, now)} ago, never started`;
+        case "executing": return `Claimed ${ago(p.claimed_at, now)} ago; the run may have died`;
+        case "undoing": return `Undo claimed ${ago(p.claimed_at, now)} ago; it may have died`;
+        case "incomplete":
+          return effects === "unknown"
+            ? "It failed, and cannot tell whether any of it landed"
+            : "Part of it landed before it failed";
+        case "executed": return "Done";
+        case "kept": return "Kept as the run left it";
+        case "abandoned": return "Abandoned: nobody knows whether it ran";
+        case "rejected": return "Rejected";
+        case "withdrawn": return "Withdrawn";
+        case "undone": return "Undone";
+        case "failed": return "Failed; nothing of it landed";
+        default: return p.status;
+      }
+    }
+
+    function undoText(card) {
+      if (!card || !card.undo) return "No undo — this cannot be taken back";
+      const lost = card.undo.cannot_restore || [];
+      return "Undo: " + card.undo.description + (lost.length ? " · cannot restore: " + lost.join(", ") : "");
+    }
+
+    // The undo line matters while the action may run or has run; on a card that
+    // never ran, or is finished, it is noise that reads like an offer.
+    function undoLineFor(p) {
+      return ["rejected", "withdrawn", "undone", "failed"].includes(p.status) ? null : undoText(p.card);
+    }
+
+    // `identical_pending` is null where nobody looked, which is not "no twins".
+    function askedText(p) {
+      const n = (p.identical_pending || []).length;
+      return n === 0 ? null : n === 1 ? "Asked once more" : `Asked ${n} more times`;
+    }
+
+    function mergeQueue(waiting, decided) {
+      const inQueue = new Set(waiting.map((p) => p.id));
+      return { waiting, decided: decided.filter((p) => !inQueue.has(p.id)) };
+    }
+
+    function armDoor(id, door, now) { return { id, door, at: now }; }
+
+    function confirmable(armed, id, door, now) {
+      return !!armed && armed.id === id && armed.door === door && now - armed.at <= CONFIRM_MS;
+    }
     // </page-logic>
 
     const $ = (id) => document.getElementById(id);
@@ -313,6 +438,7 @@
         $("email").style.display = "none"; $("signin").style.display = "none";
         $("prompt").disabled = false; $("send").disabled = false; $("prompt").focus();
         loadEndpoints();
+        startApprovals();
       } catch (e) { setStatus("network error", "err"); }
     }
 
@@ -398,6 +524,9 @@
           p.className = "proposal";
           p.textContent = "Awaiting your approval: " + ev.tool.proposal.summary +
             " (proposal " + ev.tool.proposal.id.slice(0, 8) + ")";
+          const review = Object.assign(document.createElement("button"), { className: "ghost review", textContent: "Review" });
+          review.addEventListener("click", () => openApprovals(ev.tool.proposal.id));
+          p.appendChild(review);
           wrap.appendChild(p);
         }
       }
@@ -496,6 +625,141 @@
         $("send").disabled = false; $("prompt").disabled = false; $("prompt").focus();
       }
     }
+
+    // <approvals-dom>
+    // Thin: what a card shows and which doors it gets come from the page-logic
+    // block; this builds elements from it and talks to /api/proposals. Every
+    // server string and every argument is text.
+    const approvals = { waiting: [], decided: [], complete: true, armed: null, open: false, highlight: null, notes: {}, failed: false };
+    let approvalsTimer = null;
+
+    async function api(path, method = "GET") {
+      const r = await fetch("/api/proposals" + path, { method, headers: { "Authorization": "Bearer " + token } });
+      let body = null;
+      try { body = await r.json(); } catch (e) {}
+      return { ok: r.ok, status: r.status, body };
+    }
+
+    async function pollApprovals() {
+      try {
+        const r = await api("");
+        if (!r.ok) throw new Error(String(r.status));
+        approvals.waiting = r.body.proposals;
+        approvals.complete = r.body.complete;
+        approvals.failed = false;
+      } catch (e) { approvals.failed = true; }
+      renderApprovals();
+    }
+
+    function startApprovals() {
+      $("approvals").hidden = false;
+      pollApprovals();
+      if (!approvalsTimer) approvalsTimer = setInterval(pollApprovals, 5000);
+    }
+
+    function openApprovals(highlightId) {
+      approvals.open = true;
+      approvals.highlight = highlightId || null;
+      approvals.scrollTo = approvals.highlight;  // once: a poll must not yank the panel back
+      renderApprovals();
+      pollApprovals();
+    }
+
+    function recordDecided(p) {
+      approvals.decided = [p, ...approvals.decided.filter((d) => d.id !== p.id)];
+    }
+
+    async function useDoor(id, door) {
+      approvals.armed = null;
+      approvals.notes[id] = { text: "…", ok: true };
+      renderApprovals();
+      let r;
+      try { r = await api("/" + encodeURIComponent(id) + "/" + door, "POST"); } catch (e) { r = { ok: false, status: 0, body: null }; }
+      const detail = r.body && typeof r.body.detail === "string" ? r.body.detail : null;
+      if (r.ok) {
+        const refused = r.body.refused && r.body.refused.detail;
+        const did = r.body.outcome && r.body.outcome.did;
+        approvals.notes[id] = refused ? { text: refused, ok: false } : did ? { text: did, ok: true } : null;
+      } else {
+        approvals.notes[id] = { text: detail || ("Request failed (" + r.status + ")"), ok: false };
+      }
+      // The server's row is the truth after any answer, success or not.
+      const fresh = r.ok && r.body.proposal ? r.body.proposal : (await api("/" + encodeURIComponent(id))).body;
+      if (fresh && fresh.id) recordDecided(fresh);
+      await pollApprovals();
+    }
+
+    function doorButtons(p) {
+      const now = Date.now();
+      const nodes = [];
+      for (const d of doorsFor(p)) {
+        const armed = d.confirm && confirmable(approvals.armed, p.id, d.door, now);
+        const b = el("button", { className: armed ? "confirm " + p.risk : d.confirm && d.door === "approve" ? "" : "ghost" },
+          [armed ? "Confirm " + d.label.toLowerCase() : d.label]);
+        b.addEventListener("click", () => {
+          if (d.confirm && !confirmable(approvals.armed, p.id, d.door, Date.now())) {
+            approvals.armed = armDoor(p.id, d.door, Date.now());
+            renderApprovals();
+            setTimeout(renderApprovals, CONFIRM_MS + 50);
+          } else {
+            useDoor(p.id, d.door);
+          }
+        });
+        nodes.push(b);
+      }
+      return nodes;
+    }
+
+    function cardFor(p) {
+      const card = p.card || {};
+      const writes = (card.systems || []).filter((x) => x.writes).map((x) => x.system);
+      const armed = approvals.armed && approvals.armed.id === p.id && confirmable(approvals.armed, p.id, approvals.armed.door, Date.now())
+        ? doorsFor(p).find((d) => d.door === approvals.armed.door) : null;
+      const note = approvals.notes[p.id];
+      const parts = [
+        el("div", { className: "top" }, [
+          el("span", { className: "action" }, [String(p.action)]),
+          el("span", { className: "risk " + p.risk }, [String(p.risk)]),
+          el("span", { className: "id" }, [String(p.id).slice(0, 8)]),
+        ]),
+        el("div", { className: "status" }, [statusText(p, Date.now())]),
+      ];
+      if (card.summary) parts.push(el("div", { className: "summary" }, [String(card.summary)]));
+      if (writes.length) parts.push(el("div", { className: "meta" }, ["Writes: " + writes.join(", ")]));
+      const undoLine = undoLineFor(p);
+      if (undoLine) parts.push(el("div", { className: "meta" }, [undoLine]));
+      const asked = askedText(p);
+      if (asked) parts.push(el("div", { className: "meta" }, [asked]));
+      if (armed && armed.consequence) parts.push(el("div", { className: "consequence" }, [armed.consequence]));
+      const doors = doorButtons(p);
+      if (doors.length) parts.push(el("div", { className: "doors" }, doors));
+      if (note) parts.push(el("div", { className: note.ok ? "note ok" : "note" }, [note.text]));
+      const node = el("div", { className: p.id === approvals.highlight ? "card hl" : "card" }, parts);
+      node.dataset.id = p.id;
+      return node;
+    }
+
+    function renderApprovals() {
+      const n = approvals.waiting.length;
+      $("approvals").textContent = n ? `Approvals · ${n}${approvals.complete ? "" : "+"}` : "Approvals";
+      const panel = $("approvals-panel");
+      panel.hidden = !approvals.open;
+      document.body.classList.toggle("panel-open", approvals.open);
+      if (!approvals.open) return;
+      const { waiting, decided } = mergeQueue(approvals.waiting, approvals.decided);
+      $("approvals-note").textContent = approvals.failed
+        ? "Couldn't refresh the queue; retrying."
+        : n ? "" : "Nothing is waiting on you.";
+      const nodes = waiting.map(cardFor);
+      if (decided.length) nodes.push(el("div", { className: "divider" }, ["Decided this session"]), ...decided.map(cardFor));
+      $("approvals-list").replaceChildren(...nodes);
+      const hl = approvals.scrollTo && $("approvals-list").querySelector(".card.hl");
+      if (hl) { hl.scrollIntoView({ block: "nearest" }); approvals.scrollTo = null; }
+    }
+
+    $("approvals").addEventListener("click", () => { approvals.open ? (approvals.open = false, renderApprovals()) : openApprovals(); });
+    $("approvals-close").addEventListener("click", () => { approvals.open = false; approvals.highlight = null; renderApprovals(); });
+    // </approvals-dom>
 
     $("signin").addEventListener("click", signIn);
     $("email").addEventListener("keydown", (e) => { if (e.key === "Enter") signIn(); });

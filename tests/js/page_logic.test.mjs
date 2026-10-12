@@ -12,9 +12,13 @@ import { test } from "node:test";
 const html = readFileSync(new URL("../../auspex/static/index.html", import.meta.url), "utf8");
 const block = html.match(/\/\/ <page-logic>([\s\S]*?)\/\/ <\/page-logic>/);
 assert.ok(block, "index.html has no // <page-logic> block");
-const { createPacer, indicatorText, markdownNodes } = new Function(
-  `${block[1]}; return { createPacer, indicatorText, markdownNodes };`,
-)();
+const {
+  createPacer, indicatorText, markdownNodes,
+  doorsFor, statusText, undoText, undoLineFor, askedText, mergeQueue, armDoor, confirmable,
+} = new Function(`${block[1]}; return {
+  createPacer, indicatorText, markdownNodes,
+  doorsFor, statusText, undoText, undoLineFor, askedText, mergeQueue, armDoor, confirmable,
+};`)();
 
 const FRAME_MS = 1000 / 60;
 
@@ -225,4 +229,91 @@ test("underscores are text, not italics", () => {
   const nodes = markdownNodes("call enrich_observable on _this_", h);
   assert.equal(textOf(nodes[0]), "call enrich_observable on _this_");
   assert.deepEqual(walk(nodes).map((n) => n.tag), ["p"]);
+});
+
+// -- the approvals panel (docs/superpowers/specs/2026-10-12-approvals-panel-design.md)
+
+const UNDO = { description: "removes the note", restores: "the observable as it was", cannot_restore: [] };
+const proposal = (status, extra = {}) => ({
+  id: "4f0c2a9e-0000-0000-0000-000000000000", action: "annotate_observable", risk: "write", status,
+  created_at: "2026-10-12T02:00:00Z", decided_at: null, claimed_at: null, result: null,
+  identical_pending: null, card: { summary: "add a note to 8.8.8.8", undo: UNDO, systems: [] }, ...extra,
+});
+const doors = (p) => doorsFor(p).map((d) => `${d.door}${d.confirm ? "²" : ""}`);
+
+test("each status gets the server's doors for it, and only those", () => {
+  assert.deepEqual(doors(proposal("pending_approval")), ["approve²", "reject"]);
+  assert.deepEqual(doors(proposal("approved")), ["execute²", "withdraw"]);
+  assert.deepEqual(doors(proposal("executing")), ["abandon"]);
+  assert.deepEqual(doors(proposal("undoing")), ["abandon"]);
+  assert.deepEqual(doors(proposal("incomplete")), ["keep", "undo²"]);
+  for (const s of ["executed", "kept", "abandoned"]) assert.deepEqual(doors(proposal(s)), ["undo²"], s);
+  for (const s of ["rejected", "withdrawn", "undone", "failed"]) assert.deepEqual(doors(proposal(s)), [], s);
+});
+
+test("an action that declares no undo is never offered one", () => {
+  const noUndo = (s) => proposal(s, { card: { summary: "isolate 10.0.0.5", undo: null, systems: [] } });
+  assert.deepEqual(doors(noUndo("incomplete")), ["keep"]);
+  assert.deepEqual(doors(noUndo("executed")), []);
+});
+
+test("a door that runs something says what it will run before it is confirmed", () => {
+  const approve = doorsFor(proposal("pending_approval")).find((d) => d.door === "approve");
+  assert.match(approve.consequence, /add a note to 8\.8\.8\.8/);
+  const undo = doorsFor(proposal("executed")).find((d) => d.door === "undo");
+  assert.match(undo.consequence, /removes the note/);
+});
+
+test("the status line says what the row is waiting on, in words", () => {
+  const now = Date.parse("2026-10-12T02:10:00Z");
+  assert.equal(statusText(proposal("pending_approval"), now), "Waiting for your approval");
+  assert.equal(statusText(proposal("approved", { decided_at: "2026-10-12T02:04:00Z" }), now),
+    "Approved 6 min ago, never started");
+  assert.equal(statusText(proposal("executing", { claimed_at: "2026-10-12T01:10:00Z" }), now),
+    "Claimed 1 h ago; the run may have died");
+  assert.equal(statusText(proposal("incomplete", { result: { effects: "present" } }), now),
+    "Part of it landed before it failed");
+  assert.equal(statusText(proposal("incomplete", { result: { effects: "unknown" } }), now),
+    "It failed, and cannot tell whether any of it landed");
+  assert.equal(statusText(proposal("abandoned"), now), "Abandoned: nobody knows whether it ran");
+});
+
+test("the undo line names what cannot be restored, or that there is no undo", () => {
+  assert.equal(undoText({ undo: { ...UNDO, cannot_restore: ["the audit log entry", "alerts already sent"] } }),
+    "Undo: removes the note · cannot restore: the audit log entry, alerts already sent");
+  assert.equal(undoText({ undo: UNDO }), "Undo: removes the note");
+  assert.equal(undoText({ undo: null }), "No undo — this cannot be taken back");
+});
+
+test("an approver is told when they are being asked twice", () => {
+  assert.equal(askedText(proposal("pending_approval", { identical_pending: ["a", "b"] })), "Asked 2 more times");
+  assert.equal(askedText(proposal("pending_approval", { identical_pending: ["a"] })), "Asked once more");
+  assert.equal(askedText(proposal("pending_approval", { identical_pending: [] })), null);
+  assert.equal(askedText(proposal("executing")), null, "null means nobody looked, not 'no twins'");
+});
+
+test("decided cards follow the waiting ones, and one the queue still shows is not duplicated", () => {
+  const w1 = { ...proposal("pending_approval"), id: "w1" };
+  const w2 = { ...proposal("incomplete"), id: "w2" };
+  const d1 = { ...proposal("executed"), id: "d1" };
+  const back = { ...proposal("rejected"), id: "w2" };  // decided here, then back in the queue
+  const merged = mergeQueue([w1, w2], [d1, back]);
+  assert.deepEqual(merged.waiting.map((p) => p.id), ["w1", "w2"]);
+  assert.deepEqual(merged.decided.map((p) => p.id), ["d1"]);
+});
+
+test("a confirm is the same door on the same card within five seconds", () => {
+  const armed = armDoor("p1", "approve", 1000);
+  assert.equal(confirmable(armed, "p1", "approve", 5900), true);
+  assert.equal(confirmable(armed, "p1", "approve", 6001), false, "a stale arm still ran");
+  assert.equal(confirmable(armed, "p2", "approve", 1500), false, "another card's arm ran this one");
+  assert.equal(confirmable(armed, "p1", "undo", 1500), false, "another door's arm ran this one");
+  assert.equal(confirmable(null, "p1", "approve", 1500), false);
+});
+
+test("a card that never ran, or is finished, says nothing about an undo", () => {
+  // Seen live: a rejected card still read "Undo: Remove the note this approval added".
+  for (const st of ["rejected", "withdrawn", "undone", "failed"]) assert.equal(undoLineFor(proposal(st)), null, st);
+  assert.equal(undoLineFor(proposal("pending_approval")), "Undo: removes the note");
+  assert.equal(undoLineFor(proposal("executed", { card: { undo: null } })), "No undo — this cannot be taken back");
 });
