@@ -504,9 +504,23 @@ BUGS.md) have their own sections at the end, before "Later".
     chat.
   - **B-003 fixed** (`no-cache` pages). B-002 and B-004 were logged.
   - 1315 tests; 120 modules; no new env vars.
-- [ ] **F2 — A chat survives a reload.** Promote first; Burhan's hands-on list
-  of F1's page outranks the goal. Then list your chats and reopen one, with its
-  stored turns and spend (two scoped endpoints plus the page).
+- [x] **F2 — A chat survives a reload.** (2026-10-12) Promote #31 at Step 0
+  after B-007 (GitHub's Node prints TAP; fixed). Burhan added all three
+  candidates; promote #32 at the close.
+  - **Reload** (docs/superpowers/specs/2026-10-12-chat-survives-reload-design.md):
+    two scoped routes (`/api/chat/sessions`, `…/{id}/turns`), the sign-in in
+    sessionStorage (D-056), an always-on chat sidebar, the chat in the hash,
+    reopened turns with spend and proposals' doors. TD-050, TD-052, B-008.
+  - **S26's chat edges:** an empty answer says so; errors in the server's
+    words; narration on its own line.
+  - **Narrow screens:** a compact header, one backdrop for either overlay,
+    a full-width panel on a phone, dark scrollbars.
+  - **TD-045 closed:** markup, a stylesheet and two modules, served no-cache
+    from an allow-list; **D-057:** a strict CSP on the chat page (TD-051
+    narrowed). TD-053 logged.
+  - 1360 tests; 121 modules; no new env vars.
+- [ ] **F3 — Burhan's hands-on list of F2's page, then the timeline page joins
+  the chat page** (its script out of the page, D-057's CSP on it, TD-051).
 
 ## Track: bugs (D-051)
 
