@@ -543,6 +543,17 @@
       }
       return parts;
     }
+
+    // A live turn the engine ended with no answer (S26): said in the words a
+    // reopened turn uses, and why when the budget ran out mid-thought. A turn
+    // whose error frame already said why, or a shortcut, gets nothing.
+    function noAnswerNote(done, seen) {
+      if (seen.content || seen.error || done.path === "shortcut") return null;
+      const note = endingText("empty_answer") + ".";
+      return done.finish_reason === "length"
+        ? note + " It used its whole budget thinking. Try a narrower question."
+        : note;
+    }
     // </page-logic>
 
     const $ = (id) => document.getElementById(id);
@@ -722,6 +733,9 @@
       }
       else if ("error" in ev) { showError(wrap, "[endpoint error] " + ev.error); }
       else if ("done" in ev) {
+        // S26: a turn that ended with no answer says so, not just a Thinking pane.
+        const note = noAnswerNote(ev.done, { content: !!wrap.querySelector(".bubble"), error: !!wrap.querySelector(".err") });
+        if (note) wrap.appendChild(Object.assign(document.createElement("div"), { className: "noanswer", textContent: note }));
         // D-054: what this turn spent, from the server's own count.
         const text = spendText(ev.done);
         if (text) wrap.appendChild(Object.assign(document.createElement("div"), { className: "spend", textContent: text }));

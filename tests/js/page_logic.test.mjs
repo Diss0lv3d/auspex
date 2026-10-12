@@ -16,10 +16,12 @@ const {
   createPacer, indicatorText, markdownNodes,
   doorsFor, statusText, undoText, undoLineFor, askedText, mergeQueue, armDoor, confirmable,
   spendText, chatSpendText, chatIdFromHash, relativeTime, chatListLabel, ledgerSpendText, endingText, reopenedTurnPlan,
+  noAnswerNote,
 } = new Function(`${block[1]}; return {
   createPacer, indicatorText, markdownNodes,
   doorsFor, statusText, undoText, undoLineFor, askedText, mergeQueue, armDoor, confirmable,
   spendText, chatSpendText, chatIdFromHash, relativeTime, chatListLabel, ledgerSpendText, endingText, reopenedTurnPlan,
+  noAnswerNote,
 };`)();
 
 const FRAME_MS = 1000 / 60;
@@ -446,4 +448,21 @@ test("a stored answer is still text: HTML in it is never built as elements", () 
   const nodes = markdownNodes(answer.text, h);
   assert.deepEqual(walk(nodes).map((n) => n.tag), ["p"]);
   assert.equal(textOf(nodes[0]), stored);
+});
+
+// -- a turn that ends with no answer says so (S26's UX edge, F2) --------------
+
+test("a turn the engine ended with no answer says so, and why when the budget ran out", () => {
+  const none = { content: false, error: false };
+  assert.equal(noAnswerNote({ path: "agent", finish_reason: "stop" }, none), "No answer: the engine returned none.");
+  assert.equal(noAnswerNote({ path: "model", finish_reason: "length" }, none),
+    "No answer: the engine returned none. It used its whole budget thinking. Try a narrower question.");
+});
+
+test("a turn that answered, explained its error, or took the shortcut gets no note", () => {
+  const done = { path: "agent", finish_reason: "stop" };
+  assert.equal(noAnswerNote(done, { content: true, error: false }), null);
+  assert.equal(noAnswerNote({ ...done, finish_reason: "output_guard" }, { content: false, error: true }), null,
+    "the leak copy already says why");
+  assert.equal(noAnswerNote({ path: "shortcut", finish_reason: "stop" }, { content: false, error: false }), null);
 });
