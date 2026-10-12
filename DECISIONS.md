@@ -1953,3 +1953,36 @@ to him).**
 **What this supersedes.** Nothing ratified. It changes SESSION-RULES.md's rule
 that model text reaches the page only as text: the answer bubble's text now
 reaches it as text inside elements the page chose.
+
+## D-054 — Every deep turn records what it spent, and the page shows it per answer and per chat (2026-10-12, F1)
+
+**Context.** IDEAS: "Investigation cost ledger UI (token spend per verdict)".
+The customer brings the LLM and pays for it, and the platform never knows the
+price. A turn's usage reached the `done` frame and was then discarded. A turn
+that ended badly carried none at all: the rail's cut, a ceiling refusal, an
+endpoint error. B-002's stopped turns spent 4 engine calls each and left no
+trace of it. Most verdicts are code-decided at zero engine calls (the IOC check,
+and the alert and phishing scores of D-043), so "per verdict" was the wrong
+unit for where the spend is.
+
+**Decision (Burhan's call, from F1's options; both recommended ones).**
+1. **The unit is the turn, totalled per chat.** One `turn_spend` row per deep
+   turn. It records the chat and workspace, the stored answer when there is
+   one, `engine_calls`, input and output tokens, and how the turn ended.
+   - **Turns that store no answer are recorded too:** leak, ceiling refusal,
+     endpoint error and empty answer.
+   - **A shortcut turn records nothing**, because it spent nothing.
+2. **Tokens and calls only, no money.**
+   - `engine_calls` counts the model calls actually made, the same ones D-052
+     announces (after each claim).
+   - Tokens are the endpoint's own usage, summed over every call in the turn.
+     Before this, the two-pass and switched paths kept only their last call's
+     usage.
+   - An endpoint that reports no usage leaves the tokens null, never zero.
+3. **The page shows** a line under each answer from its `done` frame, and this
+   chat's total at the composer. The total comes from
+   `GET /api/chat/sessions/{id}/spend`, which is scoped to the caller's
+   workspace (a foreign or unknown chat is a 404), so failed turns count.
+
+**Bounds, stated.** A turn cut off by a dropped connection may not reach the
+point where it records. The spend row is written at the turn's own ending.
