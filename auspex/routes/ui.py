@@ -17,8 +17,9 @@ _STATIC = Path(__file__).resolve().parent.parent / "static"
 _INDEX = _STATIC / "index.html"
 _TIMELINE = _STATIC / "timeline.html"
 # B-003: with only `last-modified`, a browser caches the page on heuristic
-# freshness and keeps running the old one after a deploy. `no-cache` keeps the
-# cache but asks first on every load (a 304 when nothing changed).
+# freshness and keeps running the old one after a deploy. `no-cache` makes every
+# load ask first. FileResponse answers a matching ETag in full, not with a 304
+# (measured in F1), so each load costs the page's ~17 KB.
 _REVALIDATE = {"Cache-Control": "no-cache"}
 
 

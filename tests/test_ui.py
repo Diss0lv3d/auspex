@@ -114,8 +114,8 @@ def test_index_shows_a_proposal_outside_the_folded_thinking_pane(client):
 def test_a_page_is_revalidated_on_every_load_so_a_deploy_reaches_the_browser(client, path):
     """B-003. Served with only `last-modified`, a page is cached on heuristic
     freshness: after a deploy, an open browser ran the old page (transferSize 0,
-    none of the new code) — observed in F1. `no-cache` keeps the cache but makes
-    every load ask first, which is a 304 when nothing changed."""
+    none of the new code) — observed in F1. `no-cache` makes every load ask
+    the server first."""
     resp = client.get(path)
     assert resp.status_code == 200
     assert "no-cache" in resp.headers.get("cache-control", "")
