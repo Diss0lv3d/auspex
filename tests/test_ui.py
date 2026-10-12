@@ -257,3 +257,24 @@ def test_the_page_holds_no_inline_script_or_style(client):
     assert re.search(r"\son[a-z]+\s*=", html) is None
     assert '<link rel="stylesheet" href="/css/chat.css" />' in html
     assert '<script type="module" src="/js/chat.js"></script>' in html
+
+
+def test_the_chat_page_is_served_with_a_strict_content_security_policy(client):
+    """D-057: the sign-in token sits in sessionStorage (D-056), so the page
+    runs only its own scripts and talks only to its own origin."""
+    csp = client.get("/").headers.get("content-security-policy", "")
+    directives = dict(d.strip().split(" ", 1) for d in csp.split(";") if d.strip())
+    assert directives["default-src"] == "'self'"
+    assert directives["script-src"] == "'self'"
+    assert directives["connect-src"] == "'self'"
+    assert directives["style-src"] == "'self' https://fonts.googleapis.com"
+    assert directives["font-src"] == "https://fonts.gstatic.com"
+    for d in ("object-src", "base-uri", "form-action", "frame-ancestors"):
+        assert directives[d] == "'none'", d
+    assert "unsafe-inline" not in csp and "unsafe-eval" not in csp
+
+
+def test_the_timeline_page_has_no_csp_yet(client):
+    """TD-051's remainder: timeline.html still runs an inline script, which the
+    chat page's policy would block."""
+    assert "content-security-policy" not in client.get("/timeline").headers

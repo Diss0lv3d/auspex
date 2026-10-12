@@ -22,6 +22,21 @@ _TIMELINE = _STATIC / "timeline.html"
 # load ask first. FileResponse answers a matching ETag in full, not with a 304
 # (measured in F1), so each load costs the page's ~17 KB.
 _REVALIDATE = {"Cache-Control": "no-cache"}
+# D-057: the chat page runs only its own scripts and talks only to its own
+# origin; TD-045 moved every script and style rule out of it to make that
+# possible without 'unsafe-inline'. /timeline has no policy yet (TD-051).
+_CHAT_CSP = "; ".join([
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' https://fonts.googleapis.com",
+    "font-src https://fonts.gstatic.com",
+    "connect-src 'self'",
+    "img-src 'self' data:",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+])
 # TD-045: the chat page's own files, by name. An allow-list, so no name a
 # request can make reaches anything else on disk.
 _ASSETS = {
@@ -41,7 +56,10 @@ def _asset(key: str) -> FileResponse:
 
 @router.get("/", include_in_schema=False)
 async def index() -> FileResponse:
-    return FileResponse(_INDEX, media_type="text/html", headers=_REVALIDATE)
+    return FileResponse(
+        _INDEX, media_type="text/html",
+        headers={**_REVALIDATE, "Content-Security-Policy": _CHAT_CSP},
+    )
 
 
 @router.get("/timeline", include_in_schema=False)
