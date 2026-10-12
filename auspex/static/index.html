@@ -82,6 +82,7 @@
     .bubble.md a { color: var(--steel); }
     .md-host { color: var(--slate); font-family: var(--mono); font-size: 12px; }
     .err { color: var(--ember); white-space: pre-wrap; margin-top: 6px; }
+    .spend { color: var(--slate); font-family: var(--mono); font-size: 11.5px; margin-top: 8px; }
     /* The approvals panel (docs/superpowers/specs/2026-10-12-approvals-panel-design.md). */
     #approvals[hidden], .panel[hidden] { display: none; }
     .panel {
@@ -147,6 +148,7 @@
       <button id="send" disabled>Send</button>
     </div>
     <div class="hint">Actions that change state are never executed on a model's say-so — they become proposals awaiting your approval.</div>
+    <div id="chat-spend" class="hint"></div>
   </footer>
 
   <script>
@@ -415,6 +417,26 @@
     function confirmable(armed, id, door, now) {
       return !!armed && armed.id === id && armed.door === door && now - armed.at <= CONFIRM_MS;
     }
+    // -- What a turn spent (D-054): calls and tokens, never money (the customer's
+    // price is theirs). Usage the endpoint did not report is not a zero.
+    const kTokens = (n) => (n < 1000 ? String(n) : (n / 1000).toFixed(1) + "k");
+    const calls = (n) => n + (n === 1 ? " engine call" : " engine calls");
+
+    function spendText(done) {
+      if (done.path === "shortcut") return "Answered without the engine";
+      if (typeof done.engine_calls !== "number") return null;
+      const u = done.usage;
+      if (!u) return calls(done.engine_calls) + " · tokens not reported";
+      return `${calls(done.engine_calls)} · ${kTokens(u.total_tokens)} tokens ` +
+        `(${kTokens(u.prompt_tokens)} in · ${kTokens(u.completion_tokens)} out)`;
+    }
+
+    function chatSpendText(t) {
+      if (!t || !t.turns) return null;
+      const tokens = t.prompt_tokens == null && t.completion_tokens == null
+        ? "" : ` · ${kTokens((t.prompt_tokens || 0) + (t.completion_tokens || 0))} tokens`;
+      return `This chat: ${t.turns} ${t.turns === 1 ? "turn" : "turns"} · ${calls(t.engine_calls)}${tokens}`;
+    }
     // </page-logic>
 
     const $ = (id) => document.getElementById(id);
@@ -503,6 +525,16 @@
       wrap.appendChild(Object.assign(document.createElement("div"), { className: "err", textContent: text }));
     }
 
+    // D-054: this chat's total, from the server, so turns that ended badly count.
+    async function showChatSpend() {
+      if (!sessionId || !token) return;
+      try {
+        const r = await fetch("/api/chat/sessions/" + encodeURIComponent(sessionId) + "/spend",
+          { headers: { "Authorization": "Bearer " + token } });
+        if (r.ok) $("chat-spend").textContent = chatSpendText(await r.json()) || "";
+      } catch (e) { /* the total is a convenience; the per-answer lines stand */ }
+    }
+
     function scroll() { const m = $("transcript"); m.scrollTop = m.scrollHeight; }
 
     function handleEvent(ev, wrap) {
@@ -542,6 +574,11 @@
         b.replaceChildren(...markdownNodes(answerText.get(b), el));
       }
       else if ("error" in ev) { showError(wrap, "[endpoint error] " + ev.error); }
+      else if ("done" in ev) {
+        // D-054: what this turn spent, from the server's own count.
+        const text = spendText(ev.done);
+        if (text) wrap.appendChild(Object.assign(document.createElement("div"), { className: "spend", textContent: text }));
+      }
       scroll();
     }
 
@@ -622,6 +659,7 @@
         open = false;
         clearInterval(ticker);
         working.remove();
+        showChatSpend();
         $("send").disabled = false; $("prompt").disabled = false; $("prompt").focus();
       }
     }

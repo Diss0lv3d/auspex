@@ -15,9 +15,11 @@ assert.ok(block, "index.html has no // <page-logic> block");
 const {
   createPacer, indicatorText, markdownNodes,
   doorsFor, statusText, undoText, undoLineFor, askedText, mergeQueue, armDoor, confirmable,
+  spendText, chatSpendText,
 } = new Function(`${block[1]}; return {
   createPacer, indicatorText, markdownNodes,
   doorsFor, statusText, undoText, undoLineFor, askedText, mergeQueue, armDoor, confirmable,
+  spendText, chatSpendText,
 };`)();
 
 const FRAME_MS = 1000 / 60;
@@ -316,4 +318,28 @@ test("a card that never ran, or is finished, says nothing about an undo", () => 
   for (const st of ["rejected", "withdrawn", "undone", "failed"]) assert.equal(undoLineFor(proposal(st)), null, st);
   assert.equal(undoLineFor(proposal("pending_approval")), "Undo: removes the note");
   assert.equal(undoLineFor(proposal("executed", { card: { undo: null } })), "No undo — this cannot be taken back");
+});
+
+// -- what a turn spent (D-054) ------------------------------------------------
+
+test("an answer says what it spent on the engine, in calls and tokens", () => {
+  const usage = { prompt_tokens: 9130, completion_tokens: 3210, total_tokens: 12340 };
+  assert.equal(spendText({ path: "agent", engine_calls: 4, usage }),
+    "4 engine calls · 12.3k tokens (9.1k in · 3.2k out)");
+  assert.equal(spendText({ path: "model", engine_calls: 1, usage: { prompt_tokens: 640, completion_tokens: 210, total_tokens: 850 } }),
+    "1 engine call · 850 tokens (640 in · 210 out)");
+});
+
+test("a shortcut says it spent nothing, and missing usage is not a zero", () => {
+  assert.equal(spendText({ path: "shortcut", usage: null }), "Answered without the engine");
+  assert.equal(spendText({ path: "model", engine_calls: 2, usage: null }), "2 engine calls · tokens not reported");
+  assert.equal(spendText({ path: "model" }), null, "a server that does not count calls gets no line");
+});
+
+test("the chat's total counts every turn the server recorded", () => {
+  assert.equal(chatSpendText({ turns: 3, engine_calls: 9, prompt_tokens: 25000, completion_tokens: 6200 }),
+    "This chat: 3 turns · 9 engine calls · 31.2k tokens");
+  assert.equal(chatSpendText({ turns: 1, engine_calls: 1, prompt_tokens: null, completion_tokens: null }),
+    "This chat: 1 turn · 1 engine call");
+  assert.equal(chatSpendText({ turns: 0, engine_calls: 0, prompt_tokens: null, completion_tokens: null }), null);
 });
