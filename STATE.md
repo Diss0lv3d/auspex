@@ -2,11 +2,11 @@
 
 _Last updated: 2026-10-12 — **B1 CLOSED** (session-end ritual run), after F1.
 `./ci.sh` green at B1's close: **1323 tests, 120 modules**. `/api/health/ready`
-200. `./scripts/demo.sh` exited 0 at B1's close. Branch `staging`. Promote #30
-(`d0bf773`, back-merge `f681915`) shipped at the start of 2026-10-12.
-**Promote slate: NOT EMPTY**: F1's work (D-052, D-053, D-054, the approvals
-panel, B-003's fix) and B1's (B-001's fix `a90e18a`, D-055, TD-049, B-005 and
-B-006 logged)._
+200. `./scripts/demo.sh` exited 0 at B1's close. Branch `staging`.
+**F2 in flight:** promote #31 (`7ac1900`, back-merge `730332a`) shipped at
+F2's Step 0 with F1's and B1's work, after B-007 (GitHub's Node prints TAP;
+fixed `b8ee7fd`) turned its first run red. **Promote slate: IDEAS-only** (two
+F2 entries)._
 
 ## Tracks (D-051) — read this first
 
@@ -250,10 +250,9 @@ The ROADMAP through S20 is complete; S21–S28, F1 and B1 were each scoped by a
 decision or a bug.
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: NOT EMPTY.** Everything after promote #30's back-merge
-   (`f681915`) is on staging only: F1's work (D-052, D-053, D-054, the
-   approvals panel, B-003's fix, B-002/B-004 logged) and B1's (B-001's fix
-   `a90e18a`, D-055, TD-049, B-005/B-006 logged).
+1. **Promote slate: IDEAS-only.** Promote #31 (`7ac1900`, back-merge
+   `730332a`) shipped F1's and B1's work and B-007's fix at F2's Step 0.
+   Since then staging holds only F2's two IDEAS entries.
    - **The first session of any track runs `/promote` as its Step 0 — but
      only ONE window at a time** (the 2026-10-12 collision).
    - Read `git diff origin/main..staging --stat`, never the commit list.
