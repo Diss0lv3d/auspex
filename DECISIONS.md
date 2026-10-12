@@ -1995,8 +1995,9 @@ turn 1 (isp, domain, usage type, country, hostname), and OTX had named
 AS15169. The provider returned None on a low score, so the whole answer was
 dropped and the IOC check said "unknown to them". On the conversational path,
 with no tools and no owner in context, the model supplied one from memory.
-Replayed, the owner in context took the wrong-owner answers from 4 of 6 (glm)
-and 3 of 3 (qwen) to 0 of 9 (docs/probes/2026-10-12-b1-b001-fix.md).
+Replayed with the owner in context, the answers went from an owner claimed
+with no source in 4 of 6 (glm, two of them Amazon) and Amazon in 3 of 3 (qwen)
+to Google in 9 of 9, none citing WHOIS (docs/probes/2026-10-12-b1-b001-fix.md).
 
 **Decision (Burhan's call; the recommended option).**
 1. **Who operates an address is its own field, `NetworkContext`**, kept on
