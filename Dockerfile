@@ -10,7 +10,7 @@ COPY pyproject.toml ./
 # metadata build succeeds with no real source present (deps-only layer).
 RUN mkdir -p auspex/routes auspex/ach auspex/actions auspex/agent auspex/alerts auspex/phishing auspex/llm auspex/classify \
              auspex/enrich/providers auspex/ingest auspex/retrohunt auspex/watchers auspex/timeline auspex/modes \
-             auspex/kb/seed_data auspex/static \
+             auspex/kb/seed_data auspex/static auspex/static/css auspex/static/js \
     && touch auspex/__init__.py auspex/routes/__init__.py auspex/ach/__init__.py \
              auspex/actions/__init__.py auspex/agent/__init__.py \
              auspex/alerts/__init__.py auspex/phishing/__init__.py \
@@ -19,7 +19,8 @@ RUN mkdir -p auspex/routes auspex/ach auspex/actions auspex/agent auspex/alerts 
              auspex/ingest/__init__.py auspex/retrohunt/__init__.py auspex/timeline/__init__.py \
              auspex/watchers/__init__.py auspex/modes/__init__.py \
              auspex/kb/__init__.py auspex/kb/seed_data/placeholder.json \
-             auspex/static/placeholder.html server.py \
+             auspex/static/placeholder.html auspex/static/css/placeholder.css \
+             auspex/static/js/placeholder.js server.py \
     && pip install --no-cache-dir . \
     && rm -rf auspex server.py build auspex.egg-info
 

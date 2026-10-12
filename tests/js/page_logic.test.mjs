@@ -1,28 +1,17 @@
-// The chat page's own pacing and indicator logic (D-052), run under Node's
-// built-in test runner: no dependencies, no browser. The logic is read from
-// auspex/static/index.html itself, between its `// <page-logic>` markers, so
-// what is tested is what the page runs. tests/test_page_logic.py runs this
-// file inside the pytest gate.
+// The chat page's pure logic (D-052), run under Node's built-in test runner:
+// no dependencies, no browser. It imports auspex/static/js/page-logic.js, the
+// module the page itself imports, so what is tested is what the page runs.
+// tests/test_page_logic.py runs this file inside the pytest gate.
 //
 //   node --test tests/js/page_logic.test.mjs
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
-
-const html = readFileSync(new URL("../../auspex/static/index.html", import.meta.url), "utf8");
-const block = html.match(/\/\/ <page-logic>([\s\S]*?)\/\/ <\/page-logic>/);
-assert.ok(block, "index.html has no // <page-logic> block");
-const {
+import {
   createPacer, indicatorText, markdownNodes,
   doorsFor, statusText, undoText, undoLineFor, askedText, mergeQueue, armDoor, confirmable,
   spendText, chatSpendText, chatIdFromHash, relativeTime, chatListLabel, ledgerSpendText, endingText, reopenedTurnPlan,
   noAnswerNote, overlayAfter,
-} = new Function(`${block[1]}; return {
-  createPacer, indicatorText, markdownNodes,
-  doorsFor, statusText, undoText, undoLineFor, askedText, mergeQueue, armDoor, confirmable,
-  spendText, chatSpendText, chatIdFromHash, relativeTime, chatListLabel, ledgerSpendText, endingText, reopenedTurnPlan,
-  noAnswerNote, overlayAfter,
-};`)();
+} from "../../auspex/static/js/page-logic.js";
 
 const FRAME_MS = 1000 / 60;
 

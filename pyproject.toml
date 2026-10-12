@@ -42,7 +42,7 @@ packages = [
 ]
 
 [tool.setuptools.package-data]
-auspex = ["static/*.html"]
+auspex = ["static/*.html", "static/css/*.css", "static/js/*.js"]
 "auspex.kb" = ["seed_data/*.json"]
 
 [tool.pytest.ini_options]
