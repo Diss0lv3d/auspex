@@ -179,3 +179,11 @@ def test_an_error_is_shown_in_the_servers_own_words(client):
     assert "[endpoint error]" not in body
     assert '"[" + detail + "]"' not in body
     assert "showError(wrap, ev.error)" in body
+
+
+def test_the_page_asks_for_dark_scrollbars_and_controls(client):
+    """F2 narrow pass: without `color-scheme: dark` the browser drew its light
+    default scrollbar on Night (seen on the sidebar and the transcript)."""
+    body = client.get("/").text
+    root = body.split(":root {", 1)[1].split("}", 1)[0]
+    assert "color-scheme: dark" in root
