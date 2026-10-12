@@ -851,6 +851,7 @@
 
     function newChat(note) {
       if (busy) return;
+      openSeq++;
       sessionId = null;
       setHash(null);
       clearTranscript();
@@ -860,14 +861,21 @@
       $("prompt").focus();
     }
 
+    // A sequence guard: a reply that arrives after a Send began, or after
+    // New chat or a later open, must not repaint the page under it.
+    let openSeq = 0;
+
     async function openChat(id) {
       if (busy || !token) return;
+      const seq = ++openSeq;
       let r;
       try { r = await authed("/api/chat/sessions/" + encodeURIComponent(id) + "/turns"); }
-      catch (e) { setStatus("network error", "err"); return; }
+      catch (e) { if (seq === openSeq && !busy) setStatus("network error", "err"); return; }
+      if (seq !== openSeq || busy) return;
       if (r.status === 404) { newChat("That chat is not available to you."); return; }
       if (!r.ok) { setStatus("couldn't open that chat", "err"); return; }
       const { turns } = await r.json();
+      if (seq !== openSeq || busy) return;
       sessionId = id;
       setHash(id);
       clearTranscript();
