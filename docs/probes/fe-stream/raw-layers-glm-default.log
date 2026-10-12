@@ -1,0 +1,32 @@
+app up on :8011, kb bootstrapped=True
+{"run": 1, "endpoint": "default", "q": 1, "path": "agent", "mode": "definition", "finish": "output_guard", "output_valid": false, "calls": 4, "headers_s": 0.024, "prep_s": 0.023, "first_reasoning_endpoint_s": 2.581, "first_reasoning_route_s": 2.582, "reasoning_chars": 1768, "reasoning_frames": 346, "narration_frames": 0, "unmatched_endpoint_deltas": 1, "rate_endpoint_cps": 1160.186, "rate_route_cps": 1158.316, "max_gap_in_call_endpoint_s": 0.777, "max_gap_in_call_route_s": 0.779, "p95_gap_route_s": 0.0, "longest_silence_route_s": 2.558, "lag_p50_ms": 1.319, "lag_p95_ms": 4.328, "lag_max_ms": 4.554, "content_lag_p50_ms": NaN, "content_lag_max_ms": NaN, "first_answer_route_s": NaN, "between_calls_s": [0.08, 0.06, 0.06], "turn_s": 9.101}
+{"run": 2, "endpoint": "default", "q": 2, "path": "agent", "mode": "threat_intel", "finish": "stop", "output_valid": true, "calls": 4, "headers_s": 0.034, "prep_s": 0.033, "first_reasoning_endpoint_s": 2.457, "first_reasoning_route_s": 2.459, "reasoning_chars": 3053, "reasoning_frames": 651, "narration_frames": 0, "unmatched_endpoint_deltas": 0, "rate_endpoint_cps": 683.197, "rate_route_cps": 682.656, "max_gap_in_call_endpoint_s": 0.929, "max_gap_in_call_route_s": 0.931, "p95_gap_route_s": 0.0, "longest_silence_route_s": 2.425, "lag_p50_ms": 1.196, "lag_p95_ms": 2.598, "lag_max_ms": 3.553, "content_lag_p50_ms": 1.376, "content_lag_max_ms": 2.717, "first_answer_route_s": 14.139, "between_calls_s": [0.17, 0.12, 0.13], "turn_s": 16.188}
+{"run": 3, "endpoint": "default", "q": 3, "path": "agent", "mode": "threat_intel", "finish": "stop", "output_valid": true, "calls": 4, "headers_s": 0.028, "prep_s": 0.026, "first_reasoning_endpoint_s": 2.345, "first_reasoning_route_s": 2.347, "reasoning_chars": 2188, "reasoning_frames": 493, "narration_frames": 0, "unmatched_endpoint_deltas": 0, "rate_endpoint_cps": 728.585, "rate_route_cps": 729.042, "max_gap_in_call_endpoint_s": 0.888, "max_gap_in_call_route_s": 0.889, "p95_gap_route_s": 0.0, "longest_silence_route_s": 2.319, "lag_p50_ms": 0.742, "lag_p95_ms": 1.805, "lag_max_ms": 2.224, "content_lag_p50_ms": 1.214, "content_lag_max_ms": 2.557, "first_answer_route_s": 12.007, "between_calls_s": [0.07, 0.07, 0.11], "turn_s": 16.621}
+{"run": 4, "endpoint": "default", "q": 1, "path": "agent", "mode": "definition", "finish": "output_guard", "output_valid": false, "calls": 4, "headers_s": 0.027, "prep_s": 0.027, "first_reasoning_endpoint_s": 2.521, "first_reasoning_route_s": 2.523, "reasoning_chars": 1768, "reasoning_frames": 346, "narration_frames": 0, "unmatched_endpoint_deltas": 1, "rate_endpoint_cps": 1075.065, "rate_route_cps": 1075.868, "max_gap_in_call_endpoint_s": 0.818, "max_gap_in_call_route_s": 0.819, "p95_gap_route_s": 0.0, "longest_silence_route_s": 2.496, "lag_p50_ms": 1.734, "lag_p95_ms": 2.379, "lag_max_ms": 2.561, "content_lag_p50_ms": NaN, "content_lag_max_ms": NaN, "first_answer_route_s": NaN, "between_calls_s": [0.07, 0.06, 0.05], "turn_s": 9.173}
+{"run": 5, "endpoint": "default", "q": 2, "path": "agent", "mode": "threat_intel", "finish": "stop", "output_valid": true, "calls": 3, "headers_s": 0.029, "prep_s": 0.028, "first_reasoning_endpoint_s": 2.354, "first_reasoning_route_s": 2.357, "reasoning_chars": 2878, "reasoning_frames": 609, "narration_frames": 0, "unmatched_endpoint_deltas": 0, "rate_endpoint_cps": 632.956, "rate_route_cps": 632.933, "max_gap_in_call_endpoint_s": 0.919, "max_gap_in_call_route_s": 0.92, "p95_gap_route_s": 0.0, "longest_silence_route_s": 2.327, "lag_p50_ms": 1.1, "lag_p95_ms": 1.968, "lag_max_ms": 3.203, "content_lag_p50_ms": 0.93, "content_lag_max_ms": 1.92, "first_answer_route_s": 11.98, "between_calls_s": [0.07, 0.06], "turn_s": 15.161}
+
+== 5 runs: median [min .. max] ==
+  run                                 3.00  [     1.00 ..      5.00]
+  q                                   2.00  [     1.00 ..      3.00]
+  calls                               4.00  [     3.00 ..      4.00]
+  headers_s                           0.03  [     0.02 ..      0.03]
+  prep_s                              0.03  [     0.02 ..      0.03]
+  first_reasoning_endpoint_s          2.46  [     2.35 ..      2.58]
+  first_reasoning_route_s             2.46  [     2.35 ..      2.58]
+  reasoning_chars                  2188.00  [  1768.00 ..   3053.00]
+  reasoning_frames                  493.00  [   346.00 ..    651.00]
+  narration_frames                    0.00  [     0.00 ..      0.00]
+  unmatched_endpoint_deltas           0.00  [     0.00 ..      1.00]
+  rate_endpoint_cps                 728.58  [   632.96 ..   1160.19]
+  rate_route_cps                    729.04  [   632.93 ..   1158.32]
+  max_gap_in_call_endpoint_s          0.89  [     0.78 ..      0.93]
+  max_gap_in_call_route_s             0.89  [     0.78 ..      0.93]
+  p95_gap_route_s                     0.00  [     0.00 ..      0.00]
+  longest_silence_route_s             2.43  [     2.32 ..      2.56]
+  lag_p50_ms                          1.20  [     0.74 ..      1.73]
+  lag_p95_ms                          2.38  [     1.80 ..      4.33]
+  lag_max_ms                          3.20  [     2.22 ..      4.55]
+  content_lag_p50_ms                  1.21  [     0.93 ..      1.38]
+  content_lag_max_ms                  2.56  [     1.92 ..      2.72]
+  first_answer_route_s               12.01  [    11.98 ..     14.14]
+  turn_s                             15.16  [     9.10 ..     16.62]
