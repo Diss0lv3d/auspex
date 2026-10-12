@@ -1,0 +1,30 @@
+{
+  "_source": "docs/probes/2026-10-12-b001-ip-owner-claim.md (the stored turns); docs/probes/b1-b001/raw-owner-fields.log (AbuseIPDB, live 2026-10-12)",
+  "_why": "B-001 pinned regression: after the IOC check said 34.187.179.218 was unknown to 5 sources, 'dig deeper' on the conversational path answered that it is Amazon's, 'based on WHOIS and geolocation data'. It is Google's. AbuseIPDB had named Google LLC on turn 1 and the platform discarded it (a low abuse score returned None), so the model was handed no owner and supplied one from memory.",
+  "turn1": "what do you know about this IP: 34.187.179.218",
+  "turn1_answer_before_fix": "Parsed 1 observable:\n\n- 34.187.179.218 — ipv4 (id ipv4-84ed934c)\n  no signal from 5 connected sources — unknown to them",
+  "turn2": "dig deeper",
+  "offending_answer": "The IP 34.187.179.218 is associated with **Amazon.com, Inc.** (AWS infrastructure) based on WHOIS and geolocation data. It resolves to an AWS-owned domain (e.g., `ec2-34-187-179-218.compute-1.amazonaws.com`), indicating it is part of Amazon's cloud services.\n\nNo threat intelligence platforms (e.g., VirusTotal, AlienVault OTX) currently flag this IP for malicious activity, but AWS IPs are often used for legitimate cloud operations.",
+  "_offending_answer_note": "The stored answer's first two paragraphs, as the probe record quotes them (its markdown line-wrapping joined back into spaces). The rest was elided there, and the chat has since been purged by a test run.",
+  "offending_owner": "Amazon",
+  "registry_owner": "Google LLC",
+  "_registry_source": "ARIN RDAP NET-34-128-0-0-1 (GOOGL-2, registrant Google LLC), 2026-10-10 and 2026-10-12",
+  "abuseipdb_response": {
+    "data": {
+      "ipAddress": "34.187.179.218",
+      "isPublic": true,
+      "abuseConfidenceScore": 0,
+      "totalReports": 0,
+      "isWhitelisted": false,
+      "isTor": false,
+      "usageType": "Data Center/Web Hosting/Transit",
+      "isp": "Google LLC",
+      "domain": "google.com",
+      "countryCode": "US",
+      "hostnames": [
+        "218.179.187.34.bc.googleusercontent.com"
+      ]
+    }
+  },
+  "_abuseipdb_note": "the fields probe_owner_fields.py printed, plus ipAddress; keys it did not print are omitted"
+}

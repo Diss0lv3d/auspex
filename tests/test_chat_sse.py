@@ -8,6 +8,7 @@ live in test_models.py.
 import asyncio
 import dataclasses
 import json
+from pathlib import Path
 
 import asyncpg
 import pytest
@@ -937,6 +938,82 @@ def test_persistence_failure_streams_the_answer_and_says_not_recorded(client, mo
     finally:
         client.app.state.enrichment = real_enrichment
         client.app.dependency_overrides.clear()
+
+
+B001 = json.loads(
+    (Path(__file__).parent / "fixtures" / "enrich" / "b001_ip_owner_claim.json").read_text()
+)
+
+
+def test_b001_dig_deeper_is_handed_the_owner_the_source_returned(client, settings):
+    """B-001 pinned regression, with the exact offending answer
+    (tests/fixtures/enrich/b001_ip_owner_claim.json).
+
+    Turn 1 runs through the REAL AbuseIPDB parser and the real enrichment
+    service, over the live response for the address. Turn 2 is the follow-up
+    on the conversational path, where the model has no tools — the path the
+    bug ran on. Before the fix turn 1 said "unknown to them", the model was
+    handed no owner, and it answered Amazon "based on WHOIS". Now the
+    conversation it is handed names the owner the source returned, which is
+    the registry's, and nothing in it says Amazon. No verdict is written: the
+    network is not a reputation, and nobody claimed one."""
+    import httpx
+
+    from auspex.enrich.providers.abuseipdb import AbuseIPDB
+    from auspex.enrich.service import EnrichmentService
+
+    ip = "34.187.179.218"
+    _purge_observable(settings, ip)
+    enrichment = EnrichmentService(
+        [AbuseIPDB("k")],
+        client=httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, json=B001["abuseipdb_response"])
+            )
+        ),
+    )
+    fake_llm = StreamingFakeLLMClient([
+        StreamEvent(kind="content", text="AbuseIPDB names Google LLC as the network."),
+        StreamEvent(kind="finish", finish_reason="stop"),
+    ])
+    _use(client.app, fake_llm, native_reasoning=True)
+    real_enrichment = client.app.state.enrichment
+    client.app.state.enrichment = enrichment
+    auth = {"Authorization": f"Bearer {_token(client)}"}
+    try:
+        first = _frames(client.post("/api/chat", json={"message": B001["turn1"]},
+                                    headers=auth).text)
+        assert first[-1]["done"]["path"] == "shortcut"
+        echo = "".join(f["content"] for f in first if "content" in f)
+        assert "network — AbuseIPDB: Google LLC (google.com)" in echo
+        assert "unknown to them" not in echo
+
+        second = _frames(client.post(
+            "/api/chat",
+            json={"message": B001["turn2"], "session_id": first[0]["session"]},
+            headers=auth,
+        ).text)
+        assert second[-1]["done"]["path"] == "model"  # no tools, as in B-001
+        handed = "\n".join(m["content"] for m in fake_llm.last_messages())
+        assert B001["registry_owner"] in handed
+        assert B001["offending_owner"] in B001["offending_answer"]  # the pinned claim
+        assert B001["offending_owner"] not in handed
+
+        async def _verdicts():
+            conn = await asyncpg.connect(settings.database_url)
+            try:
+                return await conn.fetchval(
+                    "SELECT count(*) FROM verdicts v JOIN observables o"
+                    " ON v.observable_id = o.id WHERE o.value = $1", ip
+                )
+            finally:
+                await conn.close()
+
+        assert asyncio.run(_verdicts()) == 0
+    finally:
+        client.app.state.enrichment = real_enrichment
+        client.app.dependency_overrides.clear()
+        _purge_observable(settings, ip)
 
 
 def test_inactive_enrichment_service_keeps_the_deferred_copy(client):

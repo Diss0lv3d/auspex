@@ -91,8 +91,9 @@ class EnrichmentService:
         signals: dict[str, list] = {}
         failures: dict[str, str] = {}
         answered: dict[str, int] = {}
+        network: dict[str, list] = {}
         if eligible and self._providers:
-            signals, failures, answered = await fan_out(
+            signals, failures, answered, network = await fan_out(
                 self._get_client(),
                 self._providers,
                 eligible,
@@ -106,6 +107,7 @@ class EnrichmentService:
                 signals=tuple(signals.get(o.obs_id, ())),
                 skip_reason=skips.get(o.obs_id),
                 sources_answered=answered.get(o.obs_id, 0),
+                network=tuple(network.get(o.obs_id, ())),
             )
             for o in observables
         )

@@ -9,6 +9,9 @@ Honesty rules (D-014 spirit, DEFERRED rail):
 - skipped observables say why, per line — never silently dropped;
 - provider failures get a trailer line, so "no signal" can't masquerade as
   "nothing wrong";
+- the network a source named is shown on its own line with that source, and
+  "unknown to them" is not said about an address a source did name (B-001);
+  it is never a verdict line;
 - if verdict persistence failed, the answer says so instead of claiming the
   results were recorded.
 """
@@ -44,7 +47,8 @@ def _detail_line(item: ObservableEnrichment) -> str:
         if item.sources_answered == 0:
             return NOT_CHECKED_COPY
         noun = "source" if item.sources_answered == 1 else "sources"
-        return f"no signal from {item.sources_answered} connected {noun} — unknown to them"
+        line = f"no signal from {item.sources_answered} connected {noun}"
+        return line if item.network else f"{line} — unknown to them"
     verdict = synthesize(item.observable, item.signals)
     evidence = "; ".join(f"{s.provider}: {s.summary}" for s in item.signals)
     if verdict is None or verdict.label is VerdictLabel.UNKNOWN:
@@ -56,7 +60,9 @@ def render_ioc_answer(outcome: EnrichmentOutcome, *, recorded: bool = True) -> s
     count = len(outcome.items)
     noun = "observable" if count == 1 else "observables"
     blocks = [
-        f"{_observable_line(item.observable)}\n  {_detail_line(item)}" for item in outcome.items
+        f"{_observable_line(item.observable)}\n  {_detail_line(item)}"
+        + "".join(f"\n  network — {c.provider}: {c.summary}" for c in item.network)
+        for item in outcome.items
     ]
     text = f"Parsed {count} {noun}:\n\n" + "\n".join(blocks)
     if outcome.provider_failures:

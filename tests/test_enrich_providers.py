@@ -7,6 +7,7 @@ keys registered same evening, all former docs-coded shapes re-probed live).
 """
 
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -19,7 +20,13 @@ from auspex.enrich.providers.internetdb import InternetDB
 from auspex.enrich.providers.otx import OTX
 from auspex.enrich.providers.threatfox import ThreatFox
 from auspex.enrich.providers.urlhaus import URLhaus
-from auspex.enrich.types import ProviderError, ProviderInputError, VerdictLabel
+from auspex.enrich.types import (
+    NetworkContext,
+    ProviderError,
+    ProviderInputError,
+    VerdictLabel,
+    split_lookup,
+)
 
 
 def obs(type_: ObservableType, value: str) -> Observable:
@@ -336,28 +343,75 @@ async def test_abuseipdb_high_score_is_malicious():
         assert request.url.params["maxAgeInDays"] == "90"
         return json_response(200, ABUSEIPDB_MALICIOUS)
 
-    signal = await lookup(AbuseIPDB("ab-key"), obs(ObservableType.IPV4, "185.220.101.34"), handler)
+    signals, network = split_lookup(
+        await lookup(AbuseIPDB("ab-key"), obs(ObservableType.IPV4, "185.220.101.34"), handler)
+    )
+    (signal,) = signals
     assert signal.label is VerdictLabel.MALICIOUS
     assert signal.confidence == 0.9
     assert "abuse confidence 90/100" in signal.summary and "106 reports" in signal.summary
+    # B-001: the network rides beside the verdict, never inside it.
+    assert [c.summary for c in network] == ["Network for Tor-Exit traffic., Commercial, DE"]
 
 
-async def test_abuseipdb_mid_score_is_suspicious_and_low_score_is_no_signal():
+async def test_abuseipdb_mid_score_is_suspicious_and_low_score_is_no_reputation_signal():
     def body(score):
         return {"data": {**ABUSEIPDB_MALICIOUS["data"], "abuseConfidenceScore": score}}
 
-    mid = await lookup(
+    mid, _ = split_lookup(await lookup(
         AbuseIPDB("k"),
         obs(ObservableType.IPV4, "1.2.3.4"),
         lambda r: json_response(200, body(50)),
-    )
-    assert mid.label is VerdictLabel.SUSPICIOUS
+    ))
+    assert [s.label for s in mid] == [VerdictLabel.SUSPICIOUS]
     low = await lookup(
         AbuseIPDB("k"),
         obs(ObservableType.IPV4, "1.2.3.4"),
         lambda r: json_response(200, body(3)),
     )
-    assert low is None
+    # A low score is still no claim about reputation (B-001 changes only that
+    # the network the source named is kept).
+    assert isinstance(low, NetworkContext)
+
+
+ABUSEIPDB_B001 = json.loads(
+    (Path(__file__).parent / "fixtures" / "enrich" / "b001_ip_owner_claim.json").read_text()
+)["abuseipdb_response"]
+
+
+async def test_abuseipdb_names_the_network_it_reported_on_a_clean_ip_b001():
+    """B-001, the live response: score 0, no reports, and the network named in
+    full. It used to return None — the IOC check then said "unknown to them",
+    and a model asked to dig deeper supplied an owner from memory (Amazon)."""
+    result = await lookup(
+        AbuseIPDB("k"),
+        obs(ObservableType.IPV4, "34.187.179.218"),
+        lambda r: json_response(200, ABUSEIPDB_B001),
+    )
+    signals, network = split_lookup(result)
+    assert signals == []  # no reputation claim — the verdict path is untouched
+    (context,) = network
+    assert context.provider == "AbuseIPDB"
+    assert context.summary == (
+        "Google LLC (google.com), Data Center/Web Hosting/Transit, US"
+        " · hostname 218.179.187.34.bc.googleusercontent.com"
+    )
+    assert context.evidence == {
+        "isp": "Google LLC",
+        "domain": "google.com",
+        "usage_type": "Data Center/Web Hosting/Transit",
+        "country_code": "US",
+        "hostnames": ["218.179.187.34.bc.googleusercontent.com"],
+    }
+
+
+async def test_abuseipdb_with_no_network_fields_and_a_low_score_is_no_data():
+    body = {"data": {"ipAddress": "1.2.3.4", "abuseConfidenceScore": 0, "totalReports": 0,
+                     "isWhitelisted": False, "isp": None, "hostnames": "not-a-list"}}
+    result = await lookup(
+        AbuseIPDB("k"), obs(ObservableType.IPV4, "1.2.3.4"), lambda r: json_response(200, body)
+    )
+    assert result is None
 
 
 async def test_abuseipdb_whitelisted_is_benign():
@@ -374,12 +428,15 @@ async def test_abuseipdb_whitelisted_is_benign():
             "usageType": "Content Delivery Network",
         }
     }
-    signal = await lookup(
+    signals, network = split_lookup(await lookup(
         AbuseIPDB("k"),
         obs(ObservableType.IPV4, "8.8.8.8"),
         lambda r: json_response(200, body),
-    )
-    assert signal.label is VerdictLabel.BENIGN
+    ))
+    assert [s.label for s in signals] == [VerdictLabel.BENIGN]
+    assert [c.summary for c in network] == [
+        "Network for Tor-Exit traffic., Content Delivery Network, DE"
+    ]
 
 
 async def test_abuseipdb_401_is_a_provider_error():

@@ -312,6 +312,12 @@ def build_capability_registry(
                     }
                     for s in item.signals
                 ]
+                if item.network:
+                    # B-001: who operates the address, per the source that
+                    # said so. Beside the signals, never one of them.
+                    entry["network"] = [
+                        {"source": c.provider, "summary": c.summary} for c in item.network
+                    ]
             items.append(entry)
         if outcome:
             enrich_budget -= len(outcome.enriched)
