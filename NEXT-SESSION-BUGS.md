@@ -1,59 +1,68 @@
-# NEXT-SESSION-BUGS — track: bugs · session: B1
+# NEXT-SESSION-BUGS — track: bugs · session: B2
 
 _Paste everything below the line into a fresh Claude Code window opened in
-/home/burhan/auspex-new. The bugs track works from BUGS.md (D-051)._
+/home/burhan/auspex-new. The bugs track works from BUGS.md (D-051). The front
+end is the current focus (STATE.md); start B2 only when Burhan picks it._
 
 ---
 
-SESSION B1 of Auspex, **bugs track** (D-051): the first bugs session. The
-working dir must be /home/burhan/auspex-new. Run `/session-start bugs B1` first
-(the full ritual). It reads `SESSION-RULES.md` (standing rules for every track)
-and STATE.md.
+SESSION B2 of Auspex, **bugs track** (D-051). The working dir must be
+/home/burhan/auspex-new. Run `/session-start bugs B2` first (the full ritual).
+It reads `SESSION-RULES.md` (standing rules for every track) and STATE.md.
 
 Step 0 (do BEFORE new scope):
 
-1. **If STATE.md says the promote slate is not empty, `/promote` it.** Read the
-   diff, not the list.
-2. **Read BUGS.md and ask Burhan which open bug comes first.** Default: the
-   top open entry. Mark it `fixing (B1)` when work starts.
+1. **One window at a time (D-051).** If anything moves that you did not move,
+   check `ps` for a second `claude` in this directory and stop.
+2. **If STATE.md says the promote slate is not empty, `/promote` it.** Read
+   the diff, not the list.
+3. **Read BUGS.md and ask Burhan which open bug comes first.** Default: the
+   top open entry, B-002. Mark it `fixing (B2)` when work starts.
 
-Goal: **B-001, the platform named the wrong owner for an IP.** Read
-docs/probes/2026-10-12-b001-ip-owner-claim.md first. In short: after the IOC
-check found nothing on 34.187.179.218, "dig deeper" answered that it is
-Amazon's "based on WHOIS and geolocation data", with an invented AWS hostname.
-It is Google's (ARIN RDAP). That turn made no lookup and ran on the local
-endpoint, on the conversational path.
+Goal (default): **B-002, a definition question on the agent path is stopped
+as a leak.** Read docs/probes/2026-10-12-b002-definition-rail-trip.md first.
+In short: "What are the practical differences between EDR and XDR for a
+small SOC deciding what to buy?" resolved to `definition` and was cut by the
+output rail in 3 of 4 agent-path turns. The match was 40 words of the
+definition contract's own section spec, on the `thinking` channel, at exactly
+`THINKING_SHINGLE_WORDS` (D-040). That is TD-044's trigger firing as a live
+false positive.
 
 Reproduce before fixing:
-- **Run the same two turns on both endpoints** (glm-4.5-air, and qwen3:14b in
-  the background), at least 3 times each. Record the path, the mode, the tools
-  offered and called, and whether an owner, a hostname or a source is
-  asserted.
-- **Find why a follow-up about an indicator takes a path with no tools.**
-  Does the classifier see "dig deeper" as deep, and does the previous turn's
-  observable reach the next turn? Cite `file:line`.
-- **Check what the model is told.** Is the IOC check's "unknown to 5 sources"
-  in its context, and is anything telling it it has no WHOIS or reverse-DNS
-  source?
+- **Run the same question on the agent path at least 4 times** (the dev
+  endpoint, glm-4.5-air). For each run, record the finish reason, the channel
+  of the match, the match length and which issued text it came from.
+- **Re-measure before touching a calibrated number.** `THINKING_SHINGLE_WORDS`
+  and `SHINGLE_WORDS` are measured constants. Re-run
+  `docs/probes/s26-step0/probe_calibrate_agent.py` (thinking floor) and
+  `docs/probes/s22-outguard/probe_calibrate2.py` (answer floor) against
+  today's issued text, and record the legitimate ceiling first.
 
 Then:
-- **Fix the cause, with a test that fails before the fix**, and pin the exact
-  offending answer as a regression fixture (org rule: customer-reported bad
-  output becomes a pinned fixture). Live-check through the rebuilt container
-  on the dev endpoint.
-- **If the only fix is a check on what the model writes**, that is the deferred
-  item "the model fabricating incident specifics the contract validator
-  passes" (SESSION-RULES.md, Deferred). Stop and put it to Burhan: re-scope it,
-  or ship the routing/context fix alone.
-- A routing change is a classifier or resolver change, so it is judged by
-  SESSION-RULES.md's two-battery rule.
+- **Put the options to Burhan with the numbers.** Re-calibrating a floor, or
+  changing what the definition contract issues, is a rail decision: it gets a
+  new D-entry. The rail is security-relevant ("assume a fourth defect";
+  SESSION-RULES.md, The output rail). Never fix it by skipping the scan.
+- **Do NOT re-open the guard regex** (TD-031/032/033 are ratified).
+- Fix the cause, with a test that fails before the fix, and pin the exact
+  stopped turn's thinking text as a regression fixture (org rule).
+- **TD-044 is also in S29's goal** (`NEXT-SESSION-BE.md`). If B2 re-calibrates,
+  rewrite S29's TD-044 item at session end (3b) so it does not redo the work.
 
-If B-001 closes early, ask Burhan before taking the next open entry.
+If B-002 closes early, ask Burhan before taking the next open entry:
+- **B-004:** a note on a recorded indicator is refused as "doesn't exist".
+- **B-005:** on the conversational path glm forges the `⟦DATA⟧` fence with
+  invented platform lines. A fix that checks what the model writes is the
+  deferred fabricated-specifics item (SESSION-RULES.md, Deferred): put it to
+  Burhan first.
+- **B-006:** a follow-up on a no-signal IP calls it "clean", because the
+  follow-up resolves to `general`. A resolver change is judged by the
+  two-battery rule.
 
 Constraints: everything in `SESSION-RULES.md`. Bugs-only, this session:
 - **One bug per fix commit.** Each one names its B-id, and BUGS.md gets the
-  status `fixed <commit> (B1)` in the same session.
+  status `fixed <commit> (B2)` in the same session.
 - A new bug found while fixing this one → `/bug`, not this session's scope,
-  unless it blocks B-001's fix. In that case say so and let Burhan decide.
-- The B-001 chat is evidence only in its probe record now. The next pytest run
-  deletes it from Postgres.
+  unless it blocks the fix. In that case say so and let Burhan decide.
+- **Save evidence before any pytest run.** A chat the suite would purge goes
+  into a probe record first.
