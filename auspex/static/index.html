@@ -876,10 +876,10 @@
       const seq = ++openSeq;
       let r;
       try { r = await authed("/api/chat/sessions/" + encodeURIComponent(id) + "/turns"); }
-      catch (e) { if (seq === openSeq && !busy) setStatus("network error", "err"); return; }
+      catch (e) { if (seq === openSeq && !busy) $("chats-note").textContent = "Couldn't open that chat."; return; }
       if (seq !== openSeq || busy) return;
       if (r.status === 404) { newChat("That chat is not available to you."); return; }
-      if (!r.ok) { setStatus("couldn't open that chat", "err"); return; }
+      if (!r.ok) { $("chats-note").textContent = "Couldn't open that chat."; return; }
       const { turns } = await r.json();
       if (seq !== openSeq || busy) return;
       sessionId = id;
@@ -919,8 +919,10 @@
     // does not hold it: fetch it into the decided list, where its doors are.
     async function reviewProposal(id) {
       if (!approvals.waiting.some((p) => p.id === id)) {
-        const r = await api("/" + encodeURIComponent(id));
-        if (r.ok && r.body && r.body.id) recordDecided(r.body);
+        try {
+          const r = await api("/" + encodeURIComponent(id));
+          if (r.ok && r.body && r.body.id) recordDecided(r.body);
+        } catch (e) { /* offline: the panel still opens, on the queue it has */ }
       }
       openApprovals(id);
     }
