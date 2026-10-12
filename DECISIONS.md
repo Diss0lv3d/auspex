@@ -1791,3 +1791,60 @@ operating point is pinned by
 - Any improvement claim needs a fresh battery.
 
 **What this supersedes.** Nothing ratified. It retires the IDEAS line.
+
+## D-051 — Sessions run in three tracks: backend, front end and bugs (2026-10-12, between S28 and F1)
+
+**Context.** On 2026-10-10, after S28's session-end ritual had committed the
+S29 prompt, Burhan used the page by hand and said: "before moving on with more
+backend development we need to improve on the FE so lets shift our focus there
+and pause BE for a bit." He named two problems: deep turns' reasoning streams
+very slowly, and an IP was said to be Amazon's when it is not (B-001). The
+window that started on them died a minute later. Nothing reached the repo, so
+the next session's prompt was all backend and nobody would have known
+otherwise. Recovered on 2026-10-12 from the session transcript. Two structural
+causes:
+- There was one prompt file, so a pivot had to overwrite the backend plan or
+  be lost. There was no place for a front-end or bug session to be queued.
+- The session-end ritual ended at its summary, so a decision said after it had
+  nowhere to go.
+
+**Decision (Burhan's call; the shape proposed and the two open choices put to
+him).**
+1. **Three tracks, each with its own prompt and its own session ids.**
+   - Backend: `NEXT-SESSION-BE.md`, renamed from `NEXT-SESSION.md`, ids S<n>
+     (it continues at S29).
+   - Front end: `NEXT-SESSION-FE.md`, ids F<n> from F1.
+   - Bugs: `NEXT-SESSION-BUGS.md`, ids B<n> from B1.
+
+   The rename is Burhan's choice: an unsuffixed file reads as "the" next
+   session, and the old habit of pasting from it would quietly start backend
+   work.
+2. **`/session-start` takes the track**: `be`, `fe`, `bugs`, or an id whose
+   prefix names it. **With neither it asks; it never picks** (Burhan's choice
+   over defaulting to backend: a silent default is exactly the accident the
+   tracks exist to prevent).
+3. **Standing rules live once, in `SESSION-RULES.md`.** About 150 of the 198
+   lines of the S29 prompt were not about S29. Three copies would drift.
+4. **One `STATE.md`.** The code, the tests, `staging` and the promotes are
+   shared by every track, so it gains a Tracks table (last closed, next id,
+   focus) and stays the only home for moving numbers. A prompt points at
+   STATE.md instead of copying them.
+5. **`BUGS.md` is the bugs track's list**, and `/bug` adds to it mid-session
+   without breaking scope lock. The repo has no GitHub issues to hold them.
+6. **`/session-end` writes only its own track's prompt**, then fixes anything
+   it made untrue in the other two. A scope or focus change said after the
+   ritual is written down before the window closes.
+7. **One session at a time.** All tracks share `staging`, the compose stack and
+   the `analyst@auspex.dev` test user.
+
+**Bounds, stated.**
+- The ids are checked against STATE.md by a test (`tests/test_docs.py`), but
+  the rules in `SESSION-RULES.md` are only as current as the sessions that
+  edit them.
+- The focus is recorded in STATE.md for information. `/session-start` reports
+  it and does not enforce it: starting a paused track is allowed when Burhan
+  picks it.
+
+**What this supersedes.** Nothing ratified. It changes the CLAUDE.md working
+protocol (one prompt file, rule 12) and the `/session-start`, `/session-end`
+and `/briefing` commands.
