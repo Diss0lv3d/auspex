@@ -1848,3 +1848,57 @@ him).**
 **What this supersedes.** Nothing ratified. It changes the CLAUDE.md working
 protocol (one prompt file, rule 12) and the `/session-start`, `/session-end`
 and `/briefing` commands.
+
+## D-052 — The stream says what a turn is waiting on, and the page paints it paced within 200 ms (2026-10-12, F1)
+
+**Context.** Burhan, 2026-10-10: deep turns' reasoning streams very slowly,
+"we should perhaps increase the stream bit rate so it renders faster". F1
+measured three layers on the same runs before changing anything
+(docs/probes/2026-10-12-f1-stream-layers.md):
+- **the server** adds about 1 ms per delta (p50; 4.6 ms at most);
+- **the page** about 3 ms to paint (p50; 41 ms at most), with no long tasks;
+- **the endpoint** is the rest. glm-4.5-air streams about 1000 chars/s in
+  bursts, but an agent turn waits 1-3 s before each of its 3-5 model calls
+  (once 12.9 s). qwen3:14b streams 139-171 chars/s.
+
+What the analyst feels as slow is the silences: the page shows nothing
+changing while the engine starts its next call, runs a tool, or (D-043) writes
+an answer it is holding. No change to the stream or the painting makes the
+endpoint faster.
+
+**Decision (Burhan's call, from options F1 put to him; all four picked).**
+1. **A `status` frame on `/api/chat`, sent before each wait.**
+   - `{"status": {"phase": "engine"}}` before every model call: each agent
+     step, the step cap's synthesis pass, the native call, both two-pass calls
+     and a D-043 re-ask. It goes after the call's claim, so a refused call is
+     never announced.
+   - `{"status": {"phase": "tool", "tool": <name or null>}}` before each tool
+     dispatch.
+   - `{"status": {"phase": "held"}}` once, when a held answer's first delta
+     arrives.
+
+   The frames carry our literals only. A tool is named only when the loop
+   offers it (`AgentLoop.knows`), because the name in a call is model output.
+   So there is nothing for the output rail to scan. Frames keep emission order
+   (D-031). Clients that do not know the frame ignore it.
+2. **A working indicator on the page.** It runs from Send, and again during
+   any silence over 1 s, ticking the seconds. It names the phase in fixed copy
+   and never names the engine (D-002).
+3. **Bounded pacing on the page.** Arrived frames go through one ordered
+   queue. Text is released smoothly on animation frames, but **nothing waits
+   longer than 200 ms**. Done, an error or the end of the stream flushes at
+   once, and a hidden tab paints unpaced. Only already-scanned text is paced.
+4. **The dev switcher's local endpoint is labelled "Local (slow)"**, not
+   "Deep — shows reasoning". "Standard" shows its reasoning too, and the old
+   label sent analysts to the slowest endpoint.
+
+**Bounds, stated.**
+- **Pacing adds up to 200 ms to every character on the screen.** Burhan chose
+  it knowing that. The bound is what makes it acceptable, and a test holds it.
+- **The indicator tells the analyst what is being waited on, not how long.**
+  Nothing predicts the endpoint's latency.
+- **A status frame is an announcement, not a result.** Whether the tool ran is
+  still the `tool` frame's job.
+
+**What this supersedes.** Nothing ratified. The SSE protocol gains a frame
+kind, and `AgentStreamEvent` gains the `phase` kind.
