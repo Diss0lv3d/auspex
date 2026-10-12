@@ -618,6 +618,28 @@ SCHEMA_V0: list[str] = [
     CREATE INDEX IF NOT EXISTS idx_usage_counters_window
         ON usage_counters (window_start)
     """,
+    # F1 (D-054): what each deep turn spent on the customer's engine. One row per
+    # deep turn, written at the turn's own ending — including the endings that
+    # store no answer (the rail's cut, the ceiling, an endpoint error), because
+    # the calls were made and paid for all the same. Tokens are the endpoint's
+    # own usage, NULL where it reported none (never a guessed zero).
+    """
+    CREATE TABLE IF NOT EXISTS turn_spend (
+        id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id      uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        session_id        uuid NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+        message_id        uuid REFERENCES messages(id) ON DELETE SET NULL,
+        engine_calls      integer NOT NULL CHECK (engine_calls >= 0),
+        prompt_tokens     integer,
+        completion_tokens integer,
+        ending            text NOT NULL,
+        created_at        timestamptz NOT NULL DEFAULT clock_timestamp()
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_turn_spend_session
+        ON turn_spend (session_id, created_at)
+    """,
 ]
 
 
