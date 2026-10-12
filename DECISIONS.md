@@ -1902,3 +1902,54 @@ endpoint faster.
 
 **What this supersedes.** Nothing ratified. The SSE protocol gains a frame
 kind, and `AgentStreamEvent` gains the `phase` kind.
+
+## D-053 — Answers render a safe subset of markdown, with https links that show where they go (2026-10-12, F1)
+
+**Context.** Answers are written in markdown (`## Risk`, `- **TTP**: …`,
+`` `T1558.003` ``), and the page has shown them as raw text since S3. An
+analyst reads `**` and `##` on every deep turn (seen in F1's screenshots).
+Rendering markdown from model text was recorded as "a decision, not a
+refactor" (SESSION-RULES.md, The page): until now, model text reached the page
+only as text.
+
+**Decision (Burhan's call; the subset and its safety bounds proposed, links put
+to him).**
+1. **The answer bubble only.** The Thinking pane stays plain text.
+2. **The subset:**
+   - headings `#`–`###`;
+   - `-`/`*` and numbered lists;
+   - `**bold**`;
+   - `` `code` `` spans and fenced blocks, in JetBrains Mono (D-002);
+   - paragraphs.
+
+   Not rendered: italics (underscores in identifiers such as
+   `enrich_observable` would garble), tables, images and raw HTML. They stay
+   literal text.
+3. **Links are clickable — Burhan's call, over the recommendation to leave them
+   literal.**
+   - Only `https:` URLs with no embedded credentials become links. They open
+     in a new tab with `rel="noopener noreferrer"` and no referrer.
+   - Every link shows its real host beside its text (`text ↗ host`), so anchor
+     text cannot hide the destination.
+   - Anything else (`javascript:`, `data:`, `http:`, `user:pass@`) stays
+     literal text.
+4. **Model text never becomes HTML.** A pure parser in the page's logic block
+   produces a small tree, and the DOM is built from it with `createElement` and
+   `textContent` only. An `<img onerror>` in an answer is visible text.
+5. **Code spans are neutral.** They use the text colour on a faint Surface
+   background, not Signal amber, which D-002 reserves for "suspicious".
+6. **Streaming.** The bubble re-renders from the accumulated answer as it is
+   painted (D-052), so an unclosed marker stays literal until it closes. What is
+   stored is unchanged: the answer's markdown text.
+
+**Bounds, stated.**
+- **A poisoned answer can now put a clickable https link in front of an
+  analyst.** The host shown beside it is the mitigation, not a prevention.
+  The output rail (D-030) catches our configuration coming back out, not a
+  malicious URL.
+- The subset is what the contracts' answers use today. A model that writes
+  tables gets them as text.
+
+**What this supersedes.** Nothing ratified. It changes SESSION-RULES.md's rule
+that model text reaches the page only as text: the answer bubble's text now
+reaches it as text inside elements the page chose.
