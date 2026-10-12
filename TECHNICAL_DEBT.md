@@ -1,5 +1,24 @@
 # Technical debt — logged the moment it's taken
 
+## TD-051 (F2) — the page sends no Content-Security-Policy
+
+**Where:** `auspex/routes/ui.py` serves `index.html` and `timeline.html` with
+only `Cache-Control: no-cache`.
+**Risk:** MEDIUM since D-056. The sign-in token now sits in the tab's
+`sessionStorage`, readable by any script on the page. Nothing in the browser
+stops an injected script; the one guard is D-053's rule that model and tool
+text never become HTML.
+**Why taken:** the pages run one inline script, so a useful CSP needs a nonce
+per response or a hash per script, and every page edit would move the hash.
+That belongs with moving the script into files.
+**Path to fix:** with TD-045's split (scripts in their own files, served
+`no-cache` like the pages), send `Content-Security-Policy: default-src 'self';
+script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+font-src https://fonts.gstatic.com; connect-src 'self'` and pin it in
+`tests/test_ui.py`.
+**Trigger:** TD-045's split, any new HTML-rendering surface, or any finding of
+script injection on the page.
+
 ## TD-050 (F2) — a reopened chat's turns are paired by time
 
 **Where:** `auspex/chat_history.py` `pair_turns`, behind
