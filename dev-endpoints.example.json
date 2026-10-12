@@ -11,7 +11,7 @@
     },
     {
       "id": "qwen",
-      "label": "Deep — shows reasoning",
+      "label": "Local (slow)",
       "base_url": "http://host.docker.internal:11434/v1",
       "model": "qwen3:14b",
       "api_key_env": null,

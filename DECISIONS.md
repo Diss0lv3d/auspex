@@ -1848,3 +1848,176 @@ him).**
 **What this supersedes.** Nothing ratified. It changes the CLAUDE.md working
 protocol (one prompt file, rule 12) and the `/session-start`, `/session-end`
 and `/briefing` commands.
+
+## D-052 — The stream says what a turn is waiting on, and the page paints it paced within 200 ms (2026-10-12, F1)
+
+**Context.** Burhan, 2026-10-10: deep turns' reasoning streams very slowly,
+"we should perhaps increase the stream bit rate so it renders faster". F1
+measured three layers on the same runs before changing anything
+(docs/probes/2026-10-12-f1-stream-layers.md):
+- **the server** adds about 1 ms per delta (p50; 4.6 ms at most);
+- **the page** about 3 ms to paint (p50; 41 ms at most), with no long tasks;
+- **the endpoint** is the rest. glm-4.5-air streams about 1000 chars/s in
+  bursts, but an agent turn waits 1-3 s before each of its 3-5 model calls
+  (once 12.9 s). qwen3:14b streams 139-171 chars/s.
+
+What the analyst feels as slow is the silences: the page shows nothing
+changing while the engine starts its next call, runs a tool, or (D-043) writes
+an answer it is holding. No change to the stream or the painting makes the
+endpoint faster.
+
+**Decision (Burhan's call, from options F1 put to him; all four picked).**
+1. **A `status` frame on `/api/chat`, sent before each wait.**
+   - `{"status": {"phase": "engine"}}` before every model call: each agent
+     step, the step cap's synthesis pass, the native call, both two-pass calls
+     and a D-043 re-ask. It goes after the call's claim, so a refused call is
+     never announced.
+   - `{"status": {"phase": "tool", "tool": <name or null>}}` before each tool
+     dispatch.
+   - `{"status": {"phase": "held"}}` once, when a held answer's first delta
+     arrives.
+
+   The frames carry our literals only. A tool is named only when the loop
+   offers it (`AgentLoop.knows`), because the name in a call is model output.
+   So there is nothing for the output rail to scan. Frames keep emission order
+   (D-031). Clients that do not know the frame ignore it.
+2. **A working indicator on the page.** It runs from Send, and again during
+   any silence over 1 s, ticking the seconds. It names the phase in fixed copy
+   and never names the engine (D-002).
+3. **Bounded pacing on the page.** Arrived frames go through one ordered
+   queue. Text is released smoothly on animation frames, but **nothing waits
+   longer than 200 ms**. Done, an error or the end of the stream flushes at
+   once, and a hidden tab paints unpaced. Only already-scanned text is paced.
+4. **The dev switcher's local endpoint is labelled "Local (slow)"**, not
+   "Deep — shows reasoning". "Standard" shows its reasoning too, and the old
+   label sent analysts to the slowest endpoint.
+
+**Bounds, stated.**
+- **Pacing adds up to 200 ms to every character on the screen.** Burhan chose
+  it knowing that. The bound is what makes it acceptable, and a test holds it.
+- **The indicator tells the analyst what is being waited on, not how long.**
+  Nothing predicts the endpoint's latency.
+- **A status frame is an announcement, not a result.** Whether the tool ran is
+  still the `tool` frame's job.
+
+**What this supersedes.** Nothing ratified. The SSE protocol gains a frame
+kind, and `AgentStreamEvent` gains the `phase` kind.
+
+## D-053 — Answers render a safe subset of markdown, with https links that show where they go (2026-10-12, F1)
+
+**Context.** Answers are written in markdown (`## Risk`, `- **TTP**: …`,
+`` `T1558.003` ``), and the page has shown them as raw text since S3. An
+analyst reads `**` and `##` on every deep turn (seen in F1's screenshots).
+Rendering markdown from model text was recorded as "a decision, not a
+refactor" (SESSION-RULES.md, The page): until now, model text reached the page
+only as text.
+
+**Decision (Burhan's call; the subset and its safety bounds proposed, links put
+to him).**
+1. **The answer bubble only.** The Thinking pane stays plain text.
+2. **The subset:**
+   - headings `#`–`###`;
+   - `-`/`*` and numbered lists;
+   - `**bold**`;
+   - `` `code` `` spans and fenced blocks, in JetBrains Mono (D-002);
+   - paragraphs.
+
+   Not rendered: italics (underscores in identifiers such as
+   `enrich_observable` would garble), tables, images and raw HTML. They stay
+   literal text.
+3. **Links are clickable — Burhan's call, over the recommendation to leave them
+   literal.**
+   - Only `https:` URLs with no embedded credentials become links. They open
+     in a new tab with `rel="noopener noreferrer"` and no referrer.
+   - Every link shows its real host beside its text (`text ↗ host`), so anchor
+     text cannot hide the destination.
+   - Anything else (`javascript:`, `data:`, `http:`, `user:pass@`) stays
+     literal text.
+4. **Model text never becomes HTML.** A pure parser in the page's logic block
+   produces a small tree, and the DOM is built from it with `createElement` and
+   `textContent` only. An `<img onerror>` in an answer is visible text.
+5. **Code spans are neutral.** They use the text colour on a faint Surface
+   background, not Signal amber, which D-002 reserves for "suspicious".
+6. **Streaming.** The bubble re-renders from the accumulated answer as it is
+   painted (D-052), so an unclosed marker stays literal until it closes. What is
+   stored is unchanged: the answer's markdown text.
+
+**Bounds, stated.**
+- **A poisoned answer can now put a clickable https link in front of an
+  analyst.** The host shown beside it is the mitigation, not a prevention.
+  The output rail (D-030) catches our configuration coming back out, not a
+  malicious URL.
+- The subset is what the contracts' answers use today. A model that writes
+  tables gets them as text.
+
+**What this supersedes.** Nothing ratified. It changes SESSION-RULES.md's rule
+that model text reaches the page only as text: the answer bubble's text now
+reaches it as text inside elements the page chose.
+
+## D-054 — Every deep turn records what it spent, and the page shows it per answer and per chat (2026-10-12, F1)
+
+**Context.** IDEAS: "Investigation cost ledger UI (token spend per verdict)".
+The customer brings the LLM and pays for it, and the platform never knows the
+price. A turn's usage reached the `done` frame and was then discarded. A turn
+that ended badly carried none at all: the rail's cut, a ceiling refusal, an
+endpoint error. B-002's stopped turns spent 4 engine calls each and left no
+trace of it. Most verdicts are code-decided at zero engine calls (the IOC check,
+and the alert and phishing scores of D-043), so "per verdict" was the wrong
+unit for where the spend is.
+
+**Decision (Burhan's call, from F1's options; both recommended ones).**
+1. **The unit is the turn, totalled per chat.** One `turn_spend` row per deep
+   turn. It records the chat and workspace, the stored answer when there is
+   one, `engine_calls`, input and output tokens, and how the turn ended.
+   - **Turns that store no answer are recorded too:** leak, ceiling refusal,
+     endpoint error and empty answer.
+   - **A shortcut turn records nothing**, because it spent nothing.
+2. **Tokens and calls only, no money.**
+   - `engine_calls` counts the model calls actually made, the same ones D-052
+     announces (after each claim).
+   - Tokens are the endpoint's own usage, summed over every call in the turn.
+     Before this, the two-pass and switched paths kept only their last call's
+     usage.
+   - An endpoint that reports no usage leaves the tokens null, never zero.
+3. **The page shows** a line under each answer from its `done` frame, and this
+   chat's total at the composer. The total comes from
+   `GET /api/chat/sessions/{id}/spend`, which is scoped to the caller's
+   workspace (a foreign or unknown chat is a 404), so failed turns count.
+
+**Bounds, stated.** A turn cut off by a dropped connection may not reach the
+point where it records. The spend row is written at the turn's own ending.
+
+## D-055 — The network a source names is kept beside the verdict, never as one (2026-10-12, B1)
+
+**Context.** B-001: "dig deeper" on 34.187.179.218 answered that it is
+Amazon's, "based on WHOIS". It is Google's. AbuseIPDB had named Google LLC on
+turn 1 (isp, domain, usage type, country, hostname), and OTX had named
+AS15169. The provider returned None on a low score, so the whole answer was
+dropped and the IOC check said "unknown to them". On the conversational path,
+with no tools and no owner in context, the model supplied one from memory.
+Replayed with the owner in context, the answers went from an owner claimed
+with no source in 4 of 6 (glm, two of them Amazon) and Amazon in 3 of 3 (qwen)
+to Google in 9 of 9, none citing WHOIS (docs/probes/2026-10-12-b1-b001-fix.md).
+
+**Decision (Burhan's call; the recommended option).**
+1. **Who operates an address is its own field, `NetworkContext`**, kept on
+   each enriched observable (`ObservableEnrichment.network`). A provider
+   lookup may return it beside a signal, or alone.
+2. **It is never a signal.** It is not synthesized into a verdict and not
+   recorded as one. So it can neither supersede nor flip what the workspace
+   believes about an indicator.
+3. **The IOC check shows it** on its own line with its source, and does not
+   say "unknown to them" about an address a source did name. The agent's
+   `enrich_observable` result carries it as `network`.
+4. **AbuseIPDB supplies it** on every answer that names a network, whatever
+   the score.
+
+**Rejected: a context-only signal** (`VerdictLabel.UNKNOWN`, as InternetDB's
+open ports). It was one file instead of five, but every clean IP would then get
+an `unknown` verdict row. An IP once rated malicious whose sources later say
+nothing would flip malicious → unknown; today it keeps its verdict and decays.
+That would change Living Verdicts for most IPs to fix a display gap.
+
+**Bounds, stated.** Only AbuseIPDB supplies it (TD-049). The model can still
+add what nobody supplied ("likely us-central1"). That is the deferred item on
+fabricated specifics, not this decision.

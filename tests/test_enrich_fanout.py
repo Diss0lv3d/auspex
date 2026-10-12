@@ -24,6 +24,7 @@ from auspex.enrich.filters import (
 from auspex.enrich.providers.base import Provider
 from auspex.enrich.service import CAP_SKIP, NO_COVERAGE_SKIP, EnrichmentService
 from auspex.enrich.types import (
+    NetworkContext,
     ProviderError,
     ProviderInputError,
     ProviderSignal,
@@ -422,6 +423,76 @@ def test_render_context_only_signals_do_not_claim_a_verdict():
     text = render_ioc_answer(outcome)
     assert "no reputation verdict — context: InternetDB: open ports" in text
     assert "verdict: unknown" not in text
+
+
+# -- B-001: the network a source named is kept, apart from the verdict --------
+
+GOOGLE_NETWORK = NetworkContext(
+    provider="AbuseIPDB",
+    summary="Google LLC (google.com), Data Center/Web Hosting/Transit, US"
+    " · hostname 218.179.187.34.bc.googleusercontent.com",
+)
+
+
+async def test_a_network_context_is_collected_apart_from_signals(poisoned_client):
+    """B-001: a provider that names the network but claims no reputation
+    contributes NO signal, so nothing is synthesized and no verdict can be
+    recorded from it — and it still counts as having answered."""
+    owner = ScriptedProvider("AbuseIPDB", result=GOOGLE_NETWORK)
+    quiet = ScriptedProvider("OTX", result=None)
+    svc = service([owner, quiet], client=poisoned_client)
+    ip = obs(ObservableType.IPV4, "34.187.179.218")
+    (item,) = (await svc.enrich((ip,))).items
+    assert item.signals == ()
+    assert item.network == (GOOGLE_NETWORK,)
+    assert item.sources_answered == 2
+    assert synthesize(ip, item.signals) is None
+
+
+async def test_a_lookup_can_return_a_signal_and_a_network_together(poisoned_client):
+    both = ScriptedProvider("AbuseIPDB", result=(signal("AbuseIPDB"), GOOGLE_NETWORK))
+    svc = service([both], client=poisoned_client)
+    (item,) = (await svc.enrich((obs(ObservableType.IPV4, "34.187.179.218"),))).items
+    assert [s.provider for s in item.signals] == ["AbuseIPDB"]
+    assert item.network == (GOOGLE_NETWORK,)
+
+
+def test_render_names_the_network_and_no_longer_says_unknown_to_them_b001():
+    """B-001: turn 1 said "unknown to them" while AbuseIPDB had named Google
+    LLC. With the network kept, the echo names it and its source, claims no
+    verdict, and does not say anything was recorded (nothing was)."""
+    from auspex.enrich.echo import VERDICTS_RECORDED_COPY
+    from auspex.enrich.types import EnrichmentOutcome, ObservableEnrichment
+
+    outcome = EnrichmentOutcome(
+        items=(
+            ObservableEnrichment(
+                observable=obs(ObservableType.IPV4, "34.187.179.218"),
+                sources_answered=5,
+                network=(GOOGLE_NETWORK,),
+            ),
+        ),
+    )
+    text = render_ioc_answer(outcome)
+    assert text == (
+        "Parsed 1 observable:\n\n"
+        "- 34.187.179.218 — ipv4 (id ipv4-84ed934c)\n"
+        "  no signal from 5 connected sources\n"
+        "  network — AbuseIPDB: Google LLC (google.com), Data Center/Web Hosting/Transit, US"
+        " · hostname 218.179.187.34.bc.googleusercontent.com"
+    )
+    assert "unknown to them" not in text
+    assert VERDICTS_RECORDED_COPY not in text
+
+
+def test_render_keeps_unknown_to_them_when_no_source_named_a_network():
+    from auspex.enrich.types import EnrichmentOutcome, ObservableEnrichment
+
+    outcome = EnrichmentOutcome(
+        items=(ObservableEnrichment(observable=obs(ObservableType.IPV4, "1.2.3.4"),
+                                    sources_answered=5),),
+    )
+    assert "no signal from 5 connected sources — unknown to them" in render_ioc_answer(outcome)
 
 
 def test_render_marks_a_failure_as_partial_when_the_provider_also_answered():

@@ -148,6 +148,11 @@ class AgentStreamEvent:
       'tool'      — one tool step RESOLVED; carries the ToolInvocation, which is
                     what the route narrates. Emitted after the handler ran, so
                     it reports what happened rather than what was requested.
+      'phase'     — what the turn is about to wait on (D-052), announced
+                    BEFORE it starts: `phase` is "engine" (a model call) or
+                    "tool" (a dispatch). `tool_name` is set only for a name
+                    this loop offers (`knows`); the name in a call is model
+                    output, so anything else is announced without one.
       'usage'     — one model call's usage, per call rather than per turn.
       'done'      — the turn ended; `text` is the final answer, `stop_reason`
                     says why it ended. `empty_answer` means there is no answer
@@ -163,6 +168,8 @@ class AgentStreamEvent:
     stop_reason: str = ""
     step: int = 0
     invocations: list[ToolInvocation] = field(default_factory=list)
+    phase: str = ""
+    tool_name: str | None = None
 
 
 # --- Tool channels: the per-mode seam ---------------------------------------
@@ -550,6 +557,10 @@ class AgentLoop:
             def _text(kind: str, text: str) -> AgentStreamEvent:
                 return AgentStreamEvent(kind=kind, text=text, step=at_step)
 
+            # D-052: every model call is announced before it is made. Here,
+            # after the claim, so a call the ceiling refused is never announced.
+            yield AgentStreamEvent(kind="phase", phase="engine", step=at_step)
+
             # `aclosing`: a turn closed early (the route's rail tripped) closes
             # the endpoint's stream NOW, so it stops generating — not whenever
             # the abandoned generator is collected.
@@ -620,6 +631,10 @@ class AgentLoop:
                     call.id = f"call_{step}_{idx}"
             messages.append(self.channel.assistant_message(result, calls))
             for call in calls:
+                yield AgentStreamEvent(
+                    kind="phase", phase="tool", step=step,
+                    tool_name=call.name if self.knows(call.name) else None,
+                )
                 invocation = await self._dispatch_within_budget(call, used)
                 invocations.append(invocation)
                 yield AgentStreamEvent(kind="tool", invocation=invocation, step=step)

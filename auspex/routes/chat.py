@@ -233,6 +233,19 @@ def _sse(event: dict) -> str:
     return f"data: {json.dumps(event)}\n\n"
 
 
+# D-052: what the turn is about to wait on, sent BEFORE the wait starts so the
+# page can say so. Our literals only; a tool is named only when the loop offers
+# it (AgentStreamEvent.tool_name), never by the name the model wrote.
+_ENGINE_STATUS = _sse({"status": {"phase": "engine"}})
+_HELD_STATUS = _sse({"status": {"phase": "held"}})
+
+
+def _status_frame(ev) -> str:
+    if ev.phase == "tool":
+        return _sse({"status": {"phase": "tool", "tool": ev.tool_name}})
+    return _ENGINE_STATUS
+
+
 def select_dev_endpoint(
     registry: dict[str, DevEndpoint], app_env: str, endpoint_id: str | None
 ) -> DevEndpoint | None:
@@ -323,6 +336,34 @@ def _sse_response(stream) -> StreamingResponse:
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+async def _record_spend(
+    pool: asyncpg.Pool,
+    auth: AuthContext,
+    session_id: UUID,
+    *,
+    engine_calls: int,
+    usage: dict | None,
+    ending: str,
+    message_id: UUID | None = None,
+) -> None:
+    """D-054: one `turn_spend` row per deep turn, at its own ending. Best-effort:
+    a ledger write that fails is logged and does not take the answer with it."""
+    try:
+        await pool.execute(
+            "INSERT INTO turn_spend (workspace_id, session_id, message_id, engine_calls,"
+            " prompt_tokens, completion_tokens, ending) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            auth.workspace_id,
+            session_id,
+            message_id,
+            engine_calls,
+            usage["prompt_tokens"] if usage else None,
+            usage["completion_tokens"] if usage else None,
+            ending,
+        )
+    except Exception:
+        logger.exception("turn spend not recorded (session %s, ending %s)", session_id, ending)
 
 
 async def _ensure_session(pool: asyncpg.Pool, auth: AuthContext, session_id: UUID | None) -> UUID:
@@ -457,6 +498,28 @@ async def usage(request: Request, auth: Auth) -> dict:
     here exposes another workspace's numbers (the query is workspace-scoped).
     """
     return await UsageLimiter(request.app.state.pool).snapshot(workspace_id=auth.workspace_id)
+
+
+@router.get("/chat/sessions/{session_id}/spend")
+async def session_spend(request: Request, auth: Auth, session_id: UUID) -> dict:
+    """D-054: what this chat has spent on the engine, every deep turn counted —
+    the ones that stored no answer too. Scoped like the chat itself: the
+    workspace AND the user, so another analyst's chat is a 404 like a missing one."""
+    pool = request.app.state.pool
+    await _ensure_session(pool, auth, session_id)
+    row = await pool.fetchrow(
+        "SELECT count(*) AS turns, coalesce(sum(engine_calls), 0) AS engine_calls,"
+        "       sum(prompt_tokens) AS prompt_tokens, sum(completion_tokens) AS completion_tokens"
+        "  FROM turn_spend WHERE session_id = $1 AND workspace_id = $2",
+        session_id,
+        auth.workspace_id,
+    )
+    return {
+        "turns": row["turns"],
+        "engine_calls": row["engine_calls"],
+        "prompt_tokens": row["prompt_tokens"],
+        "completion_tokens": row["completion_tokens"],
+    }
 
 
 @router.get("/models")
@@ -760,6 +823,13 @@ async def chat(
         refused = None
         first_call_claimed = True
         repair = None  # D-043: None | "reasked" | "code_rendered"
+        # D-054: the model calls this turn actually made — the ones D-052
+        # announces, each after its claim.
+        spent = {"calls": 0}
+
+        def engine_call() -> str:
+            spent["calls"] += 1
+            return _ENGINE_STATUS
 
         async def claim_next() -> bool:
             """The loop asks before every model call. The first was claimed
@@ -813,6 +883,10 @@ async def chat(
                         ):
                             return
                         yield _sse({"tool": frame})
+                    elif ev.kind == "phase":
+                        if ev.phase == "engine":
+                            spent["calls"] += 1
+                        yield _status_frame(ev)
                     elif ev.kind == "usage" and ev.usage:
                         usage = _add_usage(usage, ev.usage)
                     elif ev.kind == "done":
@@ -824,6 +898,7 @@ async def chat(
             own fields, both through the rail. The native path, and the path a
             two-pass turn switches to when its endpoint turns out to think (D-036)."""
             nonlocal finish_reason, usage
+            yield engine_call()
             async with aclosing(
                 endpoint.client.chat_stream(
                     messages, max_tokens=CHAT_ANSWER_MAX_TOKENS, temperature=0
@@ -840,10 +915,12 @@ async def chat(
                         content_parts.append(ev.text)
                         if not hold:
                             yield _sse({"content": ev.text})
+                        elif len(content_parts) == 1:
+                            yield _HELD_STATUS
                     elif ev.kind == "finish":
                         finish_reason = ev.finish_reason
                     elif ev.kind == "usage" and ev.usage:
-                        usage = _usage_dict(ev.usage)
+                        usage = _add_usage(usage, ev.usage)
 
         async def repaired_answer():
             """D-043. A held answer that failed its contract or its pin — or
@@ -874,6 +951,7 @@ async def chat(
                 logger.info("contract re-ask refused by the ceiling; the code answers")
             else:
                 directive = contract.repair_directive(first, pinned_values)
+                yield engine_call()
                 try:
                     async with aclosing(
                         endpoint.client.chat_stream(
@@ -891,6 +969,8 @@ async def chat(
                                 if scanner.feed(ev.text, channel="content"):
                                     return
                                 retry_parts.append(ev.text)
+                                if len(retry_parts) == 1:
+                                    yield _HELD_STATUS
                             elif ev.kind == "finish":
                                 finish_reason = ev.finish_reason
                             elif ev.kind == "usage" and ev.usage:
@@ -924,6 +1004,7 @@ async def chat(
                 # Two-pass fallback: pass 1 = brief analyst reasoning → Thinking pane.
                 analysis_parts: list[str] = []
                 thinks_natively = False
+                yield engine_call()
                 async with aclosing(
                     endpoint.client.chat_stream(
                         [*messages, {"role": "system", "content": PASS1_DIRECTIVE}],
@@ -948,6 +1029,8 @@ async def chat(
                                 break
                             analysis_parts.append(ev.text)
                             yield _sse({"reasoning": ev.text})
+                        elif ev.kind == "usage" and ev.usage:
+                            usage = _add_usage(usage, ev.usage)
                 if thinks_natively:
                     logger.info(
                         "two-pass endpoint thinks natively; turn switched to native"
@@ -966,6 +1049,7 @@ async def chat(
                 # the analyst after the rail had already fired.
                 if not scanner.tripped and not thinks_natively:
                     # pass 2 = the answer, grounded in the private analysis → content.
+                    yield engine_call()
                     async for ev in endpoint.client.chat_stream(
                         [*messages, {"role": "system", "content": _pass2_directive(analysis)}],
                         max_tokens=CHAT_ANSWER_MAX_TOKENS,
@@ -977,10 +1061,12 @@ async def chat(
                             content_parts.append(ev.text)
                             if not hold:
                                 yield _sse({"content": ev.text})
+                            elif len(content_parts) == 1:
+                                yield _HELD_STATUS
                         elif ev.kind == "finish":
                             finish_reason = ev.finish_reason
                         elif ev.kind == "usage" and ev.usage:
-                            usage = _usage_dict(ev.usage)
+                            usage = _add_usage(usage, ev.usage)
             if hold and not scanner.tripped:
                 async with aclosing(repaired_answer()) as frames:
                     async for frame in frames:
@@ -991,6 +1077,8 @@ async def chat(
             # and the provider's code — never its message, which can name the
             # engine and can echo the request (TD-040).
             logger.warning("endpoint error: status=%s code=%s", err.status, err.code)
+            await _record_spend(pool, auth, session_id, engine_calls=spent["calls"],
+                                usage=usage, ending="endpoint_error")
             yield _sse({"error": err.public})
             return
         finally:
@@ -1035,11 +1123,14 @@ async def chat(
             logger.warning(
                 "output leak: mode=%s matched=%r", mode.value, leak.matched
             )
+            await _record_spend(pool, auth, session_id, engine_calls=spent["calls"],
+                                usage=usage, ending="output_guard")
             yield _sse({"error": LEAK_COPY})
             yield _sse(
                 {
                     "done": {
                         "finish_reason": "output_guard",
+                        "engine_calls": spent["calls"],
                         "usage": usage,
                         "path": path,
                         "mode": mode.value,
@@ -1060,11 +1151,14 @@ async def chat(
                 refused.used,
                 refused.limit,
             )
+            await _record_spend(pool, auth, session_id, engine_calls=spent["calls"],
+                                usage=usage, ending="usage_refused")
             yield _sse({"error": refused.refusal_text})
             yield _sse(
                 {
                     "done": {
                         "finish_reason": "usage_refused",
+                        "engine_calls": spent["calls"],
                         "usage": usage,
                         "path": path,
                         "mode": mode.value,
@@ -1078,8 +1172,12 @@ async def chat(
         if hold and answer:
             # Sent only now: it has passed, been re-asked, or been replaced.
             yield _sse({"content": answer})
+        message_id = None
         if answer:
-            await _insert_message(pool, auth, session_id, "assistant", answer)
+            message_id = await _insert_message(pool, auth, session_id, "assistant", answer)
+        await _record_spend(pool, auth, session_id, engine_calls=spent["calls"], usage=usage,
+                            ending=(finish_reason or "unknown") if answer else "empty_answer",
+                            message_id=message_id)
         # Post-hoc contract validation (specs → validators): a streamed answer
         # can't be blocked, but the done frame reports the mode and whether the
         # output conformed, so drift is observable (and, later, correctable via
@@ -1096,6 +1194,7 @@ async def chat(
             {
                 "done": {
                     "finish_reason": finish_reason,
+                    "engine_calls": spent["calls"],
                     "usage": usage,
                     "path": path,
                     "mode": mode.value,

@@ -58,6 +58,43 @@ class ProviderSignal:
 
 
 @dataclass(frozen=True)
+class NetworkContext:
+    """Who operates an address, as ONE provider reported it (B-001).
+
+    A fact about the address, not a reputation. It is never a ProviderSignal:
+    it is not synthesized into a verdict, never recorded as one, and so it can
+    neither supersede nor flip what the workspace believes about an indicator.
+
+    It exists because the platform used to fetch it and throw it away.
+    AbuseIPDB names the network on every lookup; a low score returned None,
+    the IOC check said "unknown to them", and a model asked to dig deeper,
+    holding no tools and no owner, supplied one from memory — the wrong one
+    (docs/probes/b1-b001/)."""
+
+    provider: str  # display name, e.g. "AbuseIPDB" (data source — not the engine)
+    summary: str  # one plain-text line, user-facing
+    evidence: dict = field(default_factory=dict)  # trimmed, JSON-safe
+
+
+# What one provider lookup may return: a reputation claim, the network it named,
+# both, or nothing at all.
+LookupResult = (
+    ProviderSignal | NetworkContext | tuple[ProviderSignal | NetworkContext, ...] | None
+)
+
+
+def split_lookup(result: LookupResult) -> tuple[list[ProviderSignal], list[NetworkContext]]:
+    """One lookup's result as (signals, network contexts), in the order given."""
+    if result is None:
+        return [], []
+    parts = result if isinstance(result, tuple) else (result,)
+    return (
+        [p for p in parts if isinstance(p, ProviderSignal)],
+        [p for p in parts if isinstance(p, NetworkContext)],
+    )
+
+
+@dataclass(frozen=True)
 class ObservableEnrichment:
     """Everything enrichment produced for one observable this turn."""
 
@@ -68,6 +105,9 @@ class ObservableEnrichment:
     # a signal or a clean no-data). Timeouts/errors/breaker-skips don't count —
     # the echo may only claim "unknown to them" about sources that answered.
     sources_answered: int = 0
+    # B-001: who operates the address, per each source that said so. Kept
+    # apart from `signals` on purpose — see NetworkContext.
+    network: tuple[NetworkContext, ...] = ()
 
 
 @dataclass(frozen=True)

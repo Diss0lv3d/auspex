@@ -1,5 +1,78 @@
 # Technical debt — logged the moment it's taken
 
+## TD-049 (B1) — only AbuseIPDB names an address's network
+
+**Where:** `auspex/enrich/providers/abuseipdb.py` `_network` (D-055). OTX
+answers `asn` and country on every IPv4 lookup, keyless, and
+`auspex/enrich/providers/otx.py` still drops them.
+**Risk:** MEDIUM. AbuseIPDB is key-gated. A deployment without
+ABUSEIPDB_API_KEY gets no owner on any IP, the IOC check says "unknown to
+them" again, and a follow-up on the conversational path is back to B-001: a
+model with no owner in front of it supplies one.
+**Why taken:** B-001 was about the owner that was fetched and thrown away;
+AbuseIPDB was the source that had it in the reported turn. One provider
+proved the fix end to end (docs/probes/2026-10-12-b1-b001-fix.md).
+**Path to fix:** OTX returns a NetworkContext from `asn`/country, probed on a
+few IPs first, with the same fan-out (no verdict, no flip).
+**Trigger:** a deployment runs without an AbuseIPDB key, or a B-001-shaped
+answer is seen again.
+
+## TD-048 (F1) — a turn cut by a dropped connection may record no spend
+
+**Where:** `auspex/routes/chat.py`, `_record_spend` at each of the turn's own
+endings (D-054).
+**Risk:** LOW-MEDIUM. If a client disconnects mid-turn, the generator is
+closed before it reaches an ending, and the calls already made go unrecorded.
+The ledger undercounts exactly the turns an analyst abandoned.
+**Why taken:** awaiting a database write inside a generator that is being
+closed is the kind of cleanup that hides its own failures. D-054 states the
+bound instead.
+**Path to fix:** record from a cancellation-safe place, for example a
+background task that the stream's closing hands the counters to, with a test
+that closes the stream mid-turn.
+**Trigger:** the ledger is used for anything a customer is billed or
+budgeted on.
+
+## TD-047 (F1) — no-cache pages are re-sent in full on every load
+
+**Where:** `auspex/routes/ui.py` (B-003's fix).
+**Risk:** LOW. `FileResponse` answers a matching `If-None-Match` with a full
+200, not a 304 (measured in F1), so every load costs the page (~23 KB).
+**Why taken:** B-003 was about correctness (an old page running after a
+deploy). The bytes are a dev-page cost.
+**Path to fix:** answer `If-None-Match` with a 304 in `ui.py`, or serve the
+pages through `StaticFiles` with `no-cache`.
+**Trigger:** the page is served to many analysts, or splits into several files
+(TD-045).
+
+## TD-046 (F1) — the approvals panel polls every 5 s
+
+**Where:** `auspex/static/index.html` (`pollApprovals`).
+**Risk:** LOW. One indexed query per open page every 5 s. The card stream
+announces only new cards (STATE follow-up 5), so polling is the one source of
+status changes.
+**Why taken:** a stream that also carries status changes is a backend change
+with its own design (what changed, from what).
+**Path to fix:** the card stream emits status changes, and the panel switches
+from polling to the stream, with the list read once on open.
+**Trigger:** many analysts with the panel open, or the card stream gains
+status changes.
+
+## TD-045 (F1) — the chat page is one 808-line file
+
+**Where:** `auspex/static/index.html`. It holds the styles, the
+`// <page-logic>` block that Node tests, and the DOM wiring for the stream,
+markdown, the working line, the approvals panel and the spend lines.
+**Risk:** LOW. The logic that matters is in the tested block. The wiring is
+thin but growing, and every change touches one file.
+**Why taken:** splitting it would have bundled a refactor (a static route,
+moved code, no-cache for scripts) with F1's features.
+**Path to fix:** move the page-logic block and each panel's wiring into static
+ES modules served `no-cache`, with the Node tests importing them directly.
+Its own change, with no behaviour change.
+**Trigger:** the page passes ~1000 lines, or a second page needs the same
+logic.
+
 ## TD-044 (S27) — the rail's index grew and its legitimate ceiling was not re-measured
 
 > **S28: the trigger fired again.** D-050 added a mode directive
@@ -24,6 +97,12 @@ includes action-request turns, whose answers paraphrase the action directive
 ("I've proposed…"). Record the new legitimate ceiling next to the floors.
 **Trigger:** any `output_guard` cut on a turn that looks legitimate, the next
 model change (D-042's WARNING), or the next addition to the index.
+
+> **F1: the trigger fired as a live false positive (B-002).** "What are the
+> practical differences between EDR and XDR …" on the agent path was cut 3 of
+> 4 times. The match was 40 words of the definition contract's section spec on
+> the thinking channel, exactly `THINKING_SHINGLE_WORDS`
+> (docs/probes/2026-10-12-b002-definition-rail-trip.md).
 
 ## TD-043 (S27) — an agent turn on a thinly covered topic spends the whole step cap re-searching
 

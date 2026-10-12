@@ -23,7 +23,13 @@ import httpx
 from auspex.classify.observables import Observable
 from auspex.enrich.breaker import CircuitBreaker
 from auspex.enrich.providers.base import Provider
-from auspex.enrich.types import ProviderError, ProviderInputError, ProviderSignal
+from auspex.enrich.types import (
+    NetworkContext,
+    ProviderError,
+    ProviderInputError,
+    ProviderSignal,
+    split_lookup,
+)
 
 logger = logging.getLogger("auspex.enrich")
 
@@ -38,10 +44,17 @@ async def fan_out(
     breakers: dict[str, CircuitBreaker],
     *,
     call_timeout: float,
-) -> tuple[dict[str, list[ProviderSignal]], dict[str, str], dict[str, int]]:
+) -> tuple[
+    dict[str, list[ProviderSignal]],
+    dict[str, str],
+    dict[str, int],
+    dict[str, list[NetworkContext]],
+]:
     """Returns (signals by obs_id, provider failures by name, completed-lookup
-    counts by obs_id)."""
+    counts by obs_id, network contexts by obs_id). A network context is kept
+    apart from the signals so it can never become a verdict (B-001)."""
     signals: dict[str, list[ProviderSignal]] = {o.obs_id: [] for o in observables}
+    network: dict[str, list[NetworkContext]] = {o.obs_id: [] for o in observables}
     answered: dict[str, int] = {o.obs_id: 0 for o in observables}
     failures: dict[str, str] = {}
 
@@ -49,7 +62,7 @@ async def fan_out(
         breaker = breakers[provider.name]
         try:
             async with asyncio.timeout(call_timeout):
-                signal = await provider.lookup(client, observable)
+                result = await provider.lookup(client, observable)
         except TimeoutError:
             breaker.record_failure()
             failures.setdefault(provider.name, f"timed out after {call_timeout:g}s")
@@ -72,8 +85,9 @@ async def fan_out(
             return
         breaker.record_success()
         answered[observable.obs_id] += 1
-        if signal is not None:
-            signals[observable.obs_id].append(signal)
+        found, named = split_lookup(result)
+        signals[observable.obs_id].extend(found)
+        network[observable.obs_id].extend(named)
 
     tasks = []
     for provider in providers:
@@ -90,4 +104,6 @@ async def fan_out(
     # Deterministic echo/persist order regardless of completion order.
     for obs_signals in signals.values():
         obs_signals.sort(key=lambda s: s.provider)
-    return signals, failures, answered
+    for obs_network in network.values():
+        obs_network.sort(key=lambda c: c.provider)
+    return signals, failures, answered, network

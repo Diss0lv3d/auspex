@@ -62,11 +62,57 @@
     details.think .step.proposed { color: var(--signal); }
     details.think .step.error { color: var(--ember); }
     .proposal { color: var(--signal); font-size: 13px; margin: 6px 0; border-left: 2px solid var(--signal); padding-left: 10px; }
+    .working { color: var(--slate); font-family: var(--mono); font-size: 12.5px; margin-top: 6px; }
+    .working::before { content: "● "; color: var(--aurora); }
     footer { border-top: 1px solid #1c2431; padding: 14px 20px; }
     .composer { display: flex; gap: 10px; max-width: 860px; margin: 0 auto; }
     .composer input { flex: 1; }
     .hint { color: var(--slate); font-size: 12px; max-width: 860px; margin: 8px auto 0; }
-    code { font-family: var(--mono); color: var(--signal); }
+    /* D-053: neutral — Signal amber means "suspicious" (D-002), and a hash in a code span is not. */
+    code { font-family: var(--mono); font-size: .92em; color: var(--text); background: var(--surface); padding: 1px 5px; border-radius: 4px; }
+    .bubble.md { white-space: normal; }
+    .bubble.md p { white-space: pre-wrap; margin: 0 0 8px; }
+    .bubble.md li { white-space: pre-wrap; margin: 0 0 3px; }
+    .bubble.md h3, .bubble.md h4, .bubble.md h5 { font-family: var(--display); font-weight: 600; margin: 14px 0 6px; }
+    .bubble.md h3 { font-size: 18px; } .bubble.md h4 { font-size: 16px; } .bubble.md h5 { font-size: 15px; }
+    .bubble.md > :first-child { margin-top: 0; }
+    .bubble.md ul, .bubble.md ol { margin: 0 0 8px; padding-left: 22px; }
+    .bubble.md pre { background: var(--surface); padding: 10px 12px; border-radius: 8px; overflow-x: auto; margin: 0 0 8px; }
+    .bubble.md pre code { padding: 0; background: none; white-space: pre; }
+    .bubble.md a { color: var(--steel); }
+    .md-host { color: var(--slate); font-family: var(--mono); font-size: 12px; }
+    .err { color: var(--ember); white-space: pre-wrap; margin-top: 6px; }
+    .spend { color: var(--slate); font-family: var(--mono); font-size: 11.5px; margin-top: 8px; }
+    /* The approvals panel (docs/superpowers/specs/2026-10-12-approvals-panel-design.md). */
+    #approvals[hidden], .panel[hidden] { display: none; }
+    .panel {
+      position: fixed; top: 0; right: 0; bottom: 0; width: 380px; max-width: 100vw; z-index: 10;
+      background: var(--surface); border-left: 1px solid #1c2431; overflow-y: auto; padding: 16px;
+    }
+    /* Open on a wide screen, the panel makes room rather than covering the composer. */
+    @media (min-width: 900px) { body.panel-open { padding-right: 380px; } }
+    .panel-head { display: flex; align-items: center; gap: 8px; }
+    .panel-head h2 { font-family: var(--display); font-weight: 600; font-size: 16px; margin: 0; flex: 1; }
+    .panel-note { color: var(--slate); font-size: 12.5px; margin-top: 6px; }
+    .divider { color: var(--slate); font-size: 12px; text-transform: uppercase; letter-spacing: .8px; margin: 18px 0 0; }
+    .card { border: 1px solid #232d3d; border-radius: 10px; padding: 12px; margin: 12px 0; background: var(--night); }
+    .card.hl { border-color: var(--steel); }
+    .card .top { display: flex; gap: 8px; align-items: baseline; }
+    .card .action { font-family: var(--mono); font-size: 13.5px; }
+    .risk { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; padding: 0 6px; border: 1px solid; border-radius: 4px; }
+    .risk.read { color: var(--steel); } .risk.write { color: var(--signal); } .risk.destructive { color: var(--ember); }
+    .card .id { margin-left: auto; color: var(--slate); font-family: var(--mono); font-size: 11px; }
+    .card .status { font-size: 13px; margin-top: 6px; }
+    .card .summary { margin-top: 4px; }
+    .card .meta { color: var(--slate); font-size: 12.5px; margin-top: 4px; }
+    .card .doors { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .card .doors button { padding: 6px 10px; font-size: 13px; }
+    .card .consequence { color: var(--signal); font-size: 12.5px; margin-top: 8px; }
+    button.confirm { background: var(--signal); color: #1d1204; }
+    button.confirm.destructive { background: var(--ember); color: #1a0505; }
+    .card .note { color: var(--ember); font-size: 12.5px; margin-top: 6px; white-space: pre-wrap; }
+    .card .note.ok { color: var(--aurora); }
+    .proposal .review { margin-left: 8px; padding: 2px 8px; font-size: 12px; }
   </style>
 </head>
 <body>
@@ -75,6 +121,7 @@
     <span class="tag">the flock sees first</span>
     <span class="spacer"></span>
     <div class="auth">
+      <button id="approvals" class="ghost" hidden>Approvals</button>
       <select id="endpoint" hidden aria-label="Endpoint"></select>
       <input id="email" type="email" placeholder="you@analyst.dev" autocomplete="off" />
       <button id="signin" class="ghost">Sign in</button>
@@ -89,15 +136,309 @@
     </div>
   </main>
 
+  <aside id="approvals-panel" class="panel" hidden aria-label="Approvals">
+    <div class="panel-head"><h2>Approvals</h2><button id="approvals-close" class="ghost">Close</button></div>
+    <div id="approvals-note" class="panel-note"></div>
+    <div id="approvals-list"></div>
+  </aside>
+
   <footer>
     <div class="composer">
       <input id="prompt" placeholder="Ask the co-analyst…" disabled autocomplete="off" />
       <button id="send" disabled>Send</button>
     </div>
     <div class="hint">Actions that change state are never executed on a model's say-so — they become proposals awaiting your approval.</div>
+    <div id="chat-spend" class="hint"></div>
   </footer>
 
   <script>
+    // <page-logic>
+    // Pure: no DOM, no clock of its own. tests/js/page_logic.test.mjs runs this
+    // block under Node, so what is tested is what the page runs (D-052).
+
+    // F1 measured the server at ~1 ms a delta and the page at ~3 ms to paint;
+    // the endpoint's bursts and silences are what the analyst feels. Arrived
+    // frames are released smoothly, and no text waits longer than this.
+    const PACE_MAX_HOLD_MS = 200;
+    // A silence shorter than this is not worth announcing.
+    const QUIET_MS = 1000;
+
+    // One ordered queue for every frame of a turn, so pacing the text can never
+    // re-order it against a tool line, a proposal or an error (D-031). Only
+    // text is paced, and only text the server has already scanned.
+    function createPacer(maxHoldMs = PACE_MAX_HOLD_MS) {
+      const queue = [];
+      const textKey = (f) => ("reasoning" in f ? "reasoning" : "content" in f ? "content" : null);
+      // Adjacent pieces of the same kind leave as one: the answer re-renders
+      // its markdown per piece (D-053).
+      const emit = (out, key, text) => {
+        const last = out[out.length - 1];
+        if (last && key in last && Object.keys(last).length === 1) last[key] += text;
+        else out.push({ [key]: text });
+      };
+      return {
+        push(frame, now) {
+          const key = textKey(frame);
+          queue.push({ at: now, frame, key, rest: key ? String(frame[key]) : "" });
+        },
+        // What to paint on the animation frame at `now`, `dt` ms after the last.
+        // The rate is the slowest that still releases every character by its
+        // own deadline (arrival + maxHoldMs), so a burst is spread out and an
+        // overdue character goes at once.
+        take(now, dt) {
+          let cum = 0, rate = 0;
+          for (const it of queue) {
+            if (!it.key) continue;
+            cum += it.rest.length;
+            rate = Math.max(rate, cum / Math.max(it.at + maxHoldMs - now, dt));
+          }
+          let budget = Math.ceil(rate * dt);
+          const out = [];
+          while (queue.length) {
+            const it = queue[0];
+            if (!it.key) { out.push(it.frame); queue.shift(); continue; }
+            if (it.rest && budget <= 0) break;
+            const part = it.rest.slice(0, budget);
+            budget -= part.length;
+            it.rest = it.rest.slice(part.length);
+            if (part) emit(out, it.key, part);
+            if (it.rest) break;
+            queue.shift();
+          }
+          return out;
+        },
+        flush() {
+          const out = [];
+          for (const it of queue) {
+            if (!it.key) out.push(it.frame);
+            else if (it.rest) emit(out, it.key, it.rest);
+          }
+          queue.length = 0;
+          return out;
+        },
+      };
+    }
+
+    // What the turn is waiting on, in our words. The server names a tool only
+    // when it is one the platform offers; anything else is a lookup.
+    const TOOL_COPY = {
+      search_knowledge: "Searching the knowledge base",
+      enrich_observable: "Checking the indicator against connected sources",
+      lookup_cve: "Looking up the CVE",
+      annotate_observable: "Preparing a proposal for your approval",
+      isolate_host: "Preparing a proposal for your approval",
+    };
+
+    function statusLabel(status) {
+      if (status && status.phase === "tool") {
+        return Object.hasOwn(TOOL_COPY, status.tool) ? TOOL_COPY[status.tool] : "Running a lookup";
+      }
+      if (status && status.phase === "held") return "Writing the answer, shown once it is checked";
+      return "Thinking";
+    }
+
+    // The working line for a turn at `now`, or null when it should not show.
+    // It shows from Send until something is painted, then again whenever
+    // nothing has been painted for QUIET_MS, counting from when the wait began.
+    function indicatorText(turn, now) {
+      const began = Math.max(turn.sentAt, turn.lastPaintAt ?? -Infinity, turn.statusAt ?? -Infinity);
+      if (turn.lastPaintAt != null && now - began < QUIET_MS) return null;
+      return `${statusLabel(turn.status)} · ${Math.floor((now - began) / 1000)} s`;
+    }
+    // D-053: the answer's markdown, as elements the page chose. `h(tag, props,
+    // children)` makes one element; children are elements or strings, and a
+    // string is only ever text. No HTML is parsed anywhere on this path.
+    const INLINE_RE = /`([^`\n]+)`|\*\*([^*\n]+?)\*\*|\[([^\]\n]+)\]\(([^)\s]+)\)/g;
+
+    // Only a plain https URL is a link; anything else is shown as written.
+    function safeLink(raw) {
+      let url;
+      try { url = new URL(raw); } catch (e) { return null; }
+      if (url.protocol !== "https:" || url.username || url.password || !raw.startsWith("https://")) return null;
+      return url;
+    }
+
+    function inlineNodes(text, h) {
+      const out = [];
+      let last = 0;
+      for (const m of text.matchAll(INLINE_RE)) {
+        const [whole, code, bold, label, href] = m;
+        let node = null;
+        if (code !== undefined) node = [h("code", {}, [code])];
+        else if (bold !== undefined) node = [h("strong", {}, [bold])];
+        else {
+          const url = safeLink(href);
+          if (url) {
+            node = [
+              h("a", { href: url.href, target: "_blank", rel: "noopener noreferrer", referrerPolicy: "no-referrer" }, [label]),
+              h("span", { className: "md-host" }, [" ↗ " + url.hostname]),
+            ];
+          }
+        }
+        if (!node) continue;  // a link that is not safe stays literal text
+        if (m.index > last) out.push(text.slice(last, m.index));
+        out.push(...node);
+        last = m.index + whole.length;
+      }
+      if (last < text.length) out.push(text.slice(last));
+      return out;
+    }
+
+    // Two passes: the lines become plain blocks first, then each element is
+    // made once, with all its children (a real element's children cannot be
+    // edited the way an array can).
+    function markdownBlocks(text) {
+      const lines = String(text).split("\n");
+      const blocks = [];
+      let open = null;  // the paragraph or list still taking lines
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (/^```/.test(line)) {
+          const body = [];
+          for (i++; i < lines.length && !/^```\s*$/.test(lines[i]); i++) body.push(lines[i]);
+          blocks.push({ type: "pre", text: body.join("\n") });
+          open = null;
+          continue;
+        }
+        if (!line.trim()) { open = null; continue; }
+        const heading = line.match(/^(#{1,6})\s+(\S.*)$/);
+        const item = line.match(/^\s*[-*]\s+(.*)$/) || line.match(/^\s*\d+[.)]\s+(.*)$/);
+        if (heading) {
+          blocks.push({ type: "h" + (Math.min(heading[1].length, 3) + 2), text: heading[2] });  // # → h3
+          open = null;
+        } else if (item) {
+          const type = /^\s*[-*]/.test(line) ? "ul" : "ol";
+          if (!open || open.type !== type) { open = { type, items: [] }; blocks.push(open); }
+          open.items.push(item[1]);
+        } else if (open && open.type === "p") {
+          open.text += "\n" + line;
+        } else {
+          open = { type: "p", text: line };
+          blocks.push(open);
+        }
+      }
+      return blocks;
+    }
+
+    function markdownNodes(text, h) {
+      return markdownBlocks(text).map((b) => {
+        if (b.type === "pre") return h("pre", {}, [h("code", {}, [b.text])]);
+        if (b.type === "ul" || b.type === "ol") {
+          return h(b.type, {}, b.items.map((it) => h("li", {}, inlineNodes(it, h))));
+        }
+        return h(b.type, {}, inlineNodes(b.text, h));
+      });
+    }
+    // -- The approvals panel (docs/superpowers/specs/2026-10-12-approvals-panel-design.md).
+    // The doors and their rules are the server's (auspex/routes/proposals.py); this
+    // only decides which of them a card shows. A stale approval or a stale claim is
+    // in the queue BECAUSE it is stale, so no page clock decides it.
+    const CONFIRM_MS = 5000;
+
+    function doorsFor(p) {
+      const card = p.card || {};
+      const runs = (door, label, consequence) => ({ door, label, confirm: true, consequence });
+      const undo = card.undo
+        ? [runs("undo", "Undo", "This puts it back: " + card.undo.description)]
+        : [];
+      switch (p.status) {
+        case "pending_approval":
+          return [runs("approve", "Approve", "This runs it now: " + (card.summary || p.action)),
+                  { door: "reject", label: "Reject" }];
+        case "approved":
+          return [runs("execute", "Run now", "This runs the approved action now: " + (card.summary || p.action)),
+                  { door: "withdraw", label: "Withdraw" }];
+        case "executing":
+        case "undoing":
+          return [{ door: "abandon", label: "Abandon", consequence: "Records that nobody knows whether it ran" }];
+        case "incomplete":
+          return [{ door: "keep", label: "Keep as it is" }, ...undo];
+        case "executed":
+        case "kept":
+        case "abandoned":
+          return undo;
+        default:
+          return [];
+      }
+    }
+
+    function ago(iso, now) {
+      const min = Math.max(0, Math.floor((now - Date.parse(iso)) / 60000));
+      return min < 1 ? "under a minute" : min < 60 ? `${min} min` : `${Math.floor(min / 60)} h`;
+    }
+
+    function statusText(p, now) {
+      const effects = (p.result || {}).effects;
+      switch (p.status) {
+        case "pending_approval": return "Waiting for your approval";
+        case "approved": return `Approved ${ago(p.decided_at, now)} ago, never started`;
+        case "executing": return `Claimed ${ago(p.claimed_at, now)} ago; the run may have died`;
+        case "undoing": return `Undo claimed ${ago(p.claimed_at, now)} ago; it may have died`;
+        case "incomplete":
+          return effects === "unknown"
+            ? "It failed, and cannot tell whether any of it landed"
+            : "Part of it landed before it failed";
+        case "executed": return "Done";
+        case "kept": return "Kept as the run left it";
+        case "abandoned": return "Abandoned: nobody knows whether it ran";
+        case "rejected": return "Rejected";
+        case "withdrawn": return "Withdrawn";
+        case "undone": return "Undone";
+        case "failed": return "Failed; nothing of it landed";
+        default: return p.status;
+      }
+    }
+
+    function undoText(card) {
+      if (!card || !card.undo) return "No undo — this cannot be taken back";
+      const lost = card.undo.cannot_restore || [];
+      return "Undo: " + card.undo.description + (lost.length ? " · cannot restore: " + lost.join(", ") : "");
+    }
+
+    // The undo line matters while the action may run or has run; on a card that
+    // never ran, or is finished, it is noise that reads like an offer.
+    function undoLineFor(p) {
+      return ["rejected", "withdrawn", "undone", "failed"].includes(p.status) ? null : undoText(p.card);
+    }
+
+    // `identical_pending` is null where nobody looked, which is not "no twins".
+    function askedText(p) {
+      const n = (p.identical_pending || []).length;
+      return n === 0 ? null : n === 1 ? "Asked once more" : `Asked ${n} more times`;
+    }
+
+    function mergeQueue(waiting, decided) {
+      const inQueue = new Set(waiting.map((p) => p.id));
+      return { waiting, decided: decided.filter((p) => !inQueue.has(p.id)) };
+    }
+
+    function armDoor(id, door, now) { return { id, door, at: now }; }
+
+    function confirmable(armed, id, door, now) {
+      return !!armed && armed.id === id && armed.door === door && now - armed.at <= CONFIRM_MS;
+    }
+    // -- What a turn spent (D-054): calls and tokens, never money (the customer's
+    // price is theirs). Usage the endpoint did not report is not a zero.
+    const kTokens = (n) => (n < 1000 ? String(n) : (n / 1000).toFixed(1) + "k");
+    const calls = (n) => n + (n === 1 ? " engine call" : " engine calls");
+
+    function spendText(done) {
+      if (done.path === "shortcut") return "Answered without the engine";
+      if (typeof done.engine_calls !== "number") return null;
+      const u = done.usage;
+      if (!u) return calls(done.engine_calls) + " · tokens not reported";
+      return `${calls(done.engine_calls)} · ${kTokens(u.total_tokens)} tokens ` +
+        `(${kTokens(u.prompt_tokens)} in · ${kTokens(u.completion_tokens)} out)`;
+    }
+
+    function chatSpendText(t) {
+      if (!t || !t.turns) return null;
+      const tokens = t.prompt_tokens == null && t.completion_tokens == null
+        ? "" : ` · ${kTokens((t.prompt_tokens || 0) + (t.completion_tokens || 0))} tokens`;
+      return `This chat: ${t.turns} ${t.turns === 1 ? "turn" : "turns"} · ${calls(t.engine_calls)}${tokens}`;
+    }
+    // </page-logic>
+
     const $ = (id) => document.getElementById(id);
     let token = null;
     let sessionId = null;
@@ -119,6 +460,7 @@
         $("email").style.display = "none"; $("signin").style.display = "none";
         $("prompt").disabled = false; $("send").disabled = false; $("prompt").focus();
         loadEndpoints();
+        startApprovals();
       } catch (e) { setStatus("network error", "err"); }
     }
 
@@ -167,6 +509,32 @@
       return b;
     }
 
+    // D-053's element factory: props are DOM properties (href, rel, …), and a
+    // string child is appended as a text node. Nothing here parses HTML.
+    function el(tag, props, children) {
+      const e = document.createElement(tag);
+      Object.assign(e, props);
+      e.append(...children);
+      return e;
+    }
+
+    // Each answer bubble's markdown so far; the bubble is rebuilt from it.
+    const answerText = new WeakMap();
+
+    function showError(wrap, text) {
+      wrap.appendChild(Object.assign(document.createElement("div"), { className: "err", textContent: text }));
+    }
+
+    // D-054: this chat's total, from the server, so turns that ended badly count.
+    async function showChatSpend() {
+      if (!sessionId || !token) return;
+      try {
+        const r = await fetch("/api/chat/sessions/" + encodeURIComponent(sessionId) + "/spend",
+          { headers: { "Authorization": "Bearer " + token } });
+        if (r.ok) $("chat-spend").textContent = chatSpendText(await r.json()) || "";
+      } catch (e) { /* the total is a convenience; the per-answer lines stand */ }
+    }
+
     function scroll() { const m = $("transcript"); m.scrollTop = m.scrollHeight; }
 
     function handleEvent(ev, wrap) {
@@ -188,6 +556,9 @@
           p.className = "proposal";
           p.textContent = "Awaiting your approval: " + ev.tool.proposal.summary +
             " (proposal " + ev.tool.proposal.id.slice(0, 8) + ")";
+          const review = Object.assign(document.createElement("button"), { className: "ghost review", textContent: "Review" });
+          review.addEventListener("click", () => openApprovals(ev.tool.proposal.id));
+          p.appendChild(review);
           wrap.appendChild(p);
         }
       }
@@ -195,9 +566,19 @@
         // reasoning is done once the answer starts — collapse it (stays clickable)
         const think = wrap.querySelector("details.think");
         if (think) think.open = false;
-        ensureBubble(wrap).textContent += ev.content;
+        // D-053: rendered from the whole answer so far, as elements the page
+        // chose; an unclosed marker stays literal until it closes.
+        const b = ensureBubble(wrap);
+        answerText.set(b, (answerText.get(b) || "") + ev.content);
+        b.classList.add("md");
+        b.replaceChildren(...markdownNodes(answerText.get(b), el));
       }
-      else if ("error" in ev) { const b = ensureBubble(wrap); b.textContent += "\n[endpoint error] " + ev.error; b.style.color = "var(--ember)"; }
+      else if ("error" in ev) { showError(wrap, "[endpoint error] " + ev.error); }
+      else if ("done" in ev) {
+        // D-054: what this turn spent, from the server's own count.
+        const text = spendText(ev.done);
+        if (text) wrap.appendChild(Object.assign(document.createElement("div"), { className: "spend", textContent: text }));
+      }
       scroll();
     }
 
@@ -207,6 +588,34 @@
       $("prompt").value = ""; $("send").disabled = true; $("prompt").disabled = true;
       addMsg("You", "user").appendChild(Object.assign(document.createElement("div"), { className: "bubble", textContent: text }));
       const wrap = addMsg("Co-analyst", "assistant");
+      // D-052: what the turn is waiting on, and its arrived frames painted paced.
+      const turn = { sentAt: performance.now(), lastPaintAt: null, status: null, statusAt: null };
+      const working = Object.assign(document.createElement("div"), { className: "working" });
+      const pacer = createPacer();
+      let open = true;
+      let lastFrame = performance.now();
+      const paint = (frames) => {
+        for (const f of frames) {
+          if ("status" in f) { turn.status = f.status; turn.statusAt = performance.now(); continue; }
+          handleEvent(f, wrap);
+          if ("reasoning" in f || "content" in f || "tool" in f) turn.lastPaintAt = performance.now();
+        }
+      };
+      const showWaiting = () => {
+        const text = open ? indicatorText(turn, performance.now()) : null;
+        working.hidden = text === null;
+        if (text !== null) { working.textContent = text; wrap.appendChild(working); }
+      };
+      const onFrame = (now) => {
+        if (!open) return;
+        paint(pacer.take(now, Math.min(Math.max(now - lastFrame, 1), 100)));
+        lastFrame = now;
+        showWaiting();
+        requestAnimationFrame(onFrame);
+      };
+      requestAnimationFrame(onFrame);
+      const ticker = setInterval(showWaiting, 250);  // the seconds tick in a hidden tab too
+      showWaiting();
       scroll();
       try {
         const sel = $("endpoint");
@@ -235,15 +644,160 @@
           for (const f of frames) {
             const line = f.split("\n").find((l) => l.startsWith("data:"));
             if (!line) continue;
-            try { handleEvent(JSON.parse(line.slice(5).trim()), wrap); } catch (e) {}
+            let ev;
+            try { ev = JSON.parse(line.slice(5).trim()); } catch (e) { continue; }
+            pacer.push(ev, performance.now());
+            // An ending is never paced, and a hidden tab runs no animation frames.
+            if ("done" in ev || "error" in ev || document.hidden) paint(pacer.flush());
           }
         }
       } catch (e) {
-        ensureBubble(wrap).textContent += "\n[connection lost]";
+        paint(pacer.flush());
+        showError(wrap, "[connection lost]");
       } finally {
+        paint(pacer.flush());
+        open = false;
+        clearInterval(ticker);
+        working.remove();
+        showChatSpend();
         $("send").disabled = false; $("prompt").disabled = false; $("prompt").focus();
       }
     }
+
+    // <approvals-dom>
+    // Thin: what a card shows and which doors it gets come from the page-logic
+    // block; this builds elements from it and talks to /api/proposals. Every
+    // server string and every argument is text.
+    const approvals = { waiting: [], decided: [], complete: true, armed: null, open: false, highlight: null, notes: {}, failed: false };
+    let approvalsTimer = null;
+
+    async function api(path, method = "GET") {
+      const r = await fetch("/api/proposals" + path, { method, headers: { "Authorization": "Bearer " + token } });
+      let body = null;
+      try { body = await r.json(); } catch (e) {}
+      return { ok: r.ok, status: r.status, body };
+    }
+
+    async function pollApprovals() {
+      try {
+        const r = await api("");
+        if (!r.ok) throw new Error(String(r.status));
+        approvals.waiting = r.body.proposals;
+        approvals.complete = r.body.complete;
+        approvals.failed = false;
+      } catch (e) { approvals.failed = true; }
+      renderApprovals();
+    }
+
+    function startApprovals() {
+      $("approvals").hidden = false;
+      pollApprovals();
+      if (!approvalsTimer) approvalsTimer = setInterval(pollApprovals, 5000);
+    }
+
+    function openApprovals(highlightId) {
+      approvals.open = true;
+      approvals.highlight = highlightId || null;
+      approvals.scrollTo = approvals.highlight;  // once: a poll must not yank the panel back
+      renderApprovals();
+      pollApprovals();
+    }
+
+    function recordDecided(p) {
+      approvals.decided = [p, ...approvals.decided.filter((d) => d.id !== p.id)];
+    }
+
+    async function useDoor(id, door) {
+      approvals.armed = null;
+      approvals.notes[id] = { text: "…", ok: true };
+      renderApprovals();
+      let r;
+      try { r = await api("/" + encodeURIComponent(id) + "/" + door, "POST"); } catch (e) { r = { ok: false, status: 0, body: null }; }
+      const detail = r.body && typeof r.body.detail === "string" ? r.body.detail : null;
+      if (r.ok) {
+        const refused = r.body.refused && r.body.refused.detail;
+        const did = r.body.outcome && r.body.outcome.did;
+        approvals.notes[id] = refused ? { text: refused, ok: false } : did ? { text: did, ok: true } : null;
+      } else {
+        approvals.notes[id] = { text: detail || ("Request failed (" + r.status + ")"), ok: false };
+      }
+      // The server's row is the truth after any answer, success or not.
+      const fresh = r.ok && r.body.proposal ? r.body.proposal : (await api("/" + encodeURIComponent(id))).body;
+      if (fresh && fresh.id) recordDecided(fresh);
+      await pollApprovals();
+    }
+
+    function doorButtons(p) {
+      const now = Date.now();
+      const nodes = [];
+      for (const d of doorsFor(p)) {
+        const armed = d.confirm && confirmable(approvals.armed, p.id, d.door, now);
+        const b = el("button", { className: armed ? "confirm " + p.risk : d.confirm && d.door === "approve" ? "" : "ghost" },
+          [armed ? "Confirm " + d.label.toLowerCase() : d.label]);
+        b.addEventListener("click", () => {
+          if (d.confirm && !confirmable(approvals.armed, p.id, d.door, Date.now())) {
+            approvals.armed = armDoor(p.id, d.door, Date.now());
+            renderApprovals();
+            setTimeout(renderApprovals, CONFIRM_MS + 50);
+          } else {
+            useDoor(p.id, d.door);
+          }
+        });
+        nodes.push(b);
+      }
+      return nodes;
+    }
+
+    function cardFor(p) {
+      const card = p.card || {};
+      const writes = (card.systems || []).filter((x) => x.writes).map((x) => x.system);
+      const armed = approvals.armed && approvals.armed.id === p.id && confirmable(approvals.armed, p.id, approvals.armed.door, Date.now())
+        ? doorsFor(p).find((d) => d.door === approvals.armed.door) : null;
+      const note = approvals.notes[p.id];
+      const parts = [
+        el("div", { className: "top" }, [
+          el("span", { className: "action" }, [String(p.action)]),
+          el("span", { className: "risk " + p.risk }, [String(p.risk)]),
+          el("span", { className: "id" }, [String(p.id).slice(0, 8)]),
+        ]),
+        el("div", { className: "status" }, [statusText(p, Date.now())]),
+      ];
+      if (card.summary) parts.push(el("div", { className: "summary" }, [String(card.summary)]));
+      if (writes.length) parts.push(el("div", { className: "meta" }, ["Writes: " + writes.join(", ")]));
+      const undoLine = undoLineFor(p);
+      if (undoLine) parts.push(el("div", { className: "meta" }, [undoLine]));
+      const asked = askedText(p);
+      if (asked) parts.push(el("div", { className: "meta" }, [asked]));
+      if (armed && armed.consequence) parts.push(el("div", { className: "consequence" }, [armed.consequence]));
+      const doors = doorButtons(p);
+      if (doors.length) parts.push(el("div", { className: "doors" }, doors));
+      if (note) parts.push(el("div", { className: note.ok ? "note ok" : "note" }, [note.text]));
+      const node = el("div", { className: p.id === approvals.highlight ? "card hl" : "card" }, parts);
+      node.dataset.id = p.id;
+      return node;
+    }
+
+    function renderApprovals() {
+      const n = approvals.waiting.length;
+      $("approvals").textContent = n ? `Approvals · ${n}${approvals.complete ? "" : "+"}` : "Approvals";
+      const panel = $("approvals-panel");
+      panel.hidden = !approvals.open;
+      document.body.classList.toggle("panel-open", approvals.open);
+      if (!approvals.open) return;
+      const { waiting, decided } = mergeQueue(approvals.waiting, approvals.decided);
+      $("approvals-note").textContent = approvals.failed
+        ? "Couldn't refresh the queue; retrying."
+        : n ? "" : "Nothing is waiting on you.";
+      const nodes = waiting.map(cardFor);
+      if (decided.length) nodes.push(el("div", { className: "divider" }, ["Decided this session"]), ...decided.map(cardFor));
+      $("approvals-list").replaceChildren(...nodes);
+      const hl = approvals.scrollTo && $("approvals-list").querySelector(".card.hl");
+      if (hl) { hl.scrollIntoView({ block: "nearest" }); approvals.scrollTo = null; }
+    }
+
+    $("approvals").addEventListener("click", () => { approvals.open ? (approvals.open = false, renderApprovals()) : openApprovals(); });
+    $("approvals-close").addEventListener("click", () => { approvals.open = false; approvals.highlight = null; renderApprovals(); });
+    // </approvals-dom>
 
     $("signin").addEventListener("click", signIn);
     $("email").addEventListener("keydown", (e) => { if (e.key === "Enter") signIn(); });

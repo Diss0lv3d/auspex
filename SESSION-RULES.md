@@ -17,6 +17,12 @@ it changes, in its own commit._
   to it** (dev-only, D-016). It is slow: ~30 s to first token, minutes per deep
   turn (docs/probes/2026-10-12-b001-ip-owner-claim.md). Know which endpoint a
   turn ran on before judging its speed or its answer.
+- **A switcher endpoint always takes the conversational path, with no tools**
+  (D-037: it carries no agent mode). So does a customer endpoint that is not
+  `native_tools`. The dev endpoint itself takes the agent path. To see what
+  the conversational path does on the dev endpoint, replay at it with the
+  route's own composition
+  (docs/probes/b1-b001/probe_replay_conversational.py, B1).
 - The app probes its endpoint at startup and re-checks every 6 h (D-038, D-042).
   The scorecard expiry date is in STATE.md (Host notes). After it, a running
   container re-probes (~15 calls). **If it logs the "endpoint changed" WARNING,
@@ -125,8 +131,17 @@ change to those modes keeps `contract_repair` honest.
 
 - **Model and tool text reach the page as text, never as HTML.** The page
   writes them with `textContent`/`append` (`auspex/static/index.html`);
-  `innerHTML` holds only fixed templates. Rendering markdown or any rich
-  format from model text is a decision, not a refactor (IDEAS has the line).
+  `innerHTML` holds only fixed templates.
+  - The answer bubble renders a safe markdown subset (D-053). A pure parser
+    builds elements the page chose, with `createElement` and text nodes, and
+    https-only links that show their host.
+  - Widening that subset, or rendering any other pane, is a new decision, not
+    a refactor.
+- **The page's logic lives in its `// <page-logic>` block**: pure functions,
+  run under Node by `tests/js/page_logic.test.mjs` inside the pytest gate.
+  New page behaviour goes there, with tests, and the DOM wiring stays thin.
+- **The stream is paced on the page within 200 ms (D-052)**, and a `status`
+  frame says what a turn is waiting on. A new wait gets an announcement.
 - Colours, fonts and voice are D-002's (CLAUDE.md, Brand). Labels are
   brand-safe: the engine is "the platform's engine", never a model or vendor.
 - A page change is verified in a real browser against the rebuilt container,
@@ -171,5 +186,6 @@ That is recorded, not owned; do not fix it unasked.
 - the card stream emitting status changes;
 - model-PROPOSED hypotheses/evidence and falsifiers (D-019-later, D-021);
 - the model fabricating incident specifics the contract validator passes
-  (probe record 2026-10-10-zai-endpoint, seen on every run). B-001 lives next
-  to it; a B-001 fix that needs this item goes to Burhan first.
+  (probe record 2026-10-10-zai-endpoint, seen on every run). B-001 was fixed
+  without it (D-055: the platform hands the model the owner it had). B-005
+  lives next to it; a fix that needs this item goes to Burhan first.

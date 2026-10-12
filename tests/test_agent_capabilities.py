@@ -155,6 +155,35 @@ async def test_enrichment_resolves_the_turns_own_observables_by_short_id():
     assert "not_checked" not in entry
 
 
+async def test_the_network_a_source_named_reaches_the_model_b001():
+    """B-001: the agent is handed who operates the address when a source said
+    so — beside the signals, never as one — so "no signals" is not all it gets
+    for an address its sources did know."""
+    from auspex.enrich.types import NetworkContext
+
+    observables = _obs("check 34.187.179.218 please")
+    obs = observables[0]
+    network = NetworkContext(
+        provider="AbuseIPDB",
+        summary="Google LLC (google.com), Data Center/Web Hosting/Transit, US",
+    )
+    service = FakeEnrichmentService(
+        EnrichmentOutcome(
+            items=(ObservableEnrichment(observable=obs, sources_answered=5, network=(network,)),)
+        )
+    )
+    registry = _build(enrichment=service, observables=observables)
+
+    result = await registry.get("enrich_observable").handler({"observables": [obs.obs_id]})
+
+    (entry,) = result["results"]
+    assert entry["signals"] == []
+    assert entry["network"] == [
+        {"source": "AbuseIPDB",
+         "summary": "Google LLC (google.com), Data Center/Web Hosting/Transit, US"}
+    ]
+
+
 async def test_a_defanged_indicator_is_refanged_by_the_shared_extractor():
     """The parse goes through the SAME extractor the route uses, so a defanged
     form is handled without a second opinion about what a domain is.

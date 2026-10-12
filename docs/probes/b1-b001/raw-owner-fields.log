@@ -1,0 +1,18 @@
+AbuseIPDB 200:
+   abuseConfidenceScore = 0
+   totalReports = 0
+   isWhitelisted = False
+   isPublic = True
+   usageType = 'Data Center/Web Hosting/Transit'
+   isp = 'Google LLC'
+   domain = 'google.com'
+   countryCode = 'US'
+   hostnames = ['218.179.187.34.bc.googleusercontent.com']
+   isTor = False
+OTX general 200:
+   asn = 'AS15169 google llc'
+   country_name = 'United States of America'
+   country_code = 'US'
+   city = None
+   reputation = 0
+   pulse_info.count = 0

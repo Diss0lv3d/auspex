@@ -16,11 +16,16 @@ router = APIRouter(tags=["ui"])
 _STATIC = Path(__file__).resolve().parent.parent / "static"
 _INDEX = _STATIC / "index.html"
 _TIMELINE = _STATIC / "timeline.html"
+# B-003: with only `last-modified`, a browser caches the page on heuristic
+# freshness and keeps running the old one after a deploy. `no-cache` makes every
+# load ask first. FileResponse answers a matching ETag in full, not with a 304
+# (measured in F1), so each load costs the page's ~17 KB.
+_REVALIDATE = {"Cache-Control": "no-cache"}
 
 
 @router.get("/", include_in_schema=False)
 async def index() -> FileResponse:
-    return FileResponse(_INDEX, media_type="text/html")
+    return FileResponse(_INDEX, media_type="text/html", headers=_REVALIDATE)
 
 
 @router.get("/timeline", include_in_schema=False)
@@ -28,4 +33,4 @@ async def timeline() -> FileResponse:
     """S16 — a verdict's life in one place, and the "your past got re-scored"
     digest. Reads /api/timeline only; the page holds no decay arithmetic of its
     own, so a band means the same thing on screen as it does in the payload."""
-    return FileResponse(_TIMELINE, media_type="text/html")
+    return FileResponse(_TIMELINE, media_type="text/html", headers=_REVALIDATE)
