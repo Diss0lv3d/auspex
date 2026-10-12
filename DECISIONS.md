@@ -1986,3 +1986,37 @@ unit for where the spend is.
 
 **Bounds, stated.** A turn cut off by a dropped connection may not reach the
 point where it records. The spend row is written at the turn's own ending.
+
+## D-055 — The network a source names is kept beside the verdict, never as one (2026-10-12, B1)
+
+**Context.** B-001: "dig deeper" on 34.187.179.218 answered that it is
+Amazon's, "based on WHOIS". It is Google's. AbuseIPDB had named Google LLC on
+turn 1 (isp, domain, usage type, country, hostname), and OTX had named
+AS15169. The provider returned None on a low score, so the whole answer was
+dropped and the IOC check said "unknown to them". On the conversational path,
+with no tools and no owner in context, the model supplied one from memory.
+Replayed, the owner in context took the wrong-owner answers from 4 of 6 (glm)
+and 3 of 3 (qwen) to 0 of 9 (docs/probes/2026-10-12-b1-b001-fix.md).
+
+**Decision (Burhan's call; the recommended option).**
+1. **Who operates an address is its own field, `NetworkContext`**, kept on
+   each enriched observable (`ObservableEnrichment.network`). A provider
+   lookup may return it beside a signal, or alone.
+2. **It is never a signal.** It is not synthesized into a verdict and not
+   recorded as one. So it can neither supersede nor flip what the workspace
+   believes about an indicator.
+3. **The IOC check shows it** on its own line with its source, and does not
+   say "unknown to them" about an address a source did name. The agent's
+   `enrich_observable` result carries it as `network`.
+4. **AbuseIPDB supplies it** on every answer that names a network, whatever
+   the score.
+
+**Rejected: a context-only signal** (`VerdictLabel.UNKNOWN`, as InternetDB's
+open ports). It was one file instead of five, but every clean IP would then get
+an `unknown` verdict row. An IP once rated malicious whose sources later say
+nothing would flip malicious → unknown; today it keeps its verdict and decays.
+That would change Living Verdicts for most IPs to fix a display gap.
+
+**Bounds, stated.** Only AbuseIPDB supplies it (TD-049). The model can still
+add what nobody supplied ("likely us-central1"). That is the deferred item on
+fabricated specifics, not this decision.
