@@ -437,6 +437,70 @@
         ? "" : ` · ${kTokens((t.prompt_tokens || 0) + (t.completion_tokens || 0))} tokens`;
       return `This chat: ${t.turns} ${t.turns === 1 ? "turn" : "turns"} · ${calls(t.engine_calls)}${tokens}`;
     }
+
+    // -- A chat survives a reload (docs/superpowers/specs/2026-10-12-chat-survives-reload-design.md).
+    // The open chat's id lives in the URL hash, and only a UUID is one.
+    const CHAT_HASH_RE = /^#chat=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+    function chatIdFromHash(hash) {
+      const m = CHAT_HASH_RE.exec(String(hash ?? ""));
+      return m ? m[1].toLowerCase() : null;
+    }
+
+    // An age in words. "yesterday" is 24 to 48 hours ago, not a calendar day:
+    // the page knows no time zone of the analyst's to be right about.
+    function relativeTime(then, now) {
+      const s = Math.max(0, Math.floor((now - then) / 1000));
+      if (s < 60) return "just now";
+      const min = Math.floor(s / 60);
+      if (min < 60) return min + " min";
+      const hrs = Math.floor(min / 60);
+      if (hrs < 24) return hrs + " h";
+      const days = Math.floor(hrs / 24);
+      if (days < 2) return "yesterday";
+      if (days < 7) return days + " days";
+      return new Date(then).toISOString().slice(0, 10);
+    }
+
+    function chatListLabel(chat, now) {
+      const age = relativeTime(Date.parse(chat.last_at), now);
+      const n = chat.spend && chat.spend.engine_calls;
+      return { title: chat.title || "Untitled chat", meta: n ? `${age} · ${calls(n)}` : age };
+    }
+
+    // A ledger row's line reads exactly as the live one (spendText).
+    function ledgerSpendText(spend) {
+      if (!spend) return null;
+      const p = spend.prompt_tokens, c = spend.completion_tokens;
+      const usage = p == null && c == null ? null
+        : { prompt_tokens: p || 0, completion_tokens: c || 0, total_tokens: (p || 0) + (c || 0) };
+      return spendText({ path: "ledger", engine_calls: spend.engine_calls, usage });
+    }
+
+    const ENDING_COPY = {
+      endpoint_error: "No answer: the engine returned an error",
+      output_guard: "No answer: stopped by the platform's output check",
+      usage_refused: "No answer: the workspace's usage limit was reached",
+      empty_answer: "No answer: the engine returned none",
+    };
+    function endingText(ending) {
+      return Object.hasOwn(ENDING_COPY, ending ?? "") ? ENDING_COPY[ending] : "No answer was stored";
+    }
+
+    // What a reopened turn renders, in order. Reasoning and tool lines were
+    // never stored (the chat says so once, above its turns); proposals come
+    // back with their CURRENT status, in the panel's own words.
+    function reopenedTurnPlan(turn, now) {
+      const parts = [{ kind: "question", text: String(turn.question) }];
+      parts.push(turn.answer
+        ? { kind: "answer", text: String(turn.answer) }
+        : { kind: "no-answer", text: endingText(turn.spend && turn.spend.ending) });
+      const spend = ledgerSpendText(turn.spend);
+      if (spend) parts.push({ kind: "spend", text: spend });
+      for (const p of turn.proposals || []) {
+        parts.push({ kind: "proposal", id: String(p.id), text: `Proposal: ${p.summary || p.action} · ${statusText(p, now)}` });
+      }
+      return parts;
+    }
     // </page-logic>
 
     const $ = (id) => document.getElementById(id);
