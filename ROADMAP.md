@@ -4,6 +4,10 @@ One session = one focused working window. A session is DONE only when the
 CLAUDE.md session-end ritual is complete. Order may flex; scope of a session
 may not grow mid-session (IDEAS.md exists for that).
 
+Since D-051 (2026-10-12) sessions run in three tracks. The phases below are the
+backend track (S<n>). The front-end track (F<n>) and the bugs track (B<n>, from
+BUGS.md) have their own sections at the end, before "Later".
+
 ## Phase 0 — Foundations & de-risk
 
 - [x] **S1 — Scaffold.** FastAPI app factory, config module (env-driven,
@@ -482,6 +486,20 @@ may not grow mid-session (IDEAS.md exists for that).
   - Triggers fired, not fixed: TD-036 (the answer shown twice, live) and
     TD-044 (the index grew again).
   - 1292 tests; 120 modules; no new env vars.
+
+## Track: front end (D-051)
+
+- [ ] **F1 — Where a deep turn's reasoning loses its speed, measured first.**
+  Promote #30 first. Then measure endpoint vs server vs page (three layers, both
+  endpoints, distributions not single runs) and fix the layer that adds the
+  delay, or put the options to Burhan if the model is the bottleneck. Ask
+  Burhan for the rest of his front-end list at the start.
+
+## Track: bugs (D-051)
+
+- [ ] **B1 — B-001: the platform invented an IP's owner.** Reproduce on both
+  endpoints, find why "dig deeper" had no tools, fix the cause with a test that
+  fails first and the offending answer pinned as a fixture.
 
 ## Later / explicitly deferred
 Herd Immunity federation (needs k≥3 workspaces + privacy review) · billing ·
