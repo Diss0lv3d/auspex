@@ -1,13 +1,39 @@
 # STATE — Auspex
 
-_Last updated: 2026-10-11 — **S28 CLOSED** (session-end ritual run). `./ci.sh`
-green: **1292 tests, 120 modules**. `/api/health/ready` 200,
-`./scripts/demo.sh` exit 0, branch `staging`, tree clean apart from Burhan's two
-untracked overview files. **Not promoted:** everything after promote #29
-(`31f7fc1`, back-merge `08bebdf`) is on staging only: D-046…D-050 and the review
-fixes._
+_Last updated: 2026-10-12 — **sessions split into three tracks (D-051)**, between
+sessions. S28 CLOSED on 2026-10-11 (session-end ritual run). `./ci.sh` green
+on 2026-10-12 with D-051: **1293 tests, 120 modules**. `/api/health/ready` 200.
+`./scripts/demo.sh` exited 0 at S28's close (not re-run: D-051 changed no app
+code). Branch `staging`. **Not promoted:** everything after promote #29
+(`31f7fc1`, back-merge `08bebdf`) is on staging only: D-046…D-050, the review
+fixes and D-051._
 
-## S28 — what happened (read this first)
+## Tracks (D-051) — read this first
+
+| Track | Prompt | Last closed | Next | Status |
+|---|---|---|---|---|
+| backend | `NEXT-SESSION-BE.md` | S28 (2026-10-11) | S29 | paused |
+| front end | `NEXT-SESSION-FE.md` | none yet | F1 | **focus** |
+| bugs | `NEXT-SESSION-BUGS.md` | none yet | B1 | ready: B-001 open |
+
+- **Focus: front end.** Burhan, 2026-10-10, after S28's ritual: "before moving
+  on with more backend development we need to improve on the FE so lets shift
+  our focus there and pause BE for a bit."
+- **That pivot was nearly lost.** It was said after the ritual had committed
+  the S29 prompt, and the window died a minute later. Recovered on 2026-10-12
+  from the session transcript, with two findings:
+  - **B-001**: "dig deeper" on an IP the IOC check knew nothing about answered
+    that it is Amazon's "based on WHOIS". It is Google's.
+  - **The slow reasoning Burhan watched ran on the local qwen3:14b** (the dev
+    endpoint switcher), not the dev endpoint: 3 min 13 s for one turn.
+
+  Both are in docs/probes/2026-10-12-b001-ip-owner-claim.md. They were saved
+  before any pytest run, which purges that chat.
+- **Promote slate: NOT EMPTY** (follow-up 1). The first session of any track
+  runs `/promote` as its Step 0.
+- Standing rules every track obeys: `SESSION-RULES.md`. Bugs: `BUGS.md`.
+
+## S28 — what happened (backend track's last session)
 
 S28 ran 2026-10-11. At the start ritual Burhan answered the candidates question
 with **"all"**, so all three candidates joined the goal. Mid-session he made
@@ -115,7 +141,8 @@ The ROADMAP through S20 is complete; S21–S28 were each scoped by a decision.
    staging only: D-046…D-050, the review fixes and the alert key fix. That is
    55 files, +3360.
    - Read `git diff origin/main..staging --stat`, never the commit list.
-   - **Promote first next session.**
+   - **Promote first: the first session of ANY track (D-051).** The slate now
+     also carries D-051's process files and its docs test.
    - **The two untracked overview files stay untracked — Burhan's call,
      2026-10-10.** `Auspex-Product-Architecture-Overview.pdf` and
      `docs/auspex-overview.html` are his; never commit, move, publish or delete
@@ -312,17 +339,13 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 - RRF retrieval + ID bypass: 2026-07-17-sara-rrf-retriever-pattern.md
 
 ## Next session should
-**S29, in a fresh window (NEXT-SESSION.md has the full prompt).**
-1. **Step 0: `/promote` the S28 slate** (D-046…D-050). Read the diff, not the
-   list; re-check `gh` before every call.
-2. **Step 0: an adversarial second-pass review of S28's own code** (standing
-   follow-up 2). Reproduce by execution, fix with a test that fails first.
-3. **Goal: TD-036, the answer shown twice** (follow-up 3). Measure the longest
-   pre-tool narration on action-calling turns, then fix.
-4. **Goal: TD-044, re-calibrate the rail** with the index as it now stands
-   (follow-up 4).
-5. Candidates only on Burhan's call at the start ritual (IDEAS.md):
-   - the scorer under-rating credential theft;
-   - looking an indicator up before annotating it;
-   - ATT&CK groups and software as KB documents (TD-027 gate);
-   - more identity recall (needs a fresh battery).
+**Pick a track (D-051); the Tracks table at the top has the ids.** Paste the
+prompt file of the track you mean. `/session-start` with no track asks.
+- **F1, front end, the focus** (`NEXT-SESSION-FE.md`): promote first, ask
+  Burhan what else he saw on the page, then measure where a deep turn's
+  reasoning loses its speed (endpoint, server or page) before fixing it.
+- **B1, bugs** (`NEXT-SESSION-BUGS.md`): B-001, the invented IP owner.
+  Reproduce on both endpoints, find why the follow-up had no tools, and fix it
+  with a pinned fixture.
+- **S29, backend, paused** (`NEXT-SESSION-BE.md`): the review of S28's code,
+  TD-036 and TD-044, as written at S28's close.
