@@ -1,5 +1,22 @@
 # Technical debt — logged the moment it's taken
 
+## TD-049 (B1) — only AbuseIPDB names an address's network
+
+**Where:** `auspex/enrich/providers/abuseipdb.py` `_network` (D-055). OTX
+answers `asn` and country on every IPv4 lookup, keyless, and
+`auspex/enrich/providers/otx.py` still drops them.
+**Risk:** MEDIUM. AbuseIPDB is key-gated. A deployment without
+ABUSEIPDB_API_KEY gets no owner on any IP, the IOC check says "unknown to
+them" again, and a follow-up on the conversational path is back to B-001: a
+model with no owner in front of it supplies one.
+**Why taken:** B-001 was about the owner that was fetched and thrown away;
+AbuseIPDB was the source that had it in the reported turn. One provider
+proved the fix end to end (docs/probes/2026-10-12-b1-b001-fix.md).
+**Path to fix:** OTX returns a NetworkContext from `asn`/country, probed on a
+few IPs first, with the same fan-out (no verdict, no flip).
+**Trigger:** a deployment runs without an AbuseIPDB key, or a B-001-shaped
+answer is seen again.
+
 ## TD-048 (F1) — a turn cut by a dropped connection may record no spend
 
 **Where:** `auspex/routes/chat.py`, `_record_spend` at each of the turn's own
