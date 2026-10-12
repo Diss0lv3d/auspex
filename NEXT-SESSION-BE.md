@@ -51,7 +51,14 @@ Goal (two items, in order):
    - Then fix the cause, with tests, and live-check through the container. The
      hold is native-only, so keep D-031's ordering guarantee.
    - If a front-end session has changed how the page renders the stream since,
-     read that first (STATE.md, Tracks).
+     read that first (STATE.md, Tracks). **F1 did:**
+     - D-052 adds a `status` frame before each wait and paces painting
+       within 200 ms;
+     - D-053 renders answers as safe markdown;
+     - D-054 adds `engine_calls` to the done frame and a `turn_spend` row.
+
+     The pacing only paints what the server already sent, so it neither hides
+     nor adds a doubled answer.
 2. **TD-044: re-calibrate the output rail with the index as it now stands.**
    S27 added D-043's repair directive and D-045's action surface; S28 added
    D-050's `action_request` directive. Re-run
@@ -59,6 +66,11 @@ Goal (two items, in order):
    `docs/probes/s26-step0/probe_calibrate_agent.py`, including action-request
    turns. Record the new legitimate ceilings next to the floors. A floor moves
    only on that measurement.
+   - **F1: the trigger fired as a live false positive, B-002.** A definition
+     question on the agent path was cut 3 of 4 times. The match was 40 words
+     of the definition contract's section spec on the thinking channel
+     (docs/probes/2026-10-12-b002-definition-rail-trip.md). Measure against
+     it; B-002 is on the bugs list too, so tell Burhan if S29 closes it.
 
 Candidates. **Ask Burhan at the start ritual. Do NOT start any of these
 unasked:**
