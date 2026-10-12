@@ -62,3 +62,20 @@ are never deleted.
   `FileResponse` and no extra headers. Re-checkable at any time with
   `curl -s -D - -o /dev/null localhost:8000/`.
 - **Status:** open.
+
+## B-004 — a note on a recorded indicator is refused as "doesn't exist"
+
+- **Found:** 2026-10-12, F1 (Claude), live through the page while testing the
+  approvals panel (Standard, agent path).
+- **What happened:** turn 1 in one chat ran `enrich_observable` on
+  `185.220.101.52` and filed a note proposal on `ipv4-9bf483a1`. In a new chat
+  (page reloaded, no history), "Add a note to 185.220.101.52 saying the
+  beaconing stopped after fin-ws-12 was reimaged." got "I cannot add a note to
+  185.220.101.52 because this observable doesn't exist in the current
+  workspace." The observable existed. No proposal was filed. The log line was
+  `mode=action_request steps=2 tools=['annotate_observable']`.
+- **Evidence:** docs/probes/2026-10-12-b004-note-on-recorded-indicator.md (both
+  turns, the answer, the log line, the observable's row). Related but
+  different: S28's IDEAS line about a note-only request on an indicator the
+  workspace has never seen.
+- **Status:** open.
