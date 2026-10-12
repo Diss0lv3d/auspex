@@ -247,6 +247,18 @@ def _status_frame(ev) -> str:
     return _ENGINE_STATUS
 
 
+def _pane_separator(prev_kind: str | None, prev_tail: str, kind: str, text: str) -> str:
+    """S26: the model's thinking and its narration both stream as `reasoning`
+    into one Thinking pane, so where one gives way to the other the page ran
+    them together. A newline goes between, unless one side already has it. The
+    caller resets `prev_kind` on a tool step: the page draws that as its own line."""
+    if prev_kind is None or prev_kind == kind:
+        return ""
+    if prev_tail.endswith("\n") or text.startswith("\n"):
+        return ""
+    return "\n"
+
+
 def select_dev_endpoint(
     registry: dict[str, DevEndpoint], app_env: str, endpoint_id: str | None
 ) -> DevEndpoint | None:
@@ -941,6 +953,7 @@ async def chat(
             rail on the channel of the pane it is shown in — tool frames on one
             literal channel, never one per call (STATE follow-up 11)."""
             nonlocal finish_reason, usage, agent_done
+            pane = {"kind": None, "tail": ""}  # what the Thinking pane showed last
             async with aclosing(
                 loop.run_stream(
                     endpoint.client, body.message, history=agent_history, claim=claim_next
@@ -949,11 +962,15 @@ async def chat(
                 async for ev in events:
                     if ev.kind in ("reasoning", "narration"):
                         # Both show in the Thinking pane; only the model's own
-                        # thinking gets the recitation floor (D-040).
+                        # thinking gets the recitation floor (D-040). The line
+                        # break between them is scanned with the text it leads.
                         channel = "thinking" if ev.kind == "reasoning" else "narration"
-                        if scanner.feed(ev.text, channel=channel):
+                        text = _pane_separator(pane["kind"], pane["tail"], ev.kind, ev.text)
+                        text += ev.text
+                        if scanner.feed(text, channel=channel):
                             return
-                        yield _sse({"reasoning": ev.text})
+                        pane["kind"], pane["tail"] = ev.kind, text[-1:] if text else pane["tail"]
+                        yield _sse({"reasoning": text})
                     elif ev.kind == "content":
                         if scanner.feed(ev.text, channel="content"):
                             return
@@ -969,6 +986,7 @@ async def chat(
                             "\n" + frame["proposal"]["summary"], channel="tool"
                         ):
                             return
+                        pane["kind"] = None  # the page draws the tool step as its own line
                         yield _sse({"tool": frame})
                     elif ev.kind == "phase":
                         if ev.phase == "engine":
