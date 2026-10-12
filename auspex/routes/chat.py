@@ -538,7 +538,7 @@ async def list_sessions(request: Request, auth: Auth) -> dict:
     pool = request.app.state.pool
     rows = await pool.fetch(
         "SELECT s.id, s.created_at, m.last_at,"
-        "       (SELECT q.content FROM messages q"
+        "       (SELECT left(q.content, 1000) FROM messages q"
         "         WHERE q.session_id = s.id AND q.workspace_id = s.workspace_id AND q.role = 'user'"
         "         ORDER BY q.created_at, q.id LIMIT 1) AS first_question,"
         "       sp.turns, sp.engine_calls, sp.prompt_tokens, sp.completion_tokens"
