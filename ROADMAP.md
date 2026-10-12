@@ -489,11 +489,24 @@ BUGS.md) have their own sections at the end, before "Later".
 
 ## Track: front end (D-051)
 
-- [ ] **F1 — Where a deep turn's reasoning loses its speed, measured first.**
-  Promote #30 first. Then measure endpoint vs server vs page (three layers, both
-  endpoints, distributions not single runs) and fix the layer that adds the
-  delay, or put the options to Burhan if the model is the bottleneck. Ask
-  Burhan for the rest of his front-end list at the start.
+- [x] **F1 — Where a deep turn's reasoning loses its speed, measured first.**
+  (2026-10-12) Promote #30 (it collided with B1's window: STATE.md). Burhan
+  added all three candidates.
+  - **Measured** (docs/probes/2026-10-12-f1-stream-layers.md): the server adds
+    ~1 ms a delta, the page ~3 ms, and the endpoint is the rest (glm bursts
+    with 1-13 s silences; qwen 139-171 chars/s).
+  - **D-052:** a `status` frame before each wait, a working line, pacing
+    within 200 ms, and the slow local endpoint labelled "Local (slow)".
+  - **D-053:** safe markdown in answers; https links show their host.
+  - **The approvals panel:** every door, two clicks for runs
+    (docs/superpowers/specs/2026-10-12-approvals-panel-design.md).
+  - **D-054:** every deep turn records its spend, shown per answer and per
+    chat.
+  - **B-003 fixed** (`no-cache` pages). B-002 and B-004 were logged.
+  - 1315 tests; 120 modules; no new env vars.
+- [ ] **F2 — A chat survives a reload.** Promote first; Burhan's hands-on list
+  of F1's page outranks the goal. Then list your chats and reopen one, with its
+  stored turns and spend (two scoped endpoints plus the page).
 
 ## Track: bugs (D-051)
 
