@@ -12,8 +12,8 @@ import { test } from "node:test";
 const html = readFileSync(new URL("../../auspex/static/index.html", import.meta.url), "utf8");
 const block = html.match(/\/\/ <page-logic>([\s\S]*?)\/\/ <\/page-logic>/);
 assert.ok(block, "index.html has no // <page-logic> block");
-const { createPacer, indicatorText } = new Function(
-  `${block[1]}; return { createPacer, indicatorText };`,
+const { createPacer, indicatorText, markdownNodes } = new Function(
+  `${block[1]}; return { createPacer, indicatorText, markdownNodes };`,
 )();
 
 const FRAME_MS = 1000 / 60;
@@ -83,6 +83,21 @@ test("a frame that is not text is released as soon as the text before it is", ()
   assert.deepEqual(pacer.take(0, FRAME_MS).map((p) => Object.keys(p)[0]), ["tool"]);
 });
 
+test("text of one kind released together comes out as one piece", () => {
+  // The answer re-renders its markdown on every piece (D-053), so a frame that
+  // released twenty deltas must hand over one string, not twenty.
+  const pacer = createPacer();
+  for (let i = 0; i < 20; i++) pacer.push({ content: "word " }, 0);
+  pacer.push({ tool: { name: "x", status: "executed", call: "x" } }, 0);
+  pacer.push({ content: "after" }, 0);
+  const out = pacer.flush();
+  assert.deepEqual(out.map((p) => Object.keys(p)[0]), ["content", "tool", "content"]);
+  assert.equal(out[0].content, "word ".repeat(20));
+  const taken = createPacer();
+  for (let i = 0; i < 20; i++) taken.push({ reasoning: "ab" }, 0);
+  assert.equal(taken.take(250, FRAME_MS).length, 1);
+});
+
 test("flush releases everything still queued, in order, at once", () => {
   const pacer = createPacer();
   pacer.push({ reasoning: "a".repeat(500) }, 0);
@@ -129,4 +144,85 @@ test("a tool with no name, or one the page does not know, is a lookup", () => {
 test("a held answer says it is being written", () => {
   const turn = { sentAt: 0, lastPaintAt: 3000, status: { phase: "held" }, statusAt: 3100 };
   assert.equal(indicatorText(turn, 6200), "Writing the answer, shown once it is checked · 3 s");
+});
+
+// -- safe minimal markdown in the answer (D-053) -----------------------------
+//
+// `markdownNodes(text, h)` builds the answer through an element factory: the
+// page passes one that calls createElement and appends strings as text nodes;
+// here a plain-object factory makes the tree inspectable. Nothing in it can
+// turn model text into markup, because nothing in it ever parses HTML.
+
+// Frozen, like the page's real elements in the one way that matters here: a
+// DOM element's `children` cannot be pushed to or reassigned, so a builder
+// that edits an element after making it must fail here too.
+const h = (tag, props = {}, children = []) =>
+  Object.freeze({ tag, ...props, children: Object.freeze([...children]) });
+const walk = (nodes) => nodes.flatMap((n) => (typeof n === "string" ? [] : [n, ...walk(n.children)]));
+const textOf = (n) => (typeof n === "string" ? n : n.children.map(textOf).join(""));
+const tags = (nodes) => nodes.map((n) => n.tag);
+
+test("HTML in an answer is shown as text, never built as elements", () => {
+  const nodes = markdownNodes('<img src=x onerror="alert(1)"> and <script>steal()</script>', h);
+  assert.deepEqual(walk(nodes).map((n) => n.tag), ["p"]);
+  assert.equal(textOf(nodes[0]), '<img src=x onerror="alert(1)"> and <script>steal()</script>');
+});
+
+test("headings, paragraphs and the line breaks inside a paragraph", () => {
+  const nodes = markdownNodes("## Risk\nCRITICAL\nscore 90\n\n### Note\nend", h);
+  assert.deepEqual(tags(nodes), ["h4", "p", "h5", "p"]);
+  assert.equal(textOf(nodes[0]), "Risk");
+  assert.equal(textOf(nodes[1]), "CRITICAL\nscore 90");
+});
+
+test("lists, with bold and code inside an item", () => {
+  const nodes = markdownNodes("- **TTP**: `T1558.003`\n- second\n\n1. one\n2) two", h);
+  assert.deepEqual(tags(nodes), ["ul", "ol"]);
+  assert.deepEqual(tags(nodes[0].children), ["li", "li"]);
+  const first = nodes[0].children[0].children;
+  assert.deepEqual(first.map((c) => (typeof c === "string" ? c : `${c.tag}:${textOf(c)}`)),
+    ["strong:TTP", ": ", "code:T1558.003"]);
+  assert.deepEqual(nodes[1].children.map(textOf), ["one", "two"]);
+});
+
+test("a fenced block is code, kept verbatim", () => {
+  const nodes = markdownNodes("Run:\n```powershell\nGet-Process **x** | `y`\n```\ndone", h);
+  assert.deepEqual(tags(nodes), ["p", "pre", "p"]);
+  assert.equal(nodes[1].children[0].tag, "code");
+  assert.equal(textOf(nodes[1]), "Get-Process **x** | `y`");
+});
+
+test("an https link opens apart from the page and shows its real host", () => {
+  const nodes = markdownNodes("See [VirusTotal](https://evil.example.net/vt?ip=1.2.3.4).", h);
+  const a = walk(nodes).find((n) => n.tag === "a");
+  assert.equal(a.href, "https://evil.example.net/vt?ip=1.2.3.4");
+  assert.equal(a.target, "_blank");
+  assert.equal(a.rel, "noopener noreferrer");
+  assert.equal(a.referrerPolicy, "no-referrer");
+  assert.equal(textOf(a), "VirusTotal");
+  assert.match(textOf(nodes[0]), /VirusTotal ↗ evil\.example\.net\./);
+});
+
+test("anything but a plain https URL stays literal text", () => {
+  for (const url of ["javascript:alert(1)", "data:text/html,<b>x</b>", "http://example.com",
+    "https://user:pass@example.com/", "//example.com", "vbscript:x"]) {
+    const md = `[click](${url})`;
+    const nodes = markdownNodes(md, h);
+    assert.equal(walk(nodes).filter((n) => n.tag === "a").length, 0, url);
+    assert.equal(textOf(nodes[0]), md, url);
+  }
+});
+
+test("an unclosed marker stays literal while the answer is still streaming", () => {
+  for (const partial of ["a **bold", "run `whoami", "[x](https://exa", "## "]) {
+    const nodes = markdownNodes(partial, h);
+    assert.equal(walk(nodes).filter((n) => ["strong", "code", "a"].includes(n.tag)).length, 0, partial);
+  }
+  assert.equal(textOf(markdownNodes("a **bold", h)[0]), "a **bold");
+});
+
+test("underscores are text, not italics", () => {
+  const nodes = markdownNodes("call enrich_observable on _this_", h);
+  assert.equal(textOf(nodes[0]), "call enrich_observable on _this_");
+  assert.deepEqual(walk(nodes).map((n) => n.tag), ["p"]);
 });

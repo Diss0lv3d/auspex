@@ -68,7 +68,20 @@
     .composer { display: flex; gap: 10px; max-width: 860px; margin: 0 auto; }
     .composer input { flex: 1; }
     .hint { color: var(--slate); font-size: 12px; max-width: 860px; margin: 8px auto 0; }
-    code { font-family: var(--mono); color: var(--signal); }
+    /* D-053: neutral — Signal amber means "suspicious" (D-002), and a hash in a code span is not. */
+    code { font-family: var(--mono); font-size: .92em; color: var(--text); background: var(--surface); padding: 1px 5px; border-radius: 4px; }
+    .bubble.md { white-space: normal; }
+    .bubble.md p { white-space: pre-wrap; margin: 0 0 8px; }
+    .bubble.md li { white-space: pre-wrap; margin: 0 0 3px; }
+    .bubble.md h3, .bubble.md h4, .bubble.md h5 { font-family: var(--display); font-weight: 600; margin: 14px 0 6px; }
+    .bubble.md h3 { font-size: 18px; } .bubble.md h4 { font-size: 16px; } .bubble.md h5 { font-size: 15px; }
+    .bubble.md > :first-child { margin-top: 0; }
+    .bubble.md ul, .bubble.md ol { margin: 0 0 8px; padding-left: 22px; }
+    .bubble.md pre { background: var(--surface); padding: 10px 12px; border-radius: 8px; overflow-x: auto; margin: 0 0 8px; }
+    .bubble.md pre code { padding: 0; background: none; white-space: pre; }
+    .bubble.md a { color: var(--steel); }
+    .md-host { color: var(--slate); font-family: var(--mono); font-size: 12px; }
+    .err { color: var(--ember); white-space: pre-wrap; margin-top: 6px; }
   </style>
 </head>
 <body>
@@ -117,6 +130,13 @@
     function createPacer(maxHoldMs = PACE_MAX_HOLD_MS) {
       const queue = [];
       const textKey = (f) => ("reasoning" in f ? "reasoning" : "content" in f ? "content" : null);
+      // Adjacent pieces of the same kind leave as one: the answer re-renders
+      // its markdown per piece (D-053).
+      const emit = (out, key, text) => {
+        const last = out[out.length - 1];
+        if (last && key in last && Object.keys(last).length === 1) last[key] += text;
+        else out.push({ [key]: text });
+      };
       return {
         push(frame, now) {
           const key = textKey(frame);
@@ -142,7 +162,7 @@
             const part = it.rest.slice(0, budget);
             budget -= part.length;
             it.rest = it.rest.slice(part.length);
-            if (part) out.push({ [it.key]: part });
+            if (part) emit(out, it.key, part);
             if (it.rest) break;
             queue.shift();
           }
@@ -152,7 +172,7 @@
           const out = [];
           for (const it of queue) {
             if (!it.key) out.push(it.frame);
-            else if (it.rest) out.push({ [it.key]: it.rest });
+            else if (it.rest) emit(out, it.key, it.rest);
           }
           queue.length = 0;
           return out;
@@ -185,6 +205,90 @@
       const began = Math.max(turn.sentAt, turn.lastPaintAt ?? -Infinity, turn.statusAt ?? -Infinity);
       if (turn.lastPaintAt != null && now - began < QUIET_MS) return null;
       return `${statusLabel(turn.status)} · ${Math.floor((now - began) / 1000)} s`;
+    }
+    // D-053: the answer's markdown, as elements the page chose. `h(tag, props,
+    // children)` makes one element; children are elements or strings, and a
+    // string is only ever text. No HTML is parsed anywhere on this path.
+    const INLINE_RE = /`([^`\n]+)`|\*\*([^*\n]+?)\*\*|\[([^\]\n]+)\]\(([^)\s]+)\)/g;
+
+    // Only a plain https URL is a link; anything else is shown as written.
+    function safeLink(raw) {
+      let url;
+      try { url = new URL(raw); } catch (e) { return null; }
+      if (url.protocol !== "https:" || url.username || url.password || !raw.startsWith("https://")) return null;
+      return url;
+    }
+
+    function inlineNodes(text, h) {
+      const out = [];
+      let last = 0;
+      for (const m of text.matchAll(INLINE_RE)) {
+        const [whole, code, bold, label, href] = m;
+        let node = null;
+        if (code !== undefined) node = [h("code", {}, [code])];
+        else if (bold !== undefined) node = [h("strong", {}, [bold])];
+        else {
+          const url = safeLink(href);
+          if (url) {
+            node = [
+              h("a", { href: url.href, target: "_blank", rel: "noopener noreferrer", referrerPolicy: "no-referrer" }, [label]),
+              h("span", { className: "md-host" }, [" ↗ " + url.hostname]),
+            ];
+          }
+        }
+        if (!node) continue;  // a link that is not safe stays literal text
+        if (m.index > last) out.push(text.slice(last, m.index));
+        out.push(...node);
+        last = m.index + whole.length;
+      }
+      if (last < text.length) out.push(text.slice(last));
+      return out;
+    }
+
+    // Two passes: the lines become plain blocks first, then each element is
+    // made once, with all its children (a real element's children cannot be
+    // edited the way an array can).
+    function markdownBlocks(text) {
+      const lines = String(text).split("\n");
+      const blocks = [];
+      let open = null;  // the paragraph or list still taking lines
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (/^```/.test(line)) {
+          const body = [];
+          for (i++; i < lines.length && !/^```\s*$/.test(lines[i]); i++) body.push(lines[i]);
+          blocks.push({ type: "pre", text: body.join("\n") });
+          open = null;
+          continue;
+        }
+        if (!line.trim()) { open = null; continue; }
+        const heading = line.match(/^(#{1,6})\s+(\S.*)$/);
+        const item = line.match(/^\s*[-*]\s+(.*)$/) || line.match(/^\s*\d+[.)]\s+(.*)$/);
+        if (heading) {
+          blocks.push({ type: "h" + (Math.min(heading[1].length, 3) + 2), text: heading[2] });  // # → h3
+          open = null;
+        } else if (item) {
+          const type = /^\s*[-*]/.test(line) ? "ul" : "ol";
+          if (!open || open.type !== type) { open = { type, items: [] }; blocks.push(open); }
+          open.items.push(item[1]);
+        } else if (open && open.type === "p") {
+          open.text += "\n" + line;
+        } else {
+          open = { type: "p", text: line };
+          blocks.push(open);
+        }
+      }
+      return blocks;
+    }
+
+    function markdownNodes(text, h) {
+      return markdownBlocks(text).map((b) => {
+        if (b.type === "pre") return h("pre", {}, [h("code", {}, [b.text])]);
+        if (b.type === "ul" || b.type === "ol") {
+          return h(b.type, {}, b.items.map((it) => h("li", {}, inlineNodes(it, h))));
+        }
+        return h(b.type, {}, inlineNodes(b.text, h));
+      });
     }
     // </page-logic>
 
@@ -257,6 +361,22 @@
       return b;
     }
 
+    // D-053's element factory: props are DOM properties (href, rel, …), and a
+    // string child is appended as a text node. Nothing here parses HTML.
+    function el(tag, props, children) {
+      const e = document.createElement(tag);
+      Object.assign(e, props);
+      e.append(...children);
+      return e;
+    }
+
+    // Each answer bubble's markdown so far; the bubble is rebuilt from it.
+    const answerText = new WeakMap();
+
+    function showError(wrap, text) {
+      wrap.appendChild(Object.assign(document.createElement("div"), { className: "err", textContent: text }));
+    }
+
     function scroll() { const m = $("transcript"); m.scrollTop = m.scrollHeight; }
 
     function handleEvent(ev, wrap) {
@@ -285,9 +405,14 @@
         // reasoning is done once the answer starts — collapse it (stays clickable)
         const think = wrap.querySelector("details.think");
         if (think) think.open = false;
-        ensureBubble(wrap).textContent += ev.content;
+        // D-053: rendered from the whole answer so far, as elements the page
+        // chose; an unclosed marker stays literal until it closes.
+        const b = ensureBubble(wrap);
+        answerText.set(b, (answerText.get(b) || "") + ev.content);
+        b.classList.add("md");
+        b.replaceChildren(...markdownNodes(answerText.get(b), el));
       }
-      else if ("error" in ev) { const b = ensureBubble(wrap); b.textContent += "\n[endpoint error] " + ev.error; b.style.color = "var(--ember)"; }
+      else if ("error" in ev) { showError(wrap, "[endpoint error] " + ev.error); }
       scroll();
     }
 
@@ -362,7 +487,7 @@
         }
       } catch (e) {
         paint(pacer.flush());
-        ensureBubble(wrap).textContent += "\n[connection lost]";
+        showError(wrap, "[connection lost]");
       } finally {
         paint(pacer.flush());
         open = false;

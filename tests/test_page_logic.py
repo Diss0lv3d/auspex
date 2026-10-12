@@ -26,4 +26,4 @@ def test_the_pages_pacing_and_indicator_logic_pass_their_node_tests():
     # A file that defined no tests also exits 0. The floor is the count this
     # file holds today; it only ever goes up.
     passed = [line for line in run.stdout.splitlines() if line.startswith("ℹ pass ")]
-    assert passed and int(passed[0].split()[-1]) >= 11, run.stdout[-2000:]
+    assert passed and int(passed[0].split()[-1]) >= 20, run.stdout[-2000:]
