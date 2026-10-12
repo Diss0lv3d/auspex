@@ -2021,3 +2021,30 @@ That would change Living Verdicts for most IPs to fix a display gap.
 **Bounds, stated.** Only AbuseIPDB supplies it (TD-049). The model can still
 add what nobody supplied ("likely us-central1"). That is the deferred item on
 fabricated specifics, not this decision.
+
+## D-056 — The sign-in survives a reload in the tab's sessionStorage (2026-10-12, F2)
+
+**Context.** F2's goal is that a chat survives a reload. The page held its
+token in memory only (`auspex/static/index.html`, `let token = null`), so a
+reload signed the analyst out as well as losing the chat, and B-003's fix makes
+reloading normal after every deploy.
+
+**Decision (Burhan's call; the recommended option).**
+1. On sign-in the page stores the token in `sessionStorage` under
+   `auspex.token`. It survives a reload in the same tab and is gone when the tab
+   closes. The token's lifetime is unchanged (`jwt_ttl_minutes`, 12 h).
+2. On load, a stored token is checked with `GET /api/auth/whoami`. A 401 clears
+   it. Every storage call is in a try/catch, so blocked storage leaves the page
+   as it was before.
+3. A **Sign out** button clears it.
+
+**Rejected.**
+- *Sign in again after every reload:* no security change, one step per deploy.
+- *localStorage:* the token would outlive the tab and be shared across tabs.
+- *An httpOnly cookie:* scripts could not read it, but the server would read a
+  cookie and every POST would need CSRF protection: more than F2.
+
+**The risk this accepts.** Any script running on the page can read the token.
+The page sends no Content-Security-Policy (`auspex/routes/ui.py` sets only
+`no-cache`), so the one guard is D-053's rule that model and tool text never
+become HTML. A CSP is TD-051.
