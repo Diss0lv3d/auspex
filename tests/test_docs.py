@@ -27,6 +27,15 @@ DEMO = ROOT / "scripts" / "demo.sh"
 ENV_EXAMPLE = ROOT / ".env.example"
 ENV_DOCS = ROOT / "docs" / "ENV_VARS.md"
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+STATE = ROOT / "STATE.md"
+
+# D-051: one prompt per track, each with its own session ids and the word
+# `/session-start` takes for it.
+TRACK_PROMPTS = {
+    "NEXT-SESSION-BE.md": ("be", "S"),
+    "NEXT-SESSION-FE.md": ("fe", "F"),
+    "NEXT-SESSION-BUGS.md": ("bugs", "B"),
+}
 
 # Two permitted occurrences, and only in these exact shapes.
 #
@@ -180,3 +189,46 @@ def test_the_readme_states_one_current_test_count(request):
     assert claimed == collected, (
         f"the README says {claimed} tests, the suite collected {collected}"
     )
+
+
+def test_each_track_prompt_is_the_session_state_expects_next():
+    """D-051 split the one session prompt into three tracks. The wrong-window
+    guard compares a pasted id with the prompt's header, and the header with
+    STATE.md's Tracks table. A session-end that bumps one and not the other
+    makes the guard stop a correct session, or pass a stale one.
+
+    The old single prompt must stay gone: the habit of pasting from it would
+    quietly start backend work."""
+    assert not (ROOT / "NEXT-SESSION.md").exists(), (
+        "NEXT-SESSION.md is back; D-051 renamed it NEXT-SESSION-BE.md"
+    )
+
+    state = STATE.read_text(encoding="utf-8")
+    rows = re.findall(
+        r"^\|[^|\n]+\|\s*`(NEXT-SESSION-[A-Z]+\.md)`\s*\|[^|\n]*\|\s*([SFB][0-9]+)\s*\|(.*)$",
+        state,
+        re.MULTILINE,
+    )
+    expected = {name: session for name, session, _ in rows}
+    assert set(expected) == set(TRACK_PROMPTS), (
+        f"STATE.md's Tracks table lists {sorted(expected)}, not the three tracks"
+    )
+    focus = [name for name, _, rest in rows if "**focus**" in rest]
+    assert len(focus) == 1, f"exactly one track is the focus, STATE.md marks {focus}"
+
+    for name, (word, prefix) in TRACK_PROMPTS.items():
+        text = (ROOT / name).read_text(encoding="utf-8")
+        header = re.match(
+            r"# NEXT-SESSION-[A-Z]+ — track: [a-z ]+ · session: ([SFB][0-9]+)\n", text
+        )
+        assert header, (
+            f"{name} lacks the `# NEXT-SESSION-<TRACK> — track: … · session: <id>` header"
+        )
+        session = header.group(1)
+        assert session.startswith(prefix), f"{name} names {session}; its ids start with {prefix}"
+        assert session == expected[name], (
+            f"{name} says {session}, STATE.md expects {expected[name]}"
+        )
+        assert f"/session-start {word} {session}" in text, (
+            f"{name}'s paste-ready prompt never says `/session-start {word} {session}`"
+        )
