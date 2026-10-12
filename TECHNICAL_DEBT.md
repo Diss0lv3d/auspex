@@ -1,5 +1,21 @@
 # Technical debt — logged the moment it's taken
 
+## TD-050 (F2) — a reopened chat's turns are paired by time
+
+**Where:** `auspex/chat_history.py` `pair_turns`, behind
+`GET /api/chat/sessions/{id}/turns`.
+**Risk:** LOW. A ledger row names its answer (`turn_spend.message_id`), but a
+turn that stored no answer, and every proposal, is placed by time: inside the
+window from its question to the next. Two tabs sending into the SAME chat at
+the same moment can interleave, and a proposal or a failed turn's row can land
+under the other question. One tab cannot: Send is disabled while a turn runs.
+**Why taken:** exact pairing needs a key on `turn_spend` and `proposals` (a
+migration that fixes only new turns), for an edge one tab cannot reach.
+**Path to fix:** store the question's message id on `turn_spend` and
+`proposals` when the turn starts, and pair by it where present.
+**Trigger:** a reopened turn shows a proposal or an ending that belongs to its
+neighbour, or the page gains a way to run two turns in one chat at once.
+
 ## TD-049 (B1) — only AbuseIPDB names an address's network
 
 **Where:** `auspex/enrich/providers/abuseipdb.py` `_network` (D-055). OTX
