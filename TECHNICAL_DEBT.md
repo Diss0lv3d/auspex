@@ -1,5 +1,22 @@
 # Technical debt — logged the moment it's taken
 
+## TD-053 (F2) — the gate's installed-dist check covers `*.py` only
+
+**Where:** `ci.sh`, the "installed distribution matches the source tree" step:
+it compares the wheel's modules with `auspex/**/*.py`.
+**Risk:** LOW-MEDIUM. Since TD-045 the chat page is four static files
+(`static/index.html`, `static/css/chat.css`, `static/js/page-logic.js`,
+`static/js/chat.js`) besides `timeline.html`. A package-data glob that missed
+one would pass the gate and the live probe, because the container serves from
+the copied source, which shadows site-packages. F2's final review checked the
+image by hand: the files are present and identical.
+**Why taken:** found in F2's final review, after the split shipped; widening
+the gate is its own change.
+**Path to fix:** extend the comparison to `auspex/static/**` (every file under
+it, by relative path and hash).
+**Trigger:** a new static file, a package-data edit, or a page that loads in
+the container but not from an installed wheel.
+
 ## TD-052 (F2) — no index covers `proposals.session_id`
 
 **Where:** `GET /api/chat/sessions/{id}/turns` (`auspex/routes/chat.py` ~603-607)
