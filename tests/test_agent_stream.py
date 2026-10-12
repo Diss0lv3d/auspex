@@ -627,3 +627,110 @@ async def test_everything_the_loop_may_issue_is_offered_for_indexing():
     assert issued[0] == loop.system_message(specs)
     assert "Look up an IP." in issued and "the IP" in issued  # function + parameter
     assert _SYNTHESIS_NUDGE in issued
+
+
+# -- TD-043: a tool's per-turn budget -----------------------------------------
+
+
+def _budgeted_registry(budget: int) -> tuple[ToolRegistry, list]:
+    """`lookup_ip` with a per-turn budget, beside `whois` without one."""
+    seen: list[dict] = []
+    reg = ToolRegistry()
+
+    async def lookup_ip(args: dict) -> dict:
+        seen.append(args)
+        return {"ip": args.get("ip"), "reputation": "malicious"}
+
+    async def whois(args: dict) -> dict:
+        return {"ip": args.get("ip"), "owner": "TEST-NET"}
+
+    reg.add(name="lookup_ip", description="Look up an IP.",
+            parameters={"ip": {"type": "string", "description": "the IP"}},
+            required=["ip"], level=ToolLevel.READ, handler=lookup_ip,
+            max_calls_per_turn=budget)
+    reg.add(name="whois", description="Who owns an IP.",
+            parameters={"ip": {"type": "string", "description": "the IP"}},
+            required=["ip"], level=ToolLevel.READ, handler=whois)
+    return reg, seen
+
+
+def _offered(call: dict) -> list[str]:
+    return [s["function"]["name"] for s in call["kwargs"].get("tools") or []]
+
+
+async def test_a_tool_that_spent_its_budget_leaves_the_wire():
+    """TD-043. Measured at S28: on a topic the KB covers thinly, every search
+    returns five results and the model rewords until the step cap — 9 calls for
+    one turn, with no miss to tell it to stop. The budget is enforced by
+    STRUCTURE, not by asking: once spent, the tool is not offered again, and the
+    other tools still are."""
+    registry, seen = _budgeted_registry(2)
+    client = SequencedStreamingFakeLLMClient([
+        _tool_call_script(args='{"ip": "203.0.113.1"}', call_id="a"),
+        _tool_call_script(args='{"ip": "203.0.113.2"}', call_id="b"),
+        _answer_script(),
+    ])
+
+    events = await _drain(_loop(registry), client)
+
+    assert len(seen) == 2
+    assert [_offered(c) for c in client.stream_calls] == [
+        ["lookup_ip", "whois"], ["lookup_ip", "whois"], ["whois"],
+    ]
+    assert events[-1].kind == "done" and events[-1].stop_reason == "final_answer"
+
+
+async def test_a_call_past_the_budget_is_refused_and_not_run():
+    """The model has the tool in its history and may call it anyway (or, in
+    prompted mode, it was never on the wire to withdraw). The handler does not
+    run, the model is told why, and the turn goes on to its answer."""
+    registry, seen = _budgeted_registry(1)
+    client = SequencedStreamingFakeLLMClient([
+        _tool_call_script(args='{"ip": "203.0.113.1"}', call_id="a"),
+        _tool_call_script(args='{"ip": "203.0.113.2"}', call_id="b"),
+        _answer_script(),
+    ])
+
+    events = await _drain(_loop(registry), client)
+
+    tool = [e.invocation for e in events if e.kind == "tool"]
+    assert seen == [{"ip": "203.0.113.1"}]
+    assert [t.status for t in tool] == ["executed", "error"]
+    assert tool[1].feedback["error"] == "call_limit"
+    assert events[-1].kind == "done" and events[-1].stop_reason == "final_answer"
+
+
+async def test_a_budget_spent_on_the_only_tool_leaves_no_tools_on_the_wire():
+    """With nothing left to offer, the next call carries no `tools` at all —
+    the request shape the step cap's synthesis pass already sends."""
+    registry, seen = _budgeted_registry(1)
+    registry._tools.pop("whois")
+    client = SequencedStreamingFakeLLMClient([
+        _tool_call_script(args='{"ip": "203.0.113.1"}', call_id="a"), _answer_script(),
+    ])
+
+    await _drain(_loop(registry), client)
+
+    assert len(seen) == 1
+    assert "tools" not in client.stream_calls[1]["kwargs"]
+
+
+async def test_the_call_that_spends_the_budget_says_it_was_the_last():
+    """Measured live (S28): glm-4.5-air called the withdrawn tool once more from
+    its history on every thin turn, and paid an inference call for the refusal.
+    The result of the LAST allowed call says so, in the tool result the model
+    is reading anyway; the earlier ones say nothing."""
+    registry, _ = _budgeted_registry(2)
+    client = SequencedStreamingFakeLLMClient([
+        _tool_call_script(args='{"ip": "203.0.113.1"}', call_id="a"),
+        _tool_call_script(args='{"ip": "203.0.113.2"}', call_id="b"),
+        _answer_script(),
+    ])
+
+    events = await _drain(_loop(registry), client)
+
+    tool = [e.invocation for e in events if e.kind == "tool"]
+    assert "budget" not in tool[0].feedback
+    assert "last" in tool[1].feedback["budget"] and tool[1].feedback["reputation"] == "malicious"
+    replayed = [m for m in client.stream_calls[2]["messages"] if m.get("role") == "tool"]
+    assert "budget" in json.loads(replayed[1]["content"])

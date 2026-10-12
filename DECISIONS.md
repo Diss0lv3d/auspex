@@ -1475,3 +1475,376 @@ object. The loop fed it back to the model inside JSON, and the turn died
 **What this supersedes.** Nothing ratified. It retires the README's "The
 agent reads, it does not act" and STATE follow-up 8.
 
+## D-046 — A tool may declare a per-turn budget; `search_knowledge` gets 3 (TD-043) (2026-10-11, S28)
+
+**Context.** TD-043 (S27): on topics the curated KB covers thinly, agent turns
+searched until the step cap, 9 inference calls for one turn. TD-043 named three
+candidate fixes and chose none until the cause was measured. Record:
+docs/probes/2026-10-11-s28-td043-search-budget.md.
+
+**Measured first.** On S27's prompts, 0 of 31 re-searches were misses.
+- Every search returned a full page of five, because the KB has no document
+  about the entity asked for (no ATT&CK group or software pages). So it
+  returns the nearest generic techniques, the same ones every time.
+- The model never sees a miss, so it rewords until the cap.
+- That ruled out "a miss that says rewording will not help" (it would never
+  fire) and "count distinct-result calls" (27 of 31 searches added
+  something).
+
+**Decision.**
+1. **A tool may declare `max_calls_per_turn`** (`Tool`, `ToolRegistry.add`).
+   It is declared with the tool, because whether a repeat call can find
+   something new depends on what the tool looks up. The default is no budget;
+   the step cap still bounds everything.
+2. **`search_knowledge` declares `SEARCH_KNOWLEDGE_MAX_CALLS = 3`.** It is a
+   code constant (D-026). The id lookups (`enrich_observable`, `lookup_cve`)
+   are bounded by their inputs and declare none.
+3. **Enforced by structure.**
+   - Once spent, the tool is no longer offered on the wire.
+   - A call to it anyway is refused with `call_limit` without running the
+     handler. glm-4.5-air made such a call from its history on every thin
+     turn, so withdrawal alone is not the guarantee.
+   - The result of the last allowed call says it was the last.
+   - `run` and `run_stream` share the counting.
+4. **The rail's index is unchanged.** No system or description text changed.
+   The refusal and the notice are tool-result text, which D-031 leaves
+   unindexed as data.
+
+**Why.** Each call is the customer's inference (D-005), and the `default`
+workspace's ceiling of 100 an hour was 11 such turns. On the same prompts:
+- calls went 37 → 23;
+- step-cap hits went 3 → 0;
+- every answer still met its contract (6/6);
+- the ATT&CK-shaped question that searched once is unchanged.
+
+**The price, stated.** With three searches, the LockBit turns no longer reach
+the T1566 Phishing page. Before, the model reached it at search 4–5 once its
+queries moved to technique words.
+- The Initial Access tactic page, returned first on every LockBit turn, names
+  spearphishing, exploiting public-facing servers, valid accounts and
+  external remote services.
+- So the vectors are still grounded, just less specifically.
+- De-duplicating results within the turn, and a budget of 5, were both
+  measured and neither restored it. The cause is KB coverage (IDEAS).
+
+**Bounds, stated.**
+- A model that would have changed strategy at search 4 no longer gets to.
+- A thinly covered topic still costs up to 5 calls: 3 searches, possibly 1
+  refused call, then the answer.
+- The refused call shows in the turn as `→ search_knowledge(…) · error`.
+
+**What this supersedes.** Nothing ratified. It resolves TD-043.
+
+## D-047 — The identity shortcut answers questions about who made the assistant and what it runs on; D-002 is kept (2026-10-11, S28)
+
+**Context.** The S28 review of S27's code (docs/probes/2026-10-11-s28-s27-code-review.md)
+sent four identity questions through the rebuilt container: "which company made
+you", "what model are you running on?", "what LLM powers this platform?" and
+"who trained you". None took the identity shortcut. All four went to the model
+as `general` turns, and **4 of 4 answers said the platform is Claude by
+Anthropic**.
+- That is false: the dev engine is glm-4.5-air.
+- It breaks D-002 (the brand).
+- It is stored and replayed.
+
+The shortcut's coverage predates S27.
+
+**Burhan's calls at S28.**
+- First: fix it, answering "I'm Auspex, powered by <the configured model>".
+- That overturns D-002's "never leak the underlying model/provider name into
+  user-visible strings", so per protocol the question was put back as
+  overturn or drop. **Burhan chose to drop it: D-002 stands.**
+- The identity answer names the platform's engine, never the model.
+
+**Decision.**
+1. **`_IDENTITY_RE` is widened by its own rule** (`auspex/classify/classifier.py`).
+   - The whole message must be the question, at most 80 characters.
+   - It must point at the assistant: "you", or "this assistant / co-analyst /
+     chat / bot / platform".
+   - New shapes: who made, trained, developed or owns the assistant; what
+     model, LLM, engine or company is behind it; are you / is this <a known
+     model or maker>; what is it built on.
+   - Two precision rules came from hard negatives:
+     - a bare "this" counts after an AI word ("which AI is this?") but not
+       after a company, provider or vendor ("which company is behind this?"
+       is a follow-up about a domain);
+     - "is this X" fires on a model's own name, not a company's ("is this
+       google?" may be about an IP range).
+   - Errors still bias DEEP.
+2. **The identity copy says what it runs on without naming it:** "I'm Auspex —
+   a security intelligence co-analyst, running on the platform's engine." The
+   shortcut-copy brand test, which forbids even the word "model", still holds.
+
+**Judged on an independent, held-out battery (D-044's discipline).** Two
+agents that never read the repo each wrote 45 identity questions and 45
+confusable analyst questions. Battery A shaped the rule. Battery B was opened
+once, after the rule was frozen. Logs: `docs/probes/s28-identity/`.
+
+| Rule | A: identity caught | A: false positives | **B: identity caught** | **B: false positives** |
+|---|---|---|---|---|
+| before | 3/45 | 0/45 | **0/45** | **0/45** |
+| D-047 | 45/45 (training) | 0/45 | **18/45** | **0/45** |
+
+The operating point is pinned by
+`test_the_identity_operating_point_on_the_held_out_battery_holds`. The four
+live questions are pinned verbatim.
+
+**Bounds, stated.**
+- **27 of 45 held-out identity questions still miss** and reach the model,
+  which may still name another vendor. Examples: "how were you trained",
+  "what version are you", "is this openai", "ur made by google?", "Could you
+  tell me which large language model you are?".
+- Enumerated sentence shapes do not generalise far (A 45/45, B 18/45).
+- A wider bag-of-words rule (any "you" plus any identity word) was considered
+  and not built. It gives up "errors bias DEEP": "do you know who built this
+  tool?" would become a canned bio.
+- Any improvement claim now needs a fresh battery, because A and B are both
+  known.
+- Nothing guards the model's own self-description on a miss. That is the
+  unowned brand gap (STATE follow-up 11), now in the answer as well as the
+  Thinking pane.
+
+**What this supersedes.** Nothing. D-002 is re-affirmed, not amended.
+
+## D-048 — An approval no run ever started rejoins the queue, with two doors: run it now, or withdraw it (TD-042) (2026-10-11, S28)
+
+**Context.** TD-042, found by the S27 review and reproduced in
+`docs/probes/s27-review/probe_approved_wedge.py`. `approve` settles the row,
+then runs it a few awaits later. If the process dies in between, the row is
+`approved` with no claim:
+- it is not in the queue;
+- `reject`, `abandon` and `keep` all refuse it;
+- the only execute path is approve, which needs `pending_approval`.
+
+The same row is the honest end of an execute-time refusal (the declaration or
+its risk changed since the approval). TD-042 left the door to a decision,
+because running an approval given an hour ago is a question about what an
+approval means once time has passed. D-045 lets the chat agent file proposals,
+so this path will see traffic.
+
+**Burhan's call at S28:** both doors, and a withdrawal is its own status.
+
+**Decision.**
+1. **The queue lists it once it is stale.** `pending()` now also returns an
+   `approved` row with `claimed_at IS NULL` and `decided_at` older than
+   STALE_CLAIM_SECONDS (300 s), the threshold `abandon` already uses. Before
+   that, the approve request's own run may still be about to claim it.
+2. **Run it now:** `POST /api/proposals/{id}/execute`
+   (`ActionExecutor.run_stale_approval`).
+   - No claim was ever taken, so no handler ever started: it is safe to run.
+   - It is the same run approve makes, through one shared `_run_claimed`:
+     `check_executable` again (approved, risk still gated, declaration
+     unchanged), then the claim, then the handler.
+   - The claim is the only difference:
+     - it takes only a stale, unclaimed approval;
+     - it writes the human pressing it to `resolved_by`/`resolved_at`.
+     Running an old approval is a decision made now. The approval stays in
+     `decided_by` (S27's rule).
+   - A refusal is a 409 (404 for no such proposal), because nothing else
+     happened in the request. That differs from approve's 200, where the
+     approval itself did happen.
+3. **Withdraw it:** `POST /api/proposals/{id}/withdraw`
+   (`ProposalSettlement.withdraw`).
+   - It moves to a new terminal status, `withdrawn`: approved, then retracted
+     before anything ran.
+   - Not `rejected`, because that is the decision not to approve, and this
+     row was approved: `decided_by` keeps saying by whom.
+   - The withdrawer lands in `resolved_by`.
+   - Nothing ran, so there is nothing to put back. `undo` refuses it like any
+     other row outside UNDOABLE_FROM.
+4. **Both doors are claim-first and stale-only.** One UPDATE moves the row out
+   of `approved` only if it is unclaimed and older than the threshold. Two
+   humans pressing the two doors at once get exactly one answer, pinned by a
+   race test. A fresh approval is refused by both: `not_stale`, or a 409 that
+   says its own run may still be starting.
+5. **One status-CHECK block, edited in place** (D-041's rule). `withdrawn` was
+   added to the only block that defines `proposals_status_check`.
+   `test_startup_survives_every_status_a_proposal_can_be_in` reads the live
+   constraint, so it covers the new status unedited.
+
+**Why both.**
+- A row refused at execute time can never run again: its declaration changed.
+  So withdraw must exist.
+- A row orphaned by a crash was approved for a reason, and re-running it
+  re-checks everything the approval was given under. So run-now earns its
+  place.
+- Making the human press it again, now, answers TD-023's worry about stale
+  intent.
+
+**Bounds, stated.**
+- **A row refused at execute time must wait out the threshold** before it can
+  be withdrawn, even though its refusal was immediate.
+- **`resolved_by` is the latest human resolver.** A run started from this door
+  that then goes `incomplete` and is kept or abandoned overwrites it with
+  that later human.
+- **There is no page UI for any approvals door yet** (as with `abandon` and
+  `keep`). The doors are API routes.
+- **TD-025 still stands.** There is no idempotency key, which matters the day
+  an action reaches a network.
+
+**What this supersedes.** Nothing ratified. It resolves TD-042.
+
+## D-049 — What the agent looks up is recorded, the way the IOC check records it (2026-10-11, S28)
+
+**Context.** IDEAS (S27), and D-045's first stated bound: a proposal can
+target only an observable the workspace already has. Only the 92/8 IOC check
+recorded observables and verdicts (`persist_enrichment`). An analyst who asked
+the chat agent to check an indicator and annotate it got the check, and then
+the annotate call was refused as `NothingToPropose`, unless they had run the
+shortcut first. Burhan put it in S28's scope at the start ritual. Record:
+`docs/probes/s28-candidates/`.
+
+**Decision.**
+1. **`enrich_observable` records what it looked up.**
+   `build_capability_registry` takes a `record` callable, and the chat route
+   passes the same `persist_enrichment` the IOC check calls, bound to the
+   turn's workspace. The observable is upserted, and a verdict row and its
+   falsification watchers are written when the signals synthesise one.
+2. **Only what was looked up is recorded.** That means `outcome.enriched`,
+   which only ever holds indicators D-039 let through: from the analyst, or
+   from a knowledge-base record. The model cannot make the platform record an
+   indicator it composed. Skipped indicators are not recorded, for example
+   reserved address space, which enrichment does not look up. The IOC check
+   behaves the same way.
+3. **The model is told whether it was recorded** (`recorded: true/false` in
+   the tool result). A failed write is logged and said, never claimed, and the
+   computed results still return: the IOC check's S5 rule. With no `record`
+   (probes, tests), nothing is recorded and nothing is said.
+4. **The tool stays READ.** The write is the platform's own bookkeeping of a
+   lookup it made, the same as on the shortcut path. It is not an action the
+   model chose, so D-014's gate does not apply. The module docstring says so.
+
+**Why.** Live through the rebuilt container: one turn named an IP the
+workspace had never seen and asked for it to be checked and annotated.
+`enrich_observable` recorded the observable, and the same turn filed the
+annotate proposal (rejected as cleanup). Before D-049 that proposal could not
+be filed.
+
+**Bounds, stated.**
+- **Every enrichment the agent runs now writes.** A turn that checks five
+  supplied indicators adds five observables and their verdicts to the
+  workspace, exactly as an IOC check of the same five would.
+- The verdicts feed Living Verdicts (retro-hunts, falsification watchers) like
+  any other.
+- Indicators learned from a knowledge-base record this turn (D-039) are
+  recorded too, if the agent looks them up.
+
+**What this supersedes.** Nothing ratified. It retires D-045's first bound
+and the IDEAS line.
+
+## D-050 — A note request is a deep turn, and a note-only request gets its own mode, `action_request` (2026-10-11, S28)
+
+**Context.** IDEAS (S27): live, "add a note to X" resolved to `ioc_enrichment`,
+could not fill its sections and read `contract_valid: false`. Burhan put it in
+S28's scope at the start ritual. Measured first, on two batteries written by
+agents that never read the repo (`docs/probes/s28-candidates/`). The problem
+was larger than the drift:
+- **9–10 of 30 note-only requests took the IOC-check shortcut.** No model ran,
+  the analyst got an enrichment answer, the note was never proposed, and
+  nothing said so.
+- 6 of 20 requests that asked for analysis AND a note took the shortcut too.
+- The rest landed in narrative modes they could not fill.
+
+**Decision.**
+1. **A note request never takes the shortcut.** `asks_for_note` in the
+   classifier finds the ask anywhere in the message (add/attach/leave/put/
+   write/record a note or comment, annotate, jot/mark down on, record
+   against, with a note, "pls note", update the notes on). It makes the turn
+   DEEP, as the analytical-verb veto does: proposing the note needs the model.
+2. **A message that LEADS with that ask is note-only and resolves to a new
+   mode, `action_request`** (`is_note_request`, resolver step 2b, after the
+   two format steps).
+   - A mixed request asks its question first ("check X and add a note"), so it
+     keeps its analysis mode.
+   - The contract has no sections. Its directive says the change can only be
+     proposed for a human to approve, and that the answer must never say it
+     was made.
+   - The directive is compiled into the turn and indexed by the rail like
+     every mode directive.
+3. **An eighth mode is a scope decision** (D-044's rule), made here.
+
+**Judged on a held-out battery.** Battery B was opened once, after the rule
+was frozen.
+
+| | before | after |
+|---|---|---|
+| note-only → `action_request` | 0/30 | **19/30** |
+| note-only → IOC shortcut | 9/30 | **3/30** |
+| mixed → shortcut | 6/20 | **0/20** |
+| mixed → `action_request` | 0/20 | **0/20** |
+| not-action → `action_request` | 0/30 | **0/30** (routing unchanged) |
+
+Battery A shaped the rule (training data): 29/30, and 0 false positives. The
+operating point is pinned by
+`test_the_action_request_operating_point_on_the_held_out_battery_holds`.
+
+**Bounds, stated.**
+- **11 of 30 held-out note-only phrasings still miss**, and route exactly as
+  they did before. Examples: "append to the notes on X", "X — note: …",
+  "remark on X", "INC-4520: attach a note…". 3 of those still take the
+  shortcut.
+- A note-only request is also routed to `action_request` when it asks for
+  something the platform cannot do ("add a comment in Jira…"). Its contract
+  then has the answer say why nothing could be proposed.
+- A request that leads with the note and asks a question afterwards loses its
+  analysis sections. That is structure, not substance (D-044's trade).
+- Any improvement claim needs a fresh battery.
+
+**What this supersedes.** Nothing ratified. It retires the IDEAS line.
+
+## D-051 — Sessions run in three tracks: backend, front end and bugs (2026-10-12, between S28 and F1)
+
+**Context.** On 2026-10-10, after S28's session-end ritual had committed the
+S29 prompt, Burhan used the page by hand and said: "before moving on with more
+backend development we need to improve on the FE so lets shift our focus there
+and pause BE for a bit." He named two problems: deep turns' reasoning streams
+very slowly, and an IP was said to be Amazon's when it is not (B-001). The
+window that started on them died a minute later. Nothing reached the repo, so
+the next session's prompt was all backend and nobody would have known
+otherwise. Recovered on 2026-10-12 from the session transcript. Two structural
+causes:
+- There was one prompt file, so a pivot had to overwrite the backend plan or
+  be lost. There was no place for a front-end or bug session to be queued.
+- The session-end ritual ended at its summary, so a decision said after it had
+  nowhere to go.
+
+**Decision (Burhan's call; the shape proposed and the two open choices put to
+him).**
+1. **Three tracks, each with its own prompt and its own session ids.**
+   - Backend: `NEXT-SESSION-BE.md`, renamed from `NEXT-SESSION.md`, ids S<n>
+     (it continues at S29).
+   - Front end: `NEXT-SESSION-FE.md`, ids F<n> from F1.
+   - Bugs: `NEXT-SESSION-BUGS.md`, ids B<n> from B1.
+
+   The rename is Burhan's choice: an unsuffixed file reads as "the" next
+   session, and the old habit of pasting from it would quietly start backend
+   work.
+2. **`/session-start` takes the track**: `be`, `fe`, `bugs`, or an id whose
+   prefix names it. **With neither it asks; it never picks** (Burhan's choice
+   over defaulting to backend: a silent default is exactly the accident the
+   tracks exist to prevent).
+3. **Standing rules live once, in `SESSION-RULES.md`.** About 150 of the 198
+   lines of the S29 prompt were not about S29. Three copies would drift.
+4. **One `STATE.md`.** The code, the tests, `staging` and the promotes are
+   shared by every track, so it gains a Tracks table (last closed, next id,
+   focus) and stays the only home for moving numbers. A prompt points at
+   STATE.md instead of copying them.
+5. **`BUGS.md` is the bugs track's list**, and `/bug` adds to it mid-session
+   without breaking scope lock. The repo has no GitHub issues to hold them.
+6. **`/session-end` writes only its own track's prompt**, then fixes anything
+   it made untrue in the other two. A scope or focus change said after the
+   ritual is written down before the window closes.
+7. **One session at a time.** All tracks share `staging`, the compose stack and
+   the `analyst@auspex.dev` test user.
+
+**Bounds, stated.**
+- The ids are checked against STATE.md by a test (`tests/test_docs.py`), but
+  the rules in `SESSION-RULES.md` are only as current as the sessions that
+  edit them.
+- The focus is recorded in STATE.md for information. `/session-start` reports
+  it and does not enforce it: starting a paused track is allowed when Burhan
+  picks it.
+
+**What this supersedes.** Nothing ratified. It changes the CLAUDE.md working
+protocol (one prompt file, rule 12) and the `/session-start`, `/session-end`
+and `/briefing` commands.

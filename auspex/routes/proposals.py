@@ -6,6 +6,8 @@ POST /api/proposals/{id}/reject      — claim it, and do not
 POST /api/proposals/{id}/undo        — put back an executed, incomplete, kept or abandoned action
 POST /api/proposals/{id}/abandon     — declare a dead claim dead (TD-028a)
 POST /api/proposals/{id}/keep        — keep what an incomplete run left (D-041)
+POST /api/proposals/{id}/execute     — run an approval no run ever started (D-048)
+POST /api/proposals/{id}/withdraw    — withdraw an approval no run ever started (D-048)
 
 Four things about this surface are deliberate:
 
@@ -347,21 +349,30 @@ async def approve(request: Request, auth: Auth, proposal_id: UUID) -> dict:
             "proposal": _public(row),
         }
     except Exception:
-        logger.exception("action %s failed during execution", proposal_id)
-        row = await _settlement(request).get(
-            workspace_id=auth.workspace_id, proposal_id=proposal_id
-        )
-        spec = request.app.state.action_registry.get(row["tool_name"]) if row else None
-        raise HTTPException(
-            status_code=500,
-            detail=_failure_detail(row, can_put_back=bool(spec and spec.undo)),
-        ) from None
+        await _raise_run_failure(request, auth, proposal_id)
 
+    return {"settled": "approved", **await _ran(request, auth, proposal_id, outcome)}
+
+
+async def _raise_run_failure(request: Request, auth: AuthContext, proposal_id: UUID):
+    """The handler raised: say what the row became, and whether it can be put
+    back. Shared by both doors that run an action."""
+    logger.exception("action %s failed during execution", proposal_id)
+    row = await _settlement(request).get(
+        workspace_id=auth.workspace_id, proposal_id=proposal_id
+    )
+    spec = request.app.state.action_registry.get(row["tool_name"]) if row else None
+    raise HTTPException(
+        status_code=500,
+        detail=_failure_detail(row, can_put_back=bool(spec and spec.undo)),
+    ) from None
+
+
+async def _ran(request: Request, auth: AuthContext, proposal_id: UUID, outcome) -> dict:
     row = await _settlement(request).get(
         workspace_id=auth.workspace_id, proposal_id=proposal_id
     )
     return {
-        "settled": "approved",
         "executed": True,
         "outcome": {
             "did": outcome.would,
@@ -370,6 +381,51 @@ async def approve(request: Request, auth: Auth, proposal_id: UUID) -> dict:
         },
         "proposal": _public(row),
     }
+
+
+@router.post("/{proposal_id}/execute")
+async def execute_stale_approval(request: Request, auth: Auth, proposal_id: UUID) -> dict:
+    """Run an approval that no run ever started (TD-042, D-048).
+
+    It is in the queue because its approval is older than STALE_CLAIM_SECONDS
+    with no claim: the process died between approve and the run, or the run
+    was refused at execute time. The same checks approve's run makes, then the
+    run; the human pressing this is recorded as the one who ran it. A refusal
+    is a 409 here, not approve's 200 — nothing else happened in this request.
+    """
+    try:
+        outcome = await _executor(request).run_stale_approval(
+            workspace_id=auth.workspace_id, proposal_id=proposal_id, run_by=auth.user_id
+        )
+    except ExecutionRefused as refused:
+        logger.info("stale-approval run refused for %s: %s", proposal_id, refused.reason)
+        status = 404 if refused.reason == "not_found" else 409
+        raise HTTPException(status_code=status, detail=refused.detail) from None
+    except Exception:
+        await _raise_run_failure(request, auth, proposal_id)
+    return await _ran(request, auth, proposal_id, outcome)
+
+
+@router.post("/{proposal_id}/withdraw")
+async def withdraw(request: Request, auth: Auth, proposal_id: UUID) -> dict:
+    """Withdraw an approval that no run ever started (TD-042, D-048). Nothing
+    ran, so nothing is put back; the approval stays on the row, and who
+    withdrew it is recorded beside it."""
+    result = await _settlement(request).withdraw(
+        workspace_id=auth.workspace_id, proposal_id=proposal_id, decided_by=auth.user_id
+    )
+    if result.outcome is Settlement.NOT_FOUND:
+        raise HTTPException(status_code=404, detail="no such proposal")
+    if result.outcome is Settlement.ALREADY_DECIDED:
+        detail = (
+            f"approved less than {STALE_CLAIM_SECONDS}s ago — its own run may still be "
+            "starting; look again after that"
+            if result.current_status == "approved"
+            else f"proposal is {result.current_status} — only an approval that no run "
+            "has started can be withdrawn"
+        )
+        raise HTTPException(status_code=409, detail=detail)
+    return {"settled": "withdrawn", "proposal": _public(result.proposal)}
 
 
 @router.post("/{proposal_id}/undo")

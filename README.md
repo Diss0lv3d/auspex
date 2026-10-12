@@ -8,7 +8,7 @@ LLM**. You bring an OpenAI-compatible endpoint; the platform adapts to whatever
 it can actually do. We never pay for inference, and neither does a pilot.
 
 > **Status: pre-beta.** Everything described below is built, tested and running
-> — 1257 tests, `docker compose up` green. The [What Auspex does not do
+> — 1293 tests, `docker compose up` green. The [What Auspex does not do
 > yet](#what-auspex-does-not-do-yet) section is not a roadmap wish-list; it is
 > the honest boundary of what you get today, and it is worth reading before the
 > feature list.
@@ -141,7 +141,9 @@ Read this part. A demo that only walks the happy path is a demo that lies.
   endpoint nobody has probed stays conversational. Alert triage and phishing analysis
   never take it, because their verdicts are computed in code (D-037). It sends
   third parties only indicators that you, or a knowledge-base record, supplied:
-  an indicator the model composed is never looked up (D-039). It may call the
+  an indicator the model composed is never looked up (D-039). What it looks up
+  is recorded, observable and verdict, the same way the IOC check records it
+  (D-049). It may call the
   platform's actions, and a call only files a pending proposal with its
   dry-run card, shown in the turn; nothing runs until a human approves it
   (D-014, D-045). A call whose dry run would change nothing is not filed. When
@@ -175,7 +177,11 @@ Read this part. A demo that only walks the happy path is a demo that lies.
   handler dies, the platform asks the action what of that proposal's effects
   exist. Nothing → `failed`, a checked fact. Something, or no way to look →
   `incomplete`, which joins the approvals queue. A human can put it back or keep
-  it, and can also put back a claim they abandoned (D-041). An action that
+  it, and can also put back a claim they abandoned (D-041). An approval whose
+  run never started (the process died between approve and run, or the run was
+  refused because the action changed) rejoins the queue after five minutes. A
+  human can run it now, re-checked exactly as approve would, or withdraw it
+  (D-048). An action that
   declares no way to look is never `failed`, only `incomplete`. One bound
   remains: a handler that is merely *slow* on a run a human abandoned can land
   its write after the put-back. When it does, its answer is recorded on the
@@ -240,7 +246,7 @@ off-corpus question returns an honest miss instead of a confident wrong answer.
 ## Development
 
 ```bash
-./ci.sh          # the gate: ruff + 1257 tests + container build + installed-dist check
+./ci.sh          # the gate: ruff + 1293 tests + container build + installed-dist check
 make check       # same thing
 make up / down   # stack lifecycle
 ```

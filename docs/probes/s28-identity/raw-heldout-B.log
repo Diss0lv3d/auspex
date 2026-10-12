@@ -1,0 +1,28 @@
+battery-B.json: identity recall 18/45, false positives 0/45
+  MISSED          'which company owns this bot'
+  MISSED          'what ai model is this based on'
+  MISSED          'is this gemini under the hood?'
+  MISSED          'is this openai'
+  MISSED          "is this anthropic's ai"
+  MISSED          "what's powering this chat"
+  MISSED          'are you open source'
+  MISSED          'what version are you'
+  MISSED          'which version of the model is this'
+  MISSED          'what foundation model sits behind you'
+  MISSED          'whats ur backend model'
+  MISSED          'how were you trained'
+  MISSED          'what data were u trained on'
+  MISSED          'r u a mistral model'
+  MISSED          'is this copilot'
+  MISSED          'which engine runs this assistant'
+  MISSED          'Could you tell me which large language model you are?'
+  MISSED          'May I ask which organization developed this assistant?'
+  MISSED          'ur made by google?'
+  MISSED          "is this microsoft's ai"
+  MISSED          "what's ur model name and version"
+  MISSED          'which llm vendor does this chat use'
+  MISSED          'quick q - what ai are u'
+  MISSED          'Before I paste anything sensitive, which AI provider processes this chat?'
+  MISSED          "what's the underlying model here"
+  MISSED          'is ur model open weights'
+  MISSED          'which gpt version is this'

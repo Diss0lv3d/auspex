@@ -49,6 +49,11 @@ class Tool:
     required: list[str]
     level: ToolLevel
     handler: ToolHandler
+    # TD-043: how many times one turn may call this tool. None is no budget of
+    # its own (the loop's step cap still bounds it). Declared with the tool,
+    # because whether a repeat call can find something new is a property of
+    # what the tool looks up, not of the loop.
+    max_calls_per_turn: int | None = None
 
     @property
     def spec(self) -> dict:
@@ -76,9 +81,12 @@ class ToolRegistry:
         required: list[str],
         level: ToolLevel,
         handler: ToolHandler,
+        max_calls_per_turn: int | None = None,
     ) -> Tool:
         """Convenience constructor+register in one call."""
-        return self.register(Tool(name, description, parameters, required, level, handler))
+        return self.register(
+            Tool(name, description, parameters, required, level, handler, max_calls_per_turn)
+        )
 
     def get(self, name: str) -> Tool | None:
         """Resolve a called tool; None means the model named an unknown tool

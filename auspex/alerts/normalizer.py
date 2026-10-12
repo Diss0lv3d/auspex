@@ -345,14 +345,27 @@ def _parse_json(text: str) -> dict:
     obj = json.loads(text)
     flat = _flatten_json(obj)
     sev = _normalize_severity(_leaf(flat, "severity", "sev", "priority", "level"))
+    # S28: exports nest names under the things an alert is ABOUT (ECS
+    # `host.name`, `user.name`, `process.name`), and matching any `.name` took
+    # whichever came first — an ECS alert was named after its host. The alert's
+    # own name is a top-level `name`, or its rule's, or its title. Key spellings
+    # below that are not obvious come from the published schemas, snapshotted in
+    # docs/probes/2026-10-11-s28-alert-json-keys.md (ECS: `source.ip`,
+    # `destination.ip`, `rule.name`; Microsoft Graph security alert:
+    # `processCommandLine`, `createdDateTime`).
     return {
-        "name": _leaf(flat, "name", "rule", "signature", "rule_name", "title", "alert", "event"),
+        "name": flat.get("name") or _leaf(
+            flat, "rule.name", "rule_name", "rule", "signature", "title", "alert", "event"
+        ),
         "severity": sev,
-        "src": _leaf(flat, "src_ip", "source_ip", "src", "source", "srcip"),
-        "dst": _leaf(flat, "dst_ip", "dest_ip", "dst", "dest", "destination", "dstip"),
-        "timestamp": _leaf(flat, "timestamp", "@timestamp", "time", "event_time", "rt"),
+        "src": _leaf(flat, "src_ip", "source_ip", "source.ip", "src", "source", "srcip"),
+        "dst": _leaf(flat, "dst_ip", "dest_ip", "destination.ip", "dst", "dest", "destination",
+                     "dstip"),
+        "timestamp": _leaf(flat, "timestamp", "@timestamp", "time", "event_time",
+                           "createddatetime", "rt"),
         "confidence": _confidence(_leaf(flat, "confidence", "conf")),
-        "cmdline": _leaf(flat, "cmdline", "command_line", "command", "process_command_line"),
+        "cmdline": _leaf(flat, "cmdline", "command_line", "command", "process_command_line",
+                         "processcommandline"),
     }
 
 

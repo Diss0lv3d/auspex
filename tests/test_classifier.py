@@ -44,6 +44,51 @@ def test_identity_anchor_does_not_swallow_real_questions_mentioning_you():
     assert _cat("who are you seeing in the auth logs for host db-01") is not Category.IDENTITY
 
 
+def test_the_identity_questions_the_engine_answered_as_another_vendor_take_the_shortcut():
+    """S28 review, live (docs/probes/s28-review/raw-app-identity.log): each of
+    these went to the model as a `general` turn, and 4 of 4 answers said the
+    platform was another vendor's product. Pinned with the exact text."""
+    for q in ["which company made you", "what model are you running on?",
+              "what LLM powers this platform?", "who trained you"]:
+        assert _cat(q) is Category.IDENTITY, q
+
+
+def test_identity_needs_the_assistant_not_a_work_object():
+    """D-047: the widened rule still requires the question to point at the
+    assistant. Each of these points at something the analyst is investigating
+    — a bare "this" after a company, a maker's name that is also an IP owner,
+    a model that detects rather than answers."""
+    for q in ["which company is behind this?", "what provider is this?", "is this meta",
+              "is this google?", "which company is behind this domain?",
+              "who made this scheduled task?", "what model are you using to detect phishing?",
+              "what's the model behind this attack", "is this gpt traffic?", "who made this"]:
+        assert _cat(q) is not Category.IDENTITY, q
+
+
+def _identity_battery(name):
+    import json
+    from pathlib import Path
+
+    path = Path(__file__).parents[1] / "docs" / "probes" / "s28-identity" / name
+    return json.loads(path.read_text())
+
+
+def test_the_identity_operating_point_on_the_held_out_battery_holds():
+    """D-047's numbers. Battery B was written by an independent agent and
+    opened once, after the rule was frozen: 18 of 45 identity questions take
+    the shortcut (the old rule: 0), and none of 45 confusable analyst questions
+    do. Battery A shaped the rule, so it is training data: 45 and 0. A rule
+    edit that moves either the wrong way fails here; one that claims better
+    needs a fresh battery, because both of these are now known."""
+    for name, floor in (("battery-B.json", 18), ("battery-A.json", 45)):
+        battery = _identity_battery(name)
+        assert len(battery["identity"]) == 45 and len(battery["not_identity"]) == 45, name
+        hits = [q for q in battery["identity"] if _cat(q) is Category.IDENTITY]
+        false = [q for q in battery["not_identity"] if _cat(q) is Category.IDENTITY]
+        assert len(hits) >= floor, (name, len(hits))
+        assert false == [], (name, false)
+
+
 # -- ioc_check ----------------------------------------------------------------
 
 
@@ -180,3 +225,23 @@ def test_plain_questions_and_followups_go_deep():
 
 def test_whitespace_only_goes_deep():
     assert _cat("   ") is Category.DEEP
+
+
+# -- D-050: a request to put a note on an indicator ------------------------------
+
+
+def test_a_note_request_never_takes_the_ioc_shortcut():
+    """S28, measured: 10 of 30 independently written "add a note to X" requests
+    took the IOC-check shortcut — zero LLM calls, an enrichment answer, and the
+    note silently never proposed. A note request is a deep turn, wherever the
+    ask sits in the message."""
+    for q in ["add a note to 198.51.100.23: seen in the payroll phish on Monday",
+              "pls note 203.0.113.77 = c2 for the qakbot wave",
+              "is 203.0.113.50 malicious? if it is, annotate it with 'seen on fin-ws-12'"]:
+        assert _cat(q) is Category.DEEP, q
+
+
+def test_a_question_about_notes_keeps_its_shortcut():
+    for q in ["what notes already exist on evil-cdn[.]net?",
+              "Who added the note on 198.51.100.4 and when?"]:
+        assert _cat(q) is Category.IOC_CHECK, q

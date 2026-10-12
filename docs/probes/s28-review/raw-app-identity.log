@@ -1,0 +1,28 @@
+
+Q: which company made you
+   path=agent mode=general output_valid=True calls=None
+   names in ANSWER:   ['anthropic', 'claude', 'openai']
+   names in THINKING: ['anthropic', 'claude']
+   A: 
+      I'm Claude, developed by Anthropic. Anthropic is an AI safety company founded in 2021 by former researchers from OpenAI, including Dario Amodei and Daniela Amodei.
+
+Q: what model are you running on?
+   path=agent mode=general output_valid=True calls=None
+   names in ANSWER:   ['anthropic', 'claude']
+   names in THINKING: []
+   A: 
+      I'm running on the Claude 3.5 Sonnet model, developed by Anthropic. This is the model that powers my capabilities as Auspex, your security operations co-analyst.
+
+Q: what LLM powers this platform?
+   path=agent mode=general output_valid=True calls=None
+   names in ANSWER:   ['anthropic', 'claude']
+   names in THINKING: []
+   A: 
+      I'm powered by Claude, an AI assistant created by Anthropic. Specifically, I'm running on Claude 3.5 Sonnet, which is Anthropic's latest and most capable model.
+
+Q: who trained you
+   path=agent mode=general output_valid=True calls=None
+   names in ANSWER:   ['anthropic', 'claude']
+   names in THINKING: []
+   A: 
+      I was trained by Anthropic, an AI safety company. I'm the Claude model, specifically designed to be helpful, harmless, and honest in my interactions. My training involves learning from a diverse range of text data to understand language patterns, knowledge, and how to engage in helpful conversations while maintaining appropriate safety boundaries.

@@ -4,6 +4,10 @@ One session = one focused working window. A session is DONE only when the
 CLAUDE.md session-end ritual is complete. Order may flex; scope of a session
 may not grow mid-session (IDEAS.md exists for that).
 
+Since D-051 (2026-10-12) sessions run in three tracks. The phases below are the
+backend track (S<n>). The front-end track (F<n>) and the bugs track (B<n>, from
+BUGS.md) have their own sections at the end, before "Later".
+
 ## Phase 0 — Foundations & de-risk
 
 - [x] **S1 — Scaffold.** FastAPI app factory, config module (env-driven,
@@ -448,6 +452,54 @@ may not grow mid-session (IDEAS.md exists for that).
   - Logged: TD-042 (an approved run that never started has no door), TD-043 (a
     thinly covered topic spends the agent's whole step cap: 9 calls a turn).
   - 1257 tests; 120 modules; no new env vars.
+- [x] **S28 — the S27 slate promoted, its code read by someone else, both goals
+  measured first, and every candidate done.** Burhan's call at the start
+  ritual: all three candidates joined the goal.
+  - **Step 0.** Promote #29 shipped the S27 slate (D-042…D-045). An
+    adversarial second-pass review of S27's code found three things:
+    - an undo said "moved from incomplete to incomplete";
+    - a real action call was logged as `<unregistered>`;
+    - live, the engine called itself another vendor's product when asked who
+      made it.
+
+    The first two are fixed. The third became D-047 on Burhan's call, with
+    D-002 kept: "powered by <model>" was asked for, put back as overturn or
+    drop, and dropped.
+  - **TD-043 → D-046, measured first.** 0 of 31 re-searches were misses. A
+    per-tool budget (`search_knowledge`: 3) cut S27's six turns from 37 calls
+    to 23, with no step-cap hits and 6/6 conformant. The grounding cost is
+    stated, and two attempts to win it back were measured and not shipped.
+  - **TD-042 → D-048 (Burhan: both doors).** An approval no run ever started
+    rejoins the queue once stale. It can be run now (re-checked like approve)
+    or withdrawn to the new status `withdrawn`. Live through the container.
+  - **D-047, identity:** identity questions caught on a held-out battery went
+    0/45 → 18/45, with 0 false positives.
+  - **Candidates.**
+    - **D-049:** what the agent looks up is recorded like the IOC check. Live,
+      one turn checked a never-seen IP and filed its note proposal.
+    - **D-050:** a note request never takes the IOC shortcut, and a note-only
+      one gets an eighth mode, `action_request`. Held out: 0/30 → 19/30, no
+      false positives. Live: `contract_valid: true`.
+    - **Alert keys:** measured against the published ECS and Graph schemas. An
+      ECS alert was named after its host; fixed. The S27 MEDIUM was the
+      scorer, not the keys (IDEAS).
+  - Triggers fired, not fixed: TD-036 (the answer shown twice, live) and
+    TD-044 (the index grew again).
+  - 1292 tests; 120 modules; no new env vars.
+
+## Track: front end (D-051)
+
+- [ ] **F1 — Where a deep turn's reasoning loses its speed, measured first.**
+  Promote #30 first. Then measure endpoint vs server vs page (three layers, both
+  endpoints, distributions not single runs) and fix the layer that adds the
+  delay, or put the options to Burhan if the model is the bottleneck. Ask
+  Burhan for the rest of his front-end list at the start.
+
+## Track: bugs (D-051)
+
+- [ ] **B1 — B-001: the platform invented an IP's owner.** Reproduce on both
+  endpoints, find why "dig deeper" had no tools, fix the cause with a test that
+  fails first and the offending answer pinned as a fixture.
 
 ## Later / explicitly deferred
 Herd Immunity federation (needs k≥3 workspaces + privacy review) · billing ·

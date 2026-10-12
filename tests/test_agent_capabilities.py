@@ -654,3 +654,99 @@ async def test_the_models_own_earlier_answer_supplies_nothing():
 
     assert service.enrich_calls == []
     assert result["results"][0]["not_checked"] == NOT_SUPPLIED_SKIP
+
+
+# -- TD-043: the one tool with a per-turn budget -------------------------------
+
+
+def test_search_knowledge_carries_the_measured_budget_and_the_others_none():
+    """S28, measured (D-046): on a thinly covered topic every search returned a
+    full five results and the agent reworded until the step cap (9 calls a
+    turn). Three searches cut S27's six turns from 37 calls to 23 with every
+    answer still conformant. The id lookups are bounded by their inputs and
+    carry no budget."""
+    from auspex.agent.capabilities import SEARCH_KNOWLEDGE_MAX_CALLS
+
+    registry = _build()
+    assert SEARCH_KNOWLEDGE_MAX_CALLS == 3
+    assert registry.get("search_knowledge").max_calls_per_turn == SEARCH_KNOWLEDGE_MAX_CALLS
+    for name in TOOL_NAMES:
+        if name != "search_knowledge":
+            assert registry.get(name).max_calls_per_turn is None, name
+
+
+
+# -- the agent path records what it looked up, like the 92/8 IOC check ----------
+
+
+def _malicious(obs) -> EnrichmentOutcome:
+    return EnrichmentOutcome(items=(ObservableEnrichment(
+        observable=obs,
+        signals=(ProviderSignal(provider="ThreatFox", label=VerdictLabel.MALICIOUS,
+                                confidence=0.9, summary="listed as a C2 host"),),
+        sources_answered=2,
+    ),))
+
+
+async def test_an_enrichment_the_agent_ran_is_recorded_and_the_model_is_told():
+    """S28 (D-049). Before, only the shortcut path persisted what it looked up,
+    so an action the agent proposed could target only an indicator the analyst
+    had checked on the shortcut first (D-045's bound). The tool now hands the
+    outcome to the same recorder, and says it did — a model that is not told
+    cannot know whether "I've recorded the verdict" is true."""
+    observables = _obs("check 185.220.101.5 please")
+    outcome = _malicious(observables[0])
+    recorded = []
+
+    async def record(o):
+        recorded.append(o)
+        return 1
+
+    registry = build_capability_registry(
+        enrichment=FakeEnrichmentService(outcome), kb=FakeKnowledgeService(),
+        observables=observables, record=record,
+    )
+    result = await registry.get("enrich_observable").handler(
+        {"observables": [observables[0].obs_id]})
+
+    assert recorded == [outcome]
+    assert result["recorded"] is True
+
+
+async def test_a_recording_that_failed_is_said_and_the_results_still_return():
+    """The shortcut path's rule (S5 review): a storage hiccup must not cost the
+    analyst a computed answer, and must never be claimed as stored."""
+    observables = _obs("check 185.220.101.5 please")
+
+    async def record(o):
+        raise RuntimeError("simulated storage failure")
+
+    registry = build_capability_registry(
+        enrichment=FakeEnrichmentService(_malicious(observables[0])),
+        kb=FakeKnowledgeService(), observables=observables, record=record,
+    )
+    result = await registry.get("enrich_observable").handler(
+        {"observables": [observables[0].obs_id]})
+
+    assert result["recorded"] is False
+    assert result["results"][0]["signals"][0]["source"] == "ThreatFox"
+
+
+async def test_nothing_looked_up_means_nothing_recorded():
+    """An indicator the model composed is not looked up (D-039), so there is
+    nothing to record — and the platform does not record what it never checked."""
+    observables = _obs("check 185.220.101.5 please")
+    calls = []
+
+    async def record(o):
+        calls.append(o)
+        return 0
+
+    registry = build_capability_registry(
+        enrichment=FakeEnrichmentService(EnrichmentOutcome(items=())),
+        kb=FakeKnowledgeService(), observables=observables, record=record,
+    )
+    result = await registry.get("enrich_observable").handler({"observables": ["203.0.113.77"]})
+
+    assert calls == []
+    assert "recorded" not in result

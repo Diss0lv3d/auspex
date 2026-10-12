@@ -699,6 +699,9 @@ async def chat(
                     o for r in rows if r["role"] == "user"
                     for o in extract_observables(r["content"])
                 ),
+                # D-049: what the agent looked up is recorded the way the 92/8
+                # IOC check records it — same function, this turn's workspace.
+                record=lambda outcome: persist_enrichment(pool, auth.workspace_id, outcome),
             ),
             PgProposalStore(pool),
             mode="native_tools",
@@ -1007,9 +1010,11 @@ async def chat(
                 "agent turn: mode=%s steps=%d tools=%s stop=%s",
                 mode.value,
                 agent_done.step,
-                # Registered names only: an unknown one is whatever the model
-                # sent, and model output stays out of the log.
-                [i.name if i.name in loop.registry else "<unregistered>"
+                # Our names only: an unknown one is whatever the model sent, and
+                # model output stays out of the log. Actions are ours too — they
+                # live in the manifest, not the tool registry (S28 review: a
+                # real action call was logged as unregistered).
+                [i.name if loop.knows(i.name) else "<unregistered>"
                  for i in agent_done.invocations],
                 agent_done.stop_reason,
             )

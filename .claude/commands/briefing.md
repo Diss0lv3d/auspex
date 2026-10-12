@@ -10,8 +10,9 @@ if that's empty, use the commits since the last `chore(state): S* session-end`).
 
 First gather reality — don't summarize from memory:
 - `git log --oneline` over the range, and `git diff --stat` over it.
-- Read the top of `STATE.md` (Where we are / Blockers) and the current
-  `NEXT-SESSION.md` Step 0.
+- Read the top of `STATE.md` (Tracks / Where we are / Blockers) and the Step 0
+  of the track prompt the session ran from (`NEXT-SESSION-BE.md`,
+  `NEXT-SESSION-FE.md` or `NEXT-SESSION-BUGS.md`, D-051).
 - Note whether the work is on `staging` only or already promoted to `main`.
 
 Then write the briefing for a smart person who doesn't read code — the human who
@@ -30,7 +31,7 @@ names, no acronyms without a plain gloss the first time):
 - **Your move** — exactly what, if anything, is needed from the human: a
   decision, a paste, an approval, a credential. If nothing is needed, say the
   work is done and safe to leave, and name the single thing to paste next
-  session (from NEXT-SESSION.md).
+  session (the prompt file of the track STATE.md calls the focus).
 
 Rules: honesty over polish — if a fix is only partial or a risk remains, say so
 (name it the way STATE.md / TECHNICAL_DEBT.md does, in plain words). Never invent

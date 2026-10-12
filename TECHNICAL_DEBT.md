@@ -2,6 +2,12 @@
 
 ## TD-044 (S27) — the rail's index grew and its legitimate ceiling was not re-measured
 
+> **S28: the trigger fired again.** D-050 added a mode directive
+> (`action_request`), compiled into every note-only turn and indexed like every
+> mode directive. The calibration was still not re-run. Every live S28 turn read
+> `output_valid: true`: the identity, D-049 and D-050 probes, about 8 turns
+> through `/api/chat`. That is evidence, not a calibration.
+
 **Where:** `auspex/routes/chat.py`. The rail now indexes D-043's repair
 directive (conversational path, code-decided modes) and D-045's action
 directive and descriptions (agent path, through `loop.issued_instructions`).
@@ -20,6 +26,15 @@ includes action-request turns, whose answers paraphrase the action directive
 model change (D-042's WARNING), or the next addition to the index.
 
 ## TD-043 (S27) — an agent turn on a thinly covered topic spends the whole step cap re-searching
+
+> **RESOLVED S28 — D-046.** Measured first: 0 of 31 re-searches were misses.
+> Every search returned a full page of the nearest documents, so nothing told
+> the model to stop. `search_knowledge` now has a budget of 3 calls a turn: it
+> is withdrawn from the wire once spent, a call from history is refused, and
+> the last allowed result says it was the last. On S27's prompts calls went
+> 37 → 23, with no step-cap hits and every answer conformant. The cost is
+> stated in D-046: the LockBit turns no longer reach the T1566 page. Record:
+> docs/probes/2026-10-11-s28-td043-search-budget.md. Entry kept as written.
 
 **Where:** `auspex/agent/loop.py` (`DEFAULT_MAX_STEPS = 8`) with the
 `search_knowledge` tool (`auspex/agent/capabilities.py`).
@@ -40,6 +55,16 @@ the cap. Measure with the same prompts before and after.
 hits its ceiling on agent turns.
 
 ## TD-042 (S27) — an approved run that never started has no door and no queue slot
+
+> **RESOLVED S28 — D-048 (Burhan's call: both doors).** An `approved` row with
+> no claim, older than STALE_CLAIM_SECONDS, rejoins the queue. It has two
+> doors:
+> - `POST /{id}/execute` re-runs `check_executable` and records the human in
+>   `resolved_by`;
+> - `POST /{id}/withdraw` moves it to the new status `withdrawn`.
+>
+> Neither door opens within the threshold, so neither can race an approve
+> that is still in flight. Entry kept as written.
 
 **Where:** `auspex/routes/proposals.py` `approve` → `ActionExecutor.execute`
 (`auspex/actions/settlement.py`). `settle` moves the row to `approved`; the run
@@ -1224,6 +1249,15 @@ first real customer deployment.
 ---
 
 ## TD-036 (S25) — the streaming turn trusts a measurement about the endpoint
+
+> **S28: the trigger fired live.** In two of three D-049 probe turns
+> (`docs/probes/s28-candidates/`), glm-4.5-air wrote a full answer before its
+> annotate call. That text passed NARRATION_HOLD_CHARS (400) and streamed as
+> answer, and the final answer followed, so the analyst read the answer twice.
+> The route logged "agent answer differs from the streamed content (TD-036
+> bound)" both times. Not fixed at S28. Re-measure the longest pre-tool
+> narration on glm-4.5-air, including action-calling turns, before choosing a
+> fix.
 
 **Where:** `auspex/agent/loop.py` — `run_stream`, the `content`/`reasoning`
 deltas passed through as they arrive.

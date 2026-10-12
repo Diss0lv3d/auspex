@@ -16,7 +16,10 @@ worse than drift, because the two answers would disagree in front of the analyst
 within one session.
 
 **All three are READ (D-014).** They fetch and they synthesise; nothing here
-mutates tenant state or touches a provider that changes anything. The permission
+touches a provider that changes anything. One write is the platform's own
+bookkeeping, not an action: since D-049 an enrichment is recorded (observable
+and verdict) exactly as the 92/8 IOC check records one, and only for
+indicators D-039 let through. The permission
 gate auto-executes READ, so a level is a claim about consequences — these have
 none beyond outbound lookups the shortcut path already makes.
 
@@ -39,10 +42,11 @@ nothing" are three different truths and must stay three different answers.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 
 from auspex.agent.registry import ToolLevel, ToolRegistry
 from auspex.classify.observables import Observable, extract
-from auspex.enrich import EnrichmentService
+from auspex.enrich import EnrichmentOutcome, EnrichmentService
 from auspex.enrich.service import CAP_SKIP, ENRICH_MAX_OBSERVABLES
 from auspex.kb import MAX_IDS_PER_LOOKUP, KBUnavailable, KnowledgeService
 
@@ -67,6 +71,20 @@ MAX_TOOL_ARG_ITEMS = 25
 # results do not crowd out the conversation. Truncation is NAMED in the payload
 # rather than silent — a model shown a clipped page must be able to tell.
 SNIPPET_CHARS = 600
+
+# TD-043 (D-046): how many times one turn may search the knowledge base. A
+# free-text search can always be reworded, and on a topic the KB covers thinly
+# every rewording still returns a full page of the nearest documents — never a
+# miss that would say "stop". Measured at S28 on S27's prompts
+# (docs/probes/2026-10-11-s28-td043-search-budget.md): 3 of 6 threat-intel turns
+# searched 8 times and hit the step cap; with 3, the same six turns made 23
+# calls instead of 37 and every answer still met its contract. The price is
+# stated there: on "LockBit initial access" searches 4-5 had found the T1566
+# Phishing page, which 3 never reach (the Initial Access tactic page, found
+# first every time, names the same vectors). A budget of 5 did not reach it
+# either. The id lookups are bounded by their inputs and carry no budget. Code,
+# not config (D-026).
+SEARCH_KNOWLEDGE_MAX_CALLS = 3
 
 # D-039: why an indicator the model asked about was not looked up. Phrased as a
 # reason the model can act on (ask the analyst), and never as "no signals".
@@ -204,6 +222,7 @@ def build_capability_registry(
     kb: KnowledgeService,
     observables: tuple[Observable, ...] = (),
     supplied: tuple[Observable, ...] = (),
+    record: Callable[[EnrichmentOutcome], Awaitable[int]] | None = None,
 ) -> ToolRegistry:
     """A registry of the platform's READ capabilities, bound to this turn.
 
@@ -218,6 +237,14 @@ def build_capability_registry(
     earlier messages in the session — USER turns only, never the model's own
     answers) seed the set; what the knowledge base returns this turn joins it.
     An indicator the model composed itself is named as not checked.
+
+    **D-049: what `enrich_observable` looked up is recorded** through `record`
+    — the route passes the same `persist_enrichment` the 92/8 IOC check calls,
+    so the observable and its verdict exist for a later proposal to target and
+    for Living Verdicts to watch. Only what D-039 let through was looked up, so
+    only that is recorded: the model cannot make the platform record an
+    indicator it composed. `None` (probes, tests) records nothing and says
+    nothing about recording.
     """
     known = {o.obs_id: o for o in observables}
     known.update({o.value: o for o in observables})
@@ -312,6 +339,16 @@ def build_capability_registry(
             # "you sent too many strings" and "your strings held more
             # indicators than we will check" are not the same sentence.
             result["omitted_observables"] = over_cap
+        if record is not None and outcome is not None and outcome.enriched:
+            # Said either way: a model that is not told cannot know whether "I
+            # have recorded the verdict" is true, and a storage hiccup must not
+            # cost the analyst a computed answer (the shortcut path's S5 rule).
+            try:
+                await record(outcome)
+                result["recorded"] = True
+            except Exception:
+                logger.exception("agent enrichment: recording failed; results returned unrecorded")
+                result["recorded"] = False
         return result
 
     async def lookup_cve(args: dict) -> dict:
@@ -437,6 +474,7 @@ def build_capability_registry(
         required=["query"],
         level=ToolLevel.READ,
         handler=search_knowledge,
+        max_calls_per_turn=SEARCH_KNOWLEDGE_MAX_CALLS,
     )
     return registry
 

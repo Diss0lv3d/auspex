@@ -5,6 +5,8 @@ additive scorer emits an itemized 0-100 score; the DEFERRED rail fires on both
 SARA conditions. Errors bias to DEFERRED, never a confident LOW.
 """
 
+import json
+
 from auspex.alerts import (
     AlertFormat,
     Severity,
@@ -343,3 +345,58 @@ def test_the_code_rendered_triage_answer_cannot_be_given_a_section_by_the_alert(
 
     assert [ln for ln in answer.splitlines() if ln.startswith("## ")] == [
         "## Risk", "## Reasoning", "## Recommendation"]
+
+
+# -- S28: JSON exports in their documented field names --------------------------
+# Field names from the published schemas, snapshotted in
+# docs/probes/2026-10-11-s28-alert-json-keys.md: Elastic Common Schema (fields.csv,
+# ECS 9.6.0-dev) and the Microsoft Graph security alert v1.0 resource.
+
+_ECS_ALERT = json.dumps({
+    "@timestamp": "2026-10-11T02:00:01Z",
+    "host": {"name": "dc01"}, "user": {"name": "svc-backup"},
+    "process": {"name": "procdump.exe", "command_line": "procdump.exe -ma lsass.exe"},
+    "source": {"ip": "10.1.2.3"}, "destination": {"ip": "10.1.9.9"},
+    "event": {"severity": 73, "kind": "alert"},
+    "rule": {"name": "LSASS memory dump"},
+    "threat": {"technique": {"id": "T1003.001"}},
+})
+
+_GRAPH_ALERT = json.dumps({
+    "title": "Credential theft tool activity", "severity": "high",
+    "createdDateTime": "2026-10-11T02:00:01Z", "mitreTechniques": ["T1003.001"],
+    "evidence": [
+        {"@odata.type": "#microsoft.graph.security.processEvidence",
+         "processCommandLine": "procdump.exe -ma lsass.exe"},
+        {"@odata.type": "#microsoft.graph.security.ipEvidence", "ipAddress": "10.1.2.3"},
+    ],
+})
+
+
+def test_an_ecs_alert_is_named_by_its_rule_not_its_host():
+    """S28, measured: `_leaf` took the first key ending in `.name`, and in an
+    ECS document that is `host.name` — the code told the model the alert was
+    called "dc01". The rule's name is the alert's name; host, user and process
+    names are things the alert is ABOUT."""
+    env = normalize(_ECS_ALERT)
+    assert env.name == "LSASS memory dump"
+
+
+def test_an_ecs_alert_carries_its_source_and_destination():
+    env = normalize(_ECS_ALERT)
+    assert (env.src, env.dst) == ("10.1.2.3", "10.1.9.9")
+    assert env.cmdline == "procdump.exe -ma lsass.exe"
+
+
+def test_a_graph_alert_carries_its_command_line_and_time():
+    env = normalize(_GRAPH_ALERT)
+    assert env.name == "Credential theft tool activity"
+    assert env.cmdline == "procdump.exe -ma lsass.exe"
+    assert env.timestamp == "2026-10-11T02:00:01Z"
+
+
+def test_a_flat_alert_with_a_top_level_name_keeps_it():
+    """The S10 shapes are unchanged: a bare top-level `name` is still the name."""
+    env = normalize(json.dumps({"name": "Beacon detected", "severity": "high",
+                                "host": "ws-12"}))
+    assert env.name == "Beacon detected"

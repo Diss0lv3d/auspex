@@ -1,0 +1,62 @@
+S28 — TD-043 [after-dedupe-budget5]: what each re-search returned
+==============================================================================
+model: glm-4.5-air  repeats: 2  kb=True
+control passed: 6 agent turns planned
+
+[1] #0: calls=6 steps=6 stop=final_answer searches=5 distinct_docs=25 contract=ok tools=['search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge'] 19.9s
+    s1: +5 new     n=5 q='ransomware abuse remote monitoring management tools RMM'
+         docs=['https://attack.mitre.org/techniques/T1219/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1219/002/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1105/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1531/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1657/ (ATT&CK v19.2)']
+    s2: +5 new     n=5 q='ransomware groups RMM tools lateral movement persistence'
+         docs=['https://attack.mitre.org/tactics/TA0008/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1091/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1486/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1025/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1561/002/ (ATT&CK v19.2)']
+    s3: +5 new     n=5 q='"RMM tools" ransomware abuse legitimate tools'
+         docs=['https://attack.mitre.org/techniques/T1588/002/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1036/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1608/002/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1679/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1674/ (ATT&CK v19.2)']
+    s4: +5 new     n=5 q='TeamViewer AnyDesk ScreenConnect ransomware abuse'
+         docs=['https://attack.mitre.org/techniques/T1667/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1566/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1584/008/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1113/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1204/ (ATT&CK v19.2)']
+    s5: +5 new     n=5 q='RMM tools ransomware lateral movement command control'
+         docs=['https://attack.mitre.org/techniques/T1570/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1573/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1568/001/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1104/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1090/004/ (ATT&CK v19.2)']
+[0] #0: calls=7 steps=7 stop=final_answer searches=5 distinct_docs=25 contract=ok tools=['search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge:REFUSED'] 21.2s
+    s1: +5 new     n=5 q='LockBit 3.0 initial access techniques'
+         docs=['https://attack.mitre.org/tactics/TA0001/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1189/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1669/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1556/004/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1111/ (ATT&CK v19.2)']
+    s2: +5 new     n=5 q='LockBit ransomware group'
+         docs=['https://attack.mitre.org/techniques/T1069/001/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1486/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1657/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1679/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1552/006/ (ATT&CK v19.2)']
+    s3: +5 new     n=5 q='LockBit ransomware initial access'
+         docs=['https://attack.mitre.org/techniques/T1650/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1531/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1558/003/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1003/004/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1003/002/ (ATT&CK v19.2)']
+    s4: +5 new     n=5 q='LockBit ransomware TTPs'
+         docs=['https://attack.mitre.org/techniques/T1480/001/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1573/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1588/001/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1546/005/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1674/ (ATT&CK v19.2)']
+    s5: +5 new     n=5 q='LockBit ransomware group initial access methods'
+         docs=['https://attack.mitre.org/techniques/T1069/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1098/007/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1069/002/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1558/005/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1548/004/ (ATT&CK v19.2)']
+[0] #1: calls=7 steps=7 stop=final_answer searches=5 distinct_docs=25 contract=ok tools=['search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge:REFUSED'] 21.4s
+    s1: +5 new     n=5 q='LockBit 3.0 initial access techniques'
+         docs=['https://attack.mitre.org/tactics/TA0001/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1189/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1669/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1556/004/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1111/ (ATT&CK v19.2)']
+    s2: +5 new     n=5 q='LockBit ransomware group'
+         docs=['https://attack.mitre.org/techniques/T1069/001/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1486/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1657/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1679/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1552/006/ (ATT&CK v19.2)']
+    s3: +5 new     n=5 q='LockBit ransomware TTPs initial access'
+         docs=['https://attack.mitre.org/techniques/T1531/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1558/003/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1548/003/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1480/001/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1573/ (ATT&CK v19.2)']
+    s4: +5 new     n=5 q='LockBit ransomware group initial access methods'
+         docs=['https://attack.mitre.org/techniques/T1069/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1098/007/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1069/002/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1003/002/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1003/004/ (ATT&CK v19.2)']
+    s5: +5 new     n=5 q='LockBit ransomware TTPs'
+         docs=['https://attack.mitre.org/techniques/T1588/001/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1546/005/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1674/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1041/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1027/003/ (ATT&CK v19.2)']
+[2] #1: calls=2 steps=2 stop=final_answer searches=1 distinct_docs=5 contract=ok tools=['search_knowledge'] 9.0s
+    s1: +5 new     n=5 q='Office macro scheduled task creation'
+         docs=['https://attack.mitre.org/techniques/T1053/005/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1059/005/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1053/002/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1053/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1137/001/ (ATT&CK v19.2)']
+[2] #0: calls=2 steps=2 stop=final_answer searches=1 distinct_docs=5 contract=ok tools=['search_knowledge'] 10.7s
+    s1: +5 new     n=5 q='Office macro scheduled task persistence'
+         docs=['https://attack.mitre.org/techniques/T1053/005/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1137/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1137/001/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1053/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1053/002/ (ATT&CK v19.2)']
+[1] #1: calls=6 steps=6 stop=final_answer searches=5 distinct_docs=25 contract=ok tools=['search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge', 'search_knowledge'] 15.1s
+    s1: +5 new     n=5 q='ransomware abuse remote monitoring management tools RMM'
+         docs=['https://attack.mitre.org/techniques/T1219/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1219/002/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1105/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1531/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1657/ (ATT&CK v19.2)']
+    s2: +5 new     n=5 q='RMM tools ransomware abuse lateral movement persistence'
+         docs=['https://attack.mitre.org/techniques/T1486/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1091/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1561/002/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1070/009/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1025/ (ATT&CK v19.2)']
+    s3: +5 new     n=5 q='"remote monitoring and management" ransomware abuse techniques'
+         docs=['https://attack.mitre.org/techniques/T1204/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1679/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1596/005/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1566/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1102/002/ (ATT&CK v19.2)']
+    s4: +5 new     n=5 q='AnyDesk TeamViewer ScreenConnect ransomware abuse'
+         docs=['https://attack.mitre.org/techniques/T1667/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1113/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1584/008/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1127/002/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1546/002/ (ATT&CK v19.2)']
+    s5: +5 new     n=5 q='RMM tools ransomware lateral movement command control'
+         docs=['https://attack.mitre.org/techniques/T1570/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1573/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1568/001/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1104/ (ATT&CK v19.2)', 'https://attack.mitre.org/techniques/T1090/004/ (ATT&CK v19.2)']
+
+==============================================================================
+turns=6 total_calls=30 mean_calls=5.0 searches=22 cap_hits=0
+re-search outcomes: {'MISS': 0, 'SAME': 0, 'NEW': 22, 'ERROR': 0}
+  prompt[0]: calls=[7, 7] searches=[5, 5] contract=['ok', 'ok']
+  prompt[1]: calls=[6, 6] searches=[5, 5] contract=['ok', 'ok']
+  prompt[2]: calls=[2, 2] searches=[1, 1] contract=['ok', 'ok']

@@ -1,0 +1,16 @@
+observable in workspace before the turn: False
+path=agent mode=ioc_enrichment output_valid=True
+   tool: enrich_observable(185.220.101.47) -> executed
+   answer: 
+           Based on the enrichment results, I can see that 185.220.101.47 has concerning signals:
+           
+           ## Indicators
+           - **185.220.101.47** (ipv4)
+           
+           ## Assessment
+           This IP address shows multiple concerning signals:
+           - **AbuseIPDB**: Malicious with 100% confidence (230 reports in last 90 days)
+           - **InternetDB**: Shows open ports 80, 18081 and hostname "tor-exit-47.for-privacy.net" with cryptocurrency tags
+           - **URLhaus**: Suspicious with 60% confidence (historically hosted malware, though listed URLs are not currently
+observable in workspace after the turn: True
+proposals filed this turn: 0

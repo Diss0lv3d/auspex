@@ -15,7 +15,12 @@ from __future__ import annotations
 
 import re
 
-from auspex.classify.classifier import _ioc_shaped, _is_alert_paste, _is_email_paste
+from auspex.classify.classifier import (
+    _ioc_shaped,
+    _is_alert_paste,
+    _is_email_paste,
+    is_note_request,
+)
 from auspex.classify.observables import Observable, ObservableType
 from auspex.modes.catalog import Mode
 
@@ -96,6 +101,7 @@ def resolve_mode(message: str, observables: tuple[Observable, ...]) -> Mode:
 
     1. alert/log envelope (CEF/LEEF/syslog/JSON)  → ALERT_TRIAGE
     2. email header envelope                       → PHISHING_ANALYSIS
+    2b. a message that leads with a note request   → ACTION_REQUEST (D-050)
     3. a scoreable indicator (ioc-shaped)          → IOC_ENRICHMENT
     4. explicit brief/summary ask                  → BRIEF
     5. definition-shaped opener                    → DEFINITION
@@ -109,6 +115,8 @@ def resolve_mode(message: str, observables: tuple[Observable, ...]) -> Mode:
         return Mode.ALERT_TRIAGE
     if _is_email_paste(q):
         return Mode.PHISHING_ANALYSIS
+    if is_note_request(q):
+        return Mode.ACTION_REQUEST
     if _has_scoreable_ioc(observables, q):
         return Mode.IOC_ENRICHMENT
     if _BRIEF_RE.search(q):

@@ -396,3 +396,72 @@ def test_the_measured_operating_point_on_the_independent_battery_holds():
     assert security.count(Mode.GENERAL) <= 9
     assert non.count(Mode.GENERAL) >= 24
     assert non.count(Mode.THREAT_INTEL) == 0
+
+
+# -- D-050: the note request gets a mode it can meet ------------------------------
+
+
+def test_a_request_that_only_asks_for_a_note_resolves_to_action_request():
+    """S27 live, S28 measured: a note request resolved to a narrative mode
+    (ioc_enrichment, threat_intel) whose sections it cannot fill, and read
+    contract_valid: false. It asks for a change, not an analysis."""
+    for q in ["add a note to 198.51.100.23: seen in the payroll phish on Monday",
+              "Can you add a note to hxxps://login-m365-verify[.]net/auth saying it was the link",
+              "Annotate it with 'linked to INC-2291'"]:
+        assert resolve_mode(q, _obs(q)) is Mode.ACTION_REQUEST, q
+
+
+def test_a_request_for_analysis_and_a_note_keeps_its_analysis_mode():
+    q = "check shipping-notice[.]co and add a note that it was linked in the DHL-themed email"
+    assert resolve_mode(q, _obs(q)) is Mode.IOC_ENRICHMENT
+
+
+def test_a_question_about_notes_is_not_an_action_request():
+    for q in ["how do I add a note to a case in Splunk SOAR?",
+              "does annotating an indicator here change its verdict or score?"]:
+        assert resolve_mode(q, _obs(q)) is not Mode.ACTION_REQUEST, q
+
+
+def test_the_action_request_contract_asks_for_no_sections_and_never_a_claim_of_done():
+    contract = contract_for(Mode.ACTION_REQUEST)
+    directive = contract.system_directive()
+    assert "## " not in directive
+    assert "propos" in directive.lower()
+    assert contract.validate("I proposed adding the note; it awaits approval.").ok
+
+
+def test_the_action_request_operating_point_on_the_held_out_battery_holds():
+    """D-050's numbers. Two batteries written by agents that never read the
+    repo; the held-out one (action-battery-heldout.json) was opened once,
+    after the rule was frozen: 19 of 30 note-only requests reach
+    action_request (before: 0) and at most 3 still take the IOC shortcut
+    (before: 9); no mixed request loses its analysis mode or takes the
+    shortcut (before: 6); no not-action message becomes an action request.
+    Battery A shaped the rule and is training data. An edit that claims
+    better needs a fresh battery."""
+    import json
+    from pathlib import Path
+
+    from auspex.classify import classify, shortcut_answer
+
+    def routes(questions):
+        out = []
+        for q in questions:
+            c = classify(q)
+            out.append("shortcut" if shortcut_answer(c) is not None
+                       else resolve_mode(q, c.observables))
+        return out
+
+    root = Path(__file__).parents[1] / "docs" / "probes" / "s28-candidates"
+    held = json.loads((root / "action-battery-heldout.json").read_text())
+    only, mixed = routes(held["action_only"]), routes(held["mixed"])
+    other = routes(held["not_action"])
+    assert (len(only), len(mixed), len(other)) == (30, 20, 30)  # floors: nothing skipped
+    assert only.count(Mode.ACTION_REQUEST) >= 19
+    assert only.count("shortcut") <= 3
+    assert mixed.count(Mode.ACTION_REQUEST) == 0 and mixed.count("shortcut") == 0
+    assert other.count(Mode.ACTION_REQUEST) == 0
+
+    dev = json.loads((root / "action-battery.json").read_text())
+    assert routes(dev["action_only"]).count(Mode.ACTION_REQUEST) >= 29
+    assert routes(dev["not_action"]).count(Mode.ACTION_REQUEST) == 0

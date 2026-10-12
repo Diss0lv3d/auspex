@@ -20,6 +20,7 @@ SARA pattern reference (reused, not copied): sara/core/agent_loop.py:59-.
 
 import json
 import re
+from collections import Counter
 from collections.abc import Sequence
 from contextlib import aclosing
 from dataclasses import dataclass, field
@@ -435,12 +436,13 @@ class AgentLoop:
         messages = self._initial_messages(specs, user_message, history)
 
         invocations: list[ToolInvocation] = []
+        used: Counter[str] = Counter()
         for step in range(1, self.max_steps + 1):
             result = await client.chat(
                 messages,
                 max_tokens=self.max_tokens,
                 temperature=self.temperature,
-                **self.channel.chat_kwargs(specs),
+                **self.channel.chat_kwargs(self._on_offer(specs, used)),
             )
             calls = self.channel.extract_calls(result)
             if not calls:
@@ -455,7 +457,7 @@ class AgentLoop:
                     call.id = f"call_{step}_{idx}"
             messages.append(self.channel.assistant_message(result, calls))
             for call in calls:
-                invocation = await self._dispatch(call)
+                invocation = await self._dispatch_within_budget(call, used)
                 invocations.append(invocation)
                 messages.append(self.channel.tool_result_message(call, invocation.feedback))
 
@@ -516,8 +518,8 @@ class AgentLoop:
         """
         specs = self.wire_specs(tool_names)
         messages = self._initial_messages(specs, user_message, history)
-        chat_kwargs = self.channel.chat_kwargs(specs)
         invocations: list[ToolInvocation] = []
+        used: Counter[str] = Counter()
 
         async def _stream_call(
             call_messages: list[dict], sealed: list[ChatResult], at_step: int, **extra
@@ -597,6 +599,7 @@ class AgentLoop:
                 )
                 return
             sealed: list[ChatResult] = []
+            chat_kwargs = self.channel.chat_kwargs(self._on_offer(specs, used))
             async with aclosing(_stream_call(messages, sealed, step, **chat_kwargs)) as outs:
                 async for out in outs:
                     yield out
@@ -617,7 +620,7 @@ class AgentLoop:
                     call.id = f"call_{step}_{idx}"
             messages.append(self.channel.assistant_message(result, calls))
             for call in calls:
-                invocation = await self._dispatch(call)
+                invocation = await self._dispatch_within_budget(call, used)
                 invocations.append(invocation)
                 yield AgentStreamEvent(kind="tool", invocation=invocation, step=step)
                 messages.append(self.channel.tool_result_message(call, invocation.feedback))
@@ -675,6 +678,57 @@ class AgentLoop:
             "you get back is a proposal id, never an outcome. Say that you have "
             "proposed it and what it would do — never that it is done."
         )
+
+    def _spent(self, name: str, used: Counter[str]) -> bool:
+        tool = self.registry.get(name)
+        return (
+            tool is not None
+            and tool.max_calls_per_turn is not None
+            and used[name] >= tool.max_calls_per_turn
+        )
+
+    def _on_offer(self, specs: list[dict], used: Counter[str]) -> list[dict]:
+        """The tools offered at THIS step (TD-043): the turn's specs, less any
+        tool that has spent its per-turn budget. Withdrawn by structure, not by
+        asking — a model told "stop searching" may not. Withdrawal is not the
+        whole guarantee: measured at S28, glm-4.5-air called the withdrawn tool
+        from its history anyway, so `_dispatch_within_budget` refuses it too.
+        With nothing left, the call carries no tools at all, the shape the step
+        cap's synthesis pass has always sent."""
+        return [s for s in specs if not self._spent(s["function"]["name"], used)]
+
+    async def _dispatch_within_budget(self, call: ToolCall, used: Counter[str]) -> ToolInvocation:
+        """`_dispatch`, after the per-turn budget (TD-043). A call to a tool
+        that has spent it — the model still has the tool in its history, and in
+        prompted mode it was never on the wire to withdraw — is refused without
+        running the handler. Every other call counts against its tool."""
+        if self._spent(call.name, used):
+            tool = self.registry.get(call.name)
+            try:
+                args = call.parse_arguments()
+            except ValueError:
+                args = {}
+            return ToolInvocation(
+                call.name, args, "error",
+                {"error": "call_limit",
+                 "detail": f"'{call.name}' has been called {tool.max_calls_per_turn} times "
+                           "this turn, its limit. Answer from the results already returned."},
+                level=tool.level.value,
+            )
+        if call.name not in self.registry:
+            return await self._dispatch(call)
+        used[call.name] += 1
+        invocation = await self._dispatch(call)
+        if self._spent(call.name, used) and invocation.status == "executed":
+            # Measured (S28): withdrawn from the wire, the tool was still called
+            # from history on every thin turn, and the refusal cost a call. So
+            # the result of the last allowed call says it was the last.
+            invocation.feedback = {
+                **invocation.feedback,
+                "budget": f"this was the last '{call.name}' call available this turn; "
+                          "answer from the results already returned",
+            }
+        return invocation
 
     async def _dispatch(self, call: ToolCall) -> ToolInvocation:
         # S18: an action name resolves HERE, before the tool registry, and never
@@ -737,6 +791,11 @@ class AgentLoop:
         )
 
     # ── the action round-trip (S18) ──────────────────────────────────────────
+
+    def knows(self, name: str) -> bool:
+        """Whether `name` is something this loop offers: a registered tool or a
+        manifest action. Anything else is a name the model made up."""
+        return name in self.registry or self._action_spec(name) is not None
 
     def _action_spec(self, name: str):
         """The spec for a name the model called, if it is an action at all."""

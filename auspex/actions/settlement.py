@@ -189,6 +189,13 @@ class ProposalSettlement:
         some of its effects landed, or the action cannot look, and only a human
         can decide whether to put them back.
 
+        So does an `approved` row that no run has claimed for longer than
+        `STALE_CLAIM_SECONDS` (TD-042, D-048). The approve request runs the
+        action a few awaits after settling it; a process that died in between,
+        or an execute-time refusal (the declaration or risk changed), leaves the
+        approval standing with nothing coming to move it. Its doors are
+        `ActionExecutor.run_stale_approval` and `withdraw`.
+
         Deliberately NOT a reaper. A timer cannot know whether the handler ran
         before the process died, so anything it decided would be a guess: back
         to `approved` invites a second run of a half-run action, `failed` claims
@@ -215,7 +222,9 @@ class ProposalSettlement:
              WHERE p.workspace_id = $1::uuid
                AND (p.status IN ('pending_approval', 'incomplete')
                     OR (p.claimed_at IS NOT NULL
-                        AND p.claimed_at < now() - make_interval(secs => $3::double precision)))
+                        AND p.claimed_at < now() - make_interval(secs => $3::double precision))
+                    OR (p.status = 'approved' AND p.claimed_at IS NULL
+                        AND p.decided_at < now() - make_interval(secs => $3::double precision)))
              ORDER BY p.created_at DESC
              LIMIT $2
             """,
@@ -309,6 +318,45 @@ class ProposalSettlement:
             str(proposal_id),
             str(workspace_id),
             str(decided_by) if decided_by is not None else None,
+        )
+        if row is not None:
+            return SettleResult(Settlement.CLAIMED, _as_dict(row))
+        current = await self.get(workspace_id=workspace_id, proposal_id=proposal_id)
+        if current is None:
+            return SettleResult(Settlement.NOT_FOUND)
+        return SettleResult(
+            Settlement.ALREADY_DECIDED, current, current_status=current["status"]
+        )
+
+    async def withdraw(
+        self,
+        *,
+        workspace_id: UUID | str,
+        proposal_id: UUID | str,
+        decided_by: UUID | str | None,
+    ) -> SettleResult:
+        """Retract an approval no run ever claimed (TD-042, D-048).
+
+        Only once it is stale: within `STALE_CLAIM_SECONDS` the approve request's
+        own run may still be about to claim it, and withdrawing it out from
+        under that claim would turn a run into a refusal nobody asked for. No
+        claim was ever taken, so nothing ran and there is nothing to put back.
+        `withdrawn`, not `rejected`: the row WAS approved, and `decided_by`
+        keeps saying by whom; the human withdrawing it lands in `resolved_by`.
+        """
+        row = await self._pool.fetchrow(
+            """
+            UPDATE proposals
+               SET status = 'withdrawn', resolved_at = now(), resolved_by = $3::uuid
+             WHERE id = $1::uuid AND workspace_id = $2::uuid
+               AND status = 'approved' AND claimed_at IS NULL
+               AND decided_at < now() - make_interval(secs => $4::double precision)
+            RETURNING *
+            """,
+            str(proposal_id),
+            str(workspace_id),
+            str(decided_by) if decided_by is not None else None,
+            float(STALE_CLAIM_SECONDS),
         )
         if row is not None:
             return SettleResult(Settlement.CLAIMED, _as_dict(row))
@@ -516,7 +564,95 @@ class ActionExecutor:
                 "already_running",
                 "this proposal is already executing or has executed",
             )
+        return await self._run_claimed(
+            spec, proposal, claimed["claim_token"],
+            workspace_id=workspace_id, proposal_id=proposal_id,
+        )
 
+    async def run_stale_approval(
+        self,
+        *,
+        workspace_id: UUID | str,
+        proposal_id: UUID | str,
+        run_by: UUID | str | None,
+    ) -> ActionOutcome:
+        """Run an approval that no run ever started (TD-042, D-048).
+
+        The row is `approved` with no claim, older than `STALE_CLAIM_SECONDS`:
+        the process died between approve's settle and its run, or the run was
+        refused at execute time. No claim was ever taken, so no handler ever
+        started — there is nothing half-done to fear, and this is safe to run.
+
+        It is the same run `approve` makes: `check_executable` again (the
+        declaration and risk must still be the ones approved), then the claim,
+        then the handler. What differs is the claim: only a STALE approval —
+        within the threshold the approve request's own run may still be about
+        to claim it — and it records the human pressing it now in
+        `resolved_by`, because running an old approval is a decision made now.
+        The approval stays in `decided_by`.
+        """
+        proposal = await self._settlement.get(
+            workspace_id=workspace_id, proposal_id=proposal_id
+        )
+        if proposal is None:
+            raise ExecutionRefused("not_found", "no such proposal in this workspace")
+        if proposal["status"] != "approved":
+            raise ExecutionRefused(
+                "not_approved",
+                f"proposal is {proposal['status']} — only an approval that no run has "
+                "started can be run from here",
+            )
+        spec = self._registry.get(proposal["tool_name"])
+        if spec is None:
+            raise ExecutionRefused(
+                "unknown_action",
+                f"{proposal['tool_name']!r} is not a registered action — it may have "
+                "been removed since it was approved",
+            )
+        check_executable(spec, proposal)
+        claimed = await self._pool.fetchrow(
+            """
+            UPDATE proposals
+               SET status = 'executing', claimed_at = now(), claim_token = gen_random_uuid(),
+                   resolved_at = now(), resolved_by = $3::uuid
+             WHERE id = $1::uuid AND workspace_id = $2::uuid
+               AND status = 'approved' AND claimed_at IS NULL
+               AND decided_at < now() - make_interval(secs => $4::double precision)
+            RETURNING claim_token
+            """,
+            str(proposal_id),
+            str(workspace_id),
+            str(run_by) if run_by is not None else None,
+            float(STALE_CLAIM_SECONDS),
+        )
+        if claimed is None:
+            # Lost, or early. One more read to say which — after the fact, so it
+            # cannot widen the window that matters.
+            now = await self._settlement.get(workspace_id=workspace_id, proposal_id=proposal_id)
+            if now is None:
+                raise ExecutionRefused("not_found", "no such proposal in this workspace")
+            if now["status"] == "approved":
+                raise ExecutionRefused(
+                    "not_stale",
+                    f"approved less than {STALE_CLAIM_SECONDS}s ago — its own run may "
+                    "still be starting; look again after that",
+                )
+            raise ExecutionRefused(
+                "status_changed",
+                f"the proposal moved from approved to {now['status']} while this run "
+                "was starting — re-read it before deciding again",
+            )
+        return await self._run_claimed(
+            spec, proposal, claimed["claim_token"],
+            workspace_id=workspace_id, proposal_id=proposal_id,
+        )
+
+    async def _run_claimed(
+        self, spec, proposal: dict, token, *, workspace_id, proposal_id
+    ) -> ActionOutcome:
+        """The handler, under a claim this caller holds, and the claim closed
+        with what happened. Shared by `execute` and `run_stale_approval`, so the
+        two doors cannot run an action two different ways."""
         args = dict(proposal["tool_input"] or {})
         try:
             outcome = await spec.execute(
@@ -529,7 +665,7 @@ class ActionExecutor:
             effects = await _effects(spec, workspace_id, proposal_id, args)
             await self._finish_claim(
                 proposal_id,
-                claimed["claim_token"],
+                token,
                 from_status="executing",
                 to_status="failed" if effects == "none" else "incomplete",
                 column="result",
@@ -538,7 +674,7 @@ class ActionExecutor:
             raise
         await self._finish_claim(
             proposal_id,
-            claimed["claim_token"],
+            token,
             from_status="executing",
             to_status="executed",
             column="result",
@@ -718,6 +854,15 @@ class ActionExecutor:
                 raise ExecutionRefused("already_undone", "this proposal is already being undone")
             if now["status"] == "undone":
                 raise ExecutionRefused("already_undone", "this proposal has already been undone")
+            if now["status"] == was:
+                # Taken and given back between the claim and this read — another
+                # put-back that failed returns the row to where it started (S28
+                # review of 94abbeb: this said "moved from X to X").
+                raise ExecutionRefused(
+                    "contended",
+                    f"another operation held this proposal while this undo was starting; "
+                    f"it is {was} again — try again",
+                )
             raise ExecutionRefused(
                 "status_changed",
                 f"the proposal moved from {was} to {now['status']} while this undo was "
