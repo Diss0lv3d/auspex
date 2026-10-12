@@ -20,7 +20,12 @@ are never deleted.
   the local endpoint (qwen3:14b), on the conversational path.
 - **Evidence:** docs/probes/2026-10-12-b001-ip-owner-claim.md (the stored
   turns, the server log, the RDAP result).
-- **Status:** fixing (B1).
+- **Status:** fixed `a90e18a` (B1). The platform had the owner and dropped
+  it: AbuseIPDB named Google LLC on turn 1 and a low score returned None. The
+  network a source names is now kept beside the verdict (D-055), shown in the
+  IOC check and handed to the agent. Live, qwen3:14b names Google LLC 3/3 where
+  it said Amazon 3/3 (docs/probes/2026-10-12-b1-b001-fix.md). Bound: only
+  AbuseIPDB supplies it (TD-049).
 
 ## B-002 — a definition question on the agent path is stopped as a leak
 
