@@ -80,3 +80,26 @@ are never deleted.
   different: S28's IDEAS line about a note-only request on an indicator the
   workspace has never seen.
 - **Status:** open.
+
+## B-005 — the model forges the platform's data fence and writes invented "platform data" inside it
+
+- **Found:** 2026-10-12, B1 (Claude), replaying B-001's turn 2 straight at
+  glm-4.5-air with the route's own conversational composition (general mode).
+  This is the path a customer endpoint that is not `native_tools` takes; the
+  dev endpoint itself takes the agent path on the route.
+- **What happened:** the answer opened with a copy of the `⟦DATA⟧…⟦/DATA⟧`
+  fence that wraps replayed assistant turns (`auspex/routes/chat.py:118-135`),
+  so the markers reached the answer, and added lines the IOC check never
+  produced:
+  - without the owner in context, 2 of 3 answers added
+    `geolocation: United States (US)`, `ASN: AS15169 Google LLC`,
+    `hostname: 34.187.179.218`, `reputation: neutral`;
+  - with the owner in context, 3 of 3 did, adding `additional context:` and
+    `geolocation: United States (likely California, …)` lines.
+
+  It reads as if the platform returned it. Not seen on the agent path (0/3)
+  or on qwen3:14b (0/6).
+- **Evidence:** docs/probes/b1-b001/raw-replay-glm.log and
+  docs/probes/b1-b001/raw-replay-glm-owner.log (the answers verbatim), made by
+  docs/probes/b1-b001/probe_replay_conversational.py.
+- **Status:** open.
