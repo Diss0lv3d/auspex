@@ -142,8 +142,16 @@
       header .mark, #chats-toggle, #chats-close { display: none; }
     }
     @media (max-width: 899px) {
-      .sidebar { display: none; }
+      .sidebar { display: none; width: min(300px, 85vw); }
       body.chats-open .sidebar { display: flex; }
+    }
+    /* Below 900 px an open overlay dims the chat behind it; a tap on the
+       backdrop closes it (F2 narrow pass). Above, nothing overlays the chat. */
+    #scrim { position: fixed; inset: 0; z-index: 9; background: rgba(10, 13, 18, .62); }
+    #scrim[hidden] { display: none; }
+    @media (min-width: 900px) { #scrim { display: none; } }
+    @media (max-width: 420px) {
+      .panel { width: 100vw; border-left: none; }
     }
     /* A phone (F2 narrow pass): the bars give the chat room, and the signed-in
        status is said by the Sign out button (an error still shows). */
@@ -161,6 +169,7 @@
   </style>
 </head>
 <body>
+  <div id="scrim" hidden></div>
   <nav id="chats" class="sidebar" aria-label="Chats">
     <div class="sidebar-head">
       <span class="mark">Auspex<span class="dot">.</span></span>
@@ -569,6 +578,21 @@
         ? note + " It used its whole budget thinking. Try a narrower question."
         : note;
     }
+
+    // Which overlay is open after an action (F2 narrow pass). Below 900 px the
+    // chat list and the approvals panel both overlay the chat: one at a time,
+    // and a dismissal (the backdrop, Esc) closes whichever is open. Above it the
+    // chat list is always on, so only the panel's half of this matters.
+    function overlayAfter(state, action) {
+      switch (action) {
+        case "toggle-chats": return state.chats ? { ...state, chats: false } : { chats: true, approvals: false };
+        case "close-chats": return { ...state, chats: false };
+        case "open-approvals": return { chats: false, approvals: true };
+        case "close-approvals": return { ...state, approvals: false };
+        case "dismiss": return { chats: false, approvals: false };
+        default: return state;
+      }
+    }
     // </page-logic>
 
     const $ = (id) => document.getElementById(id);
@@ -893,7 +917,7 @@
       setHash(null);
       clearTranscript();
       if (note) $("transcript").appendChild(el("div", { className: "noanswer" }, [note]));
-      document.body.classList.remove("chats-open");
+      setOverlays("close-chats");
       renderChats();
       loadChats();
       $("prompt").focus();
@@ -921,7 +945,7 @@
         ["Reopened · answers and spend only; reasoning and tool steps aren't kept."]));
       const now = Date.now();
       for (const turn of turns) renderReopenedTurn(reopenedTurnPlan(turn, now));
-      document.body.classList.remove("chats-open");
+      setOverlays("close-chats");
       renderChats();
       showChatSpend();
       scroll();
@@ -992,11 +1016,21 @@
     }
 
     function openApprovals(highlightId) {
-      approvals.open = true;
       approvals.highlight = highlightId || null;
       approvals.scrollTo = approvals.highlight;  // once: a poll must not yank the panel back
-      renderApprovals();
+      setOverlays("open-approvals");
       pollApprovals();
+    }
+
+    // Narrow screens (F2): which overlay is open comes from overlayAfter; this
+    // applies it to the body class, the panel and the backdrop.
+    function setOverlays(action) {
+      const next = overlayAfter({ chats: document.body.classList.contains("chats-open"), approvals: approvals.open }, action);
+      document.body.classList.toggle("chats-open", next.chats);
+      if (!next.approvals) approvals.highlight = null;
+      approvals.open = next.approvals;
+      $("scrim").hidden = !(next.chats || next.approvals);
+      renderApprovals();
     }
 
     function recordDecided(p) {
@@ -1091,8 +1125,8 @@
       if (hl) { hl.scrollIntoView({ block: "nearest" }); approvals.scrollTo = null; }
     }
 
-    $("approvals").addEventListener("click", () => { approvals.open ? (approvals.open = false, renderApprovals()) : openApprovals(); });
-    $("approvals-close").addEventListener("click", () => { approvals.open = false; approvals.highlight = null; renderApprovals(); });
+    $("approvals").addEventListener("click", () => { approvals.open ? setOverlays("close-approvals") : openApprovals(); });
+    $("approvals-close").addEventListener("click", () => setOverlays("close-approvals"));
     // </approvals-dom>
 
     $("signin").addEventListener("click", signIn);
@@ -1101,8 +1135,11 @@
     $("prompt").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
     $("signout").addEventListener("click", signOut);
     $("new-chat").addEventListener("click", () => newChat());
-    $("chats-toggle").addEventListener("click", () => document.body.classList.toggle("chats-open"));
-    $("chats-close").addEventListener("click", () => document.body.classList.remove("chats-open"));
+    $("chats-toggle").addEventListener("click", () => setOverlays("toggle-chats"));
+    $("chats-close").addEventListener("click", () => setOverlays("close-chats"));
+    // The backdrop and Esc close whichever overlay is open (F2 narrow pass).
+    $("scrim").addEventListener("click", () => setOverlays("dismiss"));
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") setOverlays("dismiss"); });
     // A hash pasted into this tab's address bar opens that chat without a reload.
     window.addEventListener("hashchange", () => {
       const id = chatIdFromHash(location.hash);

@@ -16,12 +16,12 @@ const {
   createPacer, indicatorText, markdownNodes,
   doorsFor, statusText, undoText, undoLineFor, askedText, mergeQueue, armDoor, confirmable,
   spendText, chatSpendText, chatIdFromHash, relativeTime, chatListLabel, ledgerSpendText, endingText, reopenedTurnPlan,
-  noAnswerNote,
+  noAnswerNote, overlayAfter,
 } = new Function(`${block[1]}; return {
   createPacer, indicatorText, markdownNodes,
   doorsFor, statusText, undoText, undoLineFor, askedText, mergeQueue, armDoor, confirmable,
   spendText, chatSpendText, chatIdFromHash, relativeTime, chatListLabel, ledgerSpendText, endingText, reopenedTurnPlan,
-  noAnswerNote,
+  noAnswerNote, overlayAfter,
 };`)();
 
 const FRAME_MS = 1000 / 60;
@@ -465,4 +465,23 @@ test("a turn that answered, explained its error, or took the shortcut gets no no
   assert.equal(noAnswerNote({ ...done, finish_reason: "output_guard" }, { content: false, error: true }), null,
     "the leak copy already says why");
   assert.equal(noAnswerNote({ path: "shortcut", finish_reason: "stop" }, { content: false, error: false }), null);
+});
+
+// -- narrow screens: the chat list and the approvals panel overlay the chat (F2) --
+
+test("only one overlay is open at a time", () => {
+  const none = { chats: false, approvals: false };
+  assert.deepEqual(overlayAfter(none, "toggle-chats"), { chats: true, approvals: false });
+  assert.deepEqual(overlayAfter({ chats: true, approvals: false }, "open-approvals"), { chats: false, approvals: true });
+  assert.deepEqual(overlayAfter({ chats: false, approvals: true }, "toggle-chats"), { chats: true, approvals: false });
+  assert.deepEqual(overlayAfter({ chats: true, approvals: false }, "toggle-chats"), none);
+});
+
+test("the backdrop and Esc close whatever is open; a close button closes only its own", () => {
+  const none = { chats: false, approvals: false };
+  assert.deepEqual(overlayAfter({ chats: true, approvals: false }, "dismiss"), none);
+  assert.deepEqual(overlayAfter({ chats: false, approvals: true }, "dismiss"), none);
+  assert.deepEqual(overlayAfter({ chats: false, approvals: true }, "close-chats"), { chats: false, approvals: true });
+  assert.deepEqual(overlayAfter({ chats: true, approvals: false }, "close-approvals"), { chats: true, approvals: false });
+  assert.deepEqual(overlayAfter({ chats: true, approvals: false }, "nonsense"), { chats: true, approvals: false });
 });

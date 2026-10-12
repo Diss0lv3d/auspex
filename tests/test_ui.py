@@ -199,3 +199,17 @@ def test_the_header_keeps_its_labels_whole_on_a_phone(client):
     narrow = body.split("@media (max-width: 599px) {", 1)[1].split("\n    }", 1)[0]
     assert ".tag { display: none; }" in narrow
     assert "header, footer { padding: 10px 12px; }" in narrow
+
+
+def test_an_overlay_on_a_narrow_screen_has_a_backdrop_that_closes_it(client):
+    """F2 narrow pass: below 900 px the chat list and the approvals panel sat
+    over a live, undimmed chat that a tap outside did not close, both could be
+    open at once, and at 390 px the 380 px panel left a 10 px sliver. One
+    dimmed backdrop now closes either (so does Esc), the page logic keeps one
+    open at a time, and the panel is full width on a phone."""
+    body = client.get("/").text
+    assert '<div id="scrim" hidden></div>' in body
+    assert 'e.key === "Escape"' in body and '"dismiss"' in body
+    assert "overlayAfter(" in body.split("// </page-logic>", 1)[1]
+    phone = body.split("@media (max-width: 420px) {", 1)[1].split("}", 1)[0]
+    assert ".panel { width: 100vw;" in phone
