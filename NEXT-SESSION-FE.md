@@ -13,10 +13,9 @@ reads `SESSION-RULES.md` (standing rules for every track) and STATE.md.
 
 Step 0 (do BEFORE new scope):
 
-1. **One session at a time.** STATE.md's Tracks table says whether B1 is
-   still mid-session in another window. If it is and that window is open,
-   STOP and ask Burhan to finish or close it first. Two windows promoted at
-   once on 2026-10-12.
+1. **One session at a time (D-051).** B1 closed on 2026-10-12. If anything
+   moves that you did not move, check `ps` for a second `claude` in this
+   directory and stop. Two windows promoted at once on 2026-10-12.
 2. **If STATE.md says the promote slate is not empty, `/promote` it.** Read
    the diff, not the list.
 3. **Ask Burhan what he saw using F1's page by hand.** F1 shipped four
