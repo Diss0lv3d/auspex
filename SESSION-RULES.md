@@ -17,6 +17,12 @@ it changes, in its own commit._
   to it** (dev-only, D-016). It is slow: ~30 s to first token, minutes per deep
   turn (docs/probes/2026-10-12-b001-ip-owner-claim.md). Know which endpoint a
   turn ran on before judging its speed or its answer.
+- **A switcher endpoint always takes the conversational path, with no tools**
+  (D-037: it carries no agent mode). So does a customer endpoint that is not
+  `native_tools`. The dev endpoint itself takes the agent path. To see what
+  the conversational path does on the dev endpoint, replay at it with the
+  route's own composition
+  (docs/probes/b1-b001/probe_replay_conversational.py, B1).
 - The app probes its endpoint at startup and re-checks every 6 h (D-038, D-042).
   The scorecard expiry date is in STATE.md (Host notes). After it, a running
   container re-probes (~15 calls). **If it logs the "endpoint changed" WARNING,
@@ -180,5 +186,6 @@ That is recorded, not owned; do not fix it unasked.
 - the card stream emitting status changes;
 - model-PROPOSED hypotheses/evidence and falsifiers (D-019-later, D-021);
 - the model fabricating incident specifics the contract validator passes
-  (probe record 2026-10-10-zai-endpoint, seen on every run). B-001 lives next
-  to it; a B-001 fix that needs this item goes to Burhan first.
+  (probe record 2026-10-10-zai-endpoint, seen on every run). B-001 was fixed
+  without it (D-055: the platform hands the model the owner it had). B-005
+  lives next to it; a fix that needs this item goes to Burhan first.
