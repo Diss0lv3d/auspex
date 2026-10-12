@@ -14,7 +14,11 @@ migrations block, or together with TD-050's key.
 **Trigger:** a reopen slower than about 200 ms, or a workspace past about 10k
 proposals.
 
-## TD-051 (F2) — the page sends no Content-Security-Policy
+## TD-051 (F2) — the timeline page sends no Content-Security-Policy
+
+**Narrowed (F2, D-057):** the chat page carries a strict CSP since the split
+(TD-045). What remains is /timeline, which still runs an inline script with
+`onclick` attributes.
 
 **Where:** `auspex/routes/ui.py` serves `index.html` and `timeline.html` with
 only `Cache-Control: no-cache`.
