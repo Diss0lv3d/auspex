@@ -2048,3 +2048,27 @@ reloading normal after every deploy.
 The page sends no Content-Security-Policy (`auspex/routes/ui.py` sets only
 `no-cache`), so the one guard is D-053's rule that model and tool text never
 become HTML. A CSP is TD-051.
+
+## D-057 — The chat page carries a strict Content-Security-Policy (2026-10-12, F2)
+
+**Context.** D-056 keeps the sign-in token in the tab's `sessionStorage`, where
+any script running on the page can read it, and the page sent no CSP (TD-051).
+TD-045's split moved every script and style rule out of the page, so a policy
+needs neither `'unsafe-inline'` nor a hash per edit.
+
+**Decision (Burhan's call; the recommended option).** `GET /` is served with
+`default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com;
+font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data:;
+object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`.
+- Scripts only from the page's own origin: an injected `<script>` or `on…=`
+  does not run.
+- Fetches only to the platform: an injected script that did run could not send
+  the token anywhere else.
+- No framing, no `<base>`, no form posts, no plugins.
+- The page's styles set through the CSSOM (`el.style.display`) are not governed
+  by a CSP; the markup has no `style=` attribute.
+- Links in answers (D-053) are navigation, which this does not restrict.
+
+**Bounds, stated.** `/timeline` has no CSP yet: it still runs an inline script
+(TD-051 narrows to it). A new external origin (a CDN, an analytics host) needs
+a D-entry, not an edit to the header.
