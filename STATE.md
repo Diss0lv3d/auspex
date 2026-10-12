@@ -1,11 +1,12 @@
 # STATE — Auspex
 
-_Last updated: 2026-10-12 — **F1 CLOSED** (session-end ritual run). `./ci.sh`
-green at F1's close: **1315 tests, 120 modules**. `/api/health/ready` 200.
-`./scripts/demo.sh` exited 0 at F1's close. Branch `staging`. Promote #30
+_Last updated: 2026-10-12 — **B1 CLOSED** (session-end ritual run), after F1.
+`./ci.sh` green at B1's close: **1323 tests, 120 modules**. `/api/health/ready`
+200. `./scripts/demo.sh` exited 0 at B1's close. Branch `staging`. Promote #30
 (`d0bf773`, back-merge `f681915`) shipped at the start of 2026-10-12.
 **Promote slate: NOT EMPTY**: F1's work (D-052, D-053, D-054, the approvals
-panel, B-003's fix) and B1's two commits (`bbb382a`, `c0780d3`)._
+panel, B-003's fix) and B1's (B-001's fix `a90e18a`, D-055, TD-049, B-005 and
+B-006 logged)._
 
 ## Tracks (D-051) — read this first
 
@@ -13,25 +14,70 @@ panel, B-003's fix) and B1's two commits (`bbb382a`, `c0780d3`)._
 |---|---|---|---|---|
 | backend | `NEXT-SESSION-BE.md` | S28 (2026-10-11) | S29 | paused |
 | front end | `NEXT-SESSION-FE.md` | F1 (2026-10-12) | F2 | **focus** |
-| bugs | `NEXT-SESSION-BUGS.md` | none yet | B1 | **in progress in a paused window** (B-001 fixing) |
+| bugs | `NEXT-SESSION-BUGS.md` | B1 (2026-10-12) | B2 | ready: B-002 on top; B-004, B-005, B-006 open |
 
 - **Focus: front end.** Burhan, 2026-10-10, after S28's ritual: "before moving
   on with more backend development we need to improve on the FE so lets shift
   our focus there and pause BE for a bit."
-- **B1 is mid-session in another window, paused by Burhan on 2026-10-12.**
-  - Two windows ran at once that morning: F1 here, B1 there. Both ran Step 0's
-    `/promote`. B1 opened PR #30 while F1's `ci.sh` ran, and merged it 4 s
-    before F1's merge. The promote is correct; F1 verified it.
-  - Burhan paused B1 and F1 carried on. B1 has committed `bbb382a` and
-    `c0780d3`, and left `docs/probes/b1-b001/` uncommitted. **That folder is
-    B1's; do not touch it.**
-  - **Resume B1 in its own window, or close it, before starting another
-    session** (D-051: one session at a time).
-  - Running two at once is parked in IDEAS ("Parallel tracks"). Adopting it
-    needs a new D-entry that overturns D-051's one-at-a-time rule.
+- **The 2026-10-12 two-window collision is over.** F1 and B1 ran at once that
+  morning, and both ran Step 0's `/promote`. B1 opened PR #30 while F1's
+  `ci.sh` ran, and merged it 4 s before F1's merge; the promote is correct
+  (F1 verified it). Burhan paused B1, F1 closed, then B1 resumed in its own
+  window and closed. **One session at a time (D-051).** Running two at once is
+  parked in IDEAS ("Parallel tracks"); adopting it needs a new D-entry that
+  overturns D-051's rule.
 - **That pivot was nearly lost** (2026-10-10). Recovered from the session
   transcript; evidence in docs/probes/2026-10-12-b001-ip-owner-claim.md.
 - Standing rules every track obeys: `SESSION-RULES.md`. Bugs: `BUGS.md`.
+
+## B1 — what happened (bugs track's first session)
+
+B1 ran 2026-10-12, in two halves around F1 (above). Burhan made two calls:
+where the owner lives (D-055), and ending after B-001 rather than taking
+another bug.
+
+1. **Promote #30** (Step 0): see the collision note above.
+2. **Goal: B-001, the invented IP owner — fixed (`a90e18a`).** Record:
+   docs/probes/2026-10-12-b1-b001-fix.md; scripts and logs in
+   docs/probes/b1-b001/.
+   - **Reproduced through `/api/chat`, both endpoints, 3 runs each.**
+     - glm-4.5-air took the agent path and looked the IP up: 0/3 invented an
+       owner.
+     - qwen3:14b took the conversational path with no tools: **Amazon 3/3**,
+       claiming WHOIS and Shodan.
+   - **Why no tools.** "dig deeper" resolves to `general`, because the
+     resolver reads only the current message (`auspex/modes/resolver.py:129`).
+     Dev-switcher endpoints carry no agent mode, so they stay conversational
+     (D-037), as does a customer endpoint that is not `native_tools`.
+   - **Replayed one variable at a time.** The mode did not decide it:
+     `ioc_enrichment` said Amazon 2/3 on glm. The owner in context did: 9/9
+     Google.
+   - **Root cause: the platform had the owner and threw it away.** On turn 1,
+     AbuseIPDB named Google LLC (isp, domain, hostname) and OTX named
+     AS15169. A low AbuseIPDB score returned None, so the echo said "unknown
+     to them".
+   - **Fix (Burhan's call, D-055).** A lookup may return a `NetworkContext`
+     beside its signal, or alone. It is never a verdict, so it is never
+     recorded and cannot flip one. The IOC check shows it and the agent's
+     tool result carries it.
+   - **Proven.** 8 new tests (six failed before; two pin unchanged
+     behaviour), with the exact offending answer pinned in
+     tests/fixtures/enrich/b001_ip_owner_claim.json. 3/3 mutants caught.
+     Full gate green.
+   - **Live, rebuilt container:** qwen names **Google LLC 3/3** (was Amazon
+     3/3). glm 3/3, and its agent turn now makes one lookup instead of two
+     (~3.1k tokens, was ~4.1k).
+3. **Found and logged, not fixed:**
+   - **B-005:** on the conversational path glm forges the `⟦DATA⟧` fence
+     and writes invented "platform data" inside it;
+   - **B-006:** a follow-up on a no-signal IP calls it "clean", because the
+     follow-up resolves to `general`.
+4. **Bounds.**
+   - Only AbuseIPDB supplies the owner (TD-049).
+   - The model still adds what nobody supplied ("likely us-central1"). That
+     is the deferred fabricated-specifics item, not re-scoped.
+
+About 25 inference calls on Z.ai, plus local qwen runs.
 
 ## F1 — what happened (front-end track's first session)
 
@@ -196,16 +242,18 @@ Phase 4:
 - **F1 (front end): the endpoint measured as the whole of the slowness; the
   page saying what a turn waits on and pacing what arrives (D-052); answers in
   safe markdown (D-053); every approvals door on the page; and every deep
-  turn's spend recorded and shown (D-054).**
+  turn's spend recorded and shown (D-054);**
+- **B1 (bugs): the network a source names reaches the analyst and the model,
+  beside the verdict, never as one (D-055, B-001).**
 
-The ROADMAP through S20 is complete; S21–S28 and F1 were each scoped by a
-decision.
+The ROADMAP through S20 is complete; S21–S28, F1 and B1 were each scoped by a
+decision or a bug.
 
 ## In-flight / standing follow-ups (carry forward until DONE)
 1. **Promote slate: NOT EMPTY.** Everything after promote #30's back-merge
    (`f681915`) is on staging only: F1's work (D-052, D-053, D-054, the
-   approvals panel, B-003's fix, B-002/B-004 logged) and B1's `bbb382a` and
-   `c0780d3`. At F1's close that was 29 files, +2434.
+   approvals panel, B-003's fix, B-002/B-004 logged) and B1's (B-001's fix
+   `a90e18a`, D-055, TD-049, B-005/B-006 logged).
    - **The first session of any track runs `/promote` as its Step 0 — but
      only ONE window at a time** (the 2026-10-12 collision).
    - Read `git diff origin/main..staging --stat`, never the commit list.
@@ -315,6 +363,16 @@ decision.
     no-cache on the scripts too (B-003).
 17. **The spend ledger (D-054) counts what a turn's own ending records.** A turn
     cut by a dropped connection may record nothing (TD-048).
+18. **An address's network now comes from one source (D-055, TD-049).** Only
+    AbuseIPDB supplies it, and it is key-gated. A deployment without its key
+    is back on B-001's path. OTX's keyless `asn` is still dropped.
+19. **The conversational path is where the model invents (B1).** With no
+    tools, glm forged a `⟦DATA⟧` block with invented platform lines (B-005).
+    Both models added specifics nobody supplied. Every customer endpoint that
+    is not `native_tools` takes this path (D-037).
+
+**Closed at B1, so they leave this list:** none of the above closed. B1 added
+#18–#19.
 
 **Closed at F1, so they leave this list:** none of the above closed. F1 added
 #15–#17.
@@ -334,8 +392,9 @@ decision.
    - Still open: TD-014 … TD-025, TD-027, TD-029, TD-030, TD-031/032/033,
      TD-035 (the two-pass path only), **TD-036 (trigger fired, S28)**,
      **TD-044 (trigger fired again, S28; live false positive at F1: B-002)**,
-     and F1's TD-045 … TD-048 (the page in one file, the panel polling, a full
-     response per page load, spend unrecorded on a dropped connection).
+     F1's TD-045 … TD-048 (the page in one file, the panel polling, a full
+     response per page load, spend unrecorded on a dropped connection), and
+     B1's TD-049 (only AbuseIPDB names an address's network).
    - **Closed at S28:** TD-042, TD-043.
    - Closed earlier: TD-012, TD-018, TD-026, TD-028, TD-034, TD-037…TD-041.
 3. **The KB bootstrap needs outbound HTTPS once per fresh volume**, and ingest
@@ -434,6 +493,15 @@ decision.
   layers are timed on one completion. `page_paint.js` is the page layer.
 - **Two windows on one repo collide** (2026-10-12). Check `ps` for a second
   `claude` in this directory when something moves that you did not move.
+- **B1 session-end (2026-10-12):** staging, identity `bh3082336888-cell`.
+  `./ci.sh` **green, 1323 tests, 120 modules**, `/api/health/ready` **200**,
+  `./scripts/demo.sh` **exits 0**.
+- **A dev-switcher endpoint always takes the conversational path** (D-037: it
+  carries no agent mode). To test what a customer's non-`native_tools`
+  endpoint does on the dev endpoint, replay at it with the route's own
+  composition: docs/probes/b1-b001/probe_replay_conversational.py.
+- **The B-001 route test purges the observable 34.187.179.218** in every
+  workspace, as the S5 IOC test does for its IP.
 
 ## Reference intelligence (from the SARA Open architecture study)
 Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
@@ -447,10 +515,7 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 ## Next session should
 **Pick a track (D-051); the Tracks table at the top has the ids.** Paste the
 prompt file of the track you mean. `/session-start` with no track asks.
-**First: B1 is mid-session in a paused window.** Finish it there or close it
-before anything else starts (one session at a time).
-- **B1, bugs** (`NEXT-SESSION-BUGS.md`, in progress): B-001, the invented IP
-  owner. Its window already ran Step 0 (promote #30).
+One window at a time (D-051).
 - **F2, front end, the focus** (`NEXT-SESSION-FE.md`):
   - promote first;
   - then Burhan uses F1's page by hand, and his list outranks the rest;
@@ -459,3 +524,6 @@ before anything else starts (one session at a time).
 - **S29, backend, paused** (`NEXT-SESSION-BE.md`): the review of S28's code,
   TD-036 and TD-044, as written at S28's close. B-002 is now TD-044's live
   evidence.
+- **B2, bugs** (`NEXT-SESSION-BUGS.md`): promote first, then ask Burhan which
+  open bug. The default is B-002, the top open entry, a rail false positive
+  on the definition contract; B-004, B-005 and B-006 follow.
