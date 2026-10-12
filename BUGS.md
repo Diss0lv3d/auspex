@@ -103,3 +103,23 @@ are never deleted.
   docs/probes/b1-b001/raw-replay-glm-owner.log (the answers verbatim), made by
   docs/probes/b1-b001/probe_replay_conversational.py.
 - **Status:** open.
+
+## B-006 — a follow-up on an IP its sources knew nothing about calls it "clean"
+
+- **Found:** 2026-10-12, B1 (Claude), live through `/api/chat` on the dev
+  endpoint (glm-4.5-air, agent path), running B-001's two turns.
+- **What happened:** turn 1 was the IOC check on 34.187.179.218: no signal
+  from 5 sources. Turn 2, "dig deeper", ran in mode `general` (the done
+  frame, 3 of 3 runs), and every answer called the IP clean:
+  - "The IP appears to be clean according to the current threat intelligence
+    data available." (runs 1 and 3)
+  - "The IP appears clean according to current threat intelligence data"
+    (run 2)
+
+  The `ioc_enrichment` contract's rule, "absence of data is 'unknown', not
+  'benign'" (`auspex/modes/catalog.py`), is not in the general directive.
+  The same turns after B-001's fix still say "Clean reputation" (3 of 3).
+- **Evidence:** docs/probes/b1-b001/raw-before-default.log (the three runs
+  verbatim, with their done frames), made by
+  docs/probes/b1-b001/probe_app_dig_deeper.py.
+- **Status:** open.
