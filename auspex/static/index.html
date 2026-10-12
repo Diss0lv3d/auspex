@@ -860,6 +860,7 @@
       if (note) $("transcript").appendChild(el("div", { className: "noanswer" }, [note]));
       document.body.classList.remove("chats-open");
       renderChats();
+      loadChats();
       $("prompt").focus();
     }
 
