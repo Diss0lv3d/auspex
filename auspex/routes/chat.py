@@ -62,6 +62,7 @@ from auspex.agent.permissions import PgProposalStore
 from auspex.alerts import normalize, score_alert
 from auspex.alerts.render import deterministic_triage_answer, deterministic_triage_block
 from auspex.auth import AuthContext, resolve_user
+from auspex.chat_history import title_of
 from auspex.classify import Category, classify, shortcut_answer
 from auspex.classify.observables import ObservableType, extract_observables
 from auspex.config import Settings
@@ -519,6 +520,62 @@ async def session_spend(request: Request, auth: Auth, session_id: UUID) -> dict:
         "engine_calls": row["engine_calls"],
         "prompt_tokens": row["prompt_tokens"],
         "completion_tokens": row["completion_tokens"],
+    }
+
+
+# F2: how many chats the list returns, newest message first. No paging: the
+# page says when the list was cut
+# (docs/superpowers/specs/2026-10-12-chat-survives-reload-design.md).
+CHAT_LIST_LIMIT = 50
+
+
+@router.get("/chat/sessions")
+async def list_sessions(request: Request, auth: Auth) -> dict:
+    """F2: your chats, by their newest message, each titled by its first
+    question and totalled like `/spend`. Scoped to the workspace AND the user,
+    as `_ensure_session` is: another analyst's chats never appear. A chat with
+    no messages is left out."""
+    pool = request.app.state.pool
+    rows = await pool.fetch(
+        "SELECT s.id, s.created_at, m.last_at,"
+        "       (SELECT q.content FROM messages q"
+        "         WHERE q.session_id = s.id AND q.workspace_id = s.workspace_id AND q.role = 'user'"
+        "         ORDER BY q.created_at, q.id LIMIT 1) AS first_question,"
+        "       sp.turns, sp.engine_calls, sp.prompt_tokens, sp.completion_tokens"
+        "  FROM chat_sessions s"
+        "  JOIN LATERAL (SELECT max(created_at) AS last_at FROM messages"
+        "                 WHERE session_id = s.id AND workspace_id = s.workspace_id) m"
+        "    ON m.last_at IS NOT NULL"
+        "  CROSS JOIN LATERAL (SELECT count(*) AS turns,"
+        "                             coalesce(sum(engine_calls), 0) AS engine_calls,"
+        "                             sum(prompt_tokens) AS prompt_tokens,"
+        "                             sum(completion_tokens) AS completion_tokens"
+        "                        FROM turn_spend"
+        "                       WHERE session_id = s.id AND workspace_id = s.workspace_id) sp"
+        " WHERE s.workspace_id = $1 AND s.user_id = $2"
+        " ORDER BY m.last_at DESC, s.id"
+        " LIMIT $3",
+        auth.workspace_id,
+        auth.user_id,
+        CHAT_LIST_LIMIT + 1,
+    )
+    return {
+        "sessions": [
+            {
+                "id": str(r["id"]),
+                "title": title_of(r["first_question"]),
+                "created_at": r["created_at"].isoformat(),
+                "last_at": r["last_at"].isoformat(),
+                "spend": {
+                    "turns": r["turns"],
+                    "engine_calls": r["engine_calls"],
+                    "prompt_tokens": r["prompt_tokens"],
+                    "completion_tokens": r["completion_tokens"],
+                },
+            }
+            for r in rows[:CHAT_LIST_LIMIT]
+        ],
+        "complete": len(rows) <= CHAT_LIST_LIMIT,
     }
 
 

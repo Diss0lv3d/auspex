@@ -6,10 +6,15 @@ routes are tested against Postgres further down, with rows inserted directly,
 so nothing in this file spends inference.
 """
 
+import asyncio
 import json
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
+import asyncpg
+import pytest
+
+from auspex.auth import issue_jwt
 from auspex.chat_history import TITLE_MAX, pair_turns, title_of
 
 T0 = datetime(2026, 10, 12, 9, 0, tzinfo=UTC)
@@ -117,3 +122,161 @@ def test_two_rows_without_an_answer_in_one_turn_take_the_first():
     rows = [ledger(1, ending="output_guard"), ledger(2, ending="empty_answer")]
     [turn] = pair_turns([q], rows, [])
     assert turn["spend"]["ending"] == "output_guard"
+
+
+# -- the routes, against Postgres ----------------------------------------------
+
+READER = "history-reader@auspex.dev"
+NEIGHBOUR = "history-neighbour@auspex.dev"
+BASE = datetime.now(UTC) - timedelta(days=1)
+
+
+def _at(minutes: float) -> datetime:
+    return BASE + timedelta(minutes=minutes)
+
+
+def _db(settings, sql, *args):
+    async def _run():
+        conn = await asyncpg.connect(settings.database_url)
+        try:
+            return await conn.fetch(sql, *args)
+        finally:
+            await conn.close()
+
+    return asyncio.run(_run())
+
+
+def _h(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _login(client, email: str):
+    token = client.post("/api/auth/dev-login", json={"email": email}).json()["access_token"]
+    who = client.get("/api/auth/whoami", headers=_h(token)).json()
+    return token, UUID(who["user_id"]), UUID(who["workspace_id"])
+
+
+def _forget(settings, email: str) -> None:
+    """Proposals outlive their chat (ON DELETE SET NULL), so they go first."""
+    _db(settings, "DELETE FROM proposals WHERE session_id IN (SELECT s.id FROM chat_sessions s"
+        " JOIN users u ON u.id = s.user_id WHERE u.email = $1)", email)
+    _db(settings, "DELETE FROM users WHERE email = $1", email)
+
+
+@pytest.fixture
+def reader(client, settings):
+    """A user of its own, so the list holds only the chats a test made."""
+    yield _login(client, READER)
+    _forget(settings, READER)
+
+
+@pytest.fixture
+def neighbour(client, settings):
+    """Another analyst in the reader's workspace."""
+    yield _login(client, NEIGHBOUR)
+    _forget(settings, NEIGHBOUR)
+
+
+@pytest.fixture
+def outsider(settings):
+    """A user in ANOTHER workspace, with a token of its own."""
+    ws = _db(settings, "INSERT INTO workspaces (name) VALUES ('t-chat-history-other')"
+             " ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id")[0]["id"]
+    uid = _db(settings, "INSERT INTO users (workspace_id, email)"
+              " VALUES ($1, 'history-outsider@auspex.dev')"
+              " ON CONFLICT (workspace_id, email) DO UPDATE SET email = EXCLUDED.email"
+              " RETURNING id", ws)[0]["id"]
+    yield issue_jwt(settings, uid, ws), uid, ws
+    _db(settings, "DELETE FROM workspaces WHERE id = $1", ws)
+
+
+def _new_chat(settings, ws, user_id):
+    return _db(settings, "INSERT INTO chat_sessions (workspace_id, user_id) VALUES ($1, $2)"
+               " RETURNING id", ws, user_id)[0]["id"]
+
+
+def _say(settings, ws, chat, role, content, minutes):
+    return _db(settings, "INSERT INTO messages (workspace_id, session_id, role, content,"
+               " created_at) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+               ws, chat, role, content, _at(minutes))[0]["id"]
+
+
+def _spent(settings, ws, chat, minutes, *, message_id=None, calls=1, prompt=10, completion=4,
+           ending="stop"):
+    _db(settings, "INSERT INTO turn_spend (workspace_id, session_id, message_id, engine_calls,"
+         " prompt_tokens, completion_tokens, ending, created_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        ws, chat, message_id, calls, prompt, completion, ending, _at(minutes))
+
+
+def _file(settings, ws, chat, minutes, *, status="pending_approval",
+          summary="Attach a note to ipv4 203.0.113.9"):
+    return _db(settings, "INSERT INTO proposals (workspace_id, session_id, tool_name, tool_level,"
+                " tool_input, status, card, created_at)"
+               " VALUES ($1, $2, 'annotate_observable', 'write',"
+               " $3::jsonb, $4, $5::jsonb, $6) RETURNING id", ws, chat,
+               json.dumps({"observable_id": "ipv4-f2test", "note": "seen beaconing"}), status,
+               json.dumps({"summary": summary}), _at(minutes))[0]["id"]
+
+
+def test_the_chat_list_requires_auth(client):
+    assert client.get("/api/chat/sessions").status_code == 401
+
+
+def test_your_chats_come_newest_first_titled_and_totalled(client, settings, reader):
+    token, uid, ws = reader
+    a = _new_chat(settings, ws, uid)
+    first_q = '\n  {"rule": {"name": "Suspicious PowerShell"},\n "host": "fin-ws-12"}'
+    _say(settings, ws, a, "user", first_q, 1)
+    answer = _say(settings, ws, a, "assistant", "An answer.", 2)
+    _spent(settings, ws, a, 2, message_id=answer, calls=3, prompt=100, completion=20)
+    b = _new_chat(settings, ws, uid)
+    _say(settings, ws, b, "user", "check 8.8.8.8", 3)
+    _say(settings, ws, b, "assistant", "No signal.", 3.5)
+    _say(settings, ws, a, "user", "and the parent process?", 4)  # a is the newest again
+    _new_chat(settings, ws, uid)  # never asked anything: left out
+
+    body = client.get("/api/chat/sessions", headers=_h(token)).json()
+    assert [s["id"] for s in body["sessions"]] == [str(a), str(b)]
+    assert body["complete"] is True
+    first, second = body["sessions"]
+    assert first["title"] == '{"rule": {"name": "Suspicious PowerShell"}, "host": "fin-ws-12"}'
+    assert datetime.fromisoformat(first["last_at"]) == _at(4)
+    assert datetime.fromisoformat(first["created_at"]) <= datetime.now(UTC)
+    assert first["spend"] == {"turns": 1, "engine_calls": 3, "prompt_tokens": 100,
+                              "completion_tokens": 20}
+    assert second["spend"] == {"turns": 0, "engine_calls": 0, "prompt_tokens": None,
+                               "completion_tokens": None}
+
+
+def test_the_list_says_when_it_was_cut(client, settings, reader):
+    token, uid, ws = reader
+    _db(settings, "WITH s AS (INSERT INTO chat_sessions (workspace_id, user_id)"
+        " SELECT $1, $2 FROM generate_series(1, 51) RETURNING id)"
+        " INSERT INTO messages (workspace_id, session_id, role, content)"
+        " SELECT $1, id, 'user', 'q' FROM s",
+        ws, uid)
+    body = client.get("/api/chat/sessions", headers=_h(token)).json()
+    assert len(body["sessions"]) == 50
+    assert body["complete"] is False
+
+
+def test_another_analysts_chats_never_appear(client, settings, reader, neighbour, outsider):
+    token, uid, ws = reader
+    mine = _new_chat(settings, ws, uid)
+    _say(settings, ws, mine, "user", "mine", 1)
+    n_token, n_uid, n_ws = neighbour
+    theirs = _new_chat(settings, n_ws, n_uid)
+    _say(settings, n_ws, theirs, "user", "the neighbour's", 2)
+    o_token, o_uid, o_ws = outsider
+    far = _new_chat(settings, o_ws, o_uid)
+    _say(settings, o_ws, far, "user", "another workspace's", 3)
+
+
+    def listed(t):
+        body = client.get("/api/chat/sessions", headers=_h(t)).json()
+        return [s["id"] for s in body["sessions"]]
+
+    assert listed(token) == [str(mine)]
+    assert listed(n_token) == [str(theirs)]
+    assert listed(o_token) == [str(far)]
