@@ -2142,3 +2142,41 @@ recitations of the system message and of the 58-word tool description in
 thinking are still cut. Four mutants, 4 caught: the old index, an empty
 thinking index, `answer_shape` also left out of the answer's index, and the
 re-ask not exempted.
+
+**D-058 addendum (2026-10-13, same session, after an adversarial review).** A
+review of `4b753d4` by a fresh agent found the exemption too wide on the
+conversational path.
+- **The gap.** On that path the thinking index held CHAT_SYSTEM_PROMPT (22
+  words, so no 40-word run at all), the fence (60), PASS1_DIRECTIVE (40, never
+  sent on the native path) and the mode directive. Leaving the whole directive
+  out left little but the fence.
+- **What that let through.** A recitation of alert_triage's or
+  phishing_analysis's directive (purpose line and hard rules) in the Thinking
+  pane was no longer cut. Those modes run only on this path, and their pastes
+  are attacker-controlled.
+- **What D-058 got wrong.** "A dump that also reaches the system message …
+  is still cut" held only on the agent path. And the exemption covered the
+  purpose line and the hard rules too, which the answer does not show.
+
+**Narrowed (Burhan's call; the recommended option).**
+- The thinking index keeps the whole directive and subtracts only the 40-word
+  runs that lie wholly inside its section list.
+  `ModeContract.section_list()` is compiled from the same lines as the
+  directive, and a test pins that it is the directive's own consecutive span.
+- The re-ask stays exempt whole: it is all answer shape and has no rules.
+- A run that reaches the purpose line, the preamble or the hard rules trips,
+  as it did before `4b753d4`.
+
+**Cost, stated.** A plan that restates the 16-word preamble ("Structure your
+answer with these plain-text sections, each opened by a "## <Name>" header,
+in this order:") verbatim together with the section list trips. It was not
+seen live: B2's restatements paraphrased the preamble, and F1's logged run
+began at the list.
+
+**Proven.**
+- Two recitation tests failed on `4b753d4` and pass now: the definition
+  directive in the agent path's thinking, and alert_triage's in a held native
+  turn's thinking.
+- The B-002 tests still pass.
+- Four mutants, 4 caught: the shipped whole-directive exemption, no
+  subtraction, subtracting the whole directive, and the re-ask not exempted.
