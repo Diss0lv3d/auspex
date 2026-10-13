@@ -1,5 +1,37 @@
 # Technical debt — logged the moment it's taken
 
+## TD-054 (B2) — a note named by its indicator is re-resolved when it runs, not pinned to the card's target
+
+**Where:** `auspex/actions/builtin.py`, `annotate_observable`. Since B-004
+(`29209fa`), `_resolve` accepts the indicator itself as well as the short id.
+The proposal stores the argument as the model wrote it (`tool_input`). At
+execute time `run` resolves that string again, and nothing compares the
+result with the card's `affects`. `check_executable` compares the spec
+fingerprint, which does not cover the extractor.
+**Risk:** LOW, and latent. Before B-004 the argument WAS the obs_id, so this
+could not happen. A deploy that changes how the extractor parses a stored
+string, between approval and run, could land the note on a different
+recorded observable. The B2 review's example: a TLD added to `_TLDS` turns
+"login.microsoft.com.zz" from `login.microsoft.com` into `…com.zz`. The target
+must still be recorded in the same workspace (D-008 holds), and the human
+approved a card that names the original.
+- Also: `put_back` echoes the raw argument as `affects`, so an undo's result
+  can carry a defanged form where it used to carry an obs_id. Display only.
+- Also: twin detection compares `tool_input`, so a pending note named by id
+  and one named by value are not seen as twins.
+
+**Why taken:** closing it is an executor-level guarantee — "what runs is the
+target the card named": re-dry-run before execute and refuse on a changed
+`affects`, or store the resolved id at filing. That touches the D-041/D-048
+state machine, beyond a bug fix in a bugs session. Found by B2's review of
+the fix.
+**Path to fix:** store the resolved obs_id in `tool_input` when the proposal
+is filed (the card can keep the analyst's form), or refuse at execute when the
+re-resolved target differs from the card's `affects` (`target_changed`).
+**Trigger:** any change to `auspex/classify/observables.py`'s parsing (the
+TLD list, refanging, the types), or a second action that resolves targets by
+value.
+
 ## TD-053 (F2) — the gate's installed-dist check covers `*.py` only
 
 **Where:** `ci.sh`, the "installed distribution matches the source tree" step:
