@@ -2074,3 +2074,71 @@ object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`.
 **Bounds, stated.** `/timeline` has no CSP yet: it still runs an inline script
 (TD-051 narrows to it). A new external origin (a CDN, an analytics host) needs
 a D-entry, not an edit to the header.
+
+## D-058 — A thinking model may restate the answer it was told to write (2026-10-13, B2)
+
+**Context.** B-002: "What are the practical differences between EDR and XDR
+for a small SOC deciding what to buy?" resolved to `definition` and was cut by
+the output rail in 3 of 4 agent-path turns at F1. The route logged a 40-word
+match from the definition contract's section list on the `thinking` channel,
+exactly `THINKING_SHINGLE_WORDS` (D-040). B2 measured why
+(docs/probes/2026-10-13-b2-b002-reproduce-and-calibrate.md):
+- **A thinking model plans its answer by restating the sections it was told
+  to write** ("Let me structure this according to the requested format: …"),
+  in every one of B2's six live runs of the question.
+- **The rail's tokeniser drops punctuation, so a section list is ONE run.** It
+  is 43 words for definition and 42 for threat_intel. D-043's re-ask,
+  rendered for an empty draft, is 42 (alert_triage) and 44
+  (phishing_analysis). Each is longer than the floor of 40.
+- **Whether a turn is cut depends on one or two words.** At F1 the restatement
+  was verbatim. At B2 it said "each term" and "meets them", so its longest run
+  was 11 and 0 of 8 turns were cut. The configuration was byte-identical to
+  F1's; the KB results the model read differed.
+- **Today's legitimate ceilings** (36 turns, S26's battery and a blind one,
+  today's issued text): thinking 28, every run above 20 a restated section
+  list; against everything else we issue, **20**. Answer 5, narration 3, tool
+  lines 3. A recitation ran **58**. S22's answer floor re-measured: 5 against 8.
+
+**Decision (Burhan's call; the recommended option).**
+1. **The directives that tell the model what to write are `answer_shape`**:
+   the mode contract's directive and, on a held turn, D-043's re-ask
+   (`auspex/routes/chat.py`).
+2. **The thinking channel's index leaves `answer_shape` out.** Everything else
+   we issue stays in it, at `THINKING_SHINGLE_WORDS = 40` (unchanged): the
+   system message, every tool, parameter and action description, the history
+   fence, the step-cap nudge, PASS1_DIRECTIVE.
+3. **Every other channel still indexes `answer_shape`**, at `SHINGLE_WORDS = 8`
+   (unchanged): the answer, narration, the tool lines, a two-pass analysis. A
+   section list written into the answer is still a leak.
+4. The scan is not skipped on any channel, and the guard regex is untouched
+   (TD-031/032/033).
+
+**Rejected.**
+- **A thinking floor of ~50**, between the longest answer-shape run (44) and
+  the recitation (58): about 1.15× each side, on one model. The next field
+  added to a contract, or a plan that also restates the 16-word preamble
+  ("Structure your answer with these plain-text sections …", 59+ words),
+  reopens it.
+- **Shortening the contracts under 40.** It changes what the model is told
+  (and so the answers and the contract tests), fixes three instances rather
+  than the class, and phishing_analysis is already at 39.
+
+**What it costs, stated.** A recitation of ONLY the answer-shape directives
+in the Thinking pane is no longer cut. That text describes the answer's
+sections, which the answer itself shows. Thinking is never stored. A dump that
+also reaches the system message or any tool description is still cut, and so
+is the same text in the answer.
+
+**What this supersedes.** D-040's thinking floor indexed everything D-031
+decision 5 lists. For the thinking channel only, it now indexes that minus
+`answer_shape`. D-040's floor and D-030 decision 3 stand.
+
+**Proven.** Seven tests in `tests/test_chat_sse.py`. Three fail before the
+fix: F1's exact logged run in the thinking, on the agent and the native path
+(fixture `tests/fixtures/rail/b002_definition_section_list.json`), and an
+empty draft's re-ask restated in the re-ask's thinking. Four guards pass before
+and after: a control; the section list in the answer is still cut; and
+recitations of the system message and of the 58-word tool description in
+thinking are still cut. Four mutants, 4 caught: the old index, an empty
+thinking index, `answer_shape` also left out of the answer's index, and the
+re-ask not exempted.
