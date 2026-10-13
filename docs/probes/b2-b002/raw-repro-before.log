@@ -1,0 +1,96 @@
+2026-10-13 11:08:52,716 auspex.migrations INFO Schema v0 migration applied (idempotent, 58 statements)
+2026-10-13 11:08:52,750 httpx INFO HTTP Request: GET http://localhost:9200/_cluster/settings?flat_settings=true "HTTP/1.1 200 OK"
+2026-10-13 11:08:52,757 httpx INFO HTTP Request: POST http://localhost:9200/_plugins/_ml/models/_search "HTTP/1.1 200 OK"
+2026-10-13 11:08:52,760 httpx INFO HTTP Request: HEAD http://localhost:9200/auspex-knowledge "HTTP/1.1 200 OK"
+2026-10-13 11:08:52,762 httpx INFO HTTP Request: GET http://localhost:9200/auspex-knowledge/_mapping "HTTP/1.1 200 OK"
+2026-10-13 11:08:52,764 httpx INFO HTTP Request: GET http://localhost:9200/auspex-knowledge/_mapping "HTTP/1.1 200 OK"
+2026-10-13 11:08:52,764 auspex.ingest INFO kb bootstrap: model lRDKb58BLkxc-445Y20z already deployed; index auspex-knowledge exists; mapping current; seed present (8 chunks, fingerprint match)
+2026-10-13 11:08:52,764 auspex.ingest INFO ingest disabled; scheduler idle
+app up on :8011, kb bootstrapped=True
+2026-10-13 11:08:53,032 httpx INFO HTTP Request: POST http://127.0.0.1:8011/api/auth/dev-login "HTTP/1.1 200 OK"
+2026-10-13 11:08:53,068 httpx INFO HTTP Request: POST http://127.0.0.1:8011/api/chat "HTTP/1.1 200 OK"
+2026-10-13 11:08:55,692 httpx INFO HTTP Request: POST https://api.z.ai/api/paas/v4/chat/completions "HTTP/1.1 200 OK"
+2026-10-13 11:08:55,857 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:08:56,044 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:08:57,983 httpx INFO HTTP Request: POST https://api.z.ai/api/paas/v4/chat/completions "HTTP/1.1 200 OK"
+2026-10-13 11:08:58,041 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:08:58,116 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:08:59,701 httpx INFO HTTP Request: POST https://api.z.ai/api/paas/v4/chat/completions "HTTP/1.1 200 OK"
+2026-10-13 11:08:59,763 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:08:59,822 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:02,094 httpx INFO HTTP Request: POST https://api.z.ai/api/paas/v4/chat/completions "HTTP/1.1 200 OK"
+2026-10-13 11:09:08,050 auspex.chat INFO agent turn: mode=definition steps=4 tools=['search_knowledge', 'search_knowledge', 'search_knowledge'] stop=final_answer
+{"run": 1, "mode": "definition", "path": "agent", "finish": "stop", "output_valid": true, "calls": 4, "match_words": 0, "match_channel": null, "match_source": [], "thinking_longest": 4, "thinking_longest_source": ["search the curated security knowledge base for background \u2026"], "content_longest": 3, "issued_count": 13}
+   thinking longest 4: 'the knowledge base has'
+2026-10-13 11:09:08,080 httpx INFO HTTP Request: POST http://127.0.0.1:8011/api/chat "HTTP/1.1 200 OK"
+2026-10-13 11:09:10,474 httpx INFO HTTP Request: POST https://api.z.ai/api/paas/v4/chat/completions "HTTP/1.1 200 OK"
+2026-10-13 11:09:10,502 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:10,564 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:12,114 httpx INFO HTTP Request: POST https://api.z.ai/api/paas/v4/chat/completions "HTTP/1.1 200 OK"
+2026-10-13 11:09:12,145 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:12,166 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:13,741 httpx INFO HTTP Request: POST https://api.z.ai/api/paas/v4/chat/completions "HTTP/1.1 200 OK"
+2026-10-13 11:09:13,772 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:13,796 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:15,435 httpx INFO HTTP Request: POST https://api.z.ai/api/paas/v4/chat/completions "HTTP/1.1 200 OK"
+2026-10-13 11:09:21,187 auspex.chat INFO agent turn: mode=definition steps=4 tools=['search_knowledge', 'search_knowledge', 'search_knowledge'] stop=final_answer
+{"run": 2, "mode": "definition", "path": "agent", "finish": "stop", "output_valid": true, "calls": 4, "match_words": 0, "match_channel": null, "match_source": [], "thinking_longest": 11, "thinking_longest_source": ["you are operating in definition mode explain a \u2026"], "content_longest": 2, "issued_count": 13}
+   thinking longest 11: 'up in an investigation signals telemetry or where an analyst meets'
+2026-10-13 11:09:21,226 httpx INFO HTTP Request: POST http://127.0.0.1:8011/api/chat "HTTP/1.1 200 OK"
+2026-10-13 11:09:24,157 httpx INFO HTTP Request: POST https://api.z.ai/api/paas/v4/chat/completions "HTTP/1.1 200 OK"
+2026-10-13 11:09:24,203 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:24,256 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:25,806 httpx INFO HTTP Request: POST https://api.z.ai/api/paas/v4/chat/completions "HTTP/1.1 200 OK"
+2026-10-13 11:09:25,839 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:25,865 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:27,573 httpx INFO HTTP Request: POST https://api.z.ai/api/paas/v4/chat/completions "HTTP/1.1 200 OK"
+2026-10-13 11:09:27,604 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:27,633 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:30,075 httpx INFO HTTP Request: POST https://api.z.ai/api/paas/v4/chat/completions "HTTP/1.1 200 OK"
+2026-10-13 11:09:36,372 auspex.chat INFO agent turn: mode=definition steps=4 tools=['search_knowledge', 'search_knowledge', 'search_knowledge'] stop=final_answer
+{"run": 3, "mode": "definition", "path": "agent", "finish": "stop", "output_valid": true, "calls": 4, "match_words": 0, "match_channel": null, "match_source": [], "thinking_longest": 11, "thinking_longest_source": ["you are operating in definition mode explain a \u2026"], "content_longest": 2, "issued_count": 13}
+   thinking longest 11: 'up in an investigation signals telemetry or where an analyst meets'
+2026-10-13 11:09:36,412 httpx INFO HTTP Request: POST http://127.0.0.1:8011/api/chat "HTTP/1.1 200 OK"
+2026-10-13 11:09:38,896 httpx INFO HTTP Request: POST https://api.z.ai/api/paas/v4/chat/completions "HTTP/1.1 200 OK"
+2026-10-13 11:09:38,941 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:38,987 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:40,585 httpx INFO HTTP Request: POST https://api.z.ai/api/paas/v4/chat/completions "HTTP/1.1 200 OK"
+2026-10-13 11:09:40,629 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:40,644 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:42,241 httpx INFO HTTP Request: POST https://api.z.ai/api/paas/v4/chat/completions "HTTP/1.1 200 OK"
+2026-10-13 11:09:42,289 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:42,337 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:44,280 httpx INFO HTTP Request: POST https://api.z.ai/api/paas/v4/chat/completions "HTTP/1.1 200 OK"
+2026-10-13 11:09:51,713 auspex.chat INFO agent turn: mode=definition steps=4 tools=['search_knowledge', 'search_knowledge', 'search_knowledge'] stop=final_answer
+{"run": 4, "mode": "definition", "path": "agent", "finish": "stop", "output_valid": true, "calls": 4, "match_words": 0, "match_channel": null, "match_source": [], "thinking_longest": 11, "thinking_longest_source": ["you are operating in definition mode explain a \u2026"], "content_longest": 2, "issued_count": 13}
+   thinking longest 11: 'up in an investigation signals telemetry or where an analyst meets'
+2026-10-13 11:09:51,753 httpx INFO HTTP Request: POST http://127.0.0.1:8011/api/chat "HTTP/1.1 200 OK"
+2026-10-13 11:09:53,915 httpx INFO HTTP Request: POST https://api.z.ai/api/paas/v4/chat/completions "HTTP/1.1 200 OK"
+2026-10-13 11:09:53,940 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:54,007 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:55,371 httpx INFO HTTP Request: POST https://api.z.ai/api/paas/v4/chat/completions "HTTP/1.1 200 OK"
+2026-10-13 11:09:55,433 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:55,491 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:57,109 httpx INFO HTTP Request: POST https://api.z.ai/api/paas/v4/chat/completions "HTTP/1.1 200 OK"
+2026-10-13 11:09:57,145 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:57,185 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:09:58,987 httpx INFO HTTP Request: POST https://api.z.ai/api/paas/v4/chat/completions "HTTP/1.1 200 OK"
+2026-10-13 11:10:05,794 auspex.chat INFO agent turn: mode=definition steps=4 tools=['search_knowledge', 'search_knowledge', 'search_knowledge'] stop=final_answer
+{"run": 5, "mode": "definition", "path": "agent", "finish": "stop", "output_valid": true, "calls": 4, "match_words": 0, "match_channel": null, "match_source": [], "thinking_longest": 11, "thinking_longest_source": ["you are operating in definition mode explain a \u2026"], "content_longest": 2, "issued_count": 13}
+   thinking longest 11: 'up in an investigation signals telemetry or where an analyst meets'
+2026-10-13 11:10:05,859 httpx INFO HTTP Request: POST http://127.0.0.1:8011/api/chat "HTTP/1.1 200 OK"
+2026-10-13 11:10:08,824 httpx INFO HTTP Request: POST https://api.z.ai/api/paas/v4/chat/completions "HTTP/1.1 200 OK"
+2026-10-13 11:10:08,900 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:10:08,939 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:10:10,665 httpx INFO HTTP Request: POST https://api.z.ai/api/paas/v4/chat/completions "HTTP/1.1 200 OK"
+2026-10-13 11:10:10,704 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:10:10,755 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:10:12,263 httpx INFO HTTP Request: POST https://api.z.ai/api/paas/v4/chat/completions "HTTP/1.1 200 OK"
+2026-10-13 11:10:12,293 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:10:12,340 httpx INFO HTTP Request: POST http://localhost:9200/auspex-knowledge/_search "HTTP/1.1 200 OK"
+2026-10-13 11:10:14,658 httpx INFO HTTP Request: POST https://api.z.ai/api/paas/v4/chat/completions "HTTP/1.1 200 OK"
+2026-10-13 11:10:23,059 auspex.chat INFO agent turn: mode=definition steps=4 tools=['search_knowledge', 'search_knowledge', 'search_knowledge'] stop=final_answer
+{"run": 6, "mode": "definition", "path": "agent", "finish": "stop", "output_valid": true, "calls": 4, "match_words": 0, "match_channel": null, "match_source": [], "thinking_longest": 11, "thinking_longest_source": ["you are operating in definition mode explain a \u2026"], "content_longest": 2, "issued_count": 13}
+   thinking longest 11: 'up in an investigation signals telemetry or where an analyst meets'
+
+== 0/6 stopped; thinking longest per run: [4, 11, 11, 11, 11, 11]; content longest: [3, 2, 2, 2, 2, 2]
