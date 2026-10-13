@@ -1,0 +1,3 @@
+{"turn": "b002", "mode": "definition", "path": "agent", "finish": "stop", "output_valid": true, "contract_valid": true, "engine_calls": 4, "answer_chars": 1497, "leak_copy_shown": false, "session": "be3ff120-a430-4d76-a357-070a7435925f"}
+{"turn": "b002", "mode": "definition", "path": "agent", "finish": "stop", "output_valid": true, "contract_valid": true, "engine_calls": 4, "answer_chars": 1312, "leak_copy_shown": false, "session": "633b7e2b-8709-4594-8b6c-e6186040f1a3"}
+{"turn": "recite", "mode": "general", "path": "agent", "finish": "output_guard", "output_valid": false, "contract_valid": null, "engine_calls": 1, "answer_chars": 0, "leak_copy_shown": true, "session": "fe1e391b-525b-470d-8639-2d4191b8fd92"}

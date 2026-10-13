@@ -142,3 +142,30 @@ Reproduced deterministically at the route, with F1's exact logged run as the
 model's thinking: `test_b002_restating_the_section_list_in_thinking_does_not_cut_the_agent_turn`
 and `…_native_turn` both end `output_guard`, `output_valid: false` before any
 fix (fixture `tests/fixtures/rail/b002_definition_section_list.json`).
+
+## 6. The fix (D-058, `4b753d4`), live through the rebuilt container
+
+Burhan picked option A of three: the thinking channel's index leaves out
+`answer_shape`, meaning the mode contract's directive and, on a held turn,
+D-043's re-ask. Every other channel keeps both at 8, and neither floor moves.
+
+`./ci.sh` was green at 1367 tests. Then `docker compose up -d --build app`
+(the running image was confirmed to carry `answer_shape`), and
+`probe_live_after.py` ran through `/api/chat` on localhost:8000
+(`raw-live-after.log`):
+
+| turn | mode / path | finish | output_valid | contract_valid | calls | answer |
+|---|---|---|---|---|---|---|
+| B-002's question | definition / agent | stop | true | true | 4 | 1497 chars |
+| B-002's question | definition / agent | stop | true | true | 4 | 1312 chars |
+| S26's tool recitation | general / agent | **output_guard** | false | — | 1 | none; LEAK_COPY shown |
+
+The route's line for the recitation:
+`output leak: mode=general matched='look up reputation and threat intelligence
+signals for'`. That is 8 words of `enrich_observable`'s description, caught on
+an 8-word channel, so the text D-058 leaves in every index is still cut.
+
+**Bound, stated.** Today's endpoint did not restate a section list verbatim in
+any of 10 live turns of B-002's question, so the live runs show no regression,
+not the fix. The fix itself is proven at the route by the tests, with F1's
+exact logged run.
