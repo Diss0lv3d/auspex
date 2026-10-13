@@ -48,7 +48,8 @@ are never deleted.
   plans its answer by restating the sections it was told to write, and the
   tokeniser makes a section list one run longer than the thinking floor
   (definition 43 words, threat_intel 42, D-043's re-ask 42-44). The thinking
-  index now leaves those directives out; every other channel keeps them at 8.
+  index now drops the re-ask and the runs lying wholly inside the section list
+  (narrowed after review, `d8c597b`); every other channel keeps all of it at 8.
   Record: docs/probes/2026-10-13-b2-b002-reproduce-and-calibrate.md.
 
 ## B-003 — after a deploy, the browser keeps running the old chat page
