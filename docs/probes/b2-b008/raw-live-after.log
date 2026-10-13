@@ -1,0 +1,8 @@
+window 2026-10-13T08:00:00+00:00 used before=5 limit=100
+counter set to the limit (100)
+A new chat: HTTP 429 detail='This workspace has reached its limit of 100 inference calls per hour (100 used). It resets at 09:00 UTC. Analysis that does not need the reasoning engine — IOC checks, CVE lookups and definitions — keeps working.'
+   question stored: 0   chat list grew by: 0
+B open chat: HTTP 429 detail='This workspace has reached its limit of 100 inference calls per hour (100 used). It resets at 09:00 UTC. Analysis that does not need the reasoning engine — IOC checks, CVE lookups and definitions — keeps working.'
+   question stored: 0   chat list grew by: 0
+open chat's messages after: ['user', 'assistant']
+counter restored: 5 (was 5)
