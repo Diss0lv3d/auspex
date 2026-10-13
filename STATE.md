@@ -1,11 +1,9 @@
 # STATE — Auspex
 
-_Last updated: 2026-10-12 — **F2 CLOSED** (session-end ritual run), after B1.
-`./ci.sh` green at F2's close: **1360 tests, 121 modules**. `/api/health/ready`
-200. `./scripts/demo.sh` exited 0 at F2's close. Branch `staging`. Promote #32
-(`6f898c5`, back-merge `1a9e774`) shipped all of F2 at its close; promote #31
-(`7ac1900`, back-merge `730332a`) had shipped F1's and B1's work at F2's Step 0.
-**Promote slate: EMPTY** but for F2's session-end docs._
+_Last updated: 2026-10-13 — **B2 CLOSED** (session-end ritual run), after F2.
+`./ci.sh` green at B2's close: **1385 tests, 121 modules**. `/api/health/ready`
+200. Branch `staging`. **Promote slate: B2's work and F2's session-end docs**,
+promoted at B2's close (see "In-flight" #1 for the number)._
 
 ## Tracks (D-051) — read this first
 
@@ -13,7 +11,7 @@ _Last updated: 2026-10-12 — **F2 CLOSED** (session-end ritual run), after B1.
 |---|---|---|---|---|
 | backend | `NEXT-SESSION-BE.md` | S28 (2026-10-11) | S29 | paused |
 | front end | `NEXT-SESSION-FE.md` | F2 (2026-10-12) | F3 | **focus** |
-| bugs | `NEXT-SESSION-BUGS.md` | B1 (2026-10-12) | B2 | ready: B-002 on top; B-004, B-005, B-006, B-008 open |
+| bugs | `NEXT-SESSION-BUGS.md` | B2 (2026-10-13) | B3 | B-005 and B-009 open; both wait on Burhan's call on the deferred fabricated-specifics item |
 
 - **Focus: front end.** Burhan, 2026-10-10, after S28's ritual: "before moving
   on with more backend development we need to improve on the FE so lets shift
@@ -28,6 +26,82 @@ _Last updated: 2026-10-12 — **F2 CLOSED** (session-end ritual run), after B1.
 - **That pivot was nearly lost** (2026-10-10). Recovered from the session
   transcript; evidence in docs/probes/2026-10-12-b001-ip-owner-claim.md.
 - Standing rules every track obeys: `SESSION-RULES.md`. Bugs: `BUGS.md`.
+
+## B2 — what happened (bugs track's second session)
+
+B2 ran 2026-10-13, alone. Burhan picked the bugs one at a time: **B-002, then
+B-004, B-006 and B-008**, all fixed. He made seven calls along the way:
+- B-002: option A, then narrowing it after review;
+- B-004: code, not prompt;
+- B-006: code and prompt, then closing the context-only gap;
+- B-009: closed B-006 and logged B-009;
+- B-008: discard on refusal.
+
+**Each fix had a read-only adversarial review by a fresh agent. Two of the
+four found a real defect, both fixed the same session.**
+
+No promote at Step 0: the slate held only F2's session-end docs.
+
+1. **B-002 → D-058 (`4b753d4`, narrowed `d8c597b`).** Record:
+   docs/probes/2026-10-13-b2-b002-reproduce-and-calibrate.md.
+   - **Not reproduced live: 0/6 today.** The endpoint restated the definition
+     contract's sections as its plan in every run, but with "each term" and
+     "meets them", so the longest run was 11. At F1 it was 40. The
+     composition was byte-identical to F1's; the KB results differed.
+   - **Reproduced at the route** with F1's exact logged run.
+   - **Root cause.** The tokeniser makes a section list ONE run: definition
+     43 words, threat_intel 42, D-043's re-ask 42–44. All are longer than the
+     thinking floor of 40.
+   - **Both floors re-measured on today's index (TD-044).**
+     - The answer floor: legit max 5 against 8.
+     - The agent path, 36 legitimate turns (S26's battery plus a blind one):
+       thinking 28, answer 5, narration 3, tool lines 3. A recitation ran 58.
+     - Neither floor moved.
+   - **D-058.** The thinking index drops the re-ask and the runs lying WHOLLY
+     inside a section list; every other channel keeps all of it at 8.
+     Re-scored against that, the thinking ceiling is 20.
+   - **The review found the first cut too wide.** It exempted the whole
+     directive, which on the conversational path (a 22-word chat prompt) left
+     a recitation of alert/phishing directives in thinking uncut. Narrowed
+     (D-058 addendum).
+2. **B-004 fixed (`29209fa`).** Record:
+   docs/probes/2026-10-13-b2-b004-reproduce.md.
+   - **Live 3/3:** in a fresh chat the model passes the indicator itself, and
+     the note action resolved only the short id.
+   - **The fix.** It now also resolves exactly one indicator, parsed with the
+     route's extractor, inside the workspace. Live 3/3 proposed.
+   - **The review** found that the route test could delete real dev rows on
+     the shared workspace. Fixed (`943d285`). The latent execute-time
+     retargeting is TD-054.
+3. **B-006 fixed (`fce2f55` code, `c80bf29` prompt, `58b45e4` after review).**
+   Record: docs/probes/2026-10-13-b2-b006-reproduce.md.
+   - **Live 3/3:** "dig deeper" ran in `general` and read a bare
+     `"signals": []`, then called the IP clean.
+   - **The fix.** The agent's lookup says `"reputation": "unknown"` with a
+     code-written line, also for context-only signals (the review's gap).
+     general carries ioc_enrichment's no-data rule (D-044 addendum).
+   - **Live:** a benign verdict 3/3 → 0/3; "unknown" 0/3 → 3/3.
+   - **Residual: B-009.** The model still calls the address "legitimate",
+     inferred from its operator.
+4. **B-008 fixed (`4680bf6`).** Record:
+   docs/probes/2026-10-13-b2-b008-ceiling-refusal.md.
+   - **Reproduced at the route.**
+   - **The fix.** A turn refused at the ceiling deletes the question it
+     stored, and the chat if it made it.
+   - **Live at a set ceiling** (the counter was restored): 429, nothing
+     stored, no chat added.
+   - **The review found no defect.** Its bounds are TD-055.
+5. **Logged, not fixed:** B-009; TD-054 and TD-055. TD-044 was updated: two
+   later index additions, and general's rules are now one 43-word run, over the
+   thinking floor and unmeasured.
+
+**How the work was proven.**
+- Every fix shipped with a test that failed first; the exact offending text
+  is pinned in `tests/fixtures/{rail,actions,agent}/`.
+- Mutants were run on every guard: 4+4+3+3+3+1+3+3, all caught.
+- The full gate ran after every fix, and each fix was checked live.
+- About 250 inference calls on Z.ai: the calibration ~150; reproductions and
+  live checks ~100.
 
 ## F2 — what happened (front-end track's second session)
 
@@ -302,13 +376,18 @@ Phase 4:
 - **F2 (front end): a chat survives a reload (list, reopen, sign-in kept for
   the tab, D-056); S26's chat edges; narrow screens; the page split into
   modules (TD-045) under a strict CSP (D-057).**
+- **B2 (bugs): a thinking model may restate the sections it was told to write
+  (D-058, B-002); a note names its indicator as written (B-004); a no-signal
+  lookup reads as unknown, not clean (B-006); a turn refused at the ceiling
+  leaves nothing behind (B-008).**
 
-The ROADMAP through S20 is complete; S21–S28, F1, B1 and F2 were each scoped by
-a decision or a bug.
+The ROADMAP through S20 is complete; S21–S28, F1, B1, F2 and B2 were each
+scoped by a decision or a bug.
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: EMPTY** but for F2's session-end docs. Promote #32
-   (`6f898c5`, back-merge `1a9e774`) shipped all of F2.
+1. **Promote slate: B2's work and F2's session-end docs, promoted at B2's
+   close** (the number and merge commit are recorded below once it lands).
+   Promote #32 (`6f898c5`, back-merge `1a9e774`) shipped all of F2.
    - **The first session of any track runs `/promote` as its Step 0 — but
      only ONE window at a time** (the 2026-10-12 collision).
    - Read `git diff origin/main..staging --stat`, never the commit list.
@@ -350,8 +429,17 @@ a decision or a bug.
    - **F1: the trigger fired as a live false positive (B-002).** A definition
      question on the agent path was cut 3 of 4 times. The match was 40 words
      of the definition contract's section spec on the THINKING channel, at
-     exactly `THINKING_SHINGLE_WORDS`. The re-calibration is now a bug's
-     evidence, not a precaution.
+     exactly `THINKING_SHINGLE_WORDS`.
+   - **B2 re-measured both floors on today's index and fixed B-002 (D-058).**
+     - Answer floor: legit max 5 against 8. Agent path, 36 turns: thinking 28,
+       every run above 20 a restated section list; a recitation 58.
+     - D-058 drops the re-ask and the runs wholly inside a section list from
+       the thinking index. Re-scored, the thinking ceiling is 20 (a 2× margin).
+       Neither floor moved.
+     - **Still unmeasured:** action-request turns; the conversational path's
+       thinking; and general's two rules, now ONE 43-word run over the
+       thinking floor (B-006, `c80bf29`). Re-measure general-mode thinking
+       first (TD-044).
 5. **The card stream still emits only new cards, never status changes.** A
    client watching `/stream` is not told when a claim goes stale, or when a row
    becomes `incomplete`/`kept`/`withdrawn`, or rejoins the queue as a stale
@@ -378,8 +466,9 @@ a decision or a bug.
      has never seen is refused (`NothingToPropose`) and answered honestly. The
      agent does not look the indicator up first, which would record it and let
      the proposal file (IDEAS).
-   - **F1, live: B-004.** A note-only request in a new chat on an indicator the
-     workspace HAS recorded was refused as "doesn't exist". That is false.
+   - **B-004 fixed (B2).** A note may name its observable as written, not
+     only by its short id. The bound is TD-054: the stored string is
+     re-resolved at execute time and not pinned to the card's target.
 10. **D-041's bound, and TD-025.**
     - A merely slow handler on an abandoned run can land after its put-back.
       It is recorded on the row, not prevented.
@@ -423,10 +512,13 @@ a decision or a bug.
 18. **An address's network now comes from one source (D-055, TD-049).** Only
     AbuseIPDB supplies it, and it is key-gated. A deployment without its key
     is back on B-001's path. OTX's keyless `asn` is still dropped.
-19. **The conversational path is where the model invents (B1).** With no
-    tools, glm forged a `⟦DATA⟧` block with invented platform lines (B-005).
-    Both models added specifics nobody supplied. Every customer endpoint that
-    is not `native_tools` takes this path (D-037).
+19. **The model invents what nobody supplied (B1, B2).** On the
+    conversational path, with no tools, glm forged a `⟦DATA⟧` block with
+    invented platform lines (B-005). Every customer endpoint that is not
+    `native_tools` takes that path (D-037). On the agent path, after B-006's
+    fix, it still calls a no-signal IP "legitimate", inferred from its operator
+    (B-009). **Both wait on Burhan's call on the deferred fabricated-specifics
+    item.**
 
 20. **F2's reload work, the bounds.**
     - A reopened chat's turns are paired by time (TD-050); nothing indexes
@@ -435,8 +527,9 @@ a decision or a bug.
       used in the panel, until the chat is reopened.
     - A proposal summary the rail may have cut can come back in a reopened
       turn (the approvals panel already serves the same stored card).
-    - B-008: at the usage ceiling, each retry in a new chat leaves an empty
-      chat in the sidebar.
+    - B-008 is fixed (B2): a turn refused at the ceiling leaves nothing
+      behind. Other failures between storing the question and the claim still
+      leave one (TD-055).
 21. **The sign-in token sits in the tab's sessionStorage (D-056); D-057's CSP
     is its guard.** A script that did run could still navigate the token out
     (D-057, as corrected). /timeline has no CSP (TD-051). No test pins `style=`
@@ -449,6 +542,23 @@ a decision or a bug.
     pasted mid-turn is refused silently; a dropped stream still reads
     "[connection lost]"; `ci.sh`'s installed-dist check covers `*.py` only
     (TD-053).
+
+23. **D-058's bounds (B2).**
+    - A recitation of ONLY a section list (or the re-ask) in the Thinking pane
+      is not cut. It is still cut in the answer, at 8.
+    - A plan that restates the 16-word preamble verbatim together with the
+      section list trips the rail. Not seen live.
+    - Whether a turn is cut depended on one or two words of the model's
+      paraphrase, and on the KB results it read. **Live runs can pass a
+      question that F1 saw cut**; the route tests with the logged run are the
+      proof.
+24. **A fresh-agent adversarial review after each fix (B2: 2 of 4 found a real
+    defect).** SESSION-RULES.md now asks for it on rail, action and tenancy
+    changes.
+
+**Closed at B2, so they leave this list:** none of the numbered items closed
+outright. #4 was re-measured (D-058) and narrowed to what is still unmeasured;
+#9's B-004 and #20's B-008 bullets are fixed. B2 added #23–#24.
 
 **Closed at F2, so they leave this list:** #16's split (TD-045, done; #16 now
 records what the split left). F2 added #20–#22.
@@ -473,13 +583,17 @@ records what the split left). F2 added #20–#22.
 2. **Open debt.**
    - Still open: TD-014 … TD-025, TD-027, TD-029, TD-030, TD-031/032/033,
      TD-035 (the two-pass path only), **TD-036 (trigger fired, S28)**,
-     **TD-044 (trigger fired again, S28; live false positive at F1: B-002)**,
+     **TD-044 (re-measured at B2, B-002 fixed by D-058; still open for
+     action-request turns, conversational thinking and general's 43-word rules
+     run)**,
      F1's TD-046 … TD-048 (the panel polling, a full response per load — now
      four: the page and its three files — and spend unrecorded on a dropped
      connection), B1's TD-049 (only AbuseIPDB names an address's network), and
      F2's TD-050 (turns paired by time), TD-051 (narrowed: /timeline has no
      CSP), TD-052 (no index on `proposals.session_id`) and TD-053 (the gate's
-     dist check covers `*.py` only).
+     dist check covers `*.py` only), and B2's TD-054 (a note named by value is
+     re-resolved at execute time) and TD-055 (only the ceiling refusal discards
+     a stored question).
    - **Closed at F2:** TD-045.
    - **Closed at S28:** TD-042, TD-043.
    - Closed earlier: TD-012, TD-018, TD-026, TD-028, TD-034, TD-037…TD-041.
@@ -494,7 +608,8 @@ records what the split left). F2 added #20–#22.
    - D-043 prevents a wrong code-decided verdict from being shown. It cannot
      prevent a wrong narrative answer.
    - Three defects in three sessions (S23, S24, S26). **Assume a fourth
-     exists.**
+     exists.** B2's first cut of D-058 widened the thinking exemption too far on
+     the conversational path, and the review caught it before the close.
 6. **An intermittent, unattributed test failure was observed once in S22.** Not
    reproduced in any later full run, including about ten at S28. Still recorded
    rather than dismissed.
@@ -597,7 +712,27 @@ records what the split left). F2 added #20–#22.
   endpoint does on the dev endpoint, replay at it with the route's own
   composition: docs/probes/b1-b001/probe_replay_conversational.py.
 - **The B-001 route test purges the observable 34.187.179.218** in every
-  workspace, as the S5 IOC test does for its IP.
+  workspace, as the S5 IOC test does for its IP. B2's B-006 route test purges
+  it too. B2's B-004 route test touches 185.220.101.52 in `default` only if it
+  is absent, and deletes only the row and proposals it created.
+- **B2 session-end (2026-10-13):** staging, identity `bh3082336888-cell`.
+  `./ci.sh` **green, 1385 tests, 121 modules**, `/api/health/ready` **200**,
+  all three containers healthy, `./scripts/demo.sh` **exits 0**.
+- **`./ci.sh` rebuilds AND restarts the running app container** (`ci.sh:26`,
+  `docker compose up -d --build --wait app`). A live "before" run has to
+  happen before the gate; after a green gate the container already carries
+  the change (B2 lost B-008's live "before" this way).
+- **In-process probes run with enrichment OFF unless told otherwise**
+  (`pin_host_defaults`). Set `ENRICHMENT_ENABLED=true` beside
+  `KB_ENABLED=true`. B2's first B-006 run read `enrichment_inactive`, an
+  invalid run.
+- **Probing at the usage ceiling costs nothing:** set this hour's
+  `inference_calls` counter for `default` to the plan's limit, make the turns,
+  restore it exactly in a `finally`
+  (docs/probes/b2-b008/probe_live_ceiling.py).
+- **A model's word choice can hide a rail bug** (B-002): live runs passed 0/8
+  where F1 saw 3/4 cut, on byte-identical configuration. Reproduce rail bugs
+  at the route with the logged run, not only live.
 
 ## Reference intelligence (from the SARA Open architecture study)
 Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
@@ -620,8 +755,9 @@ One window at a time (D-051).
   - candidates, only if Burhan picks them: analyst notes shown (IDEAS), TD-047
     (304s), the stale proposal line after Undo, the "[connection lost]" copy.
 - **S29, backend, paused** (`NEXT-SESSION-BE.md`): the review of S28's code,
-  TD-036 and TD-044, as written at S28's close. B-002 is TD-044's live
-  evidence.
-- **B2, bugs** (`NEXT-SESSION-BUGS.md`): ask Burhan which open bug. The
-  default is B-002 (a rail false positive on the definition contract); B-004,
-  B-005, B-006 and B-008 follow.
+  TD-036, and what TD-044 still lacks after B2's re-measure (action-request
+  turns, conversational thinking, general's 43-word rules run).
+- **B3, bugs** (`NEXT-SESSION-BUGS.md`): B-005 and B-009 are the only open
+  bugs, and both wait on Burhan's call on the deferred fabricated-specifics
+  item (a D-entry if it comes out of Deferred). Without that call, B3 waits
+  for new bugs from using the platform.
