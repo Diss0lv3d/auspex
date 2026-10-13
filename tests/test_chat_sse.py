@@ -2438,6 +2438,78 @@ def test_a_re_ask_the_ceiling_refuses_still_gets_the_code_answer(client, monkeyp
     assert not [f for f in frames if "error" in f]
 
 
+class _FirstClaimRefused:
+    """A UsageLimiter whose turn-opening claim is refused, as at the ceiling."""
+
+    @staticmethod
+    def install(monkeypatch):
+        import auspex.routes.chat as chat_route
+        from auspex.limits import UsageLimiter
+
+        class Refused(UsageLimiter):
+            async def claim(self, **kw):
+                return dataclasses.replace(await super().claim(**kw), allowed=False)
+
+        monkeypatch.setattr(chat_route, "UsageLimiter", Refused)
+
+
+def _stored(settings, content):
+    return _db(settings, "SELECT count(*) AS n FROM messages WHERE content = $1",
+               content)[0]["n"]
+
+
+def test_b008_a_new_chat_refused_at_the_ceiling_leaves_no_chat_behind(client, settings,
+                                                                     monkeypatch):
+    """B-008. At the usage ceiling a NEW chat's question was stored and the turn
+    then refused with a 429 and no session frame, so the page never learned the
+    chat and each retry left another sidebar chat reading "No answer was
+    stored". A refused turn must not reach the transcript."""
+    question = "B-008: how does kerberoasting lead to domain admin? (refused)"
+    auth = {"Authorization": f"Bearer {_token(client)}"}
+    before = [s["id"] for s in client.get("/api/chat/sessions", headers=auth).json()["sessions"]]
+    chats = ("SELECT count(*) AS n FROM chat_sessions s JOIN users u ON u.id = s.user_id"
+             " WHERE u.email = 'analyst@auspex.dev'")
+    chats_before = _db(settings, chats)[0]["n"]
+    _FirstClaimRefused.install(monkeypatch)
+    fake = SequencedStreamingFakeLLMClient([])
+    _use_agent(client.app, fake)
+    try:
+        resp = client.post("/api/chat", json={"message": question}, headers=auth)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert resp.status_code == 429 and fake.stream_calls == []
+    after = [s["id"] for s in client.get("/api/chat/sessions", headers=auth).json()["sessions"]]
+    assert after == before
+    assert _stored(settings, question) == 0
+    assert _db(settings, chats)[0]["n"] == chats_before  # not even an empty chat row
+
+
+def test_b008_a_retry_refused_in_an_open_chat_adds_no_unanswered_question(client, settings,
+                                                                          monkeypatch):
+    """The same refusal in a chat that already exists: the chat and its answered
+    turn stay, and the refused question is not added under them."""
+    auth = {"Authorization": f"Bearer {_token(client)}"}
+    _use_agent(client.app, SequencedStreamingFakeLLMClient([_answer_step("First answer.")]))
+    try:
+        session = _frames(client.post("/api/chat", json={"message": _AGENT_QUESTION},
+                                      headers=auth).text)[0]["session"]
+    finally:
+        client.app.dependency_overrides.clear()
+    retry = "B-008: and how do I detect it? (refused)"
+    _FirstClaimRefused.install(monkeypatch)
+    _use_agent(client.app, SequencedStreamingFakeLLMClient([]))
+    try:
+        resp = client.post("/api/chat", json={"message": retry, "session_id": session},
+                           headers=auth)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert resp.status_code == 429
+    assert _stored(settings, retry) == 0
+    assert [r for r, _ in _session_messages(settings, session)] == ["user", "assistant"]
+
+
 def test_an_endpoint_error_on_the_re_ask_falls_back_to_the_code_answer(client):
     seq = SequencedStreamingFakeLLMClient([_TRIAGE_STEERED, []], raise_on_call=1)
     _use(client.app, seq, native_reasoning=True)

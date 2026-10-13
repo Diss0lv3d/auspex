@@ -343,6 +343,31 @@ async def _insert_message(
     )
 
 
+async def _discard_refused_turn(
+    pool: asyncpg.Pool, auth: AuthContext, session_id: UUID, user_row: UUID, *, created: bool
+) -> None:
+    """B-008: a turn refused at the usage ceiling must not reach the transcript,
+    as a turn the input guard refuses never does. The question is stored before
+    the claim, so on a refusal this removes exactly what THIS turn stored: its
+    question, and the chat only if this turn created it. Otherwise each retry at
+    the ceiling left an unanswered question, and on a new chat a sidebar entry
+    the page never learned the id of (the 429 carries no session frame)."""
+    await pool.execute(
+        "DELETE FROM messages WHERE id = $1 AND workspace_id = $2 AND session_id = $3",
+        user_row,
+        auth.workspace_id,
+        session_id,
+    )
+    if created:
+        await pool.execute(
+            "DELETE FROM chat_sessions WHERE id = $1 AND workspace_id = $2 AND user_id = $3"
+            " AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.session_id = $1)",
+            session_id,
+            auth.workspace_id,
+            auth.user_id,
+        )
+
+
 def _sse_response(stream) -> StreamingResponse:
     return StreamingResponse(
         stream,
@@ -841,6 +866,8 @@ async def chat(
             allowance.limit,
         )
         await endpoint.client.aclose()
+        await _discard_refused_turn(pool, auth, session_id, user_row,
+                                    created=body.session_id is None)
         raise HTTPException(status_code=429, detail=allowance.refusal_text)
 
     # The output rail (TD-012). Indexed on the configuration WE issued this turn
