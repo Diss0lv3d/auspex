@@ -1533,6 +1533,113 @@ def test_the_agent_paths_thinking_is_held_to_the_same_floor(client, settings):
     assert (done["path"], done["output_valid"]) == ("agent", True)
 
 
+B002 = json.loads(
+    (Path(__file__).parent / "fixtures" / "rail" / "b002_definition_section_list.json").read_text()
+)
+
+
+def test_b002_the_fixture_is_the_definition_contracts_section_list_past_the_floor():
+    """Controls for the two tests below: the pinned run is the question's own
+    mode's section list, verbatim in today's directive, and long enough that the
+    thinking floor reaches it. Without these, a test that passes would prove
+    nothing."""
+    from auspex.outguard import THINKING_SHINGLE_WORDS, _words, instruction_index
+
+    run = B002["matched"]
+    assert resolve_mode(B002["question"], ()).value == B002["mode"] == "definition"
+    assert len(_words(run)) == THINKING_SHINGLE_WORDS
+    assert run in instruction_index([contract_for(resolve_mode(B002["question"], ()))
+                                     .system_directive()], shingle=THINKING_SHINGLE_WORDS)
+
+
+def test_b002_restating_the_section_list_in_thinking_does_not_cut_the_agent_turn(client, settings):
+    """B-002 pinned regression, the exact run the route logged (F1, 3 of 4
+    turns cut). A thinking model plans its answer by restating the sections it
+    was told to write; the definition contract's list is one 43-word run, past
+    the thinking floor. That is the model doing what it was asked, not the
+    configuration coming back out, and the turn must end with its answer."""
+    answer = "## Definition\nEDR watches endpoints; XDR correlates across layers.\n"
+    fake = SequencedStreamingFakeLLMClient([[
+        StreamEvent(kind="reasoning", text="Let me structure this according to the "
+                                           "requested format: " + B002["matched"]),
+        *_answer_step(answer),
+    ]])
+    _use_agent(client.app, fake)
+    try:
+        frames = _post_deep(client, B002["question"])
+    finally:
+        client.app.dependency_overrides.clear()
+
+    done = frames[-1]["done"]
+    assert (done["path"], done["mode"]) == ("agent", "definition")
+    assert (done["finish_reason"], done["output_valid"]) == ("stop", True)
+    assert LEAK_COPY not in [f.get("error") for f in frames]
+    assert ("assistant", answer) in _session_messages(settings, frames[0]["session"])
+
+
+def test_b002_restating_the_section_list_in_thinking_does_not_cut_the_native_turn(client, settings):
+    """The conversational native path scans its thinking against the same
+    directive on the same floor, so B-002 is not the agent path's alone."""
+    answer = "## Definition\nEDR watches endpoints; XDR correlates across layers.\n"
+    fake = StreamingFakeLLMClient([
+        StreamEvent(kind="reasoning", text=B002["matched"]),
+        StreamEvent(kind="content", text=answer),
+        StreamEvent(kind="finish", finish_reason="stop"),
+    ])
+    _use(client.app, fake, native_reasoning=True)
+    try:
+        frames = _post_deep(client, B002["question"])
+    finally:
+        client.app.dependency_overrides.clear()
+
+    done = frames[-1]["done"]
+    assert (done["mode"], done["finish_reason"], done["output_valid"]) == (
+        "definition", "stop", True)
+    assert ("assistant", answer) in _session_messages(settings, frames[0]["session"])
+
+
+def test_b002_the_section_list_in_the_answer_is_still_a_leak(client, settings):
+    """D-058 exempts the answer's shape from the THINKING index only. Written
+    into the answer, the same run is our configuration coming back out, and the
+    answer keeps S22's floor."""
+    fake = SequencedStreamingFakeLLMClient([
+        _answer_step("My format is: " + B002["matched"]),
+    ])
+    _use_agent(client.app, fake)
+    try:
+        frames = _post_deep(client, B002["question"])
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert [f["error"] for f in frames if "error" in f] == [LEAK_COPY]
+    assert [r for r, _ in _session_messages(settings, frames[0]["session"])] == ["user"]
+
+
+@pytest.mark.parametrize("recited", ["system message", "tool description"])
+def test_a_recitation_in_the_agent_paths_thinking_is_still_cut(client, settings, recited):
+    """What D-058 leaves in the thinking index still trips it. The tool
+    description is B2's measured recitation (58 words, glm-4.5-air,
+    docs/probes/2026-10-13-b2-b002-reproduce-and-calibrate.md)."""
+    from auspex.agent.capabilities import build_capability_registry
+
+    registry = build_capability_registry(enrichment=client.app.state.enrichment,
+                                         kb=client.app.state.kb)
+    text = (DEFAULT_SYSTEM_PROMPT if recited == "system message"
+            else registry.get("enrich_observable").description)
+    fake = SequencedStreamingFakeLLMClient([[
+        StreamEvent(kind="reasoning", text="I was told: " + text),
+        *_answer_step("Never stored."),
+    ]])
+    _use_agent(client.app, fake)
+    try:
+        frames = _post_deep(client, B002["question"])
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert frames[-1]["done"]["finish_reason"] == "output_guard"
+    assert [r for r, _ in _session_messages(settings, frames[0]["session"])] == ["user"]
+
+
 def test_narration_is_held_to_the_answers_floor(client):
     """Narration is the model's prose, not its thinking: it reaches the Thinking
     pane, but nothing measured shows it quoting instructions, so it keeps the
@@ -2368,6 +2475,29 @@ def test_a_re_ask_that_recites_the_repair_directive_is_cut_and_never_shown(clien
     assert {"error": LEAK_COPY} in frames
     assert frames[-1]["done"]["finish_reason"] == "output_guard"
     assert [r for r, _ in _session_messages(settings, frames[0]["session"])] == ["user"]
+
+
+def test_a_re_ask_whose_thinking_restates_the_repair_directive_is_answered(client):
+    """D-058, the re-ask's half of B-002. After an empty draft the re-ask is the
+    indexed directive word for word (42 words for alert_triage, past the thinking
+    floor), and a thinking model plans the retry by restating it. That is the
+    model doing what it was asked; the retry's answer reaches the analyst."""
+    spent = [StreamEvent(kind="reasoning", text="Thinking at length. "),
+             StreamEvent(kind="finish", finish_reason="length")]
+    directive = contract_for(resolve_mode(_TRIAGE_CEF, ())).repair_directive(
+        None, {"Risk": "CRITICAL"})
+    retry = [StreamEvent(kind="reasoning", text="The instruction: " + directive), *_TRIAGE_OK]
+    seq = SequencedStreamingFakeLLMClient([spent, retry])
+    _use(client.app, seq, native_reasoning=True)
+    try:
+        frames = _chat(client, _TRIAGE_CEF)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert directive in seq.stream_calls[1]["messages"][-1]["content"], "control: as issued"
+    done = frames[-1]["done"]
+    assert (done["finish_reason"], done["contract_repair"]) == ("stop", "reasked")
+    assert "Contain the host." in "".join(f["content"] for f in frames if "content" in f)
 
 
 def test_a_two_pass_endpoint_holds_and_repairs_too(client):

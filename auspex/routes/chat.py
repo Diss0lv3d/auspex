@@ -849,6 +849,15 @@ async def chat(
     # values the answer is pinned to echo), not the two-pass analysis (the answer
     # is built from it). Listing the strings explicitly is the point — indexing
     # "every system message" would fire on the turn's own data.
+    #
+    # D-058: the directives that tell the model what to WRITE — its mode's
+    # sections and, on a held turn, the re-ask. The re-ask is configuration we
+    # may issue this turn, so it is indexed from the start (D-043 item 7),
+    # rendered for an empty draft: that carries every fixed sentence and the pin
+    # lines. Indexed like the rest; only the thinking floor below leaves them out.
+    answer_shape = [contract.system_directive()]
+    if hold:
+        answer_shape.append(contract.repair_directive(None, pinned_values))
     if agent_path:
         loop = AgentLoop(
             build_capability_registry(
@@ -888,27 +897,32 @@ async def chat(
         issued = [
             *loop.issued_instructions(loop.wire_specs()),
             HISTORY_FENCE_DIRECTIVE,
-            contract.system_directive(),
+            *answer_shape,
         ]
     else:
         issued = [
             CHAT_SYSTEM_PROMPT,
             HISTORY_FENCE_DIRECTIVE,
-            contract.system_directive(),
             PASS1_DIRECTIVE,
+            *answer_shape,
         ]
-        if hold:
-            # The re-ask's directive is configuration we may issue this turn, so
-            # it is indexed from the start (D-043 item 7). Rendered for an empty
-            # draft: that carries every fixed sentence and the pin lines.
-            issued.append(contract.repair_directive(None, pinned_values))
     leak_index = instruction_index(issued)
     # D-040: the model's OWN thinking quotes its instructions while it reasons
     # (measured: 19-20 words on legitimate questions), so on the "thinking"
     # channel the rail waits for a recitation. Everything else — the answer, the
     # tool lines, narration, a two-pass analysis — keeps the answer's floor.
+    #
+    # D-058 (B-002): it also plans its answer by restating the sections it was
+    # told to write, and the tokeniser makes a section list one run, longer than
+    # that floor (definition 43 words, threat_intel 42, the re-ask 42-44). So the
+    # thinking index leaves `answer_shape` out. Against what remains, B2 measured
+    # a legitimate ceiling of 20 and a recitation of 58. Every other channel
+    # still indexes `answer_shape` at the answer's floor.
     thinking_floor = (
-        instruction_index(issued, shingle=THINKING_SHINGLE_WORDS),
+        instruction_index(
+            [text for text in issued if text not in answer_shape],
+            shingle=THINKING_SHINGLE_WORDS,
+        ),
         THINKING_SHINGLE_WORDS,
     )
 

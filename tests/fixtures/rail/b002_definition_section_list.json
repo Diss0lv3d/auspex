@@ -1,0 +1,11 @@
+{
+  "_source": "docs/probes/2026-10-12-b002-definition-rail-trip.md (F1, the route's own WARNING line, 2026-10-12 06:53:45) and docs/probes/2026-10-13-b2-b002-reproduce-and-calibrate.md (B2)",
+  "_why": "B-002. On the agent path (glm-4.5-air) the route cut this legitimate definition question 3 of 4 times: finish output_guard, no answer, LEAK_COPY. The model was planning its answer by restating the definition contract's section list, verbatim, on the thinking channel; the list compiles to one 43-word run, and the thinking floor is 40 (D-040).",
+  "question": "What are the practical differences between EDR and XDR for a small SOC deciding what to buy?",
+  "mode": "definition",
+  "channel": "thinking",
+  "matched": "definition one or two sentences stating what the term means in practice how it shows up in an investigation signals telemetry or where an analyst meets it related optional omit if not applicable closely related concepts or techniques by name",
+  "_matched_note": "Verbatim from the route's log line: the run the scanner matched, in its own normalised words. F1's probe saved counts and timings only, never model text, so this run is the only copy of the stopped turn's thinking that exists. The scanner tokenises to these same words, so feeding it is feeding exactly what tripped.",
+  "thinking_b2_near_miss": "Let me structure this according to the requested format:\n- Definition: One or two sentences stating what each term means\n- In practice: How they show up in an investigation - signals, telemetry, or where an analyst meets them\n- Related: Closely related concepts or techniques",
+  "_near_miss_note": "B2, live, runs 2-6 of 6 (docs/probes/b2-b002/raw-repro-before.jsonl): the same restatement with 'each term', 'they show up' and 'meets them', so its longest verbatim run is 11 words and the turn passed. One or two words of paraphrase decide whether the turn is cut."
+}
