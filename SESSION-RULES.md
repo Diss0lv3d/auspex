@@ -52,6 +52,8 @@ it changes, in its own commit._
   passed every file it touched and broke a test in one it did not.
 - Do not edit code while `./ci.sh` is running: the edit lands in its container
   build.
+- **`./ci.sh` also redeploys the running app container** (`ci.sh:26`). A live
+  "before" run has to happen before the gate.
 - **One session at a time (D-051).** Every track shares `staging`, the compose
   stack and the `analyst@auspex.dev` test user. Two windows on two tracks would
   collide.
@@ -69,6 +71,10 @@ it changes, in its own commit._
 - **The two untracked overview files are Burhan's and stay untracked**
   (`Auspex-Product-Architecture-Overview.pdf`, `docs/auspex-overview.html`).
   Do not ask about them, commit, move, publish or delete them.
+- **A fix to the rail, an action, tenancy or the approvals state machine gets
+  a read-only adversarial review by a fresh agent before the session closes.**
+  Act on what it finds, or log it. At B2, two of the four reviews found a real
+  defect in a fix that had passed its own tests and mutants.
 - End with `/session-end`.
 
 ## Inference costs real money
@@ -97,9 +103,16 @@ the other once, after the rule is frozen. Three operating points are pinned
 ## The output rail
 
 - **Two calibrated floors.** `SHINGLE_WORDS = 8` and
-  `THINKING_SHINGLE_WORDS = 40` (D-040, margin only 1.4× over the live
-  legitimate ceiling of 28). Whether the index has grown since the last
-  calibration is TD-044.
+  `THINKING_SHINGLE_WORDS = 40` (D-040). B2 re-measured both on the index as
+  it stood: the answer's legitimate ceiling is 5; the thinking's is 20 against
+  D-058's index; a recitation runs 58. Whether the index has grown since is
+  TD-044.
+- **The thinking index drops the re-ask and the runs lying wholly inside a
+  mode's section list (D-058).** A thinking model plans by restating the
+  sections it was told to write. Every other channel indexes all of it at 8.
+  Any directive text that compiles to one run longer than 40 words (a long
+  section list, two rules back to back) can cut a legitimate plan. Measure it
+  before it ships. general's two rules are already 43 words (TD-044).
 - **Assume the rail has a fourth defect** (S23, S24 and S26 each found one). Any
   new text the agent is told in the system message or the descriptions goes
   into the index. Tool-result text is unindexed by D-031's design.
@@ -192,4 +205,4 @@ That is recorded, not owned; do not fix it unasked.
 - the model fabricating incident specifics the contract validator passes
   (probe record 2026-10-10-zai-endpoint, seen on every run). B-001 was fixed
   without it (D-055: the platform hands the model the owner it had). B-005
-  lives next to it; a fix that needs this item goes to Burhan first.
+  and B-009 live next to it; a fix that needs this item goes to Burhan first.
