@@ -31,7 +31,8 @@ Step 0 (do BEFORE new scope):
 1. **One window at a time (D-051).** If anything moves that you did not move,
    check `ps` for a second `claude` in this directory and stop.
 2. **If STATE.md says the promote slate is not empty, `/promote` it.** Read
-   the diff, not the list. (At F2's close it held only F2's session-end docs.)
+   the diff, not the list. (At the handoff it held D-059 and the handoff docs:
+   your first `/promote`, under your own account.)
 3. **Use F2's page by hand first, and say what you saw.** Burhan handed F3 on
    before using it, so nobody has used these for real:
    - a chat survives a reload: the always-on sidebar, + New chat, reopening a

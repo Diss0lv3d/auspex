@@ -4,8 +4,8 @@ _Last updated: 2026-10-13 — **B2 CLOSED** (session-end ritual run), after F2.
 `./ci.sh` green at B2's close: **1385 tests, 121 modules**. `/api/health/ready`
 200. Branch `staging`. **Promote #33** (`991b397`, back-merge `ca3262d`)
 shipped all of B2 and F2's session-end docs at B2's close. **Promote slate:
-EMPTY** but for this note.
-**F3 handed to a collaborator** (Burhan, 2026-10-13, at F3's start ritual;
+D-059 and the F3 handoff docs** (5 commits, docs and commands only; `./ci.sh`
+green at 1385 after them). **F3 handed to a collaborator** (Burhan, 2026-10-13, at F3's start ritual;
 D-059, HANDOFF.md)._
 
 ## Tracks (D-051) — read this first
@@ -404,7 +404,9 @@ The ROADMAP through S20 is complete; S21–S28, F1, B1, F2 and B2 were each
 scoped by a decision or a bug.
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: EMPTY** but for B2's promote note. Promote #33
+1. **Promote slate: D-059 and the F3 handoff docs** (`66dc12f`…`4142702`
+   plus this note: DECISIONS, SESSION-RULES, two commands, HANDOFF.md,
+   CLAUDE.md, NEXT-SESSION-FE.md, STATE.md). F3's Step 0 promotes it. Promote #33
    (`991b397`, back-merge `ca3262d`; GitHub CI passed twice) shipped all of B2
    and F2's session-end docs. Promote #32 (`6f898c5`, back-merge `1a9e774`)
    shipped all of F2.
