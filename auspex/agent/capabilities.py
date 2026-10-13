@@ -186,6 +186,17 @@ def _resolve(
     return resolved, unresolved, over_cap
 
 
+def _no_signal_line(answered: int) -> str:
+    """What an empty signal list means, in the tool result (B-006). Worded so it
+    shares no long run with the mode directives the rail indexes: the model may
+    repeat it in its answer."""
+    if answered == 0:
+        return "no connected source answered for it: not checked, reputation unknown"
+    noun = "source" if answered == 1 else "sources"
+    return (f"no signal from {answered} connected {noun}: reputation unknown, "
+            "which is not a benign verdict")
+
+
 def _as_list(raw, *, cap: int) -> tuple[list[str], int]:
     """Coerce a tool argument to a capped list of strings.
 
@@ -312,6 +323,12 @@ def build_capability_registry(
                     }
                     for s in item.signals
                 ]
+                if not item.signals:
+                    # B-006: looked up, and nobody reported anything. A bare
+                    # empty list read as "clean" (3 of 3 live), so the code says
+                    # what it means, as the IOC check's own line does.
+                    entry["reputation"] = "unknown"
+                    entry["no_signal"] = _no_signal_line(item.sources_answered)
                 if item.network:
                     # B-001: who operates the address, per the source that
                     # said so. Beside the signals, never one of them.
