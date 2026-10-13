@@ -1423,6 +1423,17 @@ sometimes a refusal.
 **What this supersedes.** The S9 catalog's "six modes ONLY", by adding a
 seventh through the decision that rule asked for.
 
+
+**D-044 addendum (2026-10-13, B2, B-006).** `general` now has two rules, not
+one. The second is ioc_enrichment's no-data rule, word for word, from one
+shared constant: "Never assert a reputation verdict you do not have evidence
+for; absence of data is 'unknown', not 'benign'." It is neutral in the sense
+decision 1 means: it never tells the model to drop the security angle, and it
+forbids only a verdict nobody supplied. Reason: "dig deeper" after an IOC check
+resolves here, and the agent called a no-signal IP clean, 3 of 3
+(docs/probes/2026-10-13-b2-b006-reproduce.md). The resolver is unchanged, so
+D-044's pinned operating point still holds.
+
 ## D-045 — The chat agent may propose the platform's actions; a dry run that would change nothing is not filed (2026-10-11, S27)
 
 **Context.** IDEAS (S26). S18 built the action proposer and the approvals
