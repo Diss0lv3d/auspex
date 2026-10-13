@@ -48,3 +48,18 @@ server's own words (F2).
 **No live before-run.** `./ci.sh` rebuilds the running app container
 (`ci.sh:26`), so by the time the probe ran the container already carried the
 fix. The route tests are the reproduction.
+
+## The review
+
+A fresh agent reviewed `4680bf6` adversarially, read-only, and found no
+defect:
+- **Tenancy holds.** Both deletes reach only this user's rows.
+- **`created` is right.** `_ensure_session` creates a chat only when no id is
+  passed.
+- **No 500 from a foreign key.** Every FK into `messages` and `chat_sessions`
+  is CASCADE or SET NULL, so nothing can turn the 429 into a 500.
+- **The tests are real.** Neither passes vacuously, and the refunded units are
+  cleaned up.
+
+Its bounds (other failures before the claim; the emptiness guard untested and
+not race-proof for the same user) are TD-055.
