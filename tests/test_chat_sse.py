@@ -2663,6 +2663,47 @@ def test_the_chat_agent_proposes_an_action_and_nothing_executes(client, settings
     assert frames[-1]["done"]["output_valid"] is True
 
 
+B004 = json.loads(
+    (Path(__file__).parent / "fixtures" / "actions" / "b004_note_on_recorded_indicator.json")
+    .read_text()
+)
+
+
+def test_b004_a_note_on_a_recorded_indicator_named_as_written_is_proposed(client, settings):
+    """B-004 pinned regression, the exact call B2 reproduced live 3 of 3: in a
+    fresh chat the model names the indicator as the analyst wrote it. The
+    observable is recorded, so a proposal is filed, not "doesn't exist"."""
+    from auspex.classify.observables import ObservableType, observable_id
+
+    _token(client)
+    ws = _chat_workspace(settings)
+    value = B004["indicator"]
+    assert observable_id(ObservableType.IPV4, value) == B004["obs_id"], "control: the live row"
+    assert resolve_mode(B004["message"], ()).value == B004["mode"]
+    _db(settings, "INSERT INTO observables (workspace_id, obs_id, type, value)"
+        " VALUES ($1, $2, 'ipv4', $3) ON CONFLICT DO NOTHING", ws, B004["obs_id"], value)
+    fake = SequencedStreamingFakeLLMClient([
+        _tool_step(name="annotate_observable", arguments=json.dumps(B004["offending_call"]),
+                   narration="I'll propose the note."),
+        _answer_step("I've proposed the note; it is pending approval."),
+    ])
+    _use_agent(client.app, fake)
+    try:
+        resp = client.post("/api/chat", json={"message": B004["message"]},
+                           headers={"Authorization": f"Bearer {_token(client)}"})
+        tool = [f["tool"] for f in _frames(resp.text) if "tool" in f]
+        assert len(tool) == 1 and tool[0]["status"] == "proposed"
+        assert tool[0]["proposal"]["summary"].startswith(f"Attach an analyst note to ipv4 {value}")
+        card = _db(settings, "SELECT card FROM proposals WHERE id = $1::uuid",
+                   tool[0]["proposal"]["id"])[0]["card"]
+        assert json.loads(card)["affects"] == [B004["obs_id"]]
+    finally:
+        client.app.dependency_overrides.clear()
+        _db(settings, "DELETE FROM proposals WHERE workspace_id = $1"
+            " AND tool_input->>'observable_id' = ANY($2::text[])", ws, [value, B004["obs_id"]])
+        _db(settings, "DELETE FROM observables WHERE workspace_id = $1 AND value = $2", ws, value)
+
+
 def test_an_action_that_would_change_nothing_is_never_filed_from_chat(client, settings,
                                                                       chat_observable):
     ws, _ = chat_observable

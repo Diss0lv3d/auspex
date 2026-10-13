@@ -38,26 +38,48 @@ from auspex.actions.types import (
     ParamType,
     UndoSpec,
 )
+from auspex.classify.observables import extract
 
 NOTE_SOURCE = "action:annotate_observable"
 MAX_NOTE_CHARS = 2000
 
 
 async def _resolve(pool: asyncpg.Pool, workspace_id: UUID | str, observable_id: str) -> dict | None:
-    """Find the observable by its stable `obs_id`, inside this workspace only.
+    """Find the observable by its stable `obs_id`, or by the indicator itself,
+    inside this workspace only.
 
     D-008: tenancy is part of the lookup, not a check afterwards. An obs_id from
     another workspace resolves to nothing here, which is the same answer as one
     that does not exist — deliberately, because distinguishing them would leak
     the existence of another tenant's observable.
+
+    B-004: in a fresh chat the model has never been shown the short id, so it
+    names the indicator as the analyst wrote it, and an id-only lookup told the
+    analyst a recorded indicator did not exist. The read tool already accepts
+    both forms (agent/capabilities.py); this does the same with the same
+    extractor, so a defanged copy names the same row. The short id is a pure
+    function of type and value, so the parsed indicator's id IS the row's. A
+    string naming more than one indicator resolves to nothing: a note attaches
+    to one observable, and narrowing to the one this workspace happens to have
+    recorded would be a guess.
     """
+    ref = (observable_id or "").strip()
+    row = await _by_obs_id(pool, workspace_id, ref)
+    if row is None:
+        parsed = extract(ref).observables
+        if len(parsed) == 1:
+            row = await _by_obs_id(pool, workspace_id, parsed[0].obs_id)
+    return row
+
+
+async def _by_obs_id(pool: asyncpg.Pool, workspace_id: UUID | str, obs_id: str) -> dict | None:
     row = await pool.fetchrow(
         """
         SELECT id, obs_id, type, value FROM observables
         WHERE workspace_id = $1::uuid AND obs_id = $2
         """,
         str(workspace_id),
-        observable_id,
+        obs_id,
     )
     return dict(row) if row else None
 
@@ -176,7 +198,10 @@ def annotate_observable_spec(pool: asyncpg.Pool) -> ActionSpec:
             ),
         ),
         params=(
-            ActionParam("observable_id", ParamType.STRING, "The observable's short id"),
+            ActionParam(
+                "observable_id", ParamType.STRING,
+                "The observable's short id, or the indicator itself",
+            ),
             ActionParam("note", ParamType.STRING, "The note to attach"),
         ),
         dry_run=would,
