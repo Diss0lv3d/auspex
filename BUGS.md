@@ -90,7 +90,12 @@ are never deleted.
   turns, the answer, the log line, the observable's row). Related but
   different: S28's IDEAS line about a note-only request on an indicator the
   workspace has never seen.
-- **Status:** open.
+- **Status:** fixed `29209fa` (B2), on Burhan's call (code, not prompt). In a
+  fresh chat the model never saw the short id and passed the indicator itself;
+  the action resolved only the id. It now also resolves exactly one indicator
+  parsed with the route's extractor, inside the workspace. Live: the same call
+  files a proposal 3/3 where it errored 3/3
+  (docs/probes/2026-10-13-b2-b004-reproduce.md).
 
 ## B-005 — the model forges the platform's data fence and writes invented "platform data" inside it
 
