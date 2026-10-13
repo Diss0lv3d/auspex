@@ -189,6 +189,24 @@ model change (D-042's WARNING), or the next addition to the index.
 > the thinking channel, exactly `THINKING_SHINGLE_WORDS`
 > (docs/probes/2026-10-12-b002-definition-rail-trip.md).
 
+> **B2: both floors re-measured on today's index, and B-002 fixed (D-058).**
+> Record: docs/probes/2026-10-13-b2-b002-reproduce-and-calibrate.md.
+> - **Answer floor** (S22's probe, unchanged, both shapes): legit max **5**
+>   against 8, as at S22.
+> - **Agent path** (36 legitimate turns, S26's battery plus a blind one, the
+>   route's composition with D-045's actions): thinking **28**, answer 5,
+>   narration 3, tool lines 3. A recitation ran **58**.
+> - **Every legitimate thinking run above 20 was a restated section list.**
+>   D-058 leaves the answer-shape directives out of the thinking index.
+>   Against what remains, the thinking ceiling is **20**: 2× under the floor.
+>   Neither floor moved.
+>
+> **Still open, so TD-044 stays:**
+> - action-request turns, whose answers paraphrase the action directive;
+> - the conversational path's thinking (the answer side was measured).
+>
+> The trigger stays armed: the next index addition, or D-042's WARNING.
+
 ## TD-043 (S27) — an agent turn on a thinly covered topic spends the whole step cap re-searching
 
 > **RESOLVED S28 — D-046.** Measured first: 0 of 31 re-searches were misses.
