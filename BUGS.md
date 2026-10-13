@@ -138,10 +138,11 @@ are never deleted.
 - **Evidence:** docs/probes/b1-b001/raw-before-default.log (the three runs
   verbatim, with their done frames), made by
   docs/probes/b1-b001/probe_app_dig_deeper.py.
-- **Status:** fixed `fce2f55` + `c80bf29` (B2), on Burhan's call (code and
+- **Status:** fixed `fce2f55` + `c80bf29` + `58b45e4` (B2), on Burhan's call (code and
   prompt). The agent's lookup now says `"reputation": "unknown"` with a
   code-written line, and general carries ioc_enrichment's no-data rule. Live:
-  a benign verdict 3/3 → 0/3, "unknown" 0/3 → 3/3
+  a benign verdict 3/3 → 0/3, "unknown" 0/3 → 3/3. After review, `58b45e4`
+  covers context-only signals (open ports) too
   (docs/probes/2026-10-13-b2-b006-reproduce.md). The "legitimate" inference
   that remains is B-009.
 
