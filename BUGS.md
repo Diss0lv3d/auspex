@@ -44,7 +44,12 @@ are never deleted.
   path passed 3 of 3.
 - **Evidence:** docs/probes/2026-10-12-b002-definition-rail-trip.md (the runs
   and the route's log line); docs/probes/fe-stream/raw-layers-glm-default.log.
-- **Status:** open.
+- **Status:** fixed `4b753d4` (B2), D-058, on Burhan's call. A thinking model
+  plans its answer by restating the sections it was told to write, and the
+  tokeniser makes a section list one run longer than the thinking floor
+  (definition 43 words, threat_intel 42, D-043's re-ask 42-44). The thinking
+  index now leaves those directives out; every other channel keeps them at 8.
+  Record: docs/probes/2026-10-13-b2-b002-reproduce-and-calibrate.md.
 
 ## B-003 — after a deploy, the browser keeps running the old chat page
 
