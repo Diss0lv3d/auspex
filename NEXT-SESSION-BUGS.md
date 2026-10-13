@@ -1,13 +1,13 @@
-# NEXT-SESSION-BUGS — track: bugs · session: B2
+# NEXT-SESSION-BUGS — track: bugs · session: B3
 
 _Paste everything below the line into a fresh Claude Code window opened in
 /home/burhan/auspex-new. The bugs track works from BUGS.md (D-051). The front
-end is the current focus (STATE.md); start B2 only when Burhan picks it._
+end is the current focus (STATE.md); start B3 only when Burhan picks it._
 
 ---
 
-SESSION B2 of Auspex, **bugs track** (D-051). The working dir must be
-/home/burhan/auspex-new. Run `/session-start bugs B2` first (the full ritual).
+SESSION B3 of Auspex, **bugs track** (D-051). The working dir must be
+/home/burhan/auspex-new. Run `/session-start bugs B3` first (the full ritual).
 It reads `SESSION-RULES.md` (standing rules for every track) and STATE.md.
 
 Step 0 (do BEFORE new scope):
@@ -16,57 +16,55 @@ Step 0 (do BEFORE new scope):
    check `ps` for a second `claude` in this directory and stop.
 2. **If STATE.md says the promote slate is not empty, `/promote` it.** Read
    the diff, not the list.
-3. **Read BUGS.md and ask Burhan which open bug comes first.** Default: the
-   top open entry, B-002. Mark it `fixing (B2)` when work starts.
+3. **Read BUGS.md, then put the scope question to Burhan before any bug.**
+   B2 fixed B-002, B-004, B-006 and B-008. The only open entries are **B-005
+   and B-009, and both sit next to the deferred fabricated-specifics item**
+   (SESSION-RULES.md, Deferred: "a fix that needs this item goes to Burhan
+   first"). Ask him, with the evidence:
+   - **Does that item come out of Deferred?** That is a scope decision, so it
+     gets a new D-entry, and the fix approach is his call too.
+   - If not, has he **seen anything broken using the platform?** Log each with
+     `/bug` and take the one he picks.
+   - If neither, **end early with the ritual.** A short session is fine.
 
-Goal (default): **B-002, a definition question on the agent path is stopped
-as a leak.** Read docs/probes/2026-10-12-b002-definition-rail-trip.md first.
-In short: "What are the practical differences between EDR and XDR for a
-small SOC deciding what to buy?" resolved to `definition` and was cut by the
-output rail in 3 of 4 agent-path turns. The match was 40 words of the
-definition contract's own section spec, on the `thinking` channel, at exactly
-`THINKING_SHINGLE_WORDS` (D-040). That is TD-044's trigger firing as a live
-false positive.
+Goal (only if Burhan re-scopes; one bug at a time, his order):
 
-Reproduce before fixing:
-- **Run the same question on the agent path at least 4 times** (the dev
-  endpoint, glm-4.5-air). For each run, record the finish reason, the channel
-  of the match, the match length and which issued text it came from.
-- **Re-measure before touching a calibrated number.** `THINKING_SHINGLE_WORDS`
-  and `SHINGLE_WORDS` are measured constants. Re-run
-  `docs/probes/s26-step0/probe_calibrate_agent.py` (thinking floor) and
-  `docs/probes/s22-outguard/probe_calibrate2.py` (answer floor) against
-  today's issued text, and record the legitimate ceiling first.
+- **B-009: the agent calls a no-signal IP "legitimate"**, inferred from its
+  operator and from the absence of signals.
+  - B-006's fix handed the model `"reputation": "unknown"`, and it says
+    unknown 3/3 now, but it still writes "legitimate Google infrastructure"
+    3/3.
+  - Evidence: docs/probes/2026-10-13-b2-b006-reproduce.md and
+    docs/probes/b2-b006/raw-repro-after.jsonl. The probe that reproduces it
+    is `docs/probes/b2-b006/probe_repro.py`.
+- **B-005: on the conversational path glm forges the `⟦DATA⟧` fence** and
+  writes invented "platform data" inside it.
+  - Evidence: docs/probes/b1-b001/raw-replay-glm*.log.
+  - Replay with docs/probes/b1-b001/probe_replay_conversational.py, which
+    uses the route's own composition.
 
-Then:
-- **Put the options to Burhan with the numbers.** Re-calibrating a floor, or
-  changing what the definition contract issues, is a rail decision: it gets a
-  new D-entry. The rail is security-relevant ("assume a fourth defect";
-  SESSION-RULES.md, The output rail). Never fix it by skipping the scan.
-- **Do NOT re-open the guard regex** (TD-031/032/033 are ratified).
-- Fix the cause, with a test that fails before the fix, and pin the exact
-  stopped turn's thinking text as a regression fixture (org rule).
-- **TD-044 is also in S29's goal** (`NEXT-SESSION-BE.md`). If B2 re-calibrates,
-  rewrite S29's TD-044 item at session end (3b) so it does not redo the work.
+For whichever is picked:
+- **Reproduce before fixing.**
+- **Fix the cause**, with a test that fails before the fix and the exact
+  offending text pinned as a fixture (org rule).
+- **Check it live.**
+- **Have a fresh agent review the fix** (SESSION-RULES.md). At B2, two of the
+  four reviews found a real defect.
+- A check on what the model WRITES is a new kind of rail. Put its design to
+  Burhan with the numbers, as a D-entry. It must not loosen the output rail
+  (D-030, D-040, D-058).
 
-If B-002 closes early, ask Burhan before taking the next open entry:
-- **B-004:** a note on a recorded indicator is refused as "doesn't exist".
-- **B-005:** on the conversational path glm forges the `⟦DATA⟧` fence with
-  invented platform lines. A fix that checks what the model writes is the
-  deferred fabricated-specifics item (SESSION-RULES.md, Deferred): put it to
-  Burhan first.
-- **B-006:** a follow-up on a no-signal IP calls it "clean", because the
-  follow-up resolves to `general`. A resolver change is judged by the
-  two-battery rule.
-- **B-008:** at the usage ceiling, a new chat's question is stored and then
-  refused with a 429 and no session frame, so each retry leaves another empty
-  chat in the sidebar ("No answer was stored"). Server ordering in
-  `auspex/routes/chat.py` (F2's chat list made it visible).
+Candidates from B2's reviews. These are debt, not bugs, so take one only if
+Burhan picks it:
+- **TD-055:** claim before writing. Only the ceiling refusal discards a
+  stored question; other failures before the claim still leave one.
+- **TD-054:** pin a note's target when it is filed. A note named by its
+  indicator is re-resolved at execute time.
 
 Constraints: everything in `SESSION-RULES.md`. Bugs-only, this session:
-- **One bug per fix commit.** Each one names its B-id, and BUGS.md gets the
-  status `fixed <commit> (B2)` in the same session.
-- A new bug found while fixing this one → `/bug`, not this session's scope,
-  unless it blocks the fix. In that case say so and let Burhan decide.
-- **Save evidence before any pytest run.** A chat the suite would purge goes
-  into a probe record first.
+- **One bug per fix commit.** Each one names its B-id, and BUGS.md gets
+  `fixed <commit> (B3)` in the same session.
+- A new bug found while fixing one → `/bug`, not this session's scope, unless
+  it blocks the fix. In that case say so and let Burhan decide.
+- **Save evidence before any pytest run**, and take a live "before" run before
+  the gate: `./ci.sh` redeploys the running container (STATE.md, Host notes).
