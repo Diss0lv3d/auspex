@@ -343,6 +343,31 @@ async def _insert_message(
     )
 
 
+async def _discard_refused_turn(
+    pool: asyncpg.Pool, auth: AuthContext, session_id: UUID, user_row: UUID, *, created: bool
+) -> None:
+    """B-008: a turn refused at the usage ceiling must not reach the transcript,
+    as a turn the input guard refuses never does. The question is stored before
+    the claim, so on a refusal this removes exactly what THIS turn stored: its
+    question, and the chat only if this turn created it. Otherwise each retry at
+    the ceiling left an unanswered question, and on a new chat a sidebar entry
+    the page never learned the id of (the 429 carries no session frame)."""
+    await pool.execute(
+        "DELETE FROM messages WHERE id = $1 AND workspace_id = $2 AND session_id = $3",
+        user_row,
+        auth.workspace_id,
+        session_id,
+    )
+    if created:
+        await pool.execute(
+            "DELETE FROM chat_sessions WHERE id = $1 AND workspace_id = $2 AND user_id = $3"
+            " AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.session_id = $1)",
+            session_id,
+            auth.workspace_id,
+            auth.user_id,
+        )
+
+
 def _sse_response(stream) -> StreamingResponse:
     return StreamingResponse(
         stream,
@@ -841,6 +866,8 @@ async def chat(
             allowance.limit,
         )
         await endpoint.client.aclose()
+        await _discard_refused_turn(pool, auth, session_id, user_row,
+                                    created=body.session_id is None)
         raise HTTPException(status_code=429, detail=allowance.refusal_text)
 
     # The output rail (TD-012). Indexed on the configuration WE issued this turn
@@ -849,6 +876,12 @@ async def chat(
     # values the answer is pinned to echo), not the two-pass analysis (the answer
     # is built from it). Listing the strings explicitly is the point — indexing
     # "every system message" would fire on the turn's own data.
+    #
+    # The re-ask's directive is configuration we may issue this turn, so it is
+    # indexed from the start (D-043 item 7). Rendered for an empty draft: that
+    # carries every fixed sentence and the pin lines.
+    repair = contract.repair_directive(None, pinned_values) if hold else None
+    answer_shape = [contract.system_directive(), *([repair] if repair else [])]
     if agent_path:
         loop = AgentLoop(
             build_capability_registry(
@@ -888,27 +921,33 @@ async def chat(
         issued = [
             *loop.issued_instructions(loop.wire_specs()),
             HISTORY_FENCE_DIRECTIVE,
-            contract.system_directive(),
+            *answer_shape,
         ]
     else:
         issued = [
             CHAT_SYSTEM_PROMPT,
             HISTORY_FENCE_DIRECTIVE,
-            contract.system_directive(),
             PASS1_DIRECTIVE,
+            *answer_shape,
         ]
-        if hold:
-            # The re-ask's directive is configuration we may issue this turn, so
-            # it is indexed from the start (D-043 item 7). Rendered for an empty
-            # draft: that carries every fixed sentence and the pin lines.
-            issued.append(contract.repair_directive(None, pinned_values))
     leak_index = instruction_index(issued)
     # D-040: the model's OWN thinking quotes its instructions while it reasons
     # (measured: 19-20 words on legitimate questions), so on the "thinking"
     # channel the rail waits for a recitation. Everything else — the answer, the
     # tool lines, narration, a two-pass analysis — keeps the answer's floor.
+    #
+    # D-058 (B-002) and its addendum: it also plans its answer by restating the
+    # sections it was told to write, and the tokeniser makes a section list one
+    # run longer than that floor (definition 43 words, threat_intel 42, the
+    # re-ask 42-44). So the thinking index drops the re-ask and every run lying
+    # WHOLLY inside the section list, and nothing else: a run that reaches the
+    # directive's purpose line, preamble or hard rules still trips. On the
+    # conversational path the directive is most of this index (the chat prompt
+    # is 22 words). Every other channel indexes all of it at the answer's floor.
     thinking_floor = (
-        instruction_index(issued, shingle=THINKING_SHINGLE_WORDS),
+        instruction_index([text for text in issued if text != repair],
+                          shingle=THINKING_SHINGLE_WORDS)
+        - instruction_index([contract.section_list()], shingle=THINKING_SHINGLE_WORDS),
         THINKING_SHINGLE_WORDS,
     )
 

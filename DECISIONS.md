@@ -1423,6 +1423,17 @@ sometimes a refusal.
 **What this supersedes.** The S9 catalog's "six modes ONLY", by adding a
 seventh through the decision that rule asked for.
 
+
+**D-044 addendum (2026-10-13, B2, B-006).** `general` now has two rules, not
+one. The second is ioc_enrichment's no-data rule, word for word, from one
+shared constant: "Never assert a reputation verdict you do not have evidence
+for; absence of data is 'unknown', not 'benign'." It is neutral in the sense
+decision 1 means: it never tells the model to drop the security angle, and it
+forbids only a verdict nobody supplied. Reason: "dig deeper" after an IOC check
+resolves here, and the agent called a no-signal IP clean, 3 of 3
+(docs/probes/2026-10-13-b2-b006-reproduce.md). The resolver is unchanged, so
+D-044's pinned operating point still holds.
+
 ## D-045 — The chat agent may propose the platform's actions; a dry run that would change nothing is not filed (2026-10-11, S27)
 
 **Context.** IDEAS (S26). S18 built the action proposer and the approvals
@@ -2074,3 +2085,109 @@ object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`.
 **Bounds, stated.** `/timeline` has no CSP yet: it still runs an inline script
 (TD-051 narrows to it). A new external origin (a CDN, an analytics host) needs
 a D-entry, not an edit to the header.
+
+## D-058 — A thinking model may restate the answer it was told to write (2026-10-13, B2)
+
+**Context.** B-002: "What are the practical differences between EDR and XDR
+for a small SOC deciding what to buy?" resolved to `definition` and was cut by
+the output rail in 3 of 4 agent-path turns at F1. The route logged a 40-word
+match from the definition contract's section list on the `thinking` channel,
+exactly `THINKING_SHINGLE_WORDS` (D-040). B2 measured why
+(docs/probes/2026-10-13-b2-b002-reproduce-and-calibrate.md):
+- **A thinking model plans its answer by restating the sections it was told
+  to write** ("Let me structure this according to the requested format: …"),
+  in every one of B2's six live runs of the question.
+- **The rail's tokeniser drops punctuation, so a section list is ONE run.** It
+  is 43 words for definition and 42 for threat_intel. D-043's re-ask,
+  rendered for an empty draft, is 42 (alert_triage) and 44
+  (phishing_analysis). Each is longer than the floor of 40.
+- **Whether a turn is cut depends on one or two words.** At F1 the restatement
+  was verbatim. At B2 it said "each term" and "meets them", so its longest run
+  was 11 and 0 of 8 turns were cut. The configuration was byte-identical to
+  F1's; the KB results the model read differed.
+- **Today's legitimate ceilings** (36 turns, S26's battery and a blind one,
+  today's issued text): thinking 28, every run above 20 a restated section
+  list; against everything else we issue, **20**. Answer 5, narration 3, tool
+  lines 3. A recitation ran **58**. S22's answer floor re-measured: 5 against 8.
+
+**Decision (Burhan's call; the recommended option).**
+1. **The directives that tell the model what to write are `answer_shape`**:
+   the mode contract's directive and, on a held turn, D-043's re-ask
+   (`auspex/routes/chat.py`).
+2. **The thinking channel's index leaves `answer_shape` out.** Everything else
+   we issue stays in it, at `THINKING_SHINGLE_WORDS = 40` (unchanged): the
+   system message, every tool, parameter and action description, the history
+   fence, the step-cap nudge, PASS1_DIRECTIVE.
+3. **Every other channel still indexes `answer_shape`**, at `SHINGLE_WORDS = 8`
+   (unchanged): the answer, narration, the tool lines, a two-pass analysis. A
+   section list written into the answer is still a leak.
+4. The scan is not skipped on any channel, and the guard regex is untouched
+   (TD-031/032/033).
+
+**Rejected.**
+- **A thinking floor of ~50**, between the longest answer-shape run (44) and
+  the recitation (58): about 1.15× each side, on one model. The next field
+  added to a contract, or a plan that also restates the 16-word preamble
+  ("Structure your answer with these plain-text sections …", 59+ words),
+  reopens it.
+- **Shortening the contracts under 40.** It changes what the model is told
+  (and so the answers and the contract tests), fixes three instances rather
+  than the class, and phishing_analysis is already at 39.
+
+**What it costs, stated.** A recitation of ONLY the answer-shape directives
+in the Thinking pane is no longer cut. That text describes the answer's
+sections, which the answer itself shows. Thinking is never stored. A dump that
+also reaches the system message or any tool description is still cut, and so
+is the same text in the answer.
+
+**What this supersedes.** D-040's thinking floor indexed everything D-031
+decision 5 lists. For the thinking channel only, it now indexes that minus
+`answer_shape`. D-040's floor and D-030 decision 3 stand.
+
+**Proven.** Seven tests in `tests/test_chat_sse.py`. Three fail before the
+fix: F1's exact logged run in the thinking, on the agent and the native path
+(fixture `tests/fixtures/rail/b002_definition_section_list.json`), and an
+empty draft's re-ask restated in the re-ask's thinking. Four guards pass before
+and after: a control; the section list in the answer is still cut; and
+recitations of the system message and of the 58-word tool description in
+thinking are still cut. Four mutants, 4 caught: the old index, an empty
+thinking index, `answer_shape` also left out of the answer's index, and the
+re-ask not exempted.
+
+**D-058 addendum (2026-10-13, same session, after an adversarial review).** A
+review of `4b753d4` by a fresh agent found the exemption too wide on the
+conversational path.
+- **The gap.** On that path the thinking index held CHAT_SYSTEM_PROMPT (22
+  words, so no 40-word run at all), the fence (60), PASS1_DIRECTIVE (40, never
+  sent on the native path) and the mode directive. Leaving the whole directive
+  out left little but the fence.
+- **What that let through.** A recitation of alert_triage's or
+  phishing_analysis's directive (purpose line and hard rules) in the Thinking
+  pane was no longer cut. Those modes run only on this path, and their pastes
+  are attacker-controlled.
+- **What D-058 got wrong.** "A dump that also reaches the system message …
+  is still cut" held only on the agent path. And the exemption covered the
+  purpose line and the hard rules too, which the answer does not show.
+
+**Narrowed (Burhan's call; the recommended option).**
+- The thinking index keeps the whole directive and subtracts only the 40-word
+  runs that lie wholly inside its section list.
+  `ModeContract.section_list()` is compiled from the same lines as the
+  directive, and a test pins that it is the directive's own consecutive span.
+- The re-ask stays exempt whole: it is all answer shape and has no rules.
+- A run that reaches the purpose line, the preamble or the hard rules trips,
+  as it did before `4b753d4`.
+
+**Cost, stated.** A plan that restates the 16-word preamble ("Structure your
+answer with these plain-text sections, each opened by a "## <Name>" header,
+in this order:") verbatim together with the section list trips. It was not
+seen live: B2's restatements paraphrased the preamble, and F1's logged run
+began at the list.
+
+**Proven.**
+- Two recitation tests failed on `4b753d4` and pass now: the definition
+  directive in the agent path's thinking, and alert_triage's in a held native
+  turn's thinking.
+- The B-002 tests still pass.
+- Four mutants, 4 caught: the shipped whole-directive exemption, no
+  subtraction, subtracting the whole directive, and the re-ask not exempted.

@@ -302,6 +302,98 @@ async def test_a_bare_number_is_an_honest_miss_rather_than_a_crash(scalar):
     assert service.enrich_calls == []  # nothing was looked up
 
 
+async def test_b006_looked_up_with_no_signal_reads_as_unknown_not_clean():
+    """B-006 pinned regression (tests/fixtures/agent/b006_no_signal_called_clean.json).
+    Five sources answered and none signalled; handed a bare `"signals": []`, the
+    agent called the address clean, low risk and safe, 3 of 3. The tool result
+    now says in code what that means: the reputation is unknown."""
+    import json
+    from pathlib import Path
+
+    from auspex.enrich.types import NetworkContext
+
+    fixture = json.loads((Path(__file__).parent / "fixtures" / "agent"
+                          / "b006_no_signal_called_clean.json").read_text())
+    before = json.loads(fixture["tool_result_read"])["results"][0]
+    assert "reputation" not in before and before["signals"] == [], "control: what it read"
+    observables = _obs(f"check {before['observable']['value']}")
+    network = NetworkContext(provider="AbuseIPDB", summary=before["network"][0]["summary"])
+    service = FakeEnrichmentService(EnrichmentOutcome(items=(ObservableEnrichment(
+        observable=observables[0], sources_answered=before["sources_answered"],
+        network=(network,)),)))
+    registry = _build(enrichment=service, observables=observables)
+
+    (entry,) = (await registry.get("enrich_observable").handler(
+        {"observables": [observables[0].obs_id]}))["results"]
+
+    assert entry["signals"] == [] and entry["network"] == before["network"]
+    assert entry["reputation"] == "unknown"
+    assert entry["no_signal"] == (
+        "no signal from 5 connected sources: reputation unknown, which is not a benign verdict"
+    )
+
+
+@pytest.mark.parametrize(("answered", "line"), [
+    (1, "no signal from 1 connected source: reputation unknown, which is not a benign verdict"),
+    (0, "no connected source answered for it: not checked, reputation unknown"),
+])
+async def test_b006_every_empty_signal_list_says_what_it_means(answered, line):
+    """One source, or none at all, is the same trap: an empty list the model
+    reads as clean. Signals present, the entry carries no such line."""
+    observables = _obs("check 185.220.101.5")
+    service = FakeEnrichmentService(EnrichmentOutcome(items=(ObservableEnrichment(
+        observable=observables[0], sources_answered=answered),)))
+    registry = _build(enrichment=service, observables=observables)
+
+    (entry,) = (await registry.get("enrich_observable").handler(
+        {"observables": ["185.220.101.5"]}))["results"]
+
+    assert (entry["reputation"], entry["no_signal"]) == ("unknown", line)
+
+
+async def test_b006_context_only_signals_read_as_unknown_too():
+    """B2 review of the B-006 fix. InternetDB answers most live IPs with an
+    open-ports signal labelled `unknown`: context, not reputation. The IOC check
+    already says "no reputation verdict" there (echo.py); the tool result says
+    the same, through the same `synthesize`, and still lists the context."""
+    observables = _obs("check 185.220.101.5")
+    ports = ProviderSignal(provider="InternetDB", label=VerdictLabel.UNKNOWN,
+                           confidence=0.0, summary="open ports 443")
+    service = FakeEnrichmentService(EnrichmentOutcome(items=(ObservableEnrichment(
+        observable=observables[0], sources_answered=5, signals=(ports,)),)))
+    registry = _build(enrichment=service, observables=observables)
+
+    (entry,) = (await registry.get("enrich_observable").handler(
+        {"observables": ["185.220.101.5"]}))["results"]
+
+    assert [s["summary"] for s in entry["signals"]] == ["open ports 443"]
+    assert entry["reputation"] == "unknown"
+    assert entry["no_signal"] == (
+        "no reputation signal from 5 connected sources, only context: reputation unknown, "
+        "which is not a benign verdict"
+    )
+
+
+@pytest.mark.parametrize("with_context", [False, True])
+async def test_b006_an_indicator_with_a_reputation_signal_carries_no_unknown_line(with_context):
+    """A real verdict, alone or beside context, is not "unknown"."""
+    observables = _obs("check 185.220.101.5")
+    signals = (ProviderSignal(provider="AbuseIPDB", label=VerdictLabel.MALICIOUS,
+                              confidence=0.9, summary="abuse score 100"),)
+    if with_context:
+        signals += (ProviderSignal(provider="InternetDB", label=VerdictLabel.UNKNOWN,
+                                   confidence=0.0, summary="open ports 443"),)
+    service = FakeEnrichmentService(EnrichmentOutcome(items=(ObservableEnrichment(
+        observable=observables[0], sources_answered=5, signals=signals),)))
+    registry = _build(enrichment=service, observables=observables)
+
+    (entry,) = (await registry.get("enrich_observable").handler(
+        {"observables": ["185.220.101.5"]}))["results"]
+
+    assert len(entry["signals"]) == len(signals)
+    assert "reputation" not in entry and "no_signal" not in entry
+
+
 async def test_an_observable_that_was_not_checked_never_reads_as_no_signals():
     """The distinction the DEFERRED rail exists for. An observable with a
     `skip_reason` was never sent to a provider; reporting it as an empty signal

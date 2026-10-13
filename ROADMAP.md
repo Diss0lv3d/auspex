@@ -504,9 +504,23 @@ BUGS.md) have their own sections at the end, before "Later".
     chat.
   - **B-003 fixed** (`no-cache` pages). B-002 and B-004 were logged.
   - 1315 tests; 120 modules; no new env vars.
-- [ ] **F2 — A chat survives a reload.** Promote first; Burhan's hands-on list
-  of F1's page outranks the goal. Then list your chats and reopen one, with its
-  stored turns and spend (two scoped endpoints plus the page).
+- [x] **F2 — A chat survives a reload.** (2026-10-12) Promote #31 at Step 0
+  after B-007 (GitHub's Node prints TAP; fixed). Burhan added all three
+  candidates; promote #32 at the close.
+  - **Reload** (docs/superpowers/specs/2026-10-12-chat-survives-reload-design.md):
+    two scoped routes (`/api/chat/sessions`, `…/{id}/turns`), the sign-in in
+    sessionStorage (D-056), an always-on chat sidebar, the chat in the hash,
+    reopened turns with spend and proposals' doors. TD-050, TD-052, B-008.
+  - **S26's chat edges:** an empty answer says so; errors in the server's
+    words; narration on its own line.
+  - **Narrow screens:** a compact header, one backdrop for either overlay,
+    a full-width panel on a phone, dark scrollbars.
+  - **TD-045 closed:** markup, a stylesheet and two modules, served no-cache
+    from an allow-list; **D-057:** a strict CSP on the chat page (TD-051
+    narrowed). TD-053 logged.
+  - 1360 tests; 121 modules; no new env vars.
+- [ ] **F3 — Burhan's hands-on list of F2's page, then the timeline page joins
+  the chat page** (its script out of the page, D-057's CSP on it, TD-051).
 
 ## Track: bugs (D-051)
 
@@ -523,9 +537,24 @@ BUGS.md) have their own sections at the end, before "Later".
   - The offending answer is pinned (tests/fixtures/enrich/); 3/3 mutants.
   - TD-049 (only AbuseIPDB names the network). B-005 and B-006 were logged.
   - 1323 tests; 120 modules; no new env vars.
-- [ ] **B2 — the top open bug, B-002 by default** (a definition question on
-  the agent path stopped as a leak; TD-044 live). Promote first, ask Burhan
-  which bug, re-measure the rail's floors before touching them.
+- [x] **B2 — B-002, B-004, B-006 and B-008, in Burhan's order.** (2026-10-13)
+  No promote at Step 0 (the slate held only F2's docs).
+  - **B-002 → D-058** (`4b753d4`, narrowed `d8c597b` after review). A section
+    list compiles to one run longer than the thinking floor, so the thinking
+    index drops runs wholly inside it, and the re-ask. Both floors re-measured
+    on today's index (answer 5 vs 8; thinking 20 vs 40; recitation 58).
+  - **B-004** (`29209fa`): a note names its observable as written. Live 3/3.
+  - **B-006** (`fce2f55`, `c80bf29`, `58b45e4`): a no-signal lookup reads
+    "reputation unknown", and general carries the no-data rule. A benign
+    verdict 3/3 → 0/3; the "legitimate" residual is B-009.
+  - **B-008** (`4680bf6`): a turn refused at the ceiling leaves nothing behind.
+  - Every fix: a test that failed first, its exact text pinned, mutants, live,
+    and a fresh-agent review (2 of 4 found a real defect, both fixed).
+  - TD-054, TD-055 logged; TD-044 updated; B-009 logged; D-044 addendum.
+  - 1385 tests; 121 modules; no new env vars.
+- [ ] **B3 — Burhan's call first:** B-005 and B-009 both wait on the deferred
+  fabricated-specifics item coming out of Deferred (a D-entry). Otherwise new
+  bugs from using the platform, or a short session.
 
 ## Later / explicitly deferred
 Herd Immunity federation (needs k≥3 workspaces + privacy review) · billing ·

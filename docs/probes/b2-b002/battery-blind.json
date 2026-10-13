@@ -1,0 +1,29 @@
+{
+  "_written_by": "a fresh subagent (sonnet) with no tools and no repo access, B2 2026-10-13, asked for 14 concept/definition and 8 threat-intel analyst questions",
+  "definition_like": [
+    "Explain pass-the-hash",
+    "What does \"assume breach\" mean in practice for a SOC?",
+    "EDR vs XDR vs MDR, which should we buy?",
+    "What is a golden ticket attack?",
+    "SIEM vs SOAR, what's the actual difference?",
+    "what's lateral movement",
+    "Explain OAuth consent phishing",
+    "What does CVSS vs EPSS vs SSVC mean for patch prioritization?",
+    "What is DCSync?",
+    "difference between SAML and OIDC?",
+    "What does \"attack surface management\" cover vs vulnerability scanning?",
+    "Explain CSPM vs CWPP vs CNAPP",
+    "What does MITRE ATT&CK actually give us day to day?",
+    "IAM role vs service principal, quick explainer"
+  ],
+  "threat_intel_like": [
+    "What are the typical initial access methods used by LockBit affiliates and what should I hunt for?",
+    "How does Scattered Spider get past MFA, and what telemetry would show it?",
+    "Walk me through how Qakbot infections typically unfold and what persistence it uses.",
+    "What TTPs does APT29 favor for cloud and identity compromise?",
+    "What is Volt Typhoon known for, and how do I hunt for living-off-the-land activity?",
+    "How does BlackCat/ALPHV ransomware stage data exfiltration before encryption?",
+    "What are common detections for ATT&CK T1059.001 PowerShell abuse?",
+    "Which ransomware groups lean on Cobalt Strike, and what beacon behaviors should we look for?"
+  ]
+}

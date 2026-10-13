@@ -28,7 +28,9 @@ Step 0 (do BEFORE new scope):
      the queue's new clause (`auspex/actions/settlement.py`), plus the two
      routes. Check against every claim-token and `resolved_by` rule;
    - D-049: `record` in `enrich_observable` and the route's lambda. What gets
-     written, for which workspace, and what the model is told on failure;
+     written, for which workspace, and what the model is told on failure.
+     (B2 has since added the `reputation: unknown` lines to the same payload,
+     `fce2f55` and `58b45e4`; read the current version);
    - D-047: `_IDENTITY_RE` (`auspex/classify/classifier.py`);
    - D-050: `_NOTE_ASK_RE`, `_NOTE_REQUEST_RE`, the shortcut veto, and the
      `action_request` contract;
@@ -59,18 +61,23 @@ Goal (two items, in order):
 
      The pacing only paints what the server already sent, so it neither hides
      nor adds a doubled answer.
-2. **TD-044: re-calibrate the output rail with the index as it now stands.**
-   S27 added D-043's repair directive and D-045's action surface; S28 added
-   D-050's `action_request` directive. Re-run
-   `docs/probes/s22-outguard/probe_calibrate2.py` and
-   `docs/probes/s26-step0/probe_calibrate_agent.py`, including action-request
-   turns. Record the new legitimate ceilings next to the floors. A floor moves
-   only on that measurement.
-   - **F1: the trigger fired as a live false positive, B-002.** A definition
-     question on the agent path was cut 3 of 4 times. The match was 40 words
-     of the definition contract's section spec on the thinking channel
-     (docs/probes/2026-10-12-b002-definition-rail-trip.md). Measure against
-     it; B-002 is on the bugs list too, so tell Burhan if S29 closes it.
+2. **TD-044: only what B2's re-measure left.** B2 (bugs) re-ran both floors on
+   the index as it stood and fixed B-002 with D-058. Do not redo that work:
+   docs/probes/2026-10-13-b2-b002-reproduce-and-calibrate.md.
+   - **B2's numbers.** Answer floor: legit max 5 against 8. Agent path, 36
+     turns: thinking 20 against D-058's index; a recitation 58.
+   - **Still unmeasured; this is the goal:**
+     - **general's two rules are now ONE 43-word run**, over the thinking
+       floor (B-006, `c80bf29`). Measure general-mode thinking first;
+     - **action-request turns**, whose answers paraphrase the action
+       directive;
+     - **the conversational path's thinking**, where the chat prompt is 22
+       words and the mode directive is most of the thinking index.
+   - **Use B2's probe**, `docs/probes/b2-b002/probe_calibrate_thinking.py`. It
+     composes turns exactly as the route does, D-045's actions included. Add
+     action-request and general batteries written blind (SESSION-RULES.md).
+   - A floor moves only on that measurement. Changing what the thinking index
+     holds is a D-entry beside D-058.
 
 Candidates. **Ask Burhan at the start ritual. Do NOT start any of these
 unasked:**
@@ -79,7 +86,9 @@ unasked:**
   docs/probes/2026-10-11-s28-alert-json-keys.md). A scoring change needs its
   own independently written battery.
 - Look an indicator up before annotating it. Live, a note-only request on a
-  never-seen IP was refused as NothingToPropose instead (IDEAS).
+  never-seen IP was refused as NothingToPropose instead (IDEAS). B-004 (B2)
+  fixed only the RECORDED case: the action now resolves the indicator as
+  written (TD-054 is its bound).
 - Ingest ATT&CK groups and software as KB documents. This is a new doc_type,
   so the TD-005 trigger and TD-027 HARD GATE apply (IDEAS).
 - More identity recall: 27/45 held-out identity questions still reach the
@@ -87,7 +96,8 @@ unasked:**
 
 Constraints: everything in `SESSION-RULES.md`. Backend-only, this session:
 - **The rail is this session's goal 2.** Its floors move only on goal 2's
-  measurement; the rest of SESSION-RULES.md's rail section applies unchanged.
+  measurement; the rest of SESSION-RULES.md's rail section applies unchanged,
+  including D-058's thinking index.
 - **TD-036 touches the stream.** Any fix keeps the rail's carry, D-031's
   ordering guarantee and the native-only hold (SESSION-RULES.md, The output
   rail).

@@ -121,6 +121,36 @@ def test_system_directive_names_the_mode_and_required_sections():
     assert "No data ≠ low risk" in directive
 
 
+def test_b006_general_carries_the_no_data_rule_ioc_enrichment_has():
+    """B-006. A follow-up with no indicator of its own ("dig deeper") resolves
+    to general, which did not carry ioc_enrichment's rule, and the agent called
+    a no-signal address clean. general now carries the same rule, word for word;
+    ioc_enrichment's is unchanged."""
+    rule = ("Never assert a reputation verdict you do not have evidence for; "
+            "absence of data is 'unknown', not 'benign'.")
+    assert resolve("dig deeper") is Mode.GENERAL
+    assert rule in contract_for(Mode.IOC_ENRICHMENT).rules
+    assert rule in contract_for(Mode.GENERAL).rules
+    assert f"- {rule}" in contract_for(Mode.GENERAL).system_directive()
+
+
+def test_the_section_list_is_the_directives_own_field_lines_contiguous():
+    """D-058: the rail exempts runs lying wholly inside the section list from the
+    thinking index, by subtracting the list's own runs. That is only the run set
+    of a span of the directive if the list IS that span: compiled from the same
+    lines, consecutive, in order. A contract with no sections has an empty list."""
+    for mode in Mode:
+        c = contract_for(mode)
+        sections = c.section_list()
+        if not c.fields:
+            assert sections == ""
+            continue
+        assert "\n" + sections + "\n" in c.system_directive() + "\n"
+        assert sections.count("\n") == len(c.fields) - 1
+        assert all(line.startswith(f"## {f.name}")
+                   for line, f in zip(sections.split("\n"), c.fields, strict=True))
+
+
 # ── contract validation (specs → validators) ─────────────────────────────────
 
 

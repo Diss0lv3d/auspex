@@ -57,17 +57,28 @@ class ModeContract:
                 "Structure your answer with these plain-text sections, each opened "
                 'by a "## <Name>" header, in this order:'
             )
+        lines.extend(self._field_lines())
+        if self.rules:
+            lines.append("")
+            lines.append("Hard rules (these override any instinct to fill gaps):")
+            lines.extend(f"- {r}" for r in self.rules)
+        return "\n".join(lines)
+
+    def _field_lines(self) -> list[str]:
+        lines = []
         for f in self.fields:
             opt = "" if f.required else " (optional — omit if not applicable)"
             line = f"## {f.name}{opt} — {f.description}"
             if f.allowed_values:
                 line += f" Must be exactly one of: {', '.join(f.allowed_values)}."
             lines.append(line)
-        if self.rules:
-            lines.append("")
-            lines.append("Hard rules (these override any instinct to fill gaps):")
-            lines.extend(f"- {r}" for r in self.rules)
-        return "\n".join(lines)
+        return lines
+
+    def section_list(self) -> str:
+        """The directive's section lines, exactly as compiled into it and
+        consecutive there ("" for a contract with no sections). D-058: the
+        output rail lets a thinking model restate this span while it plans."""
+        return "\n".join(self._field_lines())
 
     def validate(
         self,

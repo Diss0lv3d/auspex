@@ -505,6 +505,78 @@ async def test_an_approved_action_executes_and_the_undo_actually_runs(
     assert row["status"] == "undone" and row["undone_at"] is not None
 
 
+# -- B-004 (B2): the target may be named as written, not only by its short id --
+
+B004_IP = "185.220.101.52"  # the indicator B-004 was reproduced on, live
+
+
+@pytest.fixture
+async def b004_observable(pool, workspace_id):
+    obs_id = observable_id(ObservableType.IPV4, B004_IP)
+    await pool.execute(
+        "INSERT INTO observables (workspace_id, obs_id, type, value)"
+        " VALUES ($1, $2, 'ipv4', $3) ON CONFLICT (workspace_id, type, value) DO NOTHING",
+        workspace_id, obs_id, B004_IP,
+    )
+    return obs_id
+
+
+async def test_b004_the_dry_run_finds_a_recorded_indicator_however_it_is_named(
+    spec, workspace_id, b004_observable
+):
+    """B-004. In a fresh chat the model has never been shown the short id, so it
+    names the indicator as the analyst wrote it. The read tool accepts both forms
+    (agent/capabilities.py); the note action does too, through the same
+    extractor, so a defanged copy names the same row."""
+    for ref in (b004_observable, B004_IP, "185[.]220[.]101[.]52", f"  {B004_IP} "):
+        dry = await spec.dry_run(workspace_id=workspace_id, observable_id=ref, note="n")
+        assert dry.affects == (b004_observable,), ref
+        assert B004_IP in dry.would
+
+
+async def test_b004_naming_by_value_finds_nothing_this_workspace_did_not_record(
+    spec, workspace_id, other_workspace_id, b004_observable
+):
+    """D-008 holds for the new form: the lookup is inside the workspace, so
+    another tenant's row is the same answer as no row."""
+    for ws, ref in ((other_workspace_id, B004_IP), (workspace_id, "185.220.101.53")):
+        dry = await spec.dry_run(workspace_id=ws, observable_id=ref, note="n")
+        assert dry.affects == () and dry.would.startswith("Nothing"), ref
+
+
+async def test_b004_a_reference_naming_two_indicators_targets_neither(
+    spec, workspace_id, b004_observable
+):
+    """A note attaches to one observable. A string naming two is not narrowed
+    to the one this workspace happens to have recorded, in either order."""
+    for ref in (f"{B004_IP}, 8.8.8.8", f"8.8.8.8, {B004_IP}"):
+        dry = await spec.dry_run(workspace_id=workspace_id, observable_id=ref, note="n")
+        assert dry.affects == (), ref
+
+
+async def test_b004_a_note_proposed_by_value_executes_on_the_observable_it_named(
+    pool, registry, spec, workspace_id, b004_observable
+):
+    """The executor re-resolves the stored arguments, so the value form must
+    land where the card said: on the recorded row."""
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, B004_IP,
+                                       note="beaconing stopped after reimage")
+    assert proposal["card"]["affects"] == [b004_observable]
+    await settlement.settle(workspace_id=workspace_id, proposal_id=proposal["id"],
+                            decision="approved", decided_by=None)
+
+    await ActionExecutor(pool, registry).execute(workspace_id=workspace_id,
+                                                 proposal_id=proposal["id"])
+
+    noted = await pool.fetch(
+        "SELECT o.obs_id, n.note FROM observable_notes n"
+        " JOIN observables o ON o.id = n.observable_id WHERE n.workspace_id = $1",
+        workspace_id,
+    )
+    assert [(r["obs_id"], r["note"]) for r in noted] == [
+        (b004_observable, "beaconing stopped after reimage")]
+
+
 async def test_execution_cannot_happen_twice(
     pool, registry, spec, workspace_id, an_observable
 ):

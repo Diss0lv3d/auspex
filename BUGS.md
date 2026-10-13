@@ -44,7 +44,13 @@ are never deleted.
   path passed 3 of 3.
 - **Evidence:** docs/probes/2026-10-12-b002-definition-rail-trip.md (the runs
   and the route's log line); docs/probes/fe-stream/raw-layers-glm-default.log.
-- **Status:** open.
+- **Status:** fixed `4b753d4` (B2), D-058, on Burhan's call. A thinking model
+  plans its answer by restating the sections it was told to write, and the
+  tokeniser makes a section list one run longer than the thinking floor
+  (definition 43 words, threat_intel 42, D-043's re-ask 42-44). The thinking
+  index now drops the re-ask and the runs lying wholly inside the section list
+  (narrowed after review, `d8c597b`); every other channel keeps all of it at 8.
+  Record: docs/probes/2026-10-13-b2-b002-reproduce-and-calibrate.md.
 
 ## B-003 — after a deploy, the browser keeps running the old chat page
 
@@ -84,7 +90,12 @@ are never deleted.
   turns, the answer, the log line, the observable's row). Related but
   different: S28's IDEAS line about a note-only request on an indicator the
   workspace has never seen.
-- **Status:** open.
+- **Status:** fixed `29209fa` (B2), on Burhan's call (code, not prompt). In a
+  fresh chat the model never saw the short id and passed the indicator itself;
+  the action resolved only the id. It now also resolves exactly one indicator
+  parsed with the route's extractor, inside the workspace. Live: the same call
+  files a proposal 3/3 where it errored 3/3
+  (docs/probes/2026-10-13-b2-b004-reproduce.md).
 
 ## B-005 — the model forges the platform's data fence and writes invented "platform data" inside it
 
@@ -127,7 +138,13 @@ are never deleted.
 - **Evidence:** docs/probes/b1-b001/raw-before-default.log (the three runs
   verbatim, with their done frames), made by
   docs/probes/b1-b001/probe_app_dig_deeper.py.
-- **Status:** open.
+- **Status:** fixed `fce2f55` + `c80bf29` + `58b45e4` (B2), on Burhan's call (code and
+  prompt). The agent's lookup now says `"reputation": "unknown"` with a
+  code-written line, and general carries ioc_enrichment's no-data rule. Live:
+  a benign verdict 3/3 → 0/3, "unknown" 0/3 → 3/3. After review, `58b45e4`
+  covers context-only signals (open ports) too
+  (docs/probes/2026-10-13-b2-b006-reproduce.md). The "legitimate" inference
+  that remains is B-009.
 
 ## B-007 — the page-logic gate fails on GitHub, where Node prints TAP
 
@@ -157,4 +174,33 @@ are never deleted.
   the workspace's usage limit was reached") never appears on this path. The
   ordering is older than F2; the chat list makes it visible.
 - **Evidence:** from reading the code only, not reproduced live.
+- **Status:** fixed `4680bf6` (B2), on Burhan's call (discard on refusal). A
+  refused turn now deletes the question it stored, and the chat if it created
+  it. Reproduced at the route; live at a set ceiling: 429, nothing stored, no
+  chat added (docs/probes/2026-10-13-b2-b008-ceiling-refusal.md).
+
+## B-009 — the agent calls a no-signal IP "legitimate" infrastructure, from who operates it and from the absence of signals
+
+- **Found:** 2026-10-13, B2 (Claude), live right after B-006's fix (`fce2f55`,
+  `c80bf29`). Dev endpoint (glm-4.5-air), agent path, mode `general`, B1's
+  two turns: "what do you know about this IP: 34.187.179.218", then "dig
+  deeper".
+- **What happened:** the tool result the model read said `"reputation":
+  "unknown"`, with "no signal from 5 connected sources: reputation unknown,
+  which is not a benign verdict". The answers said unknown 3/3, but 3/3 also
+  called the address legitimate:
+  - "legitimate Google infrastructure" and "a legitimate Google-owned IP
+    address" (3/3);
+  - runs 1 and 3 drew it partly from the absence of signals: "The absence of
+    any threat intelligence signals suggests this is a legitimate Google-owned
+    IP address";
+  - run 3 also wrote "despite the clean threat intelligence results".
+
+  Nobody supplied "legitimate". AbuseIPDB named only the operator and the usage
+  type. Related to the deferred fabricated-specifics item (SESSION-RULES.md,
+  Deferred) and to B-005. A fix that checks what the model writes goes to
+  Burhan first.
+- **Evidence:** docs/probes/2026-10-13-b2-b006-reproduce.md (the fix section
+  and its table); docs/probes/b2-b006/raw-repro-after.jsonl (the three answers
+  verbatim).
 - **Status:** open.

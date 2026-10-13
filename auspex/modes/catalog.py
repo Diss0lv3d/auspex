@@ -37,6 +37,13 @@ class Mode(StrEnum):
 
 _RISK_LEVELS = ("DEFERRED", "LOW", "MEDIUM", "HIGH", "CRITICAL")
 
+# The DEFERRED rail's principle for an indicator's reputation: no data is not
+# a verdict. One string for every mode that carries it, so they cannot drift.
+_NO_DATA_IS_UNKNOWN = (
+    "Never assert a reputation verdict you do not have evidence for; "
+    "absence of data is 'unknown', not 'benign'."
+)
+
 CONTRACTS: dict[Mode, ModeContract] = {
     Mode.DEFINITION: ModeContract(
         name=Mode.DEFINITION.value,
@@ -74,10 +81,7 @@ CONTRACTS: dict[Mode, ModeContract] = {
             ),
             ContractField("Recommended action", "the analyst's next step for these indicators."),
         ),
-        rules=(
-            "Never assert a reputation verdict you do not have evidence for; "
-            "absence of data is 'unknown', not 'benign'.",
-        ),
+        rules=(_NO_DATA_IS_UNKNOWN,),
     ),
     Mode.THREAT_INTEL: ModeContract(
         name=Mode.THREAT_INTEL.value,
@@ -174,6 +178,9 @@ CONTRACTS: dict[Mode, ModeContract] = {
         rules=(
             "If the answer needs details only the analyst has, say which ones and "
             "what you would do with them, then help with what you can.",
+            # B-006: a follow-up with no indicator of its own ("dig deeper")
+            # lands here, and the agent called a no-signal IP clean, 3 of 3.
+            _NO_DATA_IS_UNKNOWN,
         ),
     ),
     Mode.ACTION_REQUEST: ModeContract(

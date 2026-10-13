@@ -1,0 +1,11 @@
+{
+  "_source": "docs/probes/2026-10-13-b2-b004-reproduce.md (B2, live 3/3 through the container) and docs/probes/2026-10-12-b004-note-on-recorded-indicator.md (F1)",
+  "_why": "B-004. In a fresh chat the model names the indicator as the analyst wrote it; annotate_observable resolved only the short id, so the dry run found nothing and the analyst was told a recorded indicator does not exist.",
+  "message": "Add a note to 185.220.101.52 saying the beaconing stopped after fin-ws-12 was reimaged.",
+  "mode": "action_request",
+  "indicator": "185.220.101.52",
+  "obs_id": "ipv4-9bf483a1",
+  "offending_call": {"observable_id": "185.220.101.52", "note": "the beaconing stopped after fin-ws-12 was reimaged"},
+  "_offending_call_note": "As the page drew it in all three B2 runs: annotate_observable(185.220.101.52, the beaconing stopped after fin-ws-12 was reimaged) -> error.",
+  "offending_answer": "I cannot add a note to 185.220.101.52 because this observable doesn't exist in the current workspace. The system returned an error indicating that there is no observable with that ID available."
+}

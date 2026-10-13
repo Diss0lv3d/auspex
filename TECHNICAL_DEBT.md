@@ -1,5 +1,85 @@
 # Technical debt — logged the moment it's taken
 
+## TD-055 (B2) — only the ceiling refusal discards a stored question; other failures before the claim still leave one
+
+**Where:** `auspex/routes/chat.py`, `chat()`. B-008's fix (`4680bf6`) deletes
+a refused turn's question, and its chat if the turn made it, on the 429.
+Burhan chose to discard on refusal rather than reorder the route.
+**Risk:** LOW. The B2 review of the fix found no defect, but stated the
+bounds:
+- **Other failures still leave the question.** Anything that raises between
+  storing the question and the claim leaves it behind, and on a new chat an
+  orphaned sidebar entry: `_session_rows`, `resolver.resolve()` reading the
+  scorecard, the claim's own DB calls, and `aclose()` before the discard. So
+  does a discard that itself raises (a 500, rows kept). The trigger is a
+  transient Postgres error. Every checked 4xx/503 exit happens before the
+  question is stored.
+- **The emptiness guard is untested, and not race-proof.** No test reaches it
+  (a chat this turn created that someone else then wrote into). Under READ
+  COMMITTED, a second turn of the SAME user, inserting into the new chat
+  within milliseconds of learning its id, could lose its question to the
+  cascade. That is same-user only; no tenancy risk.
+- **The test limiter refuses every claim,** not only the first. That is
+  harmless while the turn ends at its first refusal.
+
+**Why taken:** the reorder was the cause-level fix, but it reshuffles a long
+route around the client lifecycle and the foreign-session 404 (Burhan's
+call).
+**Path to fix:** claim before writing. Validate the session read-only,
+resolve the mode and the endpoint, claim, and only then create the chat and
+store the question. Or wrap the store-and-claim in one transaction.
+**Trigger:** a stored question with no answer and no `turn_spend` row seen in
+a chat list, or any new early exit added between the store and the claim.
+
+## TD-054 (B2) — a note named by its indicator is re-resolved when it runs, not pinned to the card's target
+
+**Where:** `auspex/actions/builtin.py`, `annotate_observable`. Since B-004
+(`29209fa`), `_resolve` accepts the indicator itself as well as the short id.
+The proposal stores the argument as the model wrote it (`tool_input`). At
+execute time `run` resolves that string again, and nothing compares the
+result with the card's `affects`. `check_executable` compares the spec
+fingerprint, which does not cover the extractor.
+**Risk:** LOW, and latent. Before B-004 the argument WAS the obs_id, so this
+could not happen. A deploy that changes how the extractor parses a stored
+string, between approval and run, could land the note on a different
+recorded observable. The B2 review's example: a TLD added to `_TLDS` turns
+"login.microsoft.com.zz" from `login.microsoft.com` into `…com.zz`. The target
+must still be recorded in the same workspace (D-008 holds), and the human
+approved a card that names the original.
+- Also: `put_back` echoes the raw argument as `affects`, so an undo's result
+  can carry a defanged form where it used to carry an obs_id. Display only.
+- Also: twin detection compares `tool_input`, so a pending note named by id
+  and one named by value are not seen as twins.
+
+**Why taken:** closing it is an executor-level guarantee — "what runs is the
+target the card named": re-dry-run before execute and refuse on a changed
+`affects`, or store the resolved id at filing. That touches the D-041/D-048
+state machine, beyond a bug fix in a bugs session. Found by B2's review of
+the fix.
+**Path to fix:** store the resolved obs_id in `tool_input` when the proposal
+is filed (the card can keep the analyst's form), or refuse at execute when the
+re-resolved target differs from the card's `affects` (`target_changed`).
+**Trigger:** any change to `auspex/classify/observables.py`'s parsing (the
+TLD list, refanging, the types), or a second action that resolves targets by
+value.
+
+## TD-053 (F2) — the gate's installed-dist check covers `*.py` only
+
+**Where:** `ci.sh`, the "installed distribution matches the source tree" step:
+it compares the wheel's modules with `auspex/**/*.py`.
+**Risk:** LOW-MEDIUM. Since TD-045 the chat page is four static files
+(`static/index.html`, `static/css/chat.css`, `static/js/page-logic.js`,
+`static/js/chat.js`) besides `timeline.html`. A package-data glob that missed
+one would pass the gate and the live probe, because the container serves from
+the copied source, which shadows site-packages. F2's final review checked the
+image by hand: the files are present and identical.
+**Why taken:** found in F2's final review, after the split shipped; widening
+the gate is its own change.
+**Path to fix:** extend the comparison to `auspex/static/**` (every file under
+it, by relative path and hash).
+**Trigger:** a new static file, a package-data edit, or a page that loads in
+the container but not from an installed wheel.
+
 ## TD-052 (F2) — no index covers `proposals.session_id`
 
 **Where:** `GET /api/chat/sessions/{id}/turns` (`auspex/routes/chat.py` ~603-607)
@@ -171,6 +251,36 @@ model change (D-042's WARNING), or the next addition to the index.
 > 4 times. The match was 40 words of the definition contract's section spec on
 > the thinking channel, exactly `THINKING_SHINGLE_WORDS`
 > (docs/probes/2026-10-12-b002-definition-rail-trip.md).
+
+> **B2: both floors re-measured on today's index, and B-002 fixed (D-058).**
+> Record: docs/probes/2026-10-13-b2-b002-reproduce-and-calibrate.md.
+> - **Answer floor** (S22's probe, unchanged, both shapes): legit max **5**
+>   against 8, as at S22.
+> - **Agent path** (36 legitimate turns, S26's battery plus a blind one, the
+>   route's composition with D-045's actions): thinking **28**, answer 5,
+>   narration 3, tool lines 3. A recitation ran **58**.
+> - **Every legitimate thinking run above 20 was a restated section list.**
+>   D-058 (as narrowed by its addendum) drops only the runs lying wholly
+>   inside a section list, and the re-ask, from the thinking index. Re-scored
+>   against that, the thinking ceiling is **20**: 2× under the floor.
+>   Neither floor moved.
+>
+> **Still open, so TD-044 stays:**
+> - action-request turns, whose answers paraphrase the action directive;
+> - the conversational path's thinking (the answer side was measured).
+>
+> The trigger stays armed: the next index addition, or D-042's WARNING.
+
+> **B2: the trigger fired again, twice, after the calibration.** Neither
+> addition was measured on its own.
+> - **B-006 (`c80bf29`)** gave `general` a second hard rule. Its rules block
+>   is now one **52-word run**; the two rules alone are **43**, over the
+>   thinking floor of 40 (it was 34). A thinking model that recites both rules
+>   while it plans would be cut, the same class as B-002. The B2 review of the
+>   fix measured it; it was not seen live (3/3 post-fix general turns were
+>   `output_valid: true`). Re-measure general-mode thinking first.
+> - **B-004 (`29209fa`)** lengthened `annotate_observable`'s parameter
+>   description by a few words ("…, or the indicator itself").
 
 ## TD-043 (S27) — an agent turn on a thinly covered topic spends the whole step cap re-searching
 
