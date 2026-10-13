@@ -169,3 +169,36 @@ an 8-word channel, so the text D-058 leaves in every index is still cut.
 any of 10 live turns of B-002's question, so the live runs show no regression,
 not the fix. The fix itself is proven at the route by the tests, with F1's
 exact logged run.
+
+## 7. The review, and the narrowing (D-058 addendum, `d8c597b`)
+
+A fresh agent reviewed `4b753d4` adversarially, read-only. It found nothing
+that lets an answer-side leak through. Every `channel="thinking"` feed reaches
+only `reasoning` frames, which the page draws in the Thinking pane, and
+reasoning is never stored.
+
+**One real defect, which I verified:** on the conversational path the
+exemption was too wide.
+- That path's thinking index was CHAT_SYSTEM_PROMPT (**22 words**, so no
+  40-word run), the fence (60), PASS1_DIRECTIVE (40, never sent on the native
+  path) and the mode directive.
+- Exempting the whole directive left little but the fence. A recitation of
+  alert_triage's directive (its purpose line and the 55-word DEFERRED rule)
+  in a held turn's thinking was no longer cut.
+- Section 4's calibration had only run the agent path, so it could not show
+  this.
+
+**Burhan narrowed it (recommended):**
+- The thinking index keeps the whole directive and subtracts only the
+  40-word runs of `ModeContract.section_list()`.
+- The re-ask stays exempt whole.
+- Two recitation tests failed on `4b753d4` and pass now: the definition
+  directive in the agent path's thinking, and alert_triage's in a held native
+  turn's thinking.
+- Four mutants, 4 caught. `./ci.sh` green, 1370 tests.
+
+**Re-scored offline** against the narrowed index (section 4's 36 thinking
+texts, no new calls):
+- **Legitimate thinking ceiling: 20** (`enrich_observable`'s description).
+  The 28-word section-list restatement now lies wholly inside the exempt span.
+- **The recitation: 58.**
