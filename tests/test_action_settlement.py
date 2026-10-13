@@ -548,10 +548,10 @@ async def test_b004_a_reference_naming_two_indicators_targets_neither(
     spec, workspace_id, b004_observable
 ):
     """A note attaches to one observable. A string naming two is not narrowed
-    to the one this workspace happens to have recorded."""
-    dry = await spec.dry_run(workspace_id=workspace_id, observable_id=f"{B004_IP}, 8.8.8.8",
-                             note="n")
-    assert dry.affects == ()
+    to the one this workspace happens to have recorded, in either order."""
+    for ref in (f"{B004_IP}, 8.8.8.8", f"8.8.8.8, {B004_IP}"):
+        dry = await spec.dry_run(workspace_id=workspace_id, observable_id=ref, note="n")
+        assert dry.affects == (), ref
 
 
 async def test_b004_a_note_proposed_by_value_executes_on_the_observable_it_named(

@@ -2680,8 +2680,15 @@ def test_b004_a_note_on_a_recorded_indicator_named_as_written_is_proposed(client
     value = B004["indicator"]
     assert observable_id(ObservableType.IPV4, value) == B004["obs_id"], "control: the live row"
     assert resolve_mode(B004["message"], ()).value == B004["mode"]
-    _db(settings, "INSERT INTO observables (workspace_id, obs_id, type, value)"
-        " VALUES ($1, $2, 'ipv4', $3) ON CONFLICT DO NOTHING", ws, B004["obs_id"], value)
+    # The chat user shares the dev `default` workspace with live work, so the
+    # test removes only what it created: the row if it was absent, and the
+    # proposals it filed, by id (B2 review of the first cut of this test).
+    existed = bool(_db(settings, "SELECT 1 FROM observables WHERE workspace_id = $1"
+                       " AND value = $2", ws, value))
+    if not existed:
+        _db(settings, "INSERT INTO observables (workspace_id, obs_id, type, value)"
+            " VALUES ($1, $2, 'ipv4', $3)", ws, B004["obs_id"], value)
+    filed: list[str] = []
     fake = SequencedStreamingFakeLLMClient([
         _tool_step(name="annotate_observable", arguments=json.dumps(B004["offending_call"]),
                    narration="I'll propose the note."),
@@ -2692,6 +2699,7 @@ def test_b004_a_note_on_a_recorded_indicator_named_as_written_is_proposed(client
         resp = client.post("/api/chat", json={"message": B004["message"]},
                            headers={"Authorization": f"Bearer {_token(client)}"})
         tool = [f["tool"] for f in _frames(resp.text) if "tool" in f]
+        filed = [t["proposal"]["id"] for t in tool if "proposal" in t]
         assert len(tool) == 1 and tool[0]["status"] == "proposed"
         assert tool[0]["proposal"]["summary"].startswith(f"Attach an analyst note to ipv4 {value}")
         card = _db(settings, "SELECT card FROM proposals WHERE id = $1::uuid",
@@ -2699,9 +2707,11 @@ def test_b004_a_note_on_a_recorded_indicator_named_as_written_is_proposed(client
         assert json.loads(card)["affects"] == [B004["obs_id"]]
     finally:
         client.app.dependency_overrides.clear()
-        _db(settings, "DELETE FROM proposals WHERE workspace_id = $1"
-            " AND tool_input->>'observable_id' = ANY($2::text[])", ws, [value, B004["obs_id"]])
-        _db(settings, "DELETE FROM observables WHERE workspace_id = $1 AND value = $2", ws, value)
+        if filed:
+            _db(settings, "DELETE FROM proposals WHERE id = ANY($1::uuid[])", filed)
+        if not existed:
+            _db(settings, "DELETE FROM observables WHERE workspace_id = $1 AND value = $2",
+                ws, value)
 
 
 def test_an_action_that_would_change_nothing_is_never_filed_from_chat(client, settings,
