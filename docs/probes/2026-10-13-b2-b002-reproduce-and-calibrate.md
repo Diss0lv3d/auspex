@@ -202,3 +202,10 @@ texts, no new calls):
 - **Legitimate thinking ceiling: 20** (`enrich_observable`'s description).
   The 28-word section-list restatement now lies wholly inside the exempt span.
 - **The recitation: 58.**
+
+**The narrowed rule, live** (rebuilt container, carrying `d8c597b`;
+`b2-b002/raw-live-after-narrowed.log`):
+- B-002's question: 2 of 2 `stop`, `output_valid: true`, `contract_valid:
+  true` (1732 and 1884 chars).
+- S26's tool recitation: `output_guard`, LEAK_COPY shown, cut at 8 words of
+  `enrich_observable`'s description.
