@@ -121,6 +121,19 @@ def test_system_directive_names_the_mode_and_required_sections():
     assert "No data ≠ low risk" in directive
 
 
+def test_b006_general_carries_the_no_data_rule_ioc_enrichment_has():
+    """B-006. A follow-up with no indicator of its own ("dig deeper") resolves
+    to general, which did not carry ioc_enrichment's rule, and the agent called
+    a no-signal address clean. general now carries the same rule, word for word;
+    ioc_enrichment's is unchanged."""
+    rule = ("Never assert a reputation verdict you do not have evidence for; "
+            "absence of data is 'unknown', not 'benign'.")
+    assert resolve("dig deeper") is Mode.GENERAL
+    assert rule in contract_for(Mode.IOC_ENRICHMENT).rules
+    assert rule in contract_for(Mode.GENERAL).rules
+    assert f"- {rule}" in contract_for(Mode.GENERAL).system_directive()
+
+
 def test_the_section_list_is_the_directives_own_field_lines_contiguous():
     """D-058: the rail exempts runs lying wholly inside the section list from the
     thinking index, by subtracting the list's own runs. That is only the run set

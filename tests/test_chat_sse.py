@@ -2663,6 +2663,65 @@ def test_the_chat_agent_proposes_an_action_and_nothing_executes(client, settings
     assert frames[-1]["done"]["output_valid"] is True
 
 
+B006 = json.loads(
+    (Path(__file__).parent / "fixtures" / "agent" / "b006_no_signal_called_clean.json")
+    .read_text()
+)
+
+
+def test_b006_dig_deeper_on_a_no_signal_ip_is_told_its_reputation_is_unknown(client, settings):
+    """B-006 pinned regression (the exact answer is in the fixture: "Clean
+    reputation … Risk Level: Low … safe"). B1's two turns on the agent path:
+    the IOC check, then "dig deeper", which resolves to general. The agent's
+    lookup runs through the real enrichment service over AbuseIPDB's live
+    no-signal response. What the model is handed now says, in code, that the
+    reputation is unknown, and general's directive carries the no-data rule."""
+    import httpx
+
+    from auspex.enrich.providers.abuseipdb import AbuseIPDB
+    from auspex.enrich.service import EnrichmentService
+
+    ip = "34.187.179.218"
+    _purge_observable(settings, ip)
+    enrichment = EnrichmentService(
+        [AbuseIPDB("k")],
+        client=httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json=B001["abuseipdb_response"]))),
+    )
+    fake = SequencedStreamingFakeLLMClient([
+        _tool_step(name="enrich_observable", arguments=json.dumps({"observables": [ip]}),
+                   narration="Looking it up again."),
+        _answer_step("No source reported a signal, so its reputation is unknown."),
+    ])
+    real_enrichment = client.app.state.enrichment
+    client.app.state.enrichment = enrichment
+    auth = {"Authorization": f"Bearer {_token(client)}"}
+    try:
+        first = _frames(client.post("/api/chat", json={"message": B006["turn1"]},
+                                    headers=auth).text)
+        assert first[-1]["done"]["path"] == "shortcut"
+        _use_agent(client.app, fake)
+        second = _frames(client.post(
+            "/api/chat", json={"message": B006["turn2"], "session_id": first[0]["session"]},
+            headers=auth).text)
+    finally:
+        client.app.state.enrichment = real_enrichment
+        client.app.dependency_overrides.clear()
+        _purge_observable(settings, ip)
+
+    done = second[-1]["done"]
+    assert (done["path"], done["mode"]) == ("agent", B006["mode"])
+    told = [json.loads(m["content"]) for m in fake.stream_calls[1]["messages"]
+            if m["role"] == "tool"]
+    (entry,) = told[0]["results"]
+    assert entry["signals"] == [] and entry["reputation"] == "unknown"
+    assert "not a benign verdict" in entry["no_signal"]
+    system = "\n".join(m["content"] for m in fake.stream_calls[0]["messages"]
+                       if m["role"] == "system")
+    assert "absence of data is 'unknown', not 'benign'" in system
+    assert "Clean reputation" in B006["offending_answer"]  # the pinned claim
+
+
 B004 = json.loads(
     (Path(__file__).parent / "fixtures" / "actions" / "b004_note_on_recorded_indicator.json")
     .read_text()
