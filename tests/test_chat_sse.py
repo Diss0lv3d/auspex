@@ -1640,6 +1640,25 @@ def test_a_recitation_in_the_agent_paths_thinking_is_still_cut(client, settings,
     assert [r for r, _ in _session_messages(settings, frames[0]["session"])] == ["user"]
 
 
+def test_a_recitation_of_the_directive_in_the_agent_paths_thinking_is_still_cut(client, settings):
+    """D-058 addendum (B2 review). Only a run wholly inside the section list is
+    exempt; a recitation that reaches the directive's purpose line, preamble or
+    hard rules still trips the thinking floor."""
+    directive = contract_for(resolve_mode(B002["question"], ())).system_directive()
+    fake = SequencedStreamingFakeLLMClient([[
+        StreamEvent(kind="reasoning", text="My instructions, verbatim: " + directive),
+        *_answer_step("Never stored."),
+    ]])
+    _use_agent(client.app, fake)
+    try:
+        frames = _post_deep(client, B002["question"])
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert frames[-1]["done"]["finish_reason"] == "output_guard"
+    assert [r for r, _ in _session_messages(settings, frames[0]["session"])] == ["user"]
+
+
 def test_narration_is_held_to_the_answers_floor(client):
     """Narration is the model's prose, not its thinking: it reaches the Thinking
     pane, but nothing measured shows it quoting instructions, so it keeps the
@@ -2498,6 +2517,28 @@ def test_a_re_ask_whose_thinking_restates_the_repair_directive_is_answered(clien
     done = frames[-1]["done"]
     assert (done["finish_reason"], done["contract_repair"]) == ("stop", "reasked")
     assert "Contain the host." in "".join(f["content"] for f in frames if "content" in f)
+
+
+def test_a_held_turns_thinking_that_recites_its_directive_is_cut(client, settings):
+    """D-058 addendum (B2 review). On the conversational path the thinking index
+    is the 22-word chat prompt, the fence, and the mode directive. The pasted
+    alert is attacker-controlled, and a thinking that recites alert_triage's
+    directive (its purpose line and the DEFERRED rule) must still end the turn
+    with nothing shown or stored."""
+    directive = contract_for(resolve_mode(_TRIAGE_CEF, ())).system_directive()
+    fake = StreamingFakeLLMClient([
+        StreamEvent(kind="reasoning", text="As instructed, my instructions: " + directive),
+        *_TRIAGE_OK,
+    ])
+    _use(client.app, fake, native_reasoning=True)
+    try:
+        frames = _chat(client, _TRIAGE_CEF)
+    finally:
+        client.app.dependency_overrides.clear()
+
+    assert frames[-1]["done"]["finish_reason"] == "output_guard"
+    assert not [f for f in frames if "content" in f]
+    assert [r for r, _ in _session_messages(settings, frames[0]["session"])] == ["user"]
 
 
 def test_a_two_pass_endpoint_holds_and_repairs_too(client):

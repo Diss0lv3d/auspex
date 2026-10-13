@@ -121,6 +121,23 @@ def test_system_directive_names_the_mode_and_required_sections():
     assert "No data ≠ low risk" in directive
 
 
+def test_the_section_list_is_the_directives_own_field_lines_contiguous():
+    """D-058: the rail exempts runs lying wholly inside the section list from the
+    thinking index, by subtracting the list's own runs. That is only the run set
+    of a span of the directive if the list IS that span: compiled from the same
+    lines, consecutive, in order. A contract with no sections has an empty list."""
+    for mode in Mode:
+        c = contract_for(mode)
+        sections = c.section_list()
+        if not c.fields:
+            assert sections == ""
+            continue
+        assert "\n" + sections + "\n" in c.system_directive() + "\n"
+        assert sections.count("\n") == len(c.fields) - 1
+        assert all(line.startswith(f"## {f.name}")
+                   for line, f in zip(sections.split("\n"), c.fields, strict=True))
+
+
 # ── contract validation (specs → validators) ─────────────────────────────────
 
 

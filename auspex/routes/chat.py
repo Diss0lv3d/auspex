@@ -850,14 +850,11 @@ async def chat(
     # is built from it). Listing the strings explicitly is the point — indexing
     # "every system message" would fire on the turn's own data.
     #
-    # D-058: the directives that tell the model what to WRITE — its mode's
-    # sections and, on a held turn, the re-ask. The re-ask is configuration we
-    # may issue this turn, so it is indexed from the start (D-043 item 7),
-    # rendered for an empty draft: that carries every fixed sentence and the pin
-    # lines. Indexed like the rest; only the thinking floor below leaves them out.
-    answer_shape = [contract.system_directive()]
-    if hold:
-        answer_shape.append(contract.repair_directive(None, pinned_values))
+    # The re-ask's directive is configuration we may issue this turn, so it is
+    # indexed from the start (D-043 item 7). Rendered for an empty draft: that
+    # carries every fixed sentence and the pin lines.
+    repair = contract.repair_directive(None, pinned_values) if hold else None
+    answer_shape = [contract.system_directive(), *([repair] if repair else [])]
     if agent_path:
         loop = AgentLoop(
             build_capability_registry(
@@ -912,17 +909,18 @@ async def chat(
     # channel the rail waits for a recitation. Everything else — the answer, the
     # tool lines, narration, a two-pass analysis — keeps the answer's floor.
     #
-    # D-058 (B-002): it also plans its answer by restating the sections it was
-    # told to write, and the tokeniser makes a section list one run, longer than
-    # that floor (definition 43 words, threat_intel 42, the re-ask 42-44). So the
-    # thinking index leaves `answer_shape` out. Against what remains, B2 measured
-    # a legitimate ceiling of 20 and a recitation of 58. Every other channel
-    # still indexes `answer_shape` at the answer's floor.
+    # D-058 (B-002) and its addendum: it also plans its answer by restating the
+    # sections it was told to write, and the tokeniser makes a section list one
+    # run longer than that floor (definition 43 words, threat_intel 42, the
+    # re-ask 42-44). So the thinking index drops the re-ask and every run lying
+    # WHOLLY inside the section list, and nothing else: a run that reaches the
+    # directive's purpose line, preamble or hard rules still trips. On the
+    # conversational path the directive is most of this index (the chat prompt
+    # is 22 words). Every other channel indexes all of it at the answer's floor.
     thinking_floor = (
-        instruction_index(
-            [text for text in issued if text not in answer_shape],
-            shingle=THINKING_SHINGLE_WORDS,
-        ),
+        instruction_index([text for text in issued if text != repair],
+                          shingle=THINKING_SHINGLE_WORDS)
+        - instruction_index([contract.section_list()], shingle=THINKING_SHINGLE_WORDS),
         THINKING_SHINGLE_WORDS,
     )
 
