@@ -197,8 +197,9 @@ model change (D-042's WARNING), or the next addition to the index.
 >   route's composition with D-045's actions): thinking **28**, answer 5,
 >   narration 3, tool lines 3. A recitation ran **58**.
 > - **Every legitimate thinking run above 20 was a restated section list.**
->   D-058 leaves the answer-shape directives out of the thinking index.
->   Against what remains, the thinking ceiling is **20**: 2× under the floor.
+>   D-058 (as narrowed by its addendum) drops only the runs lying wholly
+>   inside a section list, and the re-ask, from the thinking index. Re-scored
+>   against that, the thinking ceiling is **20**: 2× under the floor.
 >   Neither floor moved.
 >
 > **Still open, so TD-044 stays:**
