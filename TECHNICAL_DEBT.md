@@ -1,5 +1,36 @@
 # Technical debt — logged the moment it's taken
 
+## TD-055 (B2) — only the ceiling refusal discards a stored question; other failures before the claim still leave one
+
+**Where:** `auspex/routes/chat.py`, `chat()`. B-008's fix (`4680bf6`) deletes
+a refused turn's question, and its chat if the turn made it, on the 429.
+Burhan chose to discard on refusal rather than reorder the route.
+**Risk:** LOW. The B2 review of the fix found no defect, but stated the
+bounds:
+- **Other failures still leave the question.** Anything that raises between
+  storing the question and the claim leaves it behind, and on a new chat an
+  orphaned sidebar entry: `_session_rows`, `resolver.resolve()` reading the
+  scorecard, the claim's own DB calls, and `aclose()` before the discard. So
+  does a discard that itself raises (a 500, rows kept). The trigger is a
+  transient Postgres error. Every checked 4xx/503 exit happens before the
+  question is stored.
+- **The emptiness guard is untested, and not race-proof.** No test reaches it
+  (a chat this turn created that someone else then wrote into). Under READ
+  COMMITTED, a second turn of the SAME user, inserting into the new chat
+  within milliseconds of learning its id, could lose its question to the
+  cascade. That is same-user only; no tenancy risk.
+- **The test limiter refuses every claim,** not only the first. That is
+  harmless while the turn ends at its first refusal.
+
+**Why taken:** the reorder was the cause-level fix, but it reshuffles a long
+route around the client lifecycle and the foreign-session 404 (Burhan's
+call).
+**Path to fix:** claim before writing. Validate the session read-only,
+resolve the mode and the endpoint, claim, and only then create the chat and
+store the question. Or wrap the store-and-claim in one transaction.
+**Trigger:** a stored question with no answer and no `turn_spend` row seen in
+a chat list, or any new early exit added between the store and the claim.
+
 ## TD-054 (B2) — a note named by its indicator is re-resolved when it runs, not pinned to the card's target
 
 **Where:** `auspex/actions/builtin.py`, `annotate_observable`. Since B-004
