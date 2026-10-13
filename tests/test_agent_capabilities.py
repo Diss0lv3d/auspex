@@ -351,18 +351,46 @@ async def test_b006_every_empty_signal_list_says_what_it_means(answered, line):
     assert (entry["reputation"], entry["no_signal"]) == ("unknown", line)
 
 
-async def test_b006_an_indicator_with_signals_carries_no_unknown_line():
+async def test_b006_context_only_signals_read_as_unknown_too():
+    """B2 review of the B-006 fix. InternetDB answers most live IPs with an
+    open-ports signal labelled `unknown`: context, not reputation. The IOC check
+    already says "no reputation verdict" there (echo.py); the tool result says
+    the same, through the same `synthesize`, and still lists the context."""
     observables = _obs("check 185.220.101.5")
-    signal = ProviderSignal(provider="AbuseIPDB", label=VerdictLabel.MALICIOUS,
-                            confidence=0.9, summary="abuse score 100")
+    ports = ProviderSignal(provider="InternetDB", label=VerdictLabel.UNKNOWN,
+                           confidence=0.0, summary="open ports 443")
     service = FakeEnrichmentService(EnrichmentOutcome(items=(ObservableEnrichment(
-        observable=observables[0], sources_answered=5, signals=(signal,)),)))
+        observable=observables[0], sources_answered=5, signals=(ports,)),)))
     registry = _build(enrichment=service, observables=observables)
 
     (entry,) = (await registry.get("enrich_observable").handler(
         {"observables": ["185.220.101.5"]}))["results"]
 
-    assert len(entry["signals"]) == 1
+    assert [s["summary"] for s in entry["signals"]] == ["open ports 443"]
+    assert entry["reputation"] == "unknown"
+    assert entry["no_signal"] == (
+        "no reputation signal from 5 connected sources, only context: reputation unknown, "
+        "which is not a benign verdict"
+    )
+
+
+@pytest.mark.parametrize("with_context", [False, True])
+async def test_b006_an_indicator_with_a_reputation_signal_carries_no_unknown_line(with_context):
+    """A real verdict, alone or beside context, is not "unknown"."""
+    observables = _obs("check 185.220.101.5")
+    signals = (ProviderSignal(provider="AbuseIPDB", label=VerdictLabel.MALICIOUS,
+                              confidence=0.9, summary="abuse score 100"),)
+    if with_context:
+        signals += (ProviderSignal(provider="InternetDB", label=VerdictLabel.UNKNOWN,
+                                   confidence=0.0, summary="open ports 443"),)
+    service = FakeEnrichmentService(EnrichmentOutcome(items=(ObservableEnrichment(
+        observable=observables[0], sources_answered=5, signals=signals),)))
+    registry = _build(enrichment=service, observables=observables)
+
+    (entry,) = (await registry.get("enrich_observable").handler(
+        {"observables": ["185.220.101.5"]}))["results"]
+
+    assert len(entry["signals"]) == len(signals)
     assert "reputation" not in entry and "no_signal" not in entry
 
 

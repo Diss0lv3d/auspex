@@ -48,6 +48,8 @@ from auspex.agent.registry import ToolLevel, ToolRegistry
 from auspex.classify.observables import Observable, extract
 from auspex.enrich import EnrichmentOutcome, EnrichmentService
 from auspex.enrich.service import CAP_SKIP, ENRICH_MAX_OBSERVABLES
+from auspex.enrich.types import VerdictLabel
+from auspex.enrich.verdict import synthesize
 from auspex.kb import MAX_IDS_PER_LOOKUP, KBUnavailable, KnowledgeService
 
 logger = logging.getLogger("auspex.agent.capabilities")
@@ -186,15 +188,16 @@ def _resolve(
     return resolved, unresolved, over_cap
 
 
-def _no_signal_line(answered: int) -> str:
-    """What an empty signal list means, in the tool result (B-006). Worded so it
-    shares no long run with the mode directives the rail indexes: the model may
-    repeat it in its answer."""
+def _no_signal_line(answered: int, *, context_only: bool = False) -> str:
+    """What a list with no reputation in it means, in the tool result (B-006).
+    Worded so it shares no long run with the mode directives the rail indexes:
+    the model may repeat it in its answer."""
     if answered == 0:
         return "no connected source answered for it: not checked, reputation unknown"
     noun = "source" if answered == 1 else "sources"
-    return (f"no signal from {answered} connected {noun}: reputation unknown, "
-            "which is not a benign verdict")
+    found = (f"no reputation signal from {answered} connected {noun}, only context"
+             if context_only else f"no signal from {answered} connected {noun}")
+    return f"{found}: reputation unknown, which is not a benign verdict"
 
 
 def _as_list(raw, *, cap: int) -> tuple[list[str], int]:
@@ -323,12 +326,16 @@ def build_capability_registry(
                     }
                     for s in item.signals
                 ]
-                if not item.signals:
-                    # B-006: looked up, and nobody reported anything. A bare
+                verdict = synthesize(item.observable, item.signals)
+                if verdict is None or verdict.label is VerdictLabel.UNKNOWN:
+                    # B-006: looked up, and no source gave a reputation. A bare
                     # empty list read as "clean" (3 of 3 live), so the code says
-                    # what it means, as the IOC check's own line does.
+                    # what it means, on the IOC check's own test (echo.py):
+                    # no signals, or context only (open ports) is no verdict.
                     entry["reputation"] = "unknown"
-                    entry["no_signal"] = _no_signal_line(item.sources_answered)
+                    entry["no_signal"] = _no_signal_line(
+                        item.sources_answered, context_only=bool(item.signals)
+                    )
                 if item.network:
                     # B-001: who operates the address, per the source that
                     # said so. Beside the signals, never one of them.
