@@ -2,8 +2,9 @@
 
 _Last updated: 2026-10-13 — **B2 CLOSED** (session-end ritual run), after F2.
 `./ci.sh` green at B2's close: **1385 tests, 121 modules**. `/api/health/ready`
-200. Branch `staging`. **Promote slate: B2's work and F2's session-end docs**,
-promoted at B2's close (see "In-flight" #1 for the number)._
+200. Branch `staging`. **Promote #33** (`991b397`, back-merge `ca3262d`)
+shipped all of B2 and F2's session-end docs at B2's close. **Promote slate:
+EMPTY** but for this note._
 
 ## Tracks (D-051) — read this first
 
@@ -385,9 +386,10 @@ The ROADMAP through S20 is complete; S21–S28, F1, B1, F2 and B2 were each
 scoped by a decision or a bug.
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: B2's work and F2's session-end docs, promoted at B2's
-   close** (the number and merge commit are recorded below once it lands).
-   Promote #32 (`6f898c5`, back-merge `1a9e774`) shipped all of F2.
+1. **Promote slate: EMPTY** but for B2's promote note. Promote #33
+   (`991b397`, back-merge `ca3262d`; GitHub CI passed twice) shipped all of B2
+   and F2's session-end docs. Promote #32 (`6f898c5`, back-merge `1a9e774`)
+   shipped all of F2.
    - **The first session of any track runs `/promote` as its Step 0 — but
      only ONE window at a time** (the 2026-10-12 collision).
    - Read `git diff origin/main..staging --stat`, never the commit list.
