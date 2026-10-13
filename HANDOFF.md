@@ -243,8 +243,10 @@ honestly and is not an error you need to fix.
 
 Then open <http://localhost:8000>, sign in with any email (dev sign-in, for
 example `you@analyst.dev`), and ask `check 8.8.8.8`. That is a code-answered IP
-check: no engine call, and it records the observable. Now
-<http://localhost:8000/timeline> has something to show.
+check: no engine call, and it records the observable. Now open
+<http://localhost:8000/timeline>. It has its own sign-in box, prefilled with a
+dev email; any email works, because every dev sign-in shares the `default`
+workspace. Its digest now has something to show.
 
 ### 3.5 Claude Code plugins
 
