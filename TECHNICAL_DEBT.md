@@ -240,6 +240,17 @@ model change (D-042's WARNING), or the next addition to the index.
 >
 > The trigger stays armed: the next index addition, or D-042's WARNING.
 
+> **B2: the trigger fired again, twice, after the calibration.** Neither
+> addition was measured on its own.
+> - **B-006 (`c80bf29`)** gave `general` a second hard rule. Its rules block
+>   is now one **52-word run**; the two rules alone are **43**, over the
+>   thinking floor of 40 (it was 34). A thinking model that recites both rules
+>   while it plans would be cut, the same class as B-002. The B2 review of the
+>   fix measured it; it was not seen live (3/3 post-fix general turns were
+>   `output_valid: true`). Re-measure general-mode thinking first.
+> - **B-004 (`29209fa`)** lengthened `annotate_observable`'s parameter
+>   description by a few words ("…, or the indicator itself").
+
 ## TD-043 (S27) — an agent turn on a thinly covered topic spends the whole step cap re-searching
 
 > **RESOLVED S28 — D-046.** Measured first: 0 of 31 re-searches were misses.
