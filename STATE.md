@@ -4,14 +4,16 @@ _Last updated: 2026-10-13 — **B2 CLOSED** (session-end ritual run), after F2.
 `./ci.sh` green at B2's close: **1385 tests, 121 modules**. `/api/health/ready`
 200. Branch `staging`. **Promote #33** (`991b397`, back-merge `ca3262d`)
 shipped all of B2 and F2's session-end docs at B2's close. **Promote slate:
-EMPTY** but for this note._
+EMPTY** but for this note.
+**F3 handed to a collaborator** (Burhan, 2026-10-13, at F3's start ritual;
+D-059, HANDOFF.md)._
 
 ## Tracks (D-051) — read this first
 
 | Track | Prompt | Last closed | Next | Status |
 |---|---|---|---|---|
 | backend | `NEXT-SESSION-BE.md` | S28 (2026-10-11) | S29 | paused |
-| front end | `NEXT-SESSION-FE.md` | F2 (2026-10-12) | F3 | **focus** |
+| front end | `NEXT-SESSION-FE.md` | F2 (2026-10-12) | F3 | **focus** · handed to a collaborator, who owns its calls (D-059) |
 | bugs | `NEXT-SESSION-BUGS.md` | B2 (2026-10-13) | B3 | B-005 and B-009 open; both wait on Burhan's call on the deferred fabricated-specifics item |
 
 - **Focus: front end.** Burhan, 2026-10-10, after S28's ritual: "before moving
@@ -26,6 +28,22 @@ EMPTY** but for this note._
   overturns D-051's rule.
 - **That pivot was nearly lost** (2026-10-10). Recovered from the session
   transcript; evidence in docs/probes/2026-10-12-b001-ip-owner-claim.md.
+- **F3 is handed to a collaborator** (Burhan, 2026-10-13, at F3's start
+  ritual, before any F3 work: "She owns F3 fully").
+  - She is a junior developer, working in Claude Code on her own machine, in
+    her own clone, under her own personal GitHub account.
+  - **D-059:** a collaborator authors under their own personal identity, on
+    SESSION-RULES.md's "Who works here" table, and adds her own row in her
+    first session. `/session-start` 3b and `/promote` 0 now check that table
+    instead of writing Burhan's email into the config.
+  - Every F3 call is hers, new D-entries and `/promote` included. Re-scoping
+    the other tracks stays Burhan's.
+  - Her handbook is `HANDOFF.md`: setup, workflow, the starter prompt, and
+    the commands in full.
+  - **One session at a time now spans two machines.** While F3 is out, a
+    session on Burhan's machine would collide with hers on `staging`.
+  - Burhan's to-do before she starts: add her as a collaborator; send her the
+    `.env` values through a secure channel.
 - Standing rules every track obeys: `SESSION-RULES.md`. Bugs: `BUGS.md`.
 
 ## B2 — what happened (bugs track's second session)
@@ -749,12 +767,13 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 **Pick a track (D-051); the Tracks table at the top has the ids.** Paste the
 prompt file of the track you mean. `/session-start` with no track asks.
 One window at a time (D-051).
-- **F3, front end, the focus** (`NEXT-SESSION-FE.md`):
-  - Burhan uses F2's page by hand first (reload, the sidebar, reopen, Review
-    and Undo, a phone), and his list outranks the rest;
+- **F3, front end, the focus** (`NEXT-SESSION-FE.md`), **run by the
+  collaborator Burhan handed it to** (D-059; start from HANDOFF.md):
+  - she uses F2's page by hand first (reload, the sidebar, reopen, Review
+    and Undo, a phone), and her list outranks the rest;
   - then the default goal: the timeline page joins the chat page — its script
     out of the page and D-057's CSP on it (closes TD-051);
-  - candidates, only if Burhan picks them: analyst notes shown (IDEAS), TD-047
+  - candidates, only if she picks them: analyst notes shown (IDEAS), TD-047
     (304s), the stale proposal line after Undo, the "[connection lost]" copy.
 - **S29, backend, paused** (`NEXT-SESSION-BE.md`): the review of S28's code,
   TD-036, and what TD-044 still lacks after B2's re-measure (action-request

@@ -1,15 +1,30 @@
 # NEXT-SESSION-FE — track: front end · session: F3
 
 _Paste everything below the line into a fresh Claude Code window opened in
-/home/burhan/auspex-new. **The front end is the current focus** (Burhan,
-2026-10-10: "before moving on with more backend development we need to improve
-on the FE so lets shift our focus there and pause BE for a bit")._
+the Auspex repo (Burhan's clone: /home/burhan/auspex-new). **The front end is
+the current focus** (Burhan, 2026-10-10: "before moving on with more backend
+development we need to improve on the FE so lets shift our focus there and
+pause BE for a bit")._
+
+_**F3 is handed to a collaborator** (Burhan, 2026-10-13: "She owns F3 fully").
+She runs it on her own machine under her own personal identity, and every F3
+call is hers, new D-entries and `/promote` included (D-059). New here? Read
+`HANDOFF.md` first._
 
 ---
 
-SESSION F3 of Auspex, **front-end track** (D-051). The working dir must be
-/home/burhan/auspex-new. Run `/session-start fe F3` first (the full ritual). It
-reads `SESSION-RULES.md` (standing rules for every track) and STATE.md.
+SESSION F3 of Auspex, **front-end track** (D-051). The working dir must be the
+Auspex repo: Burhan's /home/burhan/auspex-new, or a collaborator's own clone.
+Run `/session-start fe F3` first (the full ritual). It reads `SESSION-RULES.md`
+(standing rules for every track) and STATE.md.
+
+**Who decides (D-059).** The human running F3 owns its calls. Where this
+prompt, the rules or a command say "Burhan's call" or "ask Burhan", ask them.
+Re-scoping the backend or bugs track stays Burhan's: flag it, don't do it.
+
+**No local engine needed.** F3's default goal is page work and needs no LLM,
+so the local-Ollama gate (`/session-start` 4b) is not a stop for F3. A chat
+turn, if one is needed, uses the dev endpoint from `.env` and costs money.
 
 Step 0 (do BEFORE new scope):
 
@@ -17,8 +32,8 @@ Step 0 (do BEFORE new scope):
    check `ps` for a second `claude` in this directory and stop.
 2. **If STATE.md says the promote slate is not empty, `/promote` it.** Read
    the diff, not the list. (At F2's close it held only F2's session-end docs.)
-3. **Ask Burhan what he saw using F2's page by hand.** F2 shipped things he
-   has not used for real:
+3. **Use F2's page by hand first, and say what you saw.** Burhan handed F3 on
+   before using it, so nobody has used these for real:
    - a chat survives a reload: the always-on sidebar, + New chat, reopening a
      chat (the "Reopened" divider, spend lines, proposal lines with Review);
    - the sign-in kept for the tab (D-056), and Sign out;
@@ -27,8 +42,9 @@ Step 0 (do BEFORE new scope):
      own line;
    - the page on a phone (the Chats button, the backdrop, Esc).
 
-   His list outranks the goal below. What he names joins F3 only if he says
-   so; the rest goes to IDEAS.md, or BUGS.md (`/bug`) if it is broken.
+   That list outranks the goal below. What the session's owner names joins
+   F3 only if they say so; the rest goes to IDEAS.md, or BUGS.md (`/bug`) if
+   it is broken.
 
 Goal (default): **the timeline page joins the chat page under D-057's policy**
 (closes TD-051). Today `auspex/static/timeline.html` (280 lines) carries its
@@ -51,8 +67,8 @@ questions; ask. `tests/test_ui.py`'s timeline tests read the page's source;
 they must read it as served, as the chat page's do (`_page(client)`). Live in a
 real browser with **zero CSP violations**, against the rebuilt container.
 
-Candidates. **Ask Burhan at the start ritual. Do NOT start any of these
-unasked:**
+Candidates. **Ask the session's owner at the start ritual. Do NOT start any
+of these unasked:**
 - **Analyst notes shown** (IDEAS, F2): `annotate_observable` writes
   `observable_notes` and nothing reads them back. Showing them on the
   timeline needs a read route (scoped to the workspace) — a design question.
