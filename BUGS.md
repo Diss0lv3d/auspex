@@ -174,7 +174,10 @@ are never deleted.
   the workspace's usage limit was reached") never appears on this path. The
   ordering is older than F2; the chat list makes it visible.
 - **Evidence:** from reading the code only, not reproduced live.
-- **Status:** open.
+- **Status:** fixed `4680bf6` (B2), on Burhan's call (discard on refusal). A
+  refused turn now deletes the question it stored, and the chat if it created
+  it. Reproduced at the route; live at a set ceiling: 429, nothing stored, no
+  chat added (docs/probes/2026-10-13-b2-b008-ceiling-refusal.md).
 
 ## B-009 — the agent calls a no-signal IP "legitimate" infrastructure, from who operates it and from the absence of signals
 
