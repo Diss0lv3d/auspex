@@ -174,3 +174,29 @@ are never deleted.
   ordering is older than F2; the chat list makes it visible.
 - **Evidence:** from reading the code only, not reproduced live.
 - **Status:** open.
+
+## B-009 — the agent calls a no-signal IP "legitimate" infrastructure, from who operates it and from the absence of signals
+
+- **Found:** 2026-10-13, B2 (Claude), live right after B-006's fix (`fce2f55`,
+  `c80bf29`). Dev endpoint (glm-4.5-air), agent path, mode `general`, B1's
+  two turns: "what do you know about this IP: 34.187.179.218", then "dig
+  deeper".
+- **What happened:** the tool result the model read said `"reputation":
+  "unknown"`, with "no signal from 5 connected sources: reputation unknown,
+  which is not a benign verdict". The answers said unknown 3/3, but 3/3 also
+  called the address legitimate:
+  - "legitimate Google infrastructure" and "a legitimate Google-owned IP
+    address" (3/3);
+  - runs 1 and 3 drew it partly from the absence of signals: "The absence of
+    any threat intelligence signals suggests this is a legitimate Google-owned
+    IP address";
+  - run 3 also wrote "despite the clean threat intelligence results".
+
+  Nobody supplied "legitimate". AbuseIPDB named only the operator and the usage
+  type. Related to the deferred fabricated-specifics item (SESSION-RULES.md,
+  Deferred) and to B-005. A fix that checks what the model writes goes to
+  Burhan first.
+- **Evidence:** docs/probes/2026-10-13-b2-b006-reproduce.md (the fix section
+  and its table); docs/probes/b2-b006/raw-repro-after.jsonl (the three answers
+  verbatim).
+- **Status:** open.
