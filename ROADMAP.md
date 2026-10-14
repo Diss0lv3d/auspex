@@ -519,8 +519,17 @@ BUGS.md) have their own sections at the end, before "Later".
     from an allow-list; **D-057:** a strict CSP on the chat page (TD-051
     narrowed). TD-053 logged.
   - 1360 tests; 121 modules; no new env vars.
-- [ ] **F3 — Burhan's hands-on list of F2's page, then the timeline page joins
-  the chat page** (its script out of the page, D-057's CSP on it, TD-051).
+- [x] **F3 — Burhan's hands-on list of F2's page, then the timeline page joins
+  the chat page** (2026-10-14). Run by the collaborator Hunaiza (D-059). No
+  promote: a PR from `f3-timeline-csp` into `staging` (her call).
+  - **TD-051 closed** (docs/superpowers/specs/2026-10-14-timeline-page-csp-design.md):
+    markup, `css/timeline.css`, a tested `js/timeline-logic.js` (14 Node
+    tests) and `js/timeline.js` building feed text as text; `/timeline`
+    carries D-057's policy, pinned for both pages. Live: zero CSP violations,
+    markup in feed text rendered as text, a link with `'` and `"` in its id.
+  - **F2's page by hand**, walked in headless Chromium without a turn; Review
+    and Undo not reached (STATE.md follow-up #26).
+  - 1392 tests; 121 modules; no new env vars.
 
 ## Track: bugs (D-051)
 
