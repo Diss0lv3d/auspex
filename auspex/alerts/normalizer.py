@@ -352,10 +352,12 @@ def _parse_json(text: str) -> dict:
     # below that are not obvious come from the published schemas, snapshotted in
     # docs/probes/2026-10-11-s28-alert-json-keys.md (ECS: `source.ip`,
     # `destination.ip`, `rule.name`; Microsoft Graph security alert:
-    # `processCommandLine`, `createdDateTime`).
+    # `processCommandLine`, `createdDateTime`). An alert or detection wrapper's
+    # own `name` is named one by one too (S29 review: e2af082 dropped them).
     return {
         "name": flat.get("name") or _leaf(
-            flat, "rule.name", "rule_name", "rule", "signature", "title", "alert", "event"
+            flat, "rule.name", "alert.name", "detection.name", "rule_name", "rule",
+            "signature", "title", "alert", "event"
         ),
         "severity": sev,
         "src": _leaf(flat, "src_ip", "source_ip", "source.ip", "src", "source", "srcip"),
