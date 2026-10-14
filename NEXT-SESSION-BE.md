@@ -29,10 +29,11 @@ live under `docs/probes/`, as usual.
 
 Step 0 (do BEFORE new scope):
 
-1. **F3 must be closed.** STATE.md's Tracks table must show F3 as the front
-   end's last closed session. If it doesn't, STOP: the collaborator may be
-   working on `staging` (D-051, D-059). Run `git fetch` and read
-   `origin/staging` before anything else, because her commits land there.
+1. **F3 must be closed and merged.** F3 closed 2026-10-14, and its work
+   (with its session-end docs) is the PR from `f3-timeline-csp` into
+   `staging`. Review and merge that PR first; until then, STATE.md on
+   `staging` still shows F3 in flight. Run `git fetch` and read
+   `origin/staging` before anything else (D-051, D-059).
 2. **If STATE.md says the promote slate is not empty, `/promote` it.** Read the
    diff, not the list.
 3. **An adversarial second-pass review of S28's own code.** Every integration
@@ -280,7 +281,7 @@ session._
 
 | # | Session | Track | Depends on | Delivers |
 |---|---|---|---|---|
-| 0 | F3 | fe | — | in flight with the collaborator (D-059) |
+| 0 | F3 | fe | — | closed 2026-10-14 by the collaborator (D-059); its PR `f3-timeline-csp` → `staging` is merged before S29 |
 | 1 | S29 | be | F3 closed | the S28 review, decisions and spec, where the QRadar lives |
 | 2 | S30 | be | S29 | MSSP tenancy: organizations, memberships, roles, one workspace per token |
 | 3 | F4 | fe | S30 | one shell for every page, role-aware, a workspace switcher |
