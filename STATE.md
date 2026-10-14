@@ -6,13 +6,14 @@ _Last updated: 2026-10-13 — **B2 CLOSED** (session-end ritual run), after F2.
 shipped all of B2 and F2's session-end docs at B2's close. **Promote slate:
 D-059 and the F3 handoff docs** (docs and commands only; `./ci.sh`
 green at 1385 after them). **F3 handed to a collaborator** (Burhan, 2026-10-13, at F3's start ritual;
-D-059, HANDOFF.md)._
+D-059, HANDOFF.md). **2026-10-14, a planning window (no session id, no code):
+the integration phase was planned, S29–S40 and F4–F9.**_
 
 ## Tracks (D-051) — read this first
 
 | Track | Prompt | Last closed | Next | Status |
 |---|---|---|---|---|
-| backend | `NEXT-SESSION-BE.md` | S28 (2026-10-11) | S29 | paused |
+| backend | `NEXT-SESSION-BE.md` | S28 (2026-10-11) | S29 | paused until F3 closes · S29 opens the integration phase (re-scoped 2026-10-14) |
 | front end | `NEXT-SESSION-FE.md` | F2 (2026-10-12) | F3 | **focus** · handed to a collaborator, who owns its calls (D-059) |
 | bugs | `NEXT-SESSION-BUGS.md` | B2 (2026-10-13) | B3 | B-005 and B-009 open; both wait on Burhan's call on the deferred fabricated-specifics item |
 
@@ -44,6 +45,29 @@ D-059, HANDOFF.md)._
     session on Burhan's machine would collide with hers on `staging`.
   - Burhan's to-do before she starts: add her as a collaborator; send her the
     `.env` values through a secure channel.
+- **The integration phase is planned** (Burhan, 2026-10-14, in a planning
+  window with no session id and no code). The goal is a SIEM on the platform
+  and incident management, built on applications. An application is an
+  integration configured in a workspace, and customers can write their own
+  integrations.
+  - **The plan lives in the two prompt files.** Backend: S29–S40 in
+    `NEXT-SESSION-BE.md`. Front end: F4–F9 in `NEXT-SESSION-FE.md`, after F3,
+    whose prompt is unchanged. Each entry has a goal and exit criteria.
+  - **The order across both tracks** is the table in `NEXT-SESSION-BE.md`.
+    Each session-end keeps the plan section, writes the next prompt from it,
+    and sets the focus to the next session's track.
+  - **Burhan's calls.**
+    - F3 stays the collaborator's, and the front-end plan starts at F4.
+    - S29 opens the phase, and keeps the review of S28's code as Step 0.
+      S29's old goals stay here: TD-036 is follow-up #3, TD-044 is #4.
+    - QRadar is the first SIEM. S29 probes QRadar CE live, and IBM's current
+      guidance is 24 GB RAM against this box's 30 GB.
+    - He asked how on-prem-only controls work for a cloud app. The proposed
+      answer is an outbound-only edge runner plus a later cloud runner, with
+      customer code running only on the customer's edge in v1. It is S29's
+      goal 1a, a D-entry he ratifies.
+  - **S29 starts only after F3 closes.** One session at a time spans both
+    machines (D-051, D-059).
 - Standing rules every track obeys: `SESSION-RULES.md`. Bugs: `BUGS.md`.
 
 ## B2 — what happened (bugs track's second session)
@@ -406,7 +430,9 @@ scoped by a decision or a bug.
 ## In-flight / standing follow-ups (carry forward until DONE)
 1. **Promote slate: D-059 and the F3 handoff docs** (`66dc12f`…`cb0b204`
    plus this note: DECISIONS, SESSION-RULES, two commands, HANDOFF.md,
-   CLAUDE.md, NEXT-SESSION-FE.md, STATE.md). F3's Step 0 promotes it. Promote #33
+   CLAUDE.md, NEXT-SESSION-FE.md, STATE.md), **plus the 2026-10-14
+   integration-phase plan** (both prompt files, STATE.md, IDEAS.md; docs
+   only). F3's Step 0 promotes it. Promote #33
    (`991b397`, back-merge `ca3262d`; GitHub CI passed twice) shipped all of B2
    and F2's session-end docs. Promote #32 (`6f898c5`, back-merge `1a9e774`)
    shipped all of F2.
@@ -777,9 +803,15 @@ One window at a time (D-051).
     out of the page and D-057's CSP on it (closes TD-051);
   - candidates, only if she picks them: analyst notes shown (IDEAS), TD-047
     (304s), the stale proposal line after Undo, the "[connection lost]" copy.
-- **S29, backend, paused** (`NEXT-SESSION-BE.md`): the review of S28's code,
-  TD-036, and what TD-044 still lacks after B2's re-measure (action-request
-  turns, conversational thinking, general's 43-word rules run).
+- **S29, backend, after F3 closes** (`NEXT-SESSION-BE.md`). S29 opens the
+  integration phase:
+  - Step 0: the review of S28's code;
+  - goal 1: the phase's decisions and spec (the runner and its placements,
+    the manifest contract, credential custody, roles, a jobs queue, TD-023
+    and TD-025 out of Deferred);
+  - goal 2: QRadar CE probed live.
+
+  TD-036 and TD-044 wait here as follow-ups #3 and #4.
 - **B3, bugs** (`NEXT-SESSION-BUGS.md`): B-005 and B-009 are the only open
   bugs, and both wait on Burhan's call on the deferred fabricated-specifics
   item (a D-entry if it comes out of Deferred). Without that call, B3 waits
