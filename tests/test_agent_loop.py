@@ -621,3 +621,34 @@ async def test_run_spends_a_tool_budget_exactly_as_run_stream_does():
     assert "tools" in client.calls[0]["kwargs"]
     assert "tools" not in client.calls[1]["kwargs"]
     assert result.stopped_reason == "final_answer"
+
+
+async def test_run_ends_a_turn_whose_step_was_refused_for_budget_as_run_stream_does():
+    """S29 review of D-046, the blocking twin of the stream test: a model that
+    calls the withdrawn tool whenever any tool is offered gets the budget, one
+    refused step and the synthesis pass, not the step cap."""
+    reg = ToolRegistry()
+
+    async def lookup_ip(args: dict) -> dict:
+        return {"ip": args.get("ip")}
+
+    async def whois(args: dict) -> dict:
+        return {"owner": "TEST-NET"}
+
+    reg.add("lookup_ip", "Look up IP reputation.", {"ip": {"type": "string"}}, ["ip"],
+            ToolLevel.READ, lookup_ip, max_calls_per_turn=1)
+    reg.add("whois", "Who owns an IP.", {"ip": {"type": "string"}}, ["ip"], ToolLevel.READ, whois)
+
+    class CallsFromHistory(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            self.calls.append({"messages": [dict(m) for m in messages], "kwargs": kwargs})
+            if kwargs.get("tools"):
+                return _tool_call_result("lookup_ip", {"ip": "192.0.2.10"}, f"c{self.turns}")
+            return ChatResult(content="Answer from what was gathered.", finish_reason="stop")
+
+    client = CallsFromHistory([])
+    result = await _loop(reg, InMemoryProposalStore()).run(client, "check it")
+
+    assert [i.status for i in result.invocations] == ["executed", "error"]
+    assert client.turns == 3
+    assert result.stopped_reason == "final_answer" and result.steps == 2

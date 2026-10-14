@@ -738,6 +738,78 @@ async def test_the_call_that_spends_the_budget_says_it_was_the_last():
     assert "budget" in json.loads(replayed[1]["content"])
 
 
+class _CallsFromHistory:
+    """A model that calls `lookup_ip` whenever any tool is on the wire, withdrawn
+    or not, as glm-4.5-air did from its history at S28, and answers only when no
+    tool is offered at all."""
+
+    def __init__(self):
+        self.stream_calls: list[dict] = []
+
+    async def chat_stream(self, messages, **kwargs):
+        self.stream_calls.append({"messages": [dict(m) for m in messages], "kwargs": kwargs})
+        n = len(self.stream_calls)
+        if kwargs.get("tools"):
+            script = _tool_call_script(args=f'{{"ip": "203.0.113.{n}"}}', call_id=f"c{n}")
+        else:
+            script = _answer_script()
+        for event in script:
+            yield event
+
+    async def aclose(self):
+        pass
+
+
+async def test_a_step_refused_entirely_for_budget_ends_the_turn():
+    """S29 review of D-046. A refused call went back to the model like any other
+    result and the loop went on, so a model that kept calling the withdrawn
+    tool ran to the step cap: 9 model calls, the cost D-046 exists to bound, and
+    not the "up to 5" it states. A step whose every call was refused for budget
+    goes to the tool-free synthesis pass: the budget, one refused step, then the
+    answer."""
+    registry, seen = _budgeted_registry(1)
+    client = _CallsFromHistory()
+
+    events = await _drain(_loop(registry), client)
+
+    tool = [e.invocation for e in events if e.kind == "tool"]
+    assert seen == [{"ip": "203.0.113.1"}]
+    assert [t.status for t in tool] == ["executed", "error"]
+    assert tool[1].feedback["error"] == "call_limit"
+    assert len(client.stream_calls) == 3
+    assert "tools" not in client.stream_calls[2]["kwargs"]
+    done = events[-1]
+    assert done.kind == "done" and done.stop_reason == "final_answer"
+    assert done.text == "203.0.113.99 is malicious (score 88)."
+
+
+async def test_a_step_with_any_call_that_ran_goes_on():
+    """Only a step that got nothing back ends the turn: a refused call beside
+    one that ran leaves the model new results to read."""
+    registry, seen = _budgeted_registry(1)
+
+    def two_calls(*calls):
+        events = []
+        for i, (name, args, call_id) in enumerate(calls):
+            events.append(StreamEvent(kind="tool_call", tool_index=i, tool_delta={
+                "id": call_id, "function": {"name": name, "arguments": args}}))
+        events.append(StreamEvent(kind="finish", finish_reason="tool_calls"))
+        return events
+
+    client = SequencedStreamingFakeLLMClient([
+        _tool_call_script(args='{"ip": "203.0.113.1"}', call_id="a"),
+        two_calls(("lookup_ip", '{"ip": "203.0.113.2"}', "b"), ("whois", '{"ip": "203.0.113.2"}', "c")),
+        _answer_script(),
+    ])
+
+    events = await _drain(_loop(registry), client)
+
+    tool = [e.invocation for e in events if e.kind == "tool"]
+    assert [t.status for t in tool] == ["executed", "error", "executed"]
+    assert len(client.stream_calls) == 3
+    assert "tools" in client.stream_calls[2]["kwargs"]  # a step, not the synthesis pass
+
+
 # -- what the analyst is told while the turn waits (D-052) --------------------
 #
 # Measured at F1 (docs/probes/2026-10-12-f1-stream-layers.md): an agent turn's

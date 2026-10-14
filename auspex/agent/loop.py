@@ -287,6 +287,17 @@ def channel_for(mode: str) -> ToolChannel:
 # --- The loop ----------------------------------------------------------------
 
 
+def _all_refused_for_budget(step_invocations: Sequence[ToolInvocation]) -> bool:
+    """Every call this step made was refused for its tool's per-turn budget, so
+    the model got nothing new to read. D-046 bounds a thin turn at the budget,
+    one refused step and the answer; going round again let a model that calls a
+    withdrawn tool from history run to the step cap (S29 review: 9 calls)."""
+    return bool(step_invocations) and all(
+        i.status == "error" and i.feedback.get("error") == "call_limit"
+        for i in step_invocations
+    )
+
+
 def _terminal_reason(content: str, *, at_step_cap: bool = False) -> str:
     """Which terminal state a finished turn is actually in.
 
@@ -467,17 +478,22 @@ class AgentLoop:
                 invocation = await self._dispatch_within_budget(call, used)
                 invocations.append(invocation)
                 messages.append(self.channel.tool_result_message(call, invocation.feedback))
+            if _all_refused_for_budget(invocations[-len(calls):]):
+                break
+        else:
+            step = None  # the step cap tripped
 
-        # Step cap tripped: one final tool-free pass to synthesise an answer from
-        # whatever was gathered, rather than dumping a raw cap error.
+        # Step cap tripped, or a step got nothing but budget refusals: one final
+        # tool-free pass to synthesise an answer from whatever was gathered,
+        # rather than dumping a raw cap error.
         final = await client.chat(
             [*messages, {"role": "user", "content": _SYNTHESIS_NUDGE}],
             max_tokens=self.max_tokens,
             temperature=self.temperature,
         )
         return AgentResult(
-            final.content, self.max_steps, invocations,
-            _terminal_reason(final.content, at_step_cap=True), self.mode,
+            final.content, step or self.max_steps, invocations,
+            _terminal_reason(final.content, at_step_cap=step is None), self.mode,
         )
 
     async def run_stream(
@@ -639,19 +655,25 @@ class AgentLoop:
                 invocations.append(invocation)
                 yield AgentStreamEvent(kind="tool", invocation=invocation, step=step)
                 messages.append(self.channel.tool_result_message(call, invocation.feedback))
+            if _all_refused_for_budget(invocations[-len(calls):]):
+                break
+        else:
+            step = None  # the step cap tripped
+        at = step or self.max_steps
 
-        # Step cap: one final tool-free pass, and it is a model call like any
-        # other, so it is claimed like any other.
+        # Step cap, or a step refused entirely for budget: one final tool-free
+        # pass, and it is a model call like any other, so it is claimed like any
+        # other.
         if claim is not None and not await claim():
             yield AgentStreamEvent(
-                kind="done", stop_reason="usage_refused", step=self.max_steps,
+                kind="done", stop_reason="usage_refused", step=at,
                 invocations=list(invocations),
             )
             return
         sealed = []
         async with aclosing(
             _stream_call(
-                [*messages, {"role": "user", "content": _SYNTHESIS_NUDGE}], sealed, self.max_steps
+                [*messages, {"role": "user", "content": _SYNTHESIS_NUDGE}], sealed, at
             )
         ) as outs:
             async for out in outs:
@@ -659,7 +681,7 @@ class AgentLoop:
         final = sealed[0]
         yield AgentStreamEvent(
             kind="done", text=final.content,
-            stop_reason=_terminal_reason(final.content, at_step_cap=True),
+            stop_reason=_terminal_reason(final.content, at_step_cap=step is None),
             finish_reason=final.finish_reason, step=self.max_steps,
             invocations=list(invocations),
         )
