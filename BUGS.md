@@ -259,3 +259,17 @@ are never deleted.
 - **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 10; docs/probes/s29-review/classify/ident_fp.py.
   The D-047 operating point is pinned; a change is judged on blind batteries.
 - **Status:** open.
+
+## B-013 — a fully flattened ECS export is not detected as an alert, and reaches the model raw
+
+- **Found:** 2026-10-14, S29 (Claude), the Step 0 adversarial review of S28's code (the detection gap predates S28).
+- **What happened:** an ECS alert whose keys are all dotted
+  (`{"@timestamp": …, "rule.name": "LSASS memory dump", "host.name": "dc01",
+  "source.ip": …, "event.severity": 73}`) resolves to `ioc_enrichment`, format
+  unknown, `parsed=False`. Adding one plain `"message"` key gives
+  `alert_triage` with every field right. `_JSON_KEY_RE` is `"\w+"\s*:`
+  (`classifier.py:64`, `normalizer.py:29`), and `\w` excludes `.` and `@`. The
+  paste skips code-owned triage and the DEFERRED rail, which TD-013's
+  mitigation is meant to prevent.
+- **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 11; docs/probes/s29-review/classify/alerts.py.
+- **Status:** open.
