@@ -756,10 +756,11 @@ class AgentLoop:
             return await self._dispatch(call)
         used[call.name] += 1
         invocation = await self._dispatch(call)
-        if self._spent(call.name, used) and invocation.status == "executed":
+        if self._spent(call.name, used):
             # Measured (S28): withdrawn from the wire, the tool was still called
             # from history on every thin turn, and the refusal cost a call. So
-            # the result of the last allowed call says it was the last.
+            # the result of the last allowed call says it was the last, a
+            # failed one too: it spent the budget all the same (S29 review).
             invocation.feedback = {
                 **invocation.feedback,
                 "budget": f"this was the last '{call.name}' call available this turn; "

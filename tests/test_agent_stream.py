@@ -810,6 +810,23 @@ async def test_a_step_with_any_call_that_ran_goes_on():
     assert "tools" in client.stream_calls[2]["kwargs"]  # a step, not the synthesis pass
 
 
+async def test_a_failed_call_that_spends_the_budget_still_says_it_was_the_last():
+    """S29 review of D-046. Every call counts against the budget, a malformed one
+    too, but the notice went only on an executed call. A budget spent on a
+    failure withdrew the tool silently, and a silent withdrawal is what made the
+    model call it again from history (S28)."""
+    registry, seen = _budgeted_registry(1)
+    client = SequencedStreamingFakeLLMClient([
+        _tool_call_script(args="{not json", call_id="a"), _answer_script(),
+    ])
+
+    events = await _drain(_loop(registry), client)
+
+    tool = [e.invocation for e in events if e.kind == "tool"]
+    assert seen == [] and tool[0].status == "error"
+    assert "last" in tool[0].feedback["budget"]
+
+
 # -- what the analyst is told while the turn waits (D-052) --------------------
 #
 # Measured at F1 (docs/probes/2026-10-12-f1-stream-layers.md): an agent turn's
