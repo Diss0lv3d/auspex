@@ -94,3 +94,160 @@ rail**.
 - Live probes and pytest never run at the same time. A probe that files
   proposals rejects or undoes them; one that records observables deletes only
   what it created.
+
+---
+
+## After F3: the integration phase — front-end plan (F4–F9)
+
+_Written 2026-10-14 by Burhan, in a planning window. **This is not F3's scope.**
+F3 works only on the prompt above (scope lock); F3's owner does not need to
+read past this line. **F3's session-end:** write F4's paste-ready prompt from
+the F4 entry below, keep this whole section under it, tick F3, and set
+STATE.md's focus to the backend, because S29 runs next (the order table)._
+
+The phase builds alerts and incident management on applications. An
+application is an integration a workspace has configured, and customers can
+write their own integrations. The backend plan, with the full order across
+both tracks, is in `NEXT-SESSION-BE.md` (S29–S40). **A front-end session
+starts only after the backend sessions it depends on have closed.**
+
+| # | Session | Depends on (backend) | Delivers |
+|---|---|---|---|
+| 3 | F4 | S30 (roles, `GET /api/auth/me`) | one shell for every page, role-aware |
+| 6 | F5 | S31, S32 | integrations, applications and edge-runner admin pages |
+| 10 | F6 | S34, S35 | the alerts queue, with QRadar alerts live |
+| 12 | F7 | S36 | incidents: list and detail |
+| 15 | F8 | S37, S38 | sync state, and the co-analyst inside the incident |
+| 17 | F9 | S39 | the dashboard, polish, and Burhan's hands-on walk |
+
+### Standing for every page in this phase
+
+- **D-057's policy on every page.** No inline script or style, no `on…=`
+  attributes, files served from `auspex/routes/ui.py`'s allow-list. A new
+  external origin needs a D-entry. Verify in a real browser against the
+  rebuilt container, with **zero CSP violations**, at phone width too.
+- **Page logic lives in pure, tested modules**, the `js/page-logic.js` pattern
+  run under Node inside the gate. The DOM wiring stays thin.
+- **Anything a SIEM or an integration sent is attacker-controlled.** That
+  includes alert names, raw payloads, offense notes, runner messages and
+  manifest descriptions. It reaches the page as text, never HTML, and
+  size-capped.
+- **The server is the guard, and the page only reflects it.** An admin-only
+  door is hidden from an analyst, and the server refuses it anyway; check
+  both.
+- **Secrets are write-only.** After a save, no secret value is in the DOM, in
+  page state, or in any network response. Check it in the browser.
+- **Specs over prompts.** Forms are generated from the manifest's typed
+  contract, and the allowed incident transitions come from the API. The page
+  never hand-writes a form per integration, and never keeps its own copy of
+  the state machine.
+- **Reuse the doors that exist.** That means F1's approvals doors (two clicks
+  for runs) and the chat stream's rules (D-052 pacing, D-053's markdown
+  subset). Do not copy them.
+- **Brand (D-002).** The engine is "the platform's engine", and the co-analyst
+  is never called a copilot. Customer-facing labels are Applications,
+  Integrations, Edge runners, Alerts and Incidents.
+
+### Sessions
+
+- [ ] **F4 — One shell for every page, role-aware.**
+  - **Depends on:** S30, and F3's design for the timeline page. Read F3's spec
+    first, and build on its call about shared helpers.
+  - **Goal:** chat, the timeline and the pages to come share one sign-in per
+    tab (D-056), one navigation header, and one set of modules (the `el`
+    builder, an API client that carries auth, the error copy).
+  - **Exit criteria:**
+    - You sign in once and move between chat and the timeline without signing
+      in again. Today the timeline page has its own sign-in.
+    - Shared modules are imported by every page and tested under Node.
+      Nothing is duplicated between pages.
+    - The navigation reads the role from `GET /api/auth/me`. An analyst sees
+      no admin entries, and the server refuses them anyway (checked in the
+      browser).
+    - Every page carries D-057's policy, with zero violations live, at
+      desktop and phone width.
+
+- [ ] **F5 — Integrations, applications and edge runners (admin).**
+  - **Depends on:** S31, S32.
+  - **Goal:** an admin installs an integration, configures an application,
+    enrolls an edge runner, and sees "Test connection" pass, all from the
+    page.
+  - **Exit criteria:**
+    - **The catalogue** lists the workspace's integrations and their versions,
+      with each manifest's commands, risks and declared hosts (as text).
+    - **The application form is generated from the manifest's config schema**
+      by a pure, tested function. Validation errors are shown in the server's
+      own words.
+    - **Secrets.** Secret fields are write-only, and after a save no value
+      survives anywhere on the page (checked in the browser's network panel).
+    - **Placement.** The picker lists the workspace's edge runners with their
+      status.
+    - **Test connection** runs through the dev edge runner, and shows pass or
+      fail with the runner's message as text.
+    - **Edge runners.**
+      - Enrolling shows the one-time token once, then never again.
+      - The page shows each runner's last heartbeat.
+      - Revoke is a two-click door, F1's pattern.
+    - Live end to end against the rebuilt container, as admin and as analyst.
+
+- [ ] **F6 — The alerts queue.**
+  - **Depends on:** S34, S35.
+  - **Goal:** the analyst sees what the applications brought in, QRadar
+    included, and can read any alert safely.
+  - **Exit criteria:**
+    - **The list.** Filters (application, severity, status, time) and paging
+      are done by the API, never client-side over everything. Polling is
+      bounded (TD-046's pattern).
+    - **Alert detail.**
+      - The normalized fields and the score.
+      - Extracted observables, each linking to its timeline.
+      - The raw payload as text, in a size-capped, collapsible block.
+    - **A hostile alert fixture renders inert and bounded**, in a test and
+      live. The fixture includes markup, `onerror`, RTL overrides and a 1 MB
+      field.
+    - **Live:** an alert born from a synthetic QRadar offense is visible,
+      fetched through the edge runner.
+
+- [ ] **F7 — Incidents: the list and the detail.**
+  - **Depends on:** S36.
+  - **Goal:** the incident page is where an analyst works.
+  - **Exit criteria:**
+    - **The list.** Filters by status, severity and assignee.
+    - **The detail.**
+      - Transition buttons only for what the API says is allowed.
+      - Assign and unassign; notes as text.
+      - The event timeline and the linked alerts.
+      - Observables with their Living Verdicts, using the staleness labels
+        from F3's timeline logic.
+      - Proposals, with F1's approvals doors, reused.
+    - **Create an incident** from alerts selected in F6's queue.
+    - **A concurrent change** (two tabs) shows the server's refusal in its own
+      words, then refreshes.
+    - **Live:** walked end to end on a QRadar-born incident.
+
+- [ ] **F8 — The incident and its source, and the co-analyst inside it.**
+  - **Depends on:** S37, S38.
+  - **Goal:** the analyst sees whether an incident agrees with its source
+    offense, and works the incident with the co-analyst beside it.
+  - **Exit criteria:**
+    - **Sync state.** The linked source object, the last sync, and pending
+      outbound proposals (such as "close in QRadar"), each with its doors.
+    - **The co-analyst panel** is scoped to the incident. The chat stream's
+      rules apply unchanged: D-052 pacing, D-053's subset, the rail.
+    - **A proposal the co-analyst files** appears in the incident's timeline
+      and the approvals panel.
+    - **Spend per incident** is shown (D-054).
+    - **Live:** approve the co-analyst's note, and it appears in QRadar.
+
+- [ ] **F9 — The dashboard, polish, and Burhan's hands-on walk.**
+  - **Depends on:** S39.
+  - **Goal:** the phase is usable end to end, by hand.
+  - **Exit criteria:**
+    - **The dashboard.** MTTA and MTTR, open incidents by severity and
+      status, and SLA breaches, all from the API. Charts are built as DOM or
+      inline SVG, with no new external origin unless a D-entry allows one.
+    - **Every new page** has empty, loading and error states, and works at
+      phone width.
+    - **Burhan walks the whole path by hand:** an offense in QRadar, an
+      incident, the co-analyst, an approval, then closed in QRadar. What he
+      sees goes to BUGS.md (`/bug`) or IDEAS.md (`/idea`).
