@@ -310,10 +310,16 @@ def test_the_chat_page_is_served_with_a_strict_content_security_policy(client):
     assert "unsafe-inline" not in csp and "unsafe-eval" not in csp
 
 
-def test_the_timeline_page_has_no_csp_yet(client):
-    """TD-051's remainder: timeline.html still runs an inline script, which the
-    chat page's policy would block."""
-    assert "content-security-policy" not in client.get("/timeline").headers
+@pytest.mark.parametrize("path", ["/", "/timeline"])
+def test_each_page_is_served_with_the_same_strict_policy(client, path):
+    """D-057 on both pages (TD-051 closed). Both hold the sign-in token, so
+    both run only their own scripts and talk only to their own origin."""
+    csp = client.get(path).headers.get("content-security-policy", "")
+    assert csp == client.get("/").headers["content-security-policy"]
+    directives = dict(d.strip().split(" ", 1) for d in csp.split(";") if d.strip())
+    assert directives["script-src"] == "'self'"
+    assert directives["connect-src"] == "'self'"
+    assert "unsafe-inline" not in csp and "unsafe-eval" not in csp
 
 
 def test_a_throw_while_a_turn_ends_cannot_leave_the_composer_stuck(client):
