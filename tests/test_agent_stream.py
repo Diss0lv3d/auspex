@@ -798,7 +798,8 @@ async def test_a_step_with_any_call_that_ran_goes_on():
 
     client = SequencedStreamingFakeLLMClient([
         _tool_call_script(args='{"ip": "203.0.113.1"}', call_id="a"),
-        two_calls(("lookup_ip", '{"ip": "203.0.113.2"}', "b"), ("whois", '{"ip": "203.0.113.2"}', "c")),
+        two_calls(("lookup_ip", '{"ip": "203.0.113.2"}', "b"),
+                  ("whois", '{"ip": "203.0.113.2"}', "c")),
         _answer_script(),
     ])
 

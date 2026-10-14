@@ -189,7 +189,9 @@ def context_only_item(value: str = "203.0.113.7") -> ObservableEnrichment:
     )
 
 
-@pytest.mark.parametrize("known", [VerdictLabel.MALICIOUS, VerdictLabel.SUSPICIOUS, VerdictLabel.BENIGN])
+@pytest.mark.parametrize(
+    "known", [VerdictLabel.MALICIOUS, VerdictLabel.SUSPICIOUS, VerdictLabel.BENIGN]
+)
 async def test_a_context_only_lookup_leaves_a_known_verdict_standing(pool, workspace_id, known):
     """S29 review of D-049, reproduced live. A lookup that only found context
     (or ran while ThreatFox was down) wrote an `unknown` verdict over the
