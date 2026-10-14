@@ -337,3 +337,13 @@ are never deleted.
   echo or store. The model cannot invent one (D-039).
 - **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 16.
 - **Status:** open.
+
+## B-019 — a call refused for budget reads as a real search on the page and in the turn log
+
+- **Found:** 2026-10-14, S29 (Claude), the Step 0 adversarial review of S28's code (D-046).
+- **What happened (by reading):** the `phase` event makes the page say
+  "Searching the knowledge base" for a call refused without running, and the
+  turn log names calls without their status, so a refused call cannot be told
+  from an executed search there. D-046 accepted only the `· error` line.
+- **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 17.
+- **Status:** open.
