@@ -326,3 +326,14 @@ are never deleted.
   output is not trusted to be well-formed.
 - **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 15.
 - **Status:** open.
+
+## B-018 — a URL pasted with credentials keeps them, and they are sent to a provider and stored
+
+- **Found:** 2026-10-14, S29 (Claude), the Step 0 adversarial review of S28's code; predates S28, and D-049 widened it to agent lookups.
+- **What happened (by reading):** `http://user:pass@host/` keeps `user:pass`
+  in the observable's `value` (`auspex/classify/observables.py:207-218`). The
+  URL is looked up at URLhaus and upserted into `observables`. Credentials in
+  a pasted artefact are exactly what the org's data-handling rules say never to
+  echo or store. The model cannot invent one (D-039).
+- **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 16.
+- **Status:** open.
