@@ -15,6 +15,17 @@ value.
 **Trigger:** an indicator over 2 KB in any pasted artefact, or the first
 `program_limit_exceeded` in a log.
 
+## TD-057 (S29) — `tool_names` limits what the agent is offered, not what it may run
+
+**Where:** `auspex/agent/loop.py` (`wire_specs(tool_names)` and `_dispatch`).
+**Risk:** LOW. Executed by the S29 review: with `tool_names=["lookup_cve"]`,
+a call to `search_knowledge` still ran. No production caller passes
+`tool_names` today (docs/probes/2026-10-14-s29-s28-code-review.md, finding 19).
+**Why taken:** not taken; found.
+**Path to fix:** `_dispatch` refuses a name outside the turn's offered set.
+**Trigger:** the first caller that passes `tool_names` (S34 offers application
+actions per workspace; that is the day).
+
 ## TD-055 (B2) — only the ceiling refusal discards a stored question; other failures before the claim still leave one
 
 **Where:** `auspex/routes/chat.py`, `chat()`. B-008's fix (`4680bf6`) deletes
