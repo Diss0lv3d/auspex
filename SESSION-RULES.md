@@ -37,6 +37,7 @@ Who works here. Personal accounts only; no employer account or email (such as
 | Person | GitHub account | Commit email (repo-local `git config user.email`) | Since |
 |---|---|---|---|
 | Burhan (owner) | `bh3082336888-cell` | `bh3082336888-cell@users.noreply.github.com` | D-011 |
+| Hunaiza (collaborator, F3) | `HunaizaK` | `144267086+HunaizaK@users.noreply.github.com` | D-059, F3 |
 
 - **A collaborator Burhan added to the repo adds their own row in their first
   session, in its own commit** (D-059): their personal GitHub account and its
