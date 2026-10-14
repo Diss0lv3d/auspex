@@ -1,5 +1,20 @@
 # Technical debt — logged the moment it's taken
 
+## TD-058 (S29) — a very long URL may exceed the observables index's row limit, and then nothing in that lookup is recorded
+
+**Where:** `auspex/enrich/store.py` (`persist_enrichment`, one transaction),
+the `UNIQUE (workspace_id, type, value)` index on `observables`
+(`auspex/migrations.py`).
+**Risk:** LOW. Reasoned by the S29 review, not executed: an incompressible URL
+over about 2.7 KB would exceed the btree row limit, the upsert would raise, and
+the whole call's records roll back. The agent is told `recorded: false`, which
+is honest.
+**Why taken:** not taken; found (docs/probes/2026-10-14-s29-s28-code-review.md, finding 20).
+**Path to fix:** cap observable values at extraction, or index a hash of the
+value.
+**Trigger:** an indicator over 2 KB in any pasted artefact, or the first
+`program_limit_exceeded` in a log.
+
 ## TD-055 (B2) — only the ceiling refusal discards a stored question; other failures before the claim still leave one
 
 **Where:** `auspex/routes/chat.py`, `chat()`. B-008's fix (`4680bf6`) deletes
