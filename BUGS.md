@@ -315,3 +315,14 @@ are never deleted.
     reason. The page half belongs to the front-end track.
 - **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 14 (the reviewer's repro sketches are there).
 - **Status:** open.
+
+## B-017 — a non-string tool name from the endpoint crashes the agent turn
+
+- **Found:** 2026-10-14, S29 (Claude), the Step 0 adversarial review of S28's code; predates S28.
+- **What happened:** a tool call named `["lookup_ip"]` (a list) raises
+  `TypeError: unhashable type: 'list'` in the loop (executed with
+  `FakeLLMClient`). The client assigns any truthy `function.name`
+  (`auspex/llm/client.py:388-389`). The endpoint is the customer's, so its
+  output is not trusted to be well-formed.
+- **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 15.
+- **Status:** open.
