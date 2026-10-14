@@ -87,6 +87,8 @@ def test_timeline_page_never_states_a_count_it_cannot_back_up(client):
     assert "${d.reopened.length}" not in body
     # the server's own flags are what it trusts, not a guess from array sizes
     assert "d.truncated" in body and "d.complete" in body
+    # ...and a section the server cut says so under its rows (F3 review).
+    assert "if (cut) out.push(" in body and "there are more" in body
 
 
 def test_timeline_page_never_names_the_engine(client):
