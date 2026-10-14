@@ -354,3 +354,21 @@ are never deleted.
   from an executed search there. D-046 accepted only the `· error` line.
 - **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 17.
 - **Status:** open.
+
+## B-020 — after a lookup that found only context, the answer doesn't say the workspace's earlier verdict still stands
+
+- **Found:** 2026-10-14, S29 (Claude), the review of S29's own fix `14bafba`.
+- **What happened (by reading):** `14bafba` keeps a stored `malicious` (or
+  any known) verdict when a later lookup finds only context, as D-055 says.
+  But what the analyst and the model are told did not change with it: the IOC
+  check prints "no reputation verdict — context: InternetDB: open ports …" and
+  "Verdicts are recorded and decay over time", and the agent's tool result says
+  `"reputation": "unknown"` with `"recorded": true`. Nothing says the earlier
+  `malicious` verdict stands, so "recorded" reads as "recorded as unknown",
+  while the timeline shows `malicious`. Before `14bafba` the two agreed because
+  the store was wrong.
+- **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md (the fix
+  review); `auspex/enrich/echo.py:26,51-55,78-79`,
+  `auspex/agent/capabilities.py` (`recorded`), `auspex/enrich/store.py`.
+  Related: B-015.
+- **Status:** open.
