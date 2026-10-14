@@ -784,6 +784,61 @@ async def test_a_step_refused_entirely_for_budget_ends_the_turn():
     assert done.step == 2  # the step the budget ran out at, as `run` reports it
 
 
+@pytest.mark.parametrize("beside", [
+    ("made_up_tool", '{"ip": "203.0.113.2"}'),
+    ("whois", "{not json"),
+])
+async def test_a_refused_call_beside_one_that_got_nothing_still_ends_the_turn(beside):
+    """S29 fix review. The stop fired only when EVERY call was refused, so a
+    refused call paired with an unknown tool or malformed arguments went round
+    again, to the step cap: D-046's bound bypassed. A step with a budget
+    refusal and nothing that ran ends the turn."""
+    registry, seen = _budgeted_registry(1)
+    name, args = beside
+
+    class AlsoCallsJunk(_CallsFromHistory):
+        async def chat_stream(self, messages, **kwargs):
+            self.stream_calls.append({"messages": [dict(m) for m in messages], "kwargs": kwargs})
+            n = len(self.stream_calls)
+            if not kwargs.get("tools"):
+                for event in _answer_script():
+                    yield event
+                return
+            yield StreamEvent(kind="tool_call", tool_index=0, tool_delta={
+                "id": f"a{n}", "function": {"name": "lookup_ip",
+                                            "arguments": f'{{"ip": "203.0.113.{n}"}}'}})
+            if n > 1:
+                yield StreamEvent(kind="tool_call", tool_index=1, tool_delta={
+                    "id": f"b{n}", "function": {"name": name, "arguments": args}})
+            yield StreamEvent(kind="finish", finish_reason="tool_calls")
+
+    client = AlsoCallsJunk()
+
+    events = await _drain(_loop(registry), client)
+
+    assert len(seen) == 1
+    assert len(client.stream_calls) == 3
+    assert events[-1].stop_reason == "final_answer" and events[-1].step == 2
+
+
+async def test_a_step_that_only_failed_goes_on_so_the_model_can_correct_itself():
+    """No budget was hit, so malformed arguments are the model's to fix: the
+    next step still carries the tools, rather than the synthesis pass."""
+    registry, seen = _budgeted_registry(3)
+    client = SequencedStreamingFakeLLMClient([
+        _tool_call_script(name="whois", args="{not json", call_id="a"),
+        _tool_call_script(name="whois", args='{"ip": "203.0.113.1"}', call_id="b"),
+        _answer_script(),
+    ])
+
+    events = await _drain(_loop(registry), client)
+
+    tool = [e.invocation for e in events if e.kind == "tool"]
+    assert [t.status for t in tool] == ["error", "executed"]
+    assert "tools" in client.stream_calls[1]["kwargs"]
+    assert events[-1].stop_reason == "final_answer" and events[-1].step == 3
+
+
 async def test_a_step_with_any_call_that_ran_goes_on():
     """Only a step that got nothing back ends the turn: a refused call beside
     one that ran leaves the model new results to read."""

@@ -287,15 +287,19 @@ def channel_for(mode: str) -> ToolChannel:
 # --- The loop ----------------------------------------------------------------
 
 
-def _all_refused_for_budget(step_invocations: Sequence[ToolInvocation]) -> bool:
-    """Every call this step made was refused for its tool's per-turn budget, so
+def _ended_by_budget(step_invocations: Sequence[ToolInvocation]) -> bool:
+    """This step hit a per-turn budget and nothing in it ran or was proposed, so
     the model got nothing new to read. D-046 bounds a thin turn at the budget,
     one refused step and the answer; going round again let a model that calls a
-    withdrawn tool from history run to the step cap (S29 review: 9 calls)."""
-    return bool(step_invocations) and all(
+    withdrawn tool from history run to the step cap (S29 review: 9 calls), and
+    so did pairing the refusal with an unknown tool or malformed arguments (the
+    review of that fix). A step of failures with no refusal goes on: the model
+    may correct itself."""
+    refused = any(
         i.status == "error" and i.feedback.get("error") == "call_limit"
         for i in step_invocations
     )
+    return refused and not any(i.status in ("executed", "proposed") for i in step_invocations)
 
 
 def _terminal_reason(content: str, *, at_step_cap: bool = False) -> str:
@@ -478,7 +482,7 @@ class AgentLoop:
                 invocation = await self._dispatch_within_budget(call, used)
                 invocations.append(invocation)
                 messages.append(self.channel.tool_result_message(call, invocation.feedback))
-            if _all_refused_for_budget(invocations[-len(calls):]):
+            if _ended_by_budget(invocations[-len(calls):]):
                 break
         else:
             step = None  # the step cap tripped
@@ -655,7 +659,7 @@ class AgentLoop:
                 invocations.append(invocation)
                 yield AgentStreamEvent(kind="tool", invocation=invocation, step=step)
                 messages.append(self.channel.tool_result_message(call, invocation.feedback))
-            if _all_refused_for_budget(invocations[-len(calls):]):
+            if _ended_by_budget(invocations[-len(calls):]):
                 break
         else:
             step = None  # the step cap tripped
