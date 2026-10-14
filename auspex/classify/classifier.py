@@ -101,9 +101,14 @@ _ASKS = (
     r"is\s+answering))*"
 )
 _TAIL = r"(?:\s+(?:running\s+on|using|use|are|exactly|right\s+now|under\s+the\s+hood))?"
+# The whitespace after a lead-in word is possessive (`\s*+`, S29 review). With
+# plain `\s*` on both sides of the optional punctuation, a run of spaces split
+# every way between them, multiplied per repeated "hi": 1.3 s for 55 characters,
+# on the route's event loop. What follows a lead-in is never whitespace, so the
+# rule matches exactly what it did. tests/test_classifier.py pins both.
 _LEAD_IN = (
     r"(?:(?:hey|hi|so|ok|okay|btw|quick\s+question|just\s+curious|out\s+of\s+curiosity|"
-    r"curious|sorry\s+if\s+this\s+is\s+random)\s*[,:\-–—]*\s*(?:but\s+)?)*"
+    r"curious|sorry\s+if\s+this\s+is\s+random)\s*+[,:\-–—]*+\s*+(?:but\s+)?)*"
 )
 _IDENTITY_RE = re.compile(
     r"^\s*" + _LEAD_IN + r"""(?:
@@ -232,8 +237,11 @@ _NOTE_ASK_RE = re.compile(
     r"update\s+(?:the\s+)?" + _NOTE_NOUN + r"\s+(?:on|for)\b)",
     re.IGNORECASE,
 )
+# Possessive after the salutation for the reason `_LEAD_IN` gives (S29 review):
+# 32,000 characters of "hey" and spaces took a minute, and resolve_mode runs it
+# a second time.
 _NOTE_REQUEST_RE = re.compile(
-    r"^\s*(?:(?:hey|hi|ok|so|btw)\s*[,:]?\s*)?"
+    r"^\s*(?:(?:hey|hi|ok|so|btw)\s*+[,:]?\s*+)?"
     r"(?:(?:can|could|would)\s+(?:you|u)\s+|please\s+|pls\s+|plz\s+|kindly\s+)*"
     r"(?:" + _NOTE_VERB + r"|annot\w+\b|(?:jot|mark)\s+(?:it\s+)?down\s+(?:on|against|for)\b|"
     r"record\s+(?:on|against|for)\b|tag\b.{1,160}?\bwith\s+a\s+" + _NOTE_NOUN + r"\b|"
