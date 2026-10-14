@@ -300,3 +300,18 @@ are never deleted.
   is told whether it was recorded" does not hold there.
 - **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 13; docs/probes/s29-review/d049/probe1.py.
 - **Status:** open.
+
+## B-016 — approvals wording: a lost claim says "executed", and a just-refused approve reads as still starting
+
+- **Found:** 2026-10-14, S29 (Claude), the Step 0 adversarial review of S28's code (D-048).
+- **What happened (by reading; deterministic paths):**
+  - Approve's own run that loses its claim to a withdraw (a stall of more than
+    300 s between its read and its claim) returns `already_running`: "this
+    proposal is already executing or has executed". The row is `withdrawn`.
+  - After an approve-time refusal (for example `spec_changed`), the card sits
+    in Decided with "Run now" and "Withdraw". Withdraw answers 409 "approved
+    less than 300s ago — its own run may still be starting", which is false:
+    the run was refused and the page just said so. Run-now repeats the true
+    reason. The page half belongs to the front-end track.
+- **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 14 (the reviewer's repro sketches are there).
+- **Status:** open.
