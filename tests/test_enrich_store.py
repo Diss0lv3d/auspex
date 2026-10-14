@@ -175,3 +175,62 @@ async def test_persist_is_atomic_per_turn(pool, workspace_id, monkeypatch):
         workspace_id,
     )
     assert counts["obs"] == 0 and counts["verdicts"] == 0
+
+
+def context_only_item(value: str = "203.0.113.7") -> ObservableEnrichment:
+    """InternetDB's open ports: exposure, not reputation (VerdictLabel.UNKNOWN
+    at confidence 0.0). It is also what a lookup returns for most live IPs while
+    the reputation sources are silent or down."""
+    return ObservableEnrichment(
+        observable=obs(ObservableType.IPV4, value),
+        signals=(
+            ProviderSignal("InternetDB", VerdictLabel.UNKNOWN, 0.0, "open ports 80", evidence={}),
+        ),
+    )
+
+
+@pytest.mark.parametrize("known", [VerdictLabel.MALICIOUS, VerdictLabel.SUSPICIOUS, VerdictLabel.BENIGN])
+async def test_a_context_only_lookup_leaves_a_known_verdict_standing(pool, workspace_id, known):
+    """S29 review of D-049, reproduced live. A lookup that only found context
+    (or ran while ThreatFox was down) wrote an `unknown` verdict over the
+    stored one: malicious → unknown, with a flip and the old verdict's watchers
+    retired. D-055 states the opposite, "today it keeps its verdict and
+    decays", and D-017 changes labels on new evidence, which silence is not.
+    Every agent lookup records since D-049, so this reached every chat turn."""
+    first = malicious_item()
+    first = ObservableEnrichment(
+        observable=first.observable,
+        signals=(ProviderSignal("ThreatFox", known, 0.75, "seen", evidence={}),),
+    )
+    await persist_enrichment(pool, workspace_id, EnrichmentOutcome(items=(first,)))
+
+    written = await persist_enrichment(
+        pool, workspace_id, EnrichmentOutcome(items=(context_only_item(),))
+    )
+
+    assert written == 0
+    labels = await pool.fetch(
+        "SELECT label FROM verdicts WHERE workspace_id = $1 ORDER BY created_at", workspace_id
+    )
+    assert [r["label"] for r in labels] == [known.value]
+    assert await pool.fetchval(
+        "SELECT count(*) FROM verdict_flips WHERE workspace_id = $1", workspace_id
+    ) == 0
+    assert await pool.fetchval(
+        "SELECT last_seen > first_seen FROM observables WHERE workspace_id = $1", workspace_id
+    )  # the sighting itself is still recorded
+
+
+async def test_a_first_context_only_lookup_still_records_unknown(pool, workspace_id):
+    """What D-055 kept: an address with no earlier belief gets its `unknown`
+    row, so a later malicious answer is a flip the timeline can show. Only an
+    `unknown` that would REPLACE a known label is dropped."""
+    written = await persist_enrichment(
+        pool, workspace_id, EnrichmentOutcome(items=(context_only_item(),))
+    )
+    assert written == 1
+    await persist_enrichment(pool, workspace_id, EnrichmentOutcome(items=(malicious_item(),)))
+    assert await pool.fetchval(
+        "SELECT from_label || '>' || to_label FROM verdict_flips WHERE workspace_id = $1",
+        workspace_id,
+    ) == "unknown>malicious"
