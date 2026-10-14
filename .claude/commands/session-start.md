@@ -19,12 +19,12 @@ Run the session-start ritual from CLAUDE.md, strictly. Arguments: `$ARGUMENTS`
    - **No track and no id → do NOT pick one.** Read the header line of each
      prompt file and the Tracks table in STATE.md, show the three next sessions
      (marking the one STATE.md calls the focus and any that are paused), and
-     ask Burhan which to start. Wait for the answer.
+     ask the human which to start. Wait for the answer.
    - An unknown word, or a track word that disagrees with the id's prefix
      (`fe S29`) → STOP and ask. Never guess a track.
 
 1. Verify `pwd` is the Auspex repo (this repo). Wrong dir → STOP: "wrong window".
-2. Read `STATE.md`, `SESSION-RULES.md` and the track's prompt file. If Burhan
+2. Read `STATE.md`, `SESSION-RULES.md` and the track's prompt file. If the human
    supplied a session id, it must match the id in that file's header line,
    `# NEXT-SESSION-<TRACK> — track: <track> · session: <id>`. Mismatch → STOP
    and say "wrong window / wrong session, expected <id> on the <track> track".
@@ -32,17 +32,22 @@ Run the session-start ritual from CLAUDE.md, strictly. Arguments: `$ARGUMENTS`
 2b. STATE.md's Tracks table must name the same next id for this track.
    Divergence → fix STATE.md first and say so. If the table marks the track
    paused, or another track as the focus, say that in one line and carry on;
-   Burhan picked it.
+   the human picked it.
 3. Verify we're on `staging` (D-010). On main or detached → switch to staging
    and say so.
-3b. Identity guard (D-011 — personal project): `git config user.email` must be
-   `bh3082336888-cell@users.noreply.github.com` (fix with the local git config
-   if not), and if `gh` will be used this session, `gh auth status` must show
-   the ACTIVE account as `bh3082336888-cell` — otherwise run
-   `gh auth switch --user bh3082336888-cell` (if that account isn't logged in
-   yet, tell the human to run `gh auth login` once, choosing SSH +
-   `~/.ssh/personal_git`). Never let work identity (SIRP-Burhan / burhan@sirp.io)
-   author commits or API calls in this repo.
+3b. Identity guard (D-011, D-059 — personal identities only): the repo-local
+   `git config user.email` must be an email on SESSION-RULES.md's "Who works
+   here" table, and if `gh` will be used this session, `gh auth status` must
+   show as ACTIVE the GitHub account on the same row — otherwise run
+   `gh auth switch --hostname github.com --user <that account>` (if it isn't
+   logged in yet, tell the human to run `gh auth login` once, choosing SSH and
+   their personal key; Burhan's is `~/.ssh/personal_git`).
+   - Email not on the table → ask the human who they are. A collaborator Burhan
+     added to the repo adds their own row (personal account + its noreply
+     email) in its own commit, then carry on. Anyone else → STOP.
+   - Never set one person's identity for another, and never let a work
+     identity (an employer email such as `@sirp.io`, an account such as
+     SIRP-Burhan) author commits or API calls in this repo.
 4. Reality check: `git log --oneline -5`, `git status`, and (once compose
    exists) `docker compose up -d && docker compose ps` + `/api/health/ready`
    (readiness — checks Postgres AND OpenSearch, stricter than liveness).

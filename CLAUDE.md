@@ -46,6 +46,10 @@ because LLMs hallucinate and humans paste prompts into wrong windows and get tir
 > `/review-issue`, `/explain-issue`, `/promote` (in `.claude/commands/`)
 > encode these rituals — prefer them over doing the steps by hand.
 
+> Collaborators (D-059): Burhan may hand a session to a collaborator, who works
+> under their own personal identity (SESSION-RULES.md, "Identity and `gh`") and
+> owns the calls the handoff names. New to the repo? Read `HANDOFF.md` first.
+
 ### Tracks (D-051)
 Sessions run in three tracks, one session at a time:
 
@@ -129,6 +133,7 @@ Sessions run in three tracks, one session at a time:
 | `TECHNICAL_DEBT.md` | Shortcuts taken, with risk + path to fix |
 | `docs/probes/` | Saved reality snapshots of external systems |
 | `docs/ENV_VARS.md` | Every env var, documented |
+| `HANDOFF.md` | Handbook for a collaborator taking over a session: setup, workflow, commands |
 
 ## Brand (locked 2026-07-14, D-002)
 

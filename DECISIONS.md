@@ -2191,3 +2191,43 @@ began at the list.
 - The B-002 tests still pass.
 - Four mutants, 4 caught: the shipped whole-directive exemption, no
   subtraction, subtracting the whole directive, and the re-ask not exempted.
+
+## D-059 — A collaborator works under their own personal identity (2026-10-13, F3 handoff)
+
+**Context.** On 2026-10-13, at F3's start ritual, Burhan handed F3 to a junior
+developer working in Claude Code on her own machine. D-011 names one author for
+this repo, Burhan's personal account. `/session-start` (step 3b) and `/promote`
+(precondition 0) enforce it by setting the repo-local git email to his noreply
+address and requiring `gh`'s active account to be his. Taken literally, the
+guard would rewrite her git email to Burhan's and send her to log in as him.
+
+**Decision (Burhan's call; the recommended option, over her committing only
+locally or working under his identity).**
+1. **Authors.** Burhan, under D-011 unchanged, or a collaborator Burhan has
+   added to the GitHub repo, under their own **personal** GitHub account and
+   its noreply email. Each author has a row in SESSION-RULES.md's "Who works
+   here" table. A new collaborator adds their own row in their first session,
+   in its own commit.
+2. **The guard checks; it never substitutes.** The repo-local git email and
+   `gh`'s active account must belong to the same row. Nobody's identity is
+   set for someone else.
+3. **Work identity stays out, for everyone.** No employer account or employer
+   email (such as `@sirp.io` or `SIRP-*`) authors a commit or makes an API
+   call here. Transport keeps the `github-personal` SSH alias. A collaborator
+   points it at their own personal key, so remote URLs are the same on every
+   machine.
+4. **Calls go with the handoff.** The person running a session makes the calls
+   it owns. Where a rule or command says "Burhan's call" or "ask Burhan",
+   read it as the human running the session, for the calls Burhan handed
+   over. For F3 that is every call, new D-entries and `/promote` included
+   (Burhan: "She owns F3 fully"). Re-scoping another track stays Burhan's.
+
+**What this supersedes.** It amends D-011's single-author rule. D-011's
+transport alias, its ban on work identity, and its settings for Burhan all
+stand.
+
+**Bounds, stated.**
+- The table is a list kept by hand. The guard compares strings; it cannot
+  prove who is at the keyboard.
+- GitHub access is Burhan's to give and take away, in the repo's settings.
+  Removing a row does not revoke access.

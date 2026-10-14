@@ -22,9 +22,9 @@ _TIMELINE = _STATIC / "timeline.html"
 # load ask first. FileResponse answers a matching ETag in full, not with a 304
 # (measured in F1), so each load costs the page's ~17 KB.
 _REVALIDATE = {"Cache-Control": "no-cache"}
-# D-057: the chat page runs only its own scripts and talks only to its own
-# origin; TD-045 moved every script and style rule out of it to make that
-# possible without 'unsafe-inline'. /timeline has no policy yet (TD-051).
+# D-057: each page runs only its own scripts and talks only to its own origin;
+# TD-045 (chat) and TD-051 (timeline) moved every script and style rule out of
+# the pages to make that possible without 'unsafe-inline'.
 _CHAT_CSP = "; ".join([
     "default-src 'self'",
     "script-src 'self'",
@@ -37,12 +37,15 @@ _CHAT_CSP = "; ".join([
     "form-action 'none'",
     "frame-ancestors 'none'",
 ])
-# TD-045: the chat page's own files, by name. An allow-list, so no name a
+# TD-045, TD-051: each page's own files, by name. An allow-list, so no name a
 # request can make reaches anything else on disk.
 _ASSETS = {
     "css/chat.css": ("text/css", _STATIC / "css" / "chat.css"),
     "js/page-logic.js": ("text/javascript", _STATIC / "js" / "page-logic.js"),
     "js/chat.js": ("text/javascript", _STATIC / "js" / "chat.js"),
+    "css/timeline.css": ("text/css", _STATIC / "css" / "timeline.css"),
+    "js/timeline-logic.js": ("text/javascript", _STATIC / "js" / "timeline-logic.js"),
+    "js/timeline.js": ("text/javascript", _STATIC / "js" / "timeline.js"),
 }
 
 
@@ -67,7 +70,10 @@ async def timeline() -> FileResponse:
     """S16 — a verdict's life in one place, and the "your past got re-scored"
     digest. Reads /api/timeline only; the page holds no decay arithmetic of its
     own, so a band means the same thing on screen as it does in the payload."""
-    return FileResponse(_TIMELINE, media_type="text/html", headers=_REVALIDATE)
+    return FileResponse(
+        _TIMELINE, media_type="text/html",
+        headers={**_REVALIDATE, "Content-Security-Policy": _CHAT_CSP},
+    )
 
 
 @router.get("/css/{name}", include_in_schema=False)

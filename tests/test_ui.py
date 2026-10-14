@@ -6,6 +6,7 @@ import pytest
 from _fakes import FORBIDDEN_ENGINE_NAMES
 
 _ASSET_PATHS = ("/css/chat.css", "/js/page-logic.js", "/js/chat.js")
+_TIMELINE_ASSET_PATHS = ("/css/timeline.css", "/js/timeline-logic.js", "/js/timeline.js")
 
 
 def _page(client) -> str:
@@ -13,6 +14,14 @@ def _page(client) -> str:
     (TD-045). The assertions below read this, so they also prove the files
     are served."""
     return "\n".join([client.get("/").text] + [client.get(p).text for p in _ASSET_PATHS])
+
+
+def _timeline_page(client) -> str:
+    """The timeline page as a browser gets it: the HTML and the files it loads
+    (TD-051). Reading this also proves the files are served."""
+    return "\n".join(
+        [client.get("/timeline").text] + [client.get(p).text for p in _TIMELINE_ASSET_PATHS]
+    )
 
 
 def test_index_served_dark_first_and_on_brand(client):
@@ -48,7 +57,7 @@ def test_timeline_page_served_on_brand(client):
     resp = client.get("/timeline")
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/html")
-    body = resp.text
+    body = _timeline_page(client)
     assert "#0A0D12" in body and "#4FF2C0" in body
     assert "#8B93A7" in body  # Slate — stale / lapsed
     assert "/api/timeline/digest" in body
@@ -58,7 +67,7 @@ def test_timeline_page_holds_no_decay_arithmetic_of_its_own(client):
     """The band vocabulary lives in one place (auspex/timeline/staleness.py).
     A page that recomputed staleness in JavaScript would be a second opinion
     about aging, and the two would drift the first time an edge moved."""
-    body = client.get("/timeline").text
+    body = _timeline_page(client)
     assert "half_life" not in body.replace("half_life_days", "")  # only the label
     assert "Math.pow" not in body and "**" not in body
     # It renders the server's answer, never its own.
@@ -69,7 +78,7 @@ def test_timeline_page_never_states_a_count_it_cannot_back_up(client):
     """S17 Step 0. The digest banner used to render the arrival count as the
     total, so a page cut at 50 announced "50 went stale" when 32,930 had. Counts
     for a truncated list are stated as a floor, and each cut section says so."""
-    body = client.get("/timeline").text
+    body = _timeline_page(client)
     # the banner reads its counts through the helper that knows about the cut...
     assert 'count(d, "reopened")' in body
     assert "at least" in body
@@ -78,10 +87,12 @@ def test_timeline_page_never_states_a_count_it_cannot_back_up(client):
     assert "${d.reopened.length}" not in body
     # the server's own flags are what it trusts, not a guess from array sizes
     assert "d.truncated" in body and "d.complete" in body
+    # ...and a section the server cut says so under its rows (F3 review).
+    assert "if (cut) out.push(" in body and "there are more" in body
 
 
 def test_timeline_page_never_names_the_engine(client):
-    body = client.get("/timeline").text.lower()
+    body = _timeline_page(client).lower()
     for name in FORBIDDEN_ENGINE_NAMES:
         assert name not in body, f"engine/provider name leaked into UI: {name!r}"
 
@@ -230,6 +241,9 @@ def test_an_overlay_on_a_narrow_screen_has_a_backdrop_that_closes_it(client):
     ("/css/chat.css", "text/css"),
     ("/js/page-logic.js", "text/javascript"),
     ("/js/chat.js", "text/javascript"),
+    ("/css/timeline.css", "text/css"),
+    ("/js/timeline-logic.js", "text/javascript"),
+    ("/js/timeline.js", "text/javascript"),
 ])
 def test_the_pages_files_are_served_fresh_with_their_types(client, path, media):
     """TD-045: the page's CSS and modules are files now. B-003 holds for them
@@ -259,6 +273,30 @@ def test_the_page_holds_no_inline_script_or_style(client):
     assert '<script type="module" src="/js/chat.js"></script>' in html
 
 
+def test_the_timeline_page_holds_no_inline_script_or_style(client):
+    """TD-051: what D-057's policy depends on, for /timeline. An inline script,
+    a style block, an `on…=` handler or a `style=` attribute would be blocked in
+    the browser while every other test here stayed green."""
+    html = client.get("/timeline").text
+    assert "<style" not in html
+    assert re.search(r"<script(?![^>]*\bsrc=)[^>]*>", html) is None
+    assert re.search(r"\son[a-z]+\s*=", html) is None
+    assert re.search(r"\sstyle\s*=", html) is None
+    assert '<link rel="stylesheet" href="/css/timeline.css" />' in html
+    assert '<script type="module" src="/js/timeline.js"></script>' in html
+
+
+def test_the_timeline_page_builds_feed_text_as_text(client):
+    """TD-051: sources, claims and checker names are feed-derived. The page
+    builds elements and text nodes, never HTML strings, so none of it can
+    become markup, and widths go through the CSSOM, which the policy allows."""
+    js = client.get("/js/timeline.js").text + client.get("/js/timeline-logic.js").text
+    assert "innerHTML" not in js and "outerHTML" not in js
+    assert "insertAdjacentHTML" not in js and "document.write" not in js
+    assert "setAttribute(\"style\"" not in js
+    assert "addEventListener(\"click\"" in js
+
+
 def test_the_chat_page_is_served_with_a_strict_content_security_policy(client):
     """D-057: the sign-in token sits in sessionStorage (D-056), so the page
     runs only its own scripts and talks only to its own origin."""
@@ -274,10 +312,16 @@ def test_the_chat_page_is_served_with_a_strict_content_security_policy(client):
     assert "unsafe-inline" not in csp and "unsafe-eval" not in csp
 
 
-def test_the_timeline_page_has_no_csp_yet(client):
-    """TD-051's remainder: timeline.html still runs an inline script, which the
-    chat page's policy would block."""
-    assert "content-security-policy" not in client.get("/timeline").headers
+@pytest.mark.parametrize("path", ["/", "/timeline"])
+def test_each_page_is_served_with_the_same_strict_policy(client, path):
+    """D-057 on both pages (TD-051 closed). Both hold the sign-in token, so
+    both run only their own scripts and talk only to their own origin."""
+    csp = client.get(path).headers.get("content-security-policy", "")
+    assert csp == client.get("/").headers["content-security-policy"]
+    directives = dict(d.strip().split(" ", 1) for d in csp.split(";") if d.strip())
+    assert directives["script-src"] == "'self'"
+    assert directives["connect-src"] == "'self'"
+    assert "unsafe-inline" not in csp and "unsafe-eval" not in csp
 
 
 def test_a_throw_while_a_turn_ends_cannot_leave_the_composer_stuck(client):

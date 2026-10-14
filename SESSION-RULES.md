@@ -29,11 +29,29 @@ it changes, in its own commit._
   re-measure D-040's thinking floor before anything else.**
 - Any mismatch → STOP and tell Burhan.
 
-## `gh` (D-011)
+## Identity and `gh` (D-011, D-059)
 
-- `gh` flips to the work account between and during sessions; assume it has and
-  re-check before every call:
-  `gh auth switch --hostname github.com --user bh3082336888-cell`.
+Who works here. Personal accounts only; no employer account or email (such as
+`@sirp.io` or `SIRP-*`) ever authors a commit or makes an API call here.
+
+| Person | GitHub account | Commit email (repo-local `git config user.email`) | Since |
+|---|---|---|---|
+| Burhan (owner) | `bh3082336888-cell` | `bh3082336888-cell@users.noreply.github.com` | D-011 |
+| Hunaiza (collaborator, F3) | `HunaizaK` | `144267086+HunaizaK@users.noreply.github.com` | D-059, F3 |
+
+- **A collaborator Burhan added to the repo adds their own row in their first
+  session, in its own commit** (D-059): their personal GitHub account and its
+  noreply email (GitHub → Settings → Emails).
+- The guard (`/session-start` 3b, `/promote` 0) checks that the git email and
+  `gh`'s active account are on the same row. It never sets one person's
+  identity for another.
+- Remotes use the `github-personal` SSH alias on every machine; each person
+  points it at their own personal key.
+- **Calls go with the handoff (D-059).** Where a rule says "Burhan's call",
+  read the human running the session, for the calls Burhan handed over.
+- On Burhan's machine `gh` flips to the work account between and during
+  sessions; assume it has and re-check before every call:
+  `gh auth switch --hostname github.com --user <your account from the table>`.
 - `gh pr edit` fails on this repo with a Projects-classic GraphQL error; use
   `gh api -X PATCH repos/.../pulls/N`.
 - `gh pr merge --squash` prints nothing on success; verify with

@@ -1,0 +1,21 @@
+1 signed in, status: signed in
+2 sidebar chats: 2 ["tell me about zero day security1 h · 4 engine calls","tell me about zero day security1 h · 1 engine call"]
+3 reopened chat #0 hash: #chat=04929d98-113e-49e1-b9a0-e03cd66314c2
+  divider: [
+  "Reopened · answers and spend only; reasoning and tool steps aren't kept."
+]
+  answers: 1  spend lines: ["4 engine calls · 10.8k tokens (9.9k in · 879 out)"]
+  proposal lines: []
+  chat total: This chat: 1 turn · 4 engine calls · 10.8k tokens
+4 no proposal line in any reopened chat — Review/Undo not reachable without a new turn
+5 after reload: signed in: true  same chat: true  divider: 1
+6 + New chat → hash: ""  messages: 0
+7 phone: header height 99  wider than screen? false
+  Chats opens: scrim shown true
+  tap backdrop closes: true
+  Esc closes: true
+8 Sign out → status: not signed in  stored token: null
+  after reload still signed out: true
+9 a new tab is signed out: true
+CSP violations: []
+console errors: []

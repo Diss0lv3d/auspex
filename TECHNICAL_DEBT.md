@@ -96,6 +96,16 @@ proposals.
 
 ## TD-051 (F2) — the timeline page sends no Content-Security-Policy
 
+**Closed (F3, `f05183b`…`ef0a987`):** the timeline page is markup,
+`css/timeline.css`, `js/timeline-logic.js` (a module the Node tests import)
+and `js/timeline.js`, which builds every card from elements and text nodes
+(no `innerHTML`, no `esc()`) and sets bar widths through the CSSOM. All four
+are served no-cache from the allow-list, and `/timeline` carries the chat
+page's exact policy, pinned by
+`test_each_page_is_served_with_the_same_strict_policy`. Checked live with
+zero CSP violations, an `<img onerror>` verdict source rendered as text
+(docs/probes/2026-10-14-f3-timeline-csp.md). Entry kept as written.
+
 **Narrowed (F2, D-057):** the chat page carries a strict CSP since the split
 (TD-045). What remains is /timeline, which still runs an inline script with
 `onclick` attributes.

@@ -6,10 +6,11 @@ Promote the current state of `staging` to `main` (branch model: D-010 — work
 lands on `staging`; `main` is only ever updated through this command).
 
 Preconditions — verify ALL, abort with a clear message on any failure:
-0. Identity (D-011): `git config user.email` is the personal noreply address
-   AND `gh auth status` shows active account `bh3082336888-cell` (switch with
-   `gh auth switch` if not). Remote URLs must use the `github-personal` SSH
-   alias, never plain `github.com`. Work identity detected → stop.
+0. Identity (D-011, D-059): `git config user.email` is on SESSION-RULES.md's
+   "Who works here" table AND `gh auth status` shows as active the account on
+   the same row (switch with `gh auth switch` if not). Remote URLs must use the
+   `github-personal` SSH alias, never plain `github.com`. Work identity
+   detected → stop.
 1. On `staging` with a clean tree (`git status`). Uncommitted work → stop.
 2. `staging` is ahead of `main` (`git log main..staging --oneline`); show the
    commit list that would promote.

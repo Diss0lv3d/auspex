@@ -1,21 +1,25 @@
 # STATE — Auspex
 
-_Last updated: 2026-10-13 — **B2 CLOSED** (session-end ritual run), after F2.
-`./ci.sh` green at B2's close: **1385 tests, 121 modules**. `/api/health/ready`
-200. Branch `staging`. **Promote slate: B2's work and F2's session-end docs**,
-promoted at B2's close (see "In-flight" #1 for the number)._
+_Last updated: 2026-10-14 — **F3 CLOSED** (session-end ritual run), by the
+collaborator Hunaiza (D-059), on her machine. `./ci.sh` green at F3's close:
+**1392 tests, 121 modules**. `/api/health/ready` 200. **F3 goes to `staging`
+as a PR from the branch `f3-timeline-csp`** (Hunaiza's call: nothing pushed
+until she had checked it on her own container); **Burhan merges it before
+S29.** **Promote slate: D-059 and the F3 handoff docs, the 2026-10-14
+integration-phase plan, and all of F3** (Step 0 of S29 promotes it). Promote
+#33 (`991b397`) is the last one._
 
 ## Tracks (D-051) — read this first
 
 | Track | Prompt | Last closed | Next | Status |
 |---|---|---|---|---|
-| backend | `NEXT-SESSION-BE.md` | S28 (2026-10-11) | S29 | paused |
-| front end | `NEXT-SESSION-FE.md` | F2 (2026-10-12) | F3 | **focus** |
+| backend | `NEXT-SESSION-BE.md` | S28 (2026-10-11) | S29 | **focus** · opens the integration phase (re-scoped 2026-10-14); merge F3's PR into `staging` first |
+| front end | `NEXT-SESSION-FE.md` | F3 (2026-10-14) | F4 | waits for S30 (tenancy, `GET /api/auth/me`), the order table in `NEXT-SESSION-BE.md` |
 | bugs | `NEXT-SESSION-BUGS.md` | B2 (2026-10-13) | B3 | B-005 and B-009 open; both wait on Burhan's call on the deferred fabricated-specifics item |
 
-- **Focus: front end.** Burhan, 2026-10-10, after S28's ritual: "before moving
-  on with more backend development we need to improve on the FE so lets shift
-  our focus there and pause BE for a bit."
+- **Focus: backend** (F3's session-end, as Burhan's plan says: "The focus
+  follows the order", and S29 is next). The front-end focus Burhan set on
+  2026-10-10 ran F1–F3.
 - **The 2026-10-12 two-window collision is over.** F1 and B1 ran at once that
   morning, and both ran Step 0's `/promote`. B1 opened PR #30 while F1's
   `ci.sh` ran, and merged it 4 s before F1's merge; the promote is correct
@@ -25,7 +29,105 @@ promoted at B2's close (see "In-flight" #1 for the number)._
   overturns D-051's rule.
 - **That pivot was nearly lost** (2026-10-10). Recovered from the session
   transcript; evidence in docs/probes/2026-10-12-b001-ip-owner-claim.md.
+- **F3 was handed to a collaborator, and closed** (Burhan, 2026-10-13: "She
+  owns F3 fully"; Hunaiza closed it 2026-10-14, section below).
+  - She is a junior developer, working in Claude Code on her own machine, in
+    her own clone, under her own personal GitHub account.
+  - **D-059:** a collaborator authors under their own personal identity, on
+    SESSION-RULES.md's "Who works here" table, and adds her own row in her
+    first session. `/session-start` 3b and `/promote` 0 now check that table
+    instead of writing Burhan's email into the config.
+  - Every F3 call is hers, new D-entries and `/promote` included. Re-scoping
+    the other tracks stays Burhan's.
+  - Her handbook is `HANDOFF.md`: setup, workflow, the starter prompt, and
+    the commands in full.
+  - **One session at a time spans two machines.** Burhan's planning commits
+    landed on `origin/staging` while F3 ran; F3 merged them (`7c64126`, no
+    conflict, docs only) and its PR carries the merge.
+  - Her row is on SESSION-RULES.md's "Who works here" table (`f54c9ce`).
+- **The integration phase is planned** (Burhan, 2026-10-14, in a planning
+  window with no session id and no code). The goal is a SIEM on the platform
+  and incident management, built on applications. An application is an
+  integration configured in a workspace, and customers can write their own
+  integrations.
+  - **The plan lives in the two prompt files.** Backend: S29–S41 in
+    `NEXT-SESSION-BE.md`. Front end: F4–F9 in `NEXT-SESSION-FE.md`, after F3,
+    whose prompt is unchanged. Each entry has a goal and exit criteria.
+  - **The order across both tracks** is the table in `NEXT-SESSION-BE.md`.
+    Each session-end keeps the plan section, writes the next prompt from it,
+    and sets the focus to the next session's track.
+  - **Burhan's calls.**
+    - F3 stays the collaborator's, and the front-end plan starts at F4.
+    - S29 opens the phase, and keeps the review of S28's code as Step 0.
+      S29's old goals stay here: TD-036 is follow-up #3, TD-044 is #4.
+    - QRadar is the first SIEM, and Burhan already runs one on another
+      machine. Its credentials come later, once applications exist (S33).
+      They never go into the chat or the repo. S29 probes only its
+      reachability and TLS, and asks what data it holds; the full API probe
+      runs once the token is saved (by S36's Step 0 at the latest).
+    - **MSSP tenancy** (Burhan: "My other concern is MSSP clients and
+      their multi tenancy problem"). The proposal is S29's decision 1d:
+      provider and client organizations owning workspaces, roles on
+      memberships, one workspace per token, cross-client views built from
+      memberships, and shared SIEMs routed to client workspaces with unmapped
+      items quarantined. S30 builds it, before anything else stands on
+      roles.
+    - He asked how on-prem-only controls work for a cloud app. The proposed
+      answer is an outbound-only edge runner plus a later cloud runner, with
+      customer code running only on the customer's edge in v1. It is S29's
+      goal 1a, a D-entry he ratifies.
+  - **S29 starts only after F3 closes** — it has; S29 merges F3's PR first.
+    One session at a time spans both machines (D-051, D-059).
 - Standing rules every track obeys: `SESSION-RULES.md`. Bugs: `BUGS.md`.
+
+## F3 — what happened (front-end track's third session)
+
+F3 ran 2026-10-14, by Hunaiza, the collaborator Burhan handed it to (D-059),
+on her own machine as `HunaizaK`. Her calls:
+- Step 0's `/promote` skipped: nothing goes to GitHub until she has checked
+  the work on her own container, then **a PR into `staging`** at the close
+  (Burhan reviews and merges it);
+- Step 0 item 3 (F2's page by hand) walked in headless Chromium;
+- the timeline's logic in its own tested module; **no helpers shared with the
+  chat page** (spec decision 2); behaviour and copy unchanged;
+- native execution of the plan; "just follow exactly what's told in F3".
+
+1. **Setup on her machine.** Her user was not in the `docker` group (added;
+   a `setfacl` on the socket until her next login). `/usr/bin/node` is v18,
+   which cannot load the page modules, so the chat page's own Node tests
+   failed too; every gate ran with nvm's v22 first on `PATH`.
+2. **Mid-session, Burhan's planning commits** (`34598e9`…`ff19016`) were
+   merged into her `staging` (`7c64126`). F3's prompt was unchanged.
+3. **Goal: TD-051 closed.** Spec
+   docs/superpowers/specs/2026-10-14-timeline-page-csp-design.md, plan
+   docs/superpowers/plans/2026-10-14-timeline-page-csp.md.
+   - `timeline.html` is 27 lines of markup; `css/timeline.css`;
+     `js/timeline-logic.js` (count, pct, conf, the claim colours, the digest
+     banner; 14 Node tests, `tests/test_timeline_logic.py`); `js/timeline.js`
+     builds every card from elements and text, no `innerHTML`, no `esc()`,
+     widths through the CSSOM, listeners instead of `onclick=`.
+   - A verdict with a missing confidence now shows "—" and an empty bar
+     instead of failing the whole timeline (`conf`/`pct`).
+   - `/timeline` carries the chat page's exact policy, pinned for both pages
+     (`test_each_page_is_served_with_the_same_strict_policy`).
+   - The old `onclick="open_(&quot;…&quot;)"` could be broken by a `"` in an
+     observable id; the link now carries the id in a closure.
+4. **Proof.** Every test failed first; mutants 3 + 3 + 1, all caught. Live in
+   Chromium against the rebuilt container, with seeded probe rows deleted the
+   same command: zero CSP violations, an `<img onerror>` value, source and
+   trigger rendered as text, a link whose id holds `'` and `"` opened the
+   right timeline (docs/probes/2026-10-14-f3-timeline-csp.md).
+5. **The final review (opus)**: no Critical; two Important, both fixed (a test
+   for "there are more"; the link path checked live); five Minor deferred
+   (follow-up #25).
+6. **F2's page by hand (Step 0 item 3), as `hunaiza@analyst.dev`:** sign-in,
+   the sidebar, reopen (divider, spend lines, chat total), reload keeps the
+   sign-in and the chat, + New chat, phone width (Chats, backdrop, Esc), Sign
+   out, a new tab signed out: all as designed, zero CSP violations. **Not
+   reached:** Review/Undo (no saved proposal; it needs a paid turn), the
+   empty-answer note, server errors, narration — all need live turns.
+
+No engine calls. No new env vars. +7 tests.
 
 ## B2 — what happened (bugs track's second session)
 
@@ -380,14 +482,24 @@ Phase 4:
   (D-058, B-002); a note names its indicator as written (B-004); a no-signal
   lookup reads as unknown, not clean (B-006); a turn refused at the ceiling
   leaves nothing behind (B-008).**
+- **F3 (front end, the collaborator): the timeline page runs under the chat
+  page's policy, builds feed text as text, and its logic is tested (TD-051).**
 
-The ROADMAP through S20 is complete; S21–S28, F1, B1, F2 and B2 were each
+The ROADMAP through S20 is complete; S21–S28, F1, B1, F2, B2 and F3 were each
 scoped by a decision or a bug.
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: B2's work and F2's session-end docs, promoted at B2's
-   close** (the number and merge commit are recorded below once it lands).
-   Promote #32 (`6f898c5`, back-merge `1a9e774`) shipped all of F2.
+1. **Promote slate: D-059 and the F3 handoff docs** (`66dc12f`…`cb0b204`
+   plus this note: DECISIONS, SESSION-RULES, two commands, HANDOFF.md,
+   CLAUDE.md, NEXT-SESSION-FE.md, STATE.md), **plus the 2026-10-14
+   integration-phase plan** (both prompt files, STATE.md, IDEAS.md; docs
+   only), **plus all of F3** (`f54c9ce`…, via the `f3-timeline-csp` PR into
+   `staging`: the timeline under D-057, its tests, F3's session-end docs).
+   F3 did not promote (Hunaiza's call: a PR into `staging`, Burhan merges);
+   S29's Step 0 promotes it once that PR is merged. Promote #33
+   (`991b397`, back-merge `ca3262d`; GitHub CI passed twice) shipped all of B2
+   and F2's session-end docs. Promote #32 (`6f898c5`, back-merge `1a9e774`)
+   shipped all of F2.
    - **The first session of any track runs `/promote` as its Step 0 — but
      only ONE window at a time** (the 2026-10-12 collision).
    - Read `git diff origin/main..staging --stat`, never the commit list.
@@ -532,9 +644,10 @@ scoped by a decision or a bug.
       leave one (TD-055).
 21. **The sign-in token sits in the tab's sessionStorage (D-056); D-057's CSP
     is its guard.** A script that did run could still navigate the token out
-    (D-057, as corrected). /timeline has no CSP (TD-051). No test pins `style=`
-    in the markup or in `chat.js`'s `innerHTML` templates, which the CSP
-    relies on.
+    (D-057, as corrected). **/timeline carries the same policy since F3
+    (TD-051 closed)**, and its markup is pinned free of `style=`. No test pins
+    `style=` in the chat page's markup or in `chat.js`'s `innerHTML`
+    templates, which the CSP relies on.
 22. **F2's deferred minors** (kept so they are not lost): the 50-chat cut has
     no exact-boundary test; pairing edge cases no write path produces are
     untested; a malformed stored card would 500 the turns route; the busy
@@ -555,6 +668,20 @@ scoped by a decision or a bug.
 24. **A fresh-agent adversarial review after each fix (B2: 2 of 4 found a real
     defect).** SESSION-RULES.md now asks for it on rail, action and tenancy
     changes.
+25. **F3's deferred minors** (the final review; kept so they are not lost):
+    nothing pins `timeline.js` to the null-safe `conf`/`pct` (a raw
+    `.toFixed` would pass); the click-listener assertion is met by the header
+    buttons alone, so `obsLink`'s listener is unpinned; `_timeline_page`
+    checks no status code; `"**" not in body` now scans `timeline.css` too; a
+    feed label with spaces can add CSS classes to a pill (cosmetic, as
+    before). **F4 builds the shared modules: fix these there.**
+26. **F2's page has not been used by hand with a live turn.** F3 walked it in
+    headless Chromium without a turn; Review/Undo on a reopened proposal, the
+    empty-answer note, server errors and narration on its own line were not
+    reached (docs/probes/2026-10-14-f3-timeline-csp.md).
+
+**Closed at F3, so they leave this list:** none of the numbered items closed
+outright; #21's TD-051 clause is done (TD-051 closed). F3 added #25–#26.
 
 **Closed at B2, so they leave this list:** none of the numbered items closed
 outright. #4 was re-measured (D-058) and narrowed to what is still unmeasured;
@@ -589,11 +716,11 @@ records what the split left). F2 added #20–#22.
      F1's TD-046 … TD-048 (the panel polling, a full response per load — now
      four: the page and its three files — and spend unrecorded on a dropped
      connection), B1's TD-049 (only AbuseIPDB names an address's network), and
-     F2's TD-050 (turns paired by time), TD-051 (narrowed: /timeline has no
-     CSP), TD-052 (no index on `proposals.session_id`) and TD-053 (the gate's
+     F2's TD-050 (turns paired by time), TD-052 (no index on `proposals.session_id`) and TD-053 (the gate's
      dist check covers `*.py` only), and B2's TD-054 (a note named by value is
      re-resolved at execute time) and TD-055 (only the ceiling refusal discards
      a stored question).
+   - **Closed at F3:** TD-051.
    - **Closed at F2:** TD-045.
    - **Closed at S28:** TD-042, TD-043.
    - Closed earlier: TD-012, TD-018, TD-026, TD-028, TD-034, TD-037…TD-041.
@@ -733,6 +860,20 @@ records what the split left). F2 added #20–#22.
 - **A model's word choice can hide a rail bug** (B-002): live runs passed 0/8
   where F1 saw 3/4 cut, on byte-identical configuration. Reproduce rail bugs
   at the route with the logged run, not only live.
+- **F3 session-end (2026-10-14), Hunaiza's machine:** staging, identity
+  `HunaizaK`. `./ci.sh` **green, 1392 tests, 121 modules**,
+  `/api/health/ready` **200**, all three containers healthy.
+- **Hunaiza's machine:** `/usr/bin/node` is v18 and cannot load the page
+  modules (no ESM detection); nvm's v22 is her shell's default, but a
+  non-interactive shell (Claude Code's) needs
+  `export PATH=$HOME/.nvm/versions/node/v22.23.3/bin:$PATH` before
+  `./ci.sh`. Her user joined the `docker` group on 2026-10-14; until her next
+  login the socket carries a user ACL.
+- **The dev database holds no verdicts after a full gate** (the suite clears
+  its own). A timeline probe seeds an observable, verdicts and a flip, and
+  deletes them in the same command (`trap`); F3's scripts are in
+  `docs/probes/f3-timeline/`. Headless Chromium for them was installed with
+  Playwright 1.48.2 in the session scratchpad, not the repo.
 
 ## Reference intelligence (from the SARA Open architecture study)
 Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
@@ -747,16 +888,19 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 **Pick a track (D-051); the Tracks table at the top has the ids.** Paste the
 prompt file of the track you mean. `/session-start` with no track asks.
 One window at a time (D-051).
-- **F3, front end, the focus** (`NEXT-SESSION-FE.md`):
-  - Burhan uses F2's page by hand first (reload, the sidebar, reopen, Review
-    and Undo, a phone), and his list outranks the rest;
-  - then the default goal: the timeline page joins the chat page — its script
-    out of the page and D-057's CSP on it (closes TD-051);
-  - candidates, only if Burhan picks them: analyst notes shown (IDEAS), TD-047
-    (304s), the stale proposal line after Undo, the "[connection lost]" copy.
-- **S29, backend, paused** (`NEXT-SESSION-BE.md`): the review of S28's code,
-  TD-036, and what TD-044 still lacks after B2's re-measure (action-request
-  turns, conversational thinking, general's 43-word rules run).
+- **S29, backend, the focus** (`NEXT-SESSION-BE.md`). **First merge F3's PR
+  (`f3-timeline-csp` → `staging`)**, then S29 opens the integration phase:
+  - Step 0: the promote slate (now with F3), then the review of S28's code;
+  - goal 1: the phase's decisions and spec (the runner and its placements,
+    the manifest contract, credential custody, roles, a jobs queue, TD-023
+    and TD-025 out of Deferred, and MSSP tenancy);
+  - goal 2: where Burhan's QRadar lives (reachability and TLS, no
+    credentials), and what data it holds.
+
+  TD-036 and TD-044 wait here as follow-ups #3 and #4.
+- **F4, front end** (`NEXT-SESSION-FE.md`): one shell for every page, after
+  S30 closes (the order table). It builds on F3's spec and fixes F3's
+  deferred minors (#25) in the shared modules.
 - **B3, bugs** (`NEXT-SESSION-BUGS.md`): B-005 and B-009 are the only open
   bugs, and both wait on Burhan's call on the deferred fabricated-specifics
   item (a D-entry if it comes out of Deferred). Without that call, B3 waits
