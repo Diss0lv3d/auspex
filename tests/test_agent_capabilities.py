@@ -762,6 +762,52 @@ async def test_an_indicator_one_of_our_tools_returned_was_supplied():
     assert [o.value for call in service.enrich_calls for o in call] == ["evil.example.com"]
 
 
+@pytest.mark.parametrize(("whole", "cut"), [
+    ("185.220.101.45", "185.220.101.4"),
+    ("badsite.com", "badsite.co"),
+    ("a" * 64, "a" * 40),  # a SHA-256 cut down to a SHA-1's length
+])
+async def test_a_snippet_cut_inside_an_indicator_supplies_neither_half(whole, cut):
+    """S29 review of D-049. The result shows the model only the first
+    SNIPPET_CHARS of a hit, and a cut that lands inside an indicator leaves a
+    different, real one: the next address down, a shorter domain, a hash of
+    another type. Nobody supplied that one. It must not go to a provider, nor
+    be recorded in the workspace (D-039, D-049)."""
+    text = "z" * (SNIPPET_CHARS - len(cut) - 1) + f" {whole} was the C2 server."
+    hit = _cve_hit(text=text)
+    service = _LooksUpEverything()
+    recorded = []
+
+    async def record(o):
+        recorded.append(o)
+        return 1
+
+    registry = build_capability_registry(
+        enrichment=service, kb=FakeKnowledgeService(hits=[hit]), observables=(), record=record,
+    )
+    shown = await registry.get("search_knowledge").handler({"query": "c2"})
+    assert shown["results"][0]["text"].endswith(f" {cut}")  # what the model saw
+    result = await registry.get("enrich_observable").handler({"observables": [cut]})
+
+    assert service.enrich_calls == []
+    assert recorded == []
+    assert result["results"][0]["not_checked"] == NOT_SUPPLIED_SKIP
+
+
+async def test_an_indicator_wholly_inside_a_cut_snippet_is_still_supplied():
+    """The cut takes away only what it split. An indicator the model was shown
+    whole, ahead of the cut, came from our own source and may be looked up."""
+    text = "Campaign C2 at 185.220.101.45 rotated weekly. " + "z" * SNIPPET_CHARS
+    hit = _cve_hit(text=text)
+    service = _LooksUpEverything()
+    registry = _build(enrichment=service, kb=FakeKnowledgeService(hits=[hit]))
+
+    await registry.get("search_knowledge").handler({"query": "c2"})
+    await registry.get("enrich_observable").handler({"observables": ["185.220.101.45"]})
+
+    assert [o.value for call in service.enrich_calls for o in call] == ["185.220.101.45"]
+
+
 async def test_the_models_own_earlier_answer_supplies_nothing():
     """An assistant turn is model output: an injection in turn 1 can make the
     model WRITE the composed indicator into its answer, and turn 2 must not

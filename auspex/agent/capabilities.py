@@ -265,15 +265,27 @@ def build_capability_registry(
     registry = ToolRegistry()
     allowed: set[str] = {o.obs_id for o in (*observables, *supplied)}
 
-    def _learn(payloads: list[dict]) -> None:
-        """Indicators in knowledge-base records returned this turn were supplied
+    def _learn(hit) -> dict:
+        """A hit's payload, as the model will see it, and what it supplies.
+        Indicators in knowledge-base records returned this turn were supplied
         by a source, not composed by the model (D-039). Only HIT payloads: a
         tool's echo of what it was asked must never launder a request into a
-        supply."""
-        for payload in payloads:
-            for value in payload.values():
-                if isinstance(value, str):
-                    allowed.update(o.obs_id for o in extract(value).observables)
+        supply.
+
+        The model sees only the first SNIPPET_CHARS of the text. A cut inside an
+        indicator leaves a different, real one (185.220.101.45 shown as
+        185.220.101.4, a SHA-256 as a SHA-1), and no source supplied that one
+        (S29 review of D-049). From a cut text, only what the whole text also
+        names counts."""
+        payload = _hit_payload(hit)
+        for key, value in payload.items():
+            if not isinstance(value, str):
+                continue
+            found = {o.obs_id for o in extract(value).observables}
+            if key == "text" and payload["text_truncated"]:
+                found &= {o.obs_id for o in extract(hit.text).observables}
+            allowed.update(found)
+        return payload
     # The TURN's enrichment budget (review of 1b86070). The service caps each
     # call at ENRICH_MAX_OBSERVABLES, but a loop makes up to nine calls and a
     # model re-asks for what came back over the cap — so per call, one deep
@@ -404,9 +416,7 @@ def build_capability_registry(
         for hit in hits:
             for cve in ids:
                 if cve in hit.ids:
-                    by_id[cve].append(_hit_payload(hit))
-        for chunks in by_id.values():
-            _learn(chunks)
+                    by_id[cve].append(_learn(hit))
         result: dict = {
             "found": {cve: chunks for cve, chunks in by_id.items() if chunks},
             # An id the KB has never heard of is an honest miss, and saying so
@@ -438,9 +448,7 @@ def build_capability_registry(
             # Connected and ignorant is a MISS, not "deferred" — the third of
             # the three truths.
             return {"results": [], "miss": "the knowledge base has no entry for that"}
-        payloads = [_hit_payload(h) for h in hits]
-        _learn(payloads)
-        return {"results": payloads}
+        return {"results": [_learn(h) for h in hits]}
 
     registry.add(
         name="enrich_observable",
