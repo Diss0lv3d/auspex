@@ -241,3 +241,21 @@ are never deleted.
   A rule change is judged on blind batteries (SESSION-RULES.md), and the D-050
   operating point is pinned.
 - **Status:** open.
+
+## B-012 — the identity shortcut answers questions about bots, AI and providers under investigation
+
+- **Found:** 2026-10-14, S29 (Claude), the Step 0 adversarial review of S28's code.
+- **What happened:** each returns the canned identity copy (executed:
+  `classify`): "who is behind this bot?", "who owns this bot?", "who created
+  this chat?", "which ai made this?", "what llm made this?", "which model did
+  this?", "which provider do you use?", "what engine do you use?", "is this
+  gemini?". In a SOC these are botnet, Telegram and Teams-phishing questions,
+  attribution of AI-made lures, a follow-up on the enrichment echo (which names
+  its providers), and a phished exchange. The classifier's own rule is that a
+  wrong shortcut is a wrong answer.
+- **Burhan's call in part:** D-047 counts "chat / bot / platform" as meaning
+  the assistant. A bare "this" after a maker verb was excluded for the same
+  reason these would be.
+- **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 10; docs/probes/s29-review/classify/ident_fp.py.
+  The D-047 operating point is pinned; a change is judged on blind batteries.
+- **Status:** open.
