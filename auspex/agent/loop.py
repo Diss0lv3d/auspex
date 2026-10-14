@@ -682,7 +682,7 @@ class AgentLoop:
         yield AgentStreamEvent(
             kind="done", text=final.content,
             stop_reason=_terminal_reason(final.content, at_step_cap=step is None),
-            finish_reason=final.finish_reason, step=self.max_steps,
+            finish_reason=final.finish_reason, step=at,
             invocations=list(invocations),
         )
 

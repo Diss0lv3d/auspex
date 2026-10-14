@@ -781,6 +781,7 @@ async def test_a_step_refused_entirely_for_budget_ends_the_turn():
     done = events[-1]
     assert done.kind == "done" and done.stop_reason == "final_answer"
     assert done.text == "203.0.113.99 is malicious (score 88)."
+    assert done.step == 2  # the step the budget ran out at, as `run` reports it
 
 
 async def test_a_step_with_any_call_that_ran_goes_on():
