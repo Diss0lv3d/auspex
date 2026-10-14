@@ -1,0 +1,20 @@
+CSP header: default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+status after load: digest · quiet
+banner: Nothing re-scored your past this week — and everything that would have noticed was running.
+sections: [
+  'New intel re-opened',
+  'Labels that actually changed',
+  'Claims that stopped being true',
+  'Went stale on their own'
+]
+markup in main (img/script/iframe): 0
+observable links on the digest: 0
+status after open: digest · quiet
+bar widths: []
+markup in main after open: 0
+status after Digest: digest · quiet
+status after Sign in: digest · quiet
+page wider than phone? false
+securitypolicyviolation events: []
+console CSP violations: 0 []
+console errors: []
