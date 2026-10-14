@@ -287,3 +287,16 @@ are never deleted.
   (`tests/test_modes.py`) never checks the claim its name promises.
 - **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 12.
 - **Status:** open.
+
+## B-015 — the agent's `recorded: true` claims more than was written
+
+- **Found:** 2026-10-14, S29 (Claude), the Step 0 adversarial review of S28's code (D-049's payload).
+- **What happened:** one `enrich_observable` call over a routable IP with no
+  signal, `10.0.0.5` and an unsupplied `8.8.4.4` returned a top-level
+  `"recorded": true` (executed with fakes). No verdict was written for any of
+  them, and the last two were never recorded at all. The IOC check says
+  "Verdicts are recorded" only when an item has signals. And when every
+  requested item is skipped, no `recorded` key appears, so D-049's "the model
+  is told whether it was recorded" does not hold there.
+- **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 13; docs/probes/s29-review/d049/probe1.py.
+- **Status:** open.
