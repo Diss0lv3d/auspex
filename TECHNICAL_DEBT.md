@@ -26,6 +26,19 @@ a call to `search_knowledge` still ran. No production caller passes
 **Trigger:** the first caller that passes `tool_names` (S34 offers application
 actions per workspace; that is the day).
 
+## TD-056 (S29) — once every offered tool is withdrawn, the stream stops holding the model's lead-in prose
+
+**Where:** `auspex/agent/loop.py`, `run_stream`: the narration hold is on only
+when this step's kwargs carry `tools`.
+**Risk:** LOW, latent. Executed by the S29 review with every offered tool
+budgeted: a model that calls the withdrawn tool from history streams its
+lead-in ("Let me search once more…") as answer, the TD-036 symptom. Unreachable
+in the chat route today, because `enrich_observable` and `lookup_cve` carry no
+budget and are always offered (docs/probes/2026-10-14-s29-s28-code-review.md, finding 18).
+**Why taken:** not taken; found.
+**Path to fix:** decide the hold from the turn's tool list, not the step's.
+**Trigger:** a route or mode that offers only budgeted tools.
+
 ## TD-055 (B2) — only the ceiling refusal discards a stored question; other failures before the claim still leave one
 
 **Where:** `auspex/routes/chat.py`, `chat()`. B-008's fix (`4680bf6`) deletes
