@@ -217,3 +217,27 @@ are never deleted.
   on the worker.
 - **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 8; docs/probes/s29-review/classify/redos.py.
 - **Status:** open.
+
+## B-011 — a request to analyse or draft that leads with "Note" or "write a note" resolves to `action_request`
+
+- **Found:** 2026-10-14, S29 (Claude), the Step 0 adversarial review of S28's code.
+- **What happened:** each of these resolves to `action_request` (executed:
+  `resolve_mode`), whose directive tells the model its job is to record
+  something on an indicator:
+  - "Note - this came from the CEO's mailbox. Is hxxp://evil[.]net/x malicious?"
+  - "Note 203.0.113.9 appeared in three alerts; is it a C2?"
+  - "note how the attacker pivoted from fin-ws-12 to dc01 and explain the TTPs"
+  - "write a short note to the CISO summarizing the qakbot incident"
+  - "add comments to this sigma rule explaining each condition"
+  - "annotate this powershell for me: powershell -enc SQBFAFgA"
+  - "log comments show 203.0.113.9 failed 400 logins"
+
+  D-050's stated bounds cover "leads with the note, then asks" and asks the
+  platform can't do, not "Note" meaning "observe this", nor drafting for
+  people. On the agent path the model may file an `annotate_observable`
+  proposal nobody asked for (a human still approves it); elsewhere the analysis
+  is replaced by "why nothing could be proposed" (inferred, not run live).
+- **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 9; docs/probes/s29-review/classify/note_fp.py.
+  A rule change is judged on blind batteries (SESSION-RULES.md), and the D-050
+  operating point is pinned.
+- **Status:** open.
