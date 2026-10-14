@@ -7,7 +7,7 @@ shipped all of B2 and F2's session-end docs at B2's close. **Promote slate:
 D-059 and the F3 handoff docs** (docs and commands only; `./ci.sh`
 green at 1385 after them). **F3 handed to a collaborator** (Burhan, 2026-10-13, at F3's start ritual;
 D-059, HANDOFF.md). **2026-10-14, a planning window (no session id, no code):
-the integration phase was planned, S29–S40 and F4–F9.**_
+the integration phase was planned, S29–S41 and F4–F9, MSSP tenancy included.**_
 
 ## Tracks (D-051) — read this first
 
@@ -50,7 +50,7 @@ the integration phase was planned, S29–S40 and F4–F9.**_
   and incident management, built on applications. An application is an
   integration configured in a workspace, and customers can write their own
   integrations.
-  - **The plan lives in the two prompt files.** Backend: S29–S40 in
+  - **The plan lives in the two prompt files.** Backend: S29–S41 in
     `NEXT-SESSION-BE.md`. Front end: F4–F9 in `NEXT-SESSION-FE.md`, after F3,
     whose prompt is unchanged. Each entry has a goal and exit criteria.
   - **The order across both tracks** is the table in `NEXT-SESSION-BE.md`.
@@ -60,8 +60,18 @@ the integration phase was planned, S29–S40 and F4–F9.**_
     - F3 stays the collaborator's, and the front-end plan starts at F4.
     - S29 opens the phase, and keeps the review of S28's code as Step 0.
       S29's old goals stay here: TD-036 is follow-up #3, TD-044 is #4.
-    - QRadar is the first SIEM. S29 probes QRadar CE live, and IBM's current
-      guidance is 24 GB RAM against this box's 30 GB.
+    - QRadar is the first SIEM, and Burhan already runs one on another
+      machine. Its credentials come later, once applications exist (S33).
+      They never go into the chat or the repo. S29 probes only its
+      reachability and TLS, and asks what data it holds; the full API probe
+      runs once the token is saved (by S36's Step 0 at the latest).
+    - **MSSP tenancy** (Burhan: "My other concern is MSSP clients and
+      their multi tenancy problem"). The proposal is S29's decision 1d:
+      provider and client organizations owning workspaces, roles on
+      memberships, one workspace per token, cross-client views built from
+      memberships, and shared SIEMs routed to client workspaces with unmapped
+      items quarantined. S30 builds it, before anything else stands on
+      roles.
     - He asked how on-prem-only controls work for a cloud app. The proposed
       answer is an outbound-only edge runner plus a later cloud runner, with
       customer code running only on the customer's edge in v1. It is S29's
@@ -808,8 +818,9 @@ One window at a time (D-051).
   - Step 0: the review of S28's code;
   - goal 1: the phase's decisions and spec (the runner and its placements,
     the manifest contract, credential custody, roles, a jobs queue, TD-023
-    and TD-025 out of Deferred);
-  - goal 2: QRadar CE probed live.
+    and TD-025 out of Deferred, and MSSP tenancy);
+  - goal 2: where Burhan's QRadar lives (reachability and TLS, no
+    credentials), and what data it holds.
 
   TD-036 and TD-044 wait here as follow-ups #3 and #4.
 - **B3, bugs** (`NEXT-SESSION-BUGS.md`): B-005 and B-009 are the only open
