@@ -249,7 +249,7 @@ def test_a_question_about_notes_keeps_its_shortcut():
         assert _cat(q) is Category.IOC_CHECK, q
 
 
-# -- S29 review of S28's code: the classify pass is bounded -------------------
+# -- S29 review of S28's code: its two lead-in rules are bounded ---------------
 #
 # classify() runs inside the chat route's event loop (auspex/routes/chat.py), so
 # a rule that backtracks on crafted input stalls every request on the worker.
@@ -258,7 +258,8 @@ def test_a_question_about_notes_keeps_its_shortcut():
 # them in every way: measured 1.3 s for a 55-character identity question (x5
 # per extra "hi"; the 80-character cap allowed ~13 min), and ~1 min for a
 # 32,000-character note request, run twice a turn. The inputs below are sized
-# so a regressed rule fails in seconds, not hangs the gate.
+# so a regressed rule fails in seconds, not hangs the gate. Three older rules
+# in the same pass still backtrack (B-010).
 _BOUNDED_MS = 50
 
 
