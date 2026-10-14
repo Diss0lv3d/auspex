@@ -37,12 +37,15 @@ _CHAT_CSP = "; ".join([
     "form-action 'none'",
     "frame-ancestors 'none'",
 ])
-# TD-045: the chat page's own files, by name. An allow-list, so no name a
+# TD-045, TD-051: each page's own files, by name. An allow-list, so no name a
 # request can make reaches anything else on disk.
 _ASSETS = {
     "css/chat.css": ("text/css", _STATIC / "css" / "chat.css"),
     "js/page-logic.js": ("text/javascript", _STATIC / "js" / "page-logic.js"),
     "js/chat.js": ("text/javascript", _STATIC / "js" / "chat.js"),
+    "css/timeline.css": ("text/css", _STATIC / "css" / "timeline.css"),
+    "js/timeline-logic.js": ("text/javascript", _STATIC / "js" / "timeline-logic.js"),
+    "js/timeline.js": ("text/javascript", _STATIC / "js" / "timeline.js"),
 }
 
 
