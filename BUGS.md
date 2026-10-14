@@ -273,3 +273,17 @@ are never deleted.
   mitigation is meant to prevent.
 - **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 11; docs/probes/s29-review/classify/alerts.py.
 - **Status:** open.
+
+## B-014 — the `action_request` contract passes any answer, a claim that the note was added included
+
+- **Found:** 2026-10-14, S29 (Claude), the Step 0 adversarial review of S28's code.
+- **What happened:** `contract_for(Mode.ACTION_REQUEST).validate(...)` returns
+  `ok=True` for "Done — I've added the note to 203.0.113.9.", for "   " and for
+  "## Risk\nHIGH" (executed). So the done frame reports `contract_valid: true`
+  for an answer that breaks the mode's only rule. No action can be faked (a
+  proposal only comes from a tool call), but the stored answer can say the
+  change was made. The test
+  `test_the_action_request_contract_asks_for_no_sections_and_never_a_claim_of_done`
+  (`tests/test_modes.py`) never checks the claim its name promises.
+- **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 12.
+- **Status:** open.
