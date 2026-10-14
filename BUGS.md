@@ -204,3 +204,16 @@ are never deleted.
   and its table); docs/probes/b2-b006/raw-repro-after.jsonl (the three answers
   verbatim).
 - **Status:** open.
+
+## B-010 — two older classify rules backtrack on a long whitespace run, and stall the chat route's event loop
+
+- **Found:** 2026-10-14, S29 (Claude), the Step 0 adversarial review of S28's code; same class as the two S28 rules fixed in `8187925`, but older.
+- **What happened:** `extract()`'s refang rules (`auspex/classify/observables.py:120-121`,
+  from `8e03985`) and `_GREETING_RE` (`auspex/classify/classifier.py`, from
+  `b7eaa04`) backtrack quadratically on a run of whitespace.
+  `extract("x" + " " * 31998 + "x")` took 3.65 s; the greeting rule took 1.1 s
+  at 8,000 characters (~18 s at the 32,000-character message cap). Both run
+  synchronously on the route's event loop, so one message stalls every request
+  on the worker.
+- **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 8; docs/probes/s29-review/classify/redos.py.
+- **Status:** open.
