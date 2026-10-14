@@ -215,6 +215,13 @@ are never deleted.
   at 8,000 characters (~18 s at the 32,000-character message cap). Both run
   synchronously on the route's event loop, so one message stalls every request
   on the worker.
+- **A third, found by the review of S29's fixes:** `_DOMAIN_CAND_RE`
+  (`auspex/classify/observables.py:181`) is quadratic on `"a." * n`:
+  `extract` took 89 ms at 8,000 characters and 1.4 s at 16,000, and
+  `classify("a." * 16000)` (32,000 characters) took 5.7 s. `_EMAIL_RE`
+  (`:153`) took 92 ms on the same input. A plain possessive would stop
+  matching "evil.com." at the end of a sentence; candidates must start only at
+  the beginning of a dotted run.
 - **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 8; docs/probes/s29-review/classify/redos.py.
 - **Status:** open.
 
