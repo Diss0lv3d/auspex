@@ -1,0 +1,27 @@
+CSP header: default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+status after load: digest · activity
+banner: Your past got re-scored. 0 re-opened · 1 changed label · 0 claims contradicted · 0 went stale.
+sections: [
+  'New intel re-opened',
+  'Labels that actually changed',
+  'Claims that stopped being true',
+  'Went stale on their own'
+]
+markup in main (img/script/iframe): 0
+observable links on the digest: 1
+status after open: timeline · 2 verdicts
+bar widths: [
+  'written=90%',
+  'now fresh-f=86%',
+  'written=90%',
+  'now fresh-f=86%',
+  'written=60%',
+  'now aging-f=37%'
+]
+markup in main after open: 0
+status after Digest: digest · activity
+status after Sign in: digest · activity
+page wider than phone? false
+securitypolicyviolation events: []
+console CSP violations: 0 []
+console errors: []

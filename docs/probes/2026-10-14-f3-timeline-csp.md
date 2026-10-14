@@ -75,3 +75,22 @@ proposals), without sending a turn:
 holds a proposal, and making one needs a paid agent turn; left for a hands-on
 run. The empty-answer note, server errors in their own words and narration on
 its own line need live turns too, and were not exercised.
+
+## A digest link clicked live (final review I1; timeline-link-run.txt)
+
+The final review found the link path above unproven (the week was quiet). A
+second probe observable was seeded and deleted the same way: obs_id
+`ipv4-f3'probe"03` (a `'` and a `"`, the characters that could break out of
+the old `onclick="open_(&quot;…&quot;)"`), value
+`<img src=x onerror="document.title='pwned'">`, two verdicts and one
+`suspicious → malicious` flip whose trigger is `<b>f3-probe</b> trigger`.
+
+- Digest: `digest · activity`; banner "Your past got re-scored. 0 re-opened ·
+  1 changed label · 0 claims contradicted · 0 went stale."; four checker pills
+  (retrohunt, watchers, fanout, ingest-cycle).
+- The link and the trigger render as literal text
+  (timeline-link-digest.png); `main img, main script, main iframe`: **0**.
+- Clicking the link opened that observable: `timeline · 2 verdicts`, bars
+  `90%/86%` and `60%/37%` (timeline-link-open.png).
+- `securitypolicyviolation` events: `[]`; console errors: `[]`.
+- Cleanup: `0 observables, 0 verdicts, 0 flips left`.
