@@ -2231,3 +2231,30 @@ stand.
   prove who is at the keyboard.
 - GitHub access is Burhan's to give and take away, in the repo's settings.
   Removing a row does not revoke access.
+
+## D-060 — The integration phase's words: organization, workspace, membership, connector, integration, Edge Agent, case (2026-10-15, S29)
+
+**Context.** The integration phase (S29–S41, F4–F9) needs one vocabulary
+before any table, route or page is named. The plan proposed "integration" for
+the package, "application" for the configured instance, "runner" and
+"incident".
+
+**Decision (Burhan's call, S29: rename all four).**
+- **Connector**: the package a customer, an MSSP or Auspex writes with the SDK
+  (manifest plus Python handlers; commands `test`, `fetch`, `action`).
+- **Integration**: a connector configured in one workspace.
+- **Case**: the analyst's unit of work. "Incident" stays free for a SIEM's own
+  word (a QRadar offense, a Sentinel incident). Not `investigations`.
+- **Edge Agent / Cloud Agent**: what runs an integration's commands. In code,
+  `auspex/edge/`, kept apart from the co-analyst's `auspex/agent/`.
+- Unchanged from the plan: **organization** (direct, provider, client),
+  **workspace** (the isolation unit), **membership**, **routing key / map /
+  quarantine**, **alert**.
+
+The table with every definition is in docs/superpowers/specs/2026-10-15-integration-phase-design.md.
+
+**What this supersedes.** Nothing ratified. The plan's words in both prompt
+files are rewritten to these (S29 goal 3).
+
+**Bounds, stated.** Customer-facing copy follows D-002 as ever: the engine is
+never named.
