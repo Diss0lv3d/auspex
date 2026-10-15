@@ -15,11 +15,12 @@ import hashlib
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Annotated
 from uuid import UUID
 
 import asyncpg
 import jwt
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 
 from auspex.config import Settings
 from auspex.tenancy.access import enterable_workspaces, home_org
@@ -138,3 +139,32 @@ async def resolve_user(request: Request) -> AuthContext:
 
     raise HTTPException(status_code=401, detail="Not authenticated")
 
+
+AnyRole = Annotated[AuthContext, Depends(resolve_user)]
+
+
+def require_role(*roles: str):
+    """A dependency that admits only `roles` in the ACTIVE workspace (D-061).
+    The role comes from resolve_user's live re-check, never from the token."""
+    unknown = set(roles) - {"admin", "analyst", "viewer"}
+    if unknown:
+        raise ValueError(f"unknown roles: {sorted(unknown)}")
+
+    async def dependency(auth: AnyRole) -> AuthContext:
+        if auth.role not in roles:
+            raise HTTPException(
+                status_code=403,
+                detail=f"This needs the {' or '.join(roles)} role in this workspace.",
+            )
+        return auth
+
+    return dependency
+
+
+# Module-level singletons: the structural tests find a route's guard by
+# identity (tests/test_tenancy_roles.py).
+require_admin = require_role("admin")
+require_analyst = require_role("analyst", "admin")
+
+Analyst = Annotated[AuthContext, Depends(require_analyst)]
+Admin = Annotated[AuthContext, Depends(require_admin)]

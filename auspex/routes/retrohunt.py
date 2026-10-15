@@ -22,9 +22,9 @@ import logging
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
-from auspex.auth import AuthContext, resolve_user
+from auspex.auth import Analyst, AnyRole
 from auspex.retrohunt import list_flips, list_matches, mark_reviewed
 from auspex.retrohunt.types import TRIGGER_KINDS, note_for
 
@@ -32,7 +32,7 @@ logger = logging.getLogger("auspex.retrohunt")
 
 router = APIRouter(prefix="/api/retrohunt", tags=["retrohunt"])
 
-Auth = Annotated[AuthContext, Depends(resolve_user)]
+Auth = AnyRole
 
 # Bounded like every other collection on this codebase's surfaces (the S12
 # top-20 discipline): a workspace that has been running for a year has a long
@@ -95,7 +95,7 @@ async def get_matches(
 
 
 @router.post("/matches/{match_id}/ack")
-async def ack_match(request: Request, match_id: UUID, auth: Auth) -> dict:
+async def ack_match(request: Request, match_id: UUID, auth: Analyst) -> dict:
     """Acknowledge a re-open event. Explicit by design: a match is closed by an
     analyst deciding it is handled, never by the platform deciding for them —
     not even when a re-enrichment already produced a verdict flip (see

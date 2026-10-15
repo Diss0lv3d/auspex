@@ -42,7 +42,7 @@ import logging
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from auspex.actions.settlement import (
@@ -52,13 +52,14 @@ from auspex.actions.settlement import (
     ProposalSettlement,
     Settlement,
 )
-from auspex.auth import AuthContext, resolve_user
+from auspex.auth import NO_ACCESS, Analyst, AnyRole, AuthContext
+from auspex.tenancy.access import enterable_workspaces
 
 logger = logging.getLogger("auspex.proposals")
 
 router = APIRouter(prefix="/api/proposals", tags=["proposals"])
 
-Auth = Annotated[AuthContext, Depends(resolve_user)]
+Auth = AnyRole
 
 MAX_PAGE = 200
 DEFAULT_PAGE = 50
@@ -191,6 +192,8 @@ async def stream_proposals(request: Request, auth: Auth) -> StreamingResponse:
     """
     settlement = _settlement(request)
     workspace_id = auth.workspace_id
+    user_id = auth.user_id
+    pool = request.app.state.pool
 
     async def stream():
         seen: set[str] = set()
@@ -205,6 +208,12 @@ async def stream_proposals(request: Request, auth: Auth) -> StreamingResponse:
                 break
             await asyncio.sleep(STREAM_POLL_SECONDS)
             ticks += 1
+            # D-061: access is re-checked on every request, and this request
+            # lives for minutes. A removed member stops receiving cards at the
+            # next tick, not at the stream's end.
+            if workspace_id not in await enterable_workspaces(pool, user_id, only=workspace_id):
+                yield _sse({"error": NO_ACCESS})
+                break
             try:
                 rows = await settlement.pending(workspace_id=workspace_id, limit=MAX_PAGE)
             except Exception:
@@ -241,7 +250,7 @@ async def get_proposal(request: Request, auth: Auth, proposal_id: UUID) -> dict:
 
 
 @router.post("/{proposal_id}/reject")
-async def reject(request: Request, auth: Auth, proposal_id: UUID) -> dict:
+async def reject(request: Request, auth: Analyst, proposal_id: UUID) -> dict:
     result = await _settlement(request).settle(
         workspace_id=auth.workspace_id,
         proposal_id=proposal_id,
@@ -259,7 +268,7 @@ async def reject(request: Request, auth: Auth, proposal_id: UUID) -> dict:
 
 
 @router.post("/{proposal_id}/abandon")
-async def abandon(request: Request, auth: Auth, proposal_id: UUID) -> dict:
+async def abandon(request: Request, auth: Analyst, proposal_id: UUID) -> dict:
     """Declare a stale claim dead (TD-028a).
 
     The row said `executing` or `undoing` and nothing has moved it since, which
@@ -290,7 +299,7 @@ async def abandon(request: Request, auth: Auth, proposal_id: UUID) -> dict:
 
 
 @router.post("/{proposal_id}/keep")
-async def keep(request: Request, auth: Auth, proposal_id: UUID) -> dict:
+async def keep(request: Request, auth: Analyst, proposal_id: UUID) -> dict:
     """Keep what an incomplete run left (S26 review of D-041).
 
     The run failed after some of it landed, or could not look; a human has
@@ -312,7 +321,7 @@ async def keep(request: Request, auth: Auth, proposal_id: UUID) -> dict:
 
 
 @router.post("/{proposal_id}/approve")
-async def approve(request: Request, auth: Auth, proposal_id: UUID) -> dict:
+async def approve(request: Request, auth: Analyst, proposal_id: UUID) -> dict:
     """Approve and run. The claim is what makes this exactly-once; the re-check
     is what makes it safe to have waited."""
     result = await _settlement(request).settle(
@@ -384,7 +393,7 @@ async def _ran(request: Request, auth: AuthContext, proposal_id: UUID, outcome) 
 
 
 @router.post("/{proposal_id}/execute")
-async def execute_stale_approval(request: Request, auth: Auth, proposal_id: UUID) -> dict:
+async def execute_stale_approval(request: Request, auth: Analyst, proposal_id: UUID) -> dict:
     """Run an approval that no run ever started (TD-042, D-048).
 
     It is in the queue because its approval is older than STALE_CLAIM_SECONDS
@@ -407,7 +416,7 @@ async def execute_stale_approval(request: Request, auth: Auth, proposal_id: UUID
 
 
 @router.post("/{proposal_id}/withdraw")
-async def withdraw(request: Request, auth: Auth, proposal_id: UUID) -> dict:
+async def withdraw(request: Request, auth: Analyst, proposal_id: UUID) -> dict:
     """Withdraw an approval that no run ever started (TD-042, D-048). Nothing
     ran, so nothing is put back; the approval stays on the row, and who
     withdrew it is recorded beside it."""
@@ -429,7 +438,7 @@ async def withdraw(request: Request, auth: Auth, proposal_id: UUID) -> dict:
 
 
 @router.post("/{proposal_id}/undo")
-async def undo(request: Request, auth: Auth, proposal_id: UUID) -> dict:
+async def undo(request: Request, auth: Analyst, proposal_id: UUID) -> dict:
     """Put an action back: executed, incomplete, kept or abandoned (TD-028c).
     Only what this approval added (TD-023)."""
     try:

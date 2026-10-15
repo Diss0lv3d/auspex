@@ -61,7 +61,7 @@ from auspex.agent.loop import AgentLoop, ToolInvocation
 from auspex.agent.permissions import PgProposalStore
 from auspex.alerts import normalize, score_alert
 from auspex.alerts.render import deterministic_triage_answer, deterministic_triage_block
-from auspex.auth import AuthContext, resolve_user
+from auspex.auth import Analyst, AnyRole, AuthContext
 from auspex.chat_history import pair_turns, title_of
 from auspex.classify import Category, classify, shortcut_answer
 from auspex.classify.observables import ObservableType, extract_observables
@@ -94,7 +94,7 @@ logger = logging.getLogger("auspex.chat")
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
-Auth = Annotated[AuthContext, Depends(resolve_user)]
+Auth = AnyRole
 
 CHAT_SYSTEM_PROMPT = (
     "You are Auspex, a calm, precise security operations co-analyst. Answer "
@@ -675,7 +675,7 @@ async def list_models(request: Request, auth: Auth) -> dict:
 async def chat(
     request: Request,
     body: ChatBody,
-    auth: Auth,
+    auth: Analyst,
     resolver: Annotated[ChatEndpointResolver, Depends(get_endpoint_resolver)],
 ) -> StreamingResponse:
     pool: asyncpg.Pool = request.app.state.pool

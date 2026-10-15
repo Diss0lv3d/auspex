@@ -19,9 +19,9 @@ from __future__ import annotations
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Query, Request
 
-from auspex.auth import AuthContext, resolve_user
+from auspex.auth import AnyRole
 from auspex.watchers import list_watchers
 from auspex.watchers.types import (
     CHECKED_ON_ENRICHMENT,
@@ -33,7 +33,7 @@ logger = logging.getLogger("auspex.watchers")
 
 router = APIRouter(prefix="/api/watchers", tags=["watchers"])
 
-Auth = Annotated[AuthContext, Depends(resolve_user)]
+Auth = AnyRole
 
 MAX_PAGE = 200
 DEFAULT_PAGE = 50
