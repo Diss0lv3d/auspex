@@ -115,6 +115,23 @@ async def test_a_global_workspace_still_looks_up():
     assert outcome.enriched
 
 
+async def test_a_ksa_lookup_reaches_only_the_providers_in_its_region():
+    """Mixed set: the in-region provider answers, the global one is never called."""
+    class _KsaProvider(_CountingProvider):
+        name = "InKsa"
+        region = "ksa"
+
+    far, near = _CountingProvider(), _KsaProvider()
+    service = EnrichmentService([far, near])
+    try:
+        from auspex.classify.observables import extract_observables
+        await service.enrich(tuple(extract_observables("185.220.101.45")), region="ksa")
+    finally:
+        await service.aclose()
+    assert far.lookups == 0
+    assert near.lookups == 1
+
+
 async def test_a_ksa_investigation_lookup_and_summary_are_refused(ksa, client, settings):
     pool, ws, user = ksa
     headers = token(settings, user, ws)
