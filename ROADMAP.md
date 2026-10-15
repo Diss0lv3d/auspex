@@ -507,6 +507,31 @@ BUGS.md) have their own sections at the end, before "Later".
   - S30–S41 and F4–F9 re-checked against the spec; the order unchanged.
   - 1412 tests; 121 modules; no new env vars; no engine calls.
 
+- [x] **S30 — MSSP tenancy: organizations, provider workspaces, memberships,
+  roles, one workspace per token, and the region guard.** (2026-10-15) A
+  promote milestone: the slate carries S29 and S30.
+  - **Design:** Burhan's five calls (docs/superpowers/specs/2026-10-15-s30-tenancy-design.md,
+    D-068): only a CLI creates organizations; dev login auto-provisions;
+    one organization per migrated workspace; admins read their audit; `global`
+    serves global. Baseline: docs/probes/2026-10-15-s30-tenancy-baseline.md.
+  - **Built** (plan docs/superpowers/plans/2026-10-15-s30-tenancy.md, nine
+    tasks, subagent-driven, each task reviewed): `auspex/tenancy/` (region,
+    access, audit, admin, entry, the CLI); identity left the workspace
+    (migration, one person per email); `enterable_workspaces` re-checked on
+    every request; `POST /api/auth/switch` and `GET /api/auth/me`; roles
+    enforced on every write; the membership API and `GET /api/audit`; the
+    region guard over the engine and enrichment (`ENGINE_REGION`); structural
+    and cross-tenant suites; mutants 10/10.
+  - **Final adversarial review** (no isolation or residency break found):
+    concurrent admin removals left zero admins (fixed: the workspace lock and
+    in-transaction re-check); a mis-homed person had no recovery (fixed:
+    `rehome-person`; TD-059 gates Google); the ksa agent path was unpinned
+    (pinned); a malformed token claim was a 500 (fixed). Their fixes reviewed
+    in turn: B-021 open (Burhan: next backend session).
+  - **D-069:** a ksa workspace will live only on a KSA-storage deployment
+    (Burhan overturned D-061's bound; built later).
+  - 1554 tests; 129 modules; `ENGINE_REGION` born; no engine calls.
+
 ## Track: front end (D-051)
 
 - [x] **F1 — Where a deep turn's reasoning loses its speed, measured first.**
@@ -582,7 +607,8 @@ BUGS.md) have their own sections at the end, before "Later".
   - TD-054, TD-055 logged; TD-044 updated; B-009 logged; D-044 addendum.
   - 1385 tests; 121 modules; no new env vars.
 - [ ] **B3 — Burhan's call first:** S29 logged B-010…B-020 (B-010, a
-  message-driven event-loop stall, is the most severe). B-005 and B-009 still
+  message-driven event-loop stall, is the most severe); S30 logged B-021 (S31's
+  Step 0 takes it unless B3 does first). B-005 and B-009 still
   wait on the deferred fabricated-specifics item coming out of Deferred (a
   D-entry).
 
