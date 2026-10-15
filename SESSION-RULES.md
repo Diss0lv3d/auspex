@@ -89,10 +89,12 @@ Who works here. Personal accounts only; no employer account or email (such as
 - **The two untracked overview files are Burhan's and stay untracked**
   (`Auspex-Product-Architecture-Overview.pdf`, `docs/auspex-overview.html`).
   Do not ask about them, commit, move, publish or delete them.
-- **A fix to the rail, an action, tenancy or the approvals state machine gets
-  a read-only adversarial review by a fresh agent before the session closes.**
-  Act on what it finds, or log it. At B2, two of the four reviews found a real
-  defect in a fix that had passed its own tests and mutants.
+- **A fix to the rail, an action, tenancy, the approvals state machine or the
+  agent loop gets a read-only adversarial review by a fresh agent before the
+  session closes, and so do the fixes that review produces.** Act on what it
+  finds, or log it. At B2, two of the four reviews found a real defect in a fix
+  that had passed its own tests and mutants; at S29, the review of six review
+  fixes found two more.
 - End with `/session-end`.
 
 ## Inference costs real money
