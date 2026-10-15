@@ -299,3 +299,29 @@ workspace id appears in it.
 | Showing a client admin who *could* enter through a provider-wide grant | F5's members page (the audit trail shows who *did*) |
 
 TD-001 stays a hard gate before Google sign-in.
+
+## After execution (S30, 2026-10-15)
+
+What the build added to, or refined in, the design above (rulings recorded in
+D-068 and D-069; reviews in STATE.md's S30 section):
+- **The engine check sits in the two route bodies** (`chat`, `render_summary`),
+  not in the test-seam factories, so it holds when a test replaces the seam.
+- **Membership writes hold the workspace row** (`FOR NO KEY UPDATE`) **and
+  re-check, inside the transaction, that a person acting is still an admin
+  there.** Without it two admins removing each other at once left zero admins
+  (final review, reproduced 19/20). §3's "the API can never remove a
+  workspace's last admin" is true since then.
+- **`set-member` leaves an existing provider-wide grant unchanged** unless
+  `--provider-wide` / `--no-provider-wide` is given.
+- **`__deployment__` takes no membership**: every membership write refuses it
+  by name.
+- **A fifth CLI command, `rehome-person --email E --org O`**, recovers a person
+  homed in the wrong organization (only while they hold no membership), audited
+  as a ninth action, `person.rehome`. An admin can still create a person with
+  any email over the API; limiting that is TD-059, a hard gate before Google
+  sign-in. B-021: the event shows the old organization's name to the new one's
+  admins (open).
+- **`/api/audit`'s `before` must carry a UTC offset** (an offset-less value is
+  a 422).
+- **D-069 overturns §4's bound**: a `ksa` workspace will live only on a
+  deployment that stores data in KSA (built in a later session).
