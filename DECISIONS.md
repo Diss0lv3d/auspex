@@ -2444,3 +2444,20 @@ Still deferred: array params (TD-023(d)) and the polled card stream (TD-046).
 Detail: docs/superpowers/specs/2026-10-15-integration-phase-design.md, D-066.
 
 **What this supersedes.** Nothing ratified; it re-scopes two Deferred items.
+
+## D-067 — The phase's live QRadar checks run on a synthetic-only lab domain (2026-10-15, S29)
+
+**Context.** Burhan's QRadar holds real data
+(docs/probes/2026-10-14-qradar-reachability.md), and the dev engine processes
+in Singapore, where only lab or synthetic data may go (org policy).
+
+**Decision (Burhan's call, S29: a lab domain, over a separate lab QRadar or
+live checks that never reach the engine).** The phase's live checks use a
+QRadar domain holding only the synthetic offenses S36's recipe creates, and the
+Edge Agent's token is scoped to that domain alone, so a fetch can only return
+synthetic items, by QRadar's own permissions. It doubles as the MSSP routing
+test (domain → workspace). CI's QRadar fake is built from synthetic recorded
+responses only.
+
+**Bounds, stated.** S36's Step 0 must confirm Burhan's edition has domain
+management. If it does not, the choice returns to him.
