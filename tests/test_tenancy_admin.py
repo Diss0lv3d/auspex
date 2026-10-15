@@ -204,3 +204,89 @@ def test_no_code_rewrites_the_audit_trail():
         text = path.read_text().lower()
         assert "update audit_events" not in text, path
         assert "delete from audit_events" not in text, path
+
+
+async def _deployment_ws(pool):
+    from auspex.llm.scorecard import DEPLOYMENT_WORKSPACE
+
+    await pool.execute(
+        "INSERT INTO workspaces (name, org_id) VALUES ($1, NULL) ON CONFLICT (name) DO NOTHING",
+        DEPLOYMENT_WORKSPACE)
+    return await pool.fetchval("SELECT id FROM workspaces WHERE name = $1", DEPLOYMENT_WORKSPACE)
+
+
+async def test_the_deployment_workspace_takes_no_member(world):
+    pool, _ = world
+    dep = await _deployment_ws(pool)
+    before = await pool.fetchval("SELECT count(*) FROM memberships WHERE workspace_id = $1", dep)
+    with pytest.raises(admin.Refused, match="reserved"):
+        await admin.set_member(pool, workspace="__deployment__", email=f"dep@{DOMAIN}",
+                               role="viewer")
+    with pytest.raises(admin.Refused, match="reserved"):
+        await admin.add_member(pool, workspace_id=dep, email=f"dep2@{DOMAIN}", role="viewer",
+                               actor=CLI)
+    assert await pool.fetchval(
+        "SELECT count(*) FROM memberships WHERE workspace_id = $1", dep) == before
+    assert await pool.fetchval(
+        "SELECT count(*) FROM users WHERE email = ANY($1::text[])",
+        [f"dep@{DOMAIN}", f"dep2@{DOMAIN}"]) == 0
+
+
+async def test_an_admin_homed_in_another_org_leaves_nothing(world):
+    pool, m = world
+    outsider = await pool.fetchval("SELECT email FROM users WHERE id = $1", m.c2_user)
+    name = f"{PREFIX}-outsider"
+    with pytest.raises(admin.Conflict, match="another organization"):
+        await admin.create_org(pool, kind="direct", name=name, workspace=name,
+                               admin_email=outsider)
+    assert await pool.fetchval("SELECT count(*) FROM organizations WHERE name = $1", name) == 0
+    assert await pool.fetchval("SELECT count(*) FROM workspaces WHERE name = $1", name) == 0
+    assert await pool.fetchval(
+        "SELECT count(*) FROM audit_events WHERE details->>'organization' = $1", name) == 0
+
+
+async def test_create_client_admin_must_belong_to_the_provider(world):
+    pool, m = world
+    provider = await pool.fetchval("SELECT name FROM organizations WHERE id = $1", m.provider)
+    insider = await pool.fetchval("SELECT email FROM users WHERE id = $1", m.p_analyst)
+    _, ws = await admin.create_client(pool, provider=provider, name=f"{PREFIX}-c10",
+                                      workspace=f"{PREFIX}-c10", admin_email=insider)
+    assert (await enterable_workspaces(pool, m.p_analyst))[ws].role == "admin"
+    outsider = await pool.fetchval("SELECT email FROM users WHERE id = $1", m.c2_user)
+    with pytest.raises(admin.Conflict):
+        await admin.create_client(pool, provider=provider, name=f"{PREFIX}-c11",
+                                  workspace=f"{PREFIX}-c11", admin_email=outsider)
+    assert await pool.fetchval(
+        "SELECT count(*) FROM organizations WHERE name = $1", f"{PREFIX}-c11") == 0
+    assert await pool.fetchval(
+        "SELECT count(*) FROM workspaces WHERE name = $1", f"{PREFIX}-c11") == 0
+    assert await pool.fetchval(
+        "SELECT count(*) FROM audit_events WHERE details->>'organization' = $1",
+        f"{PREFIX}-c11") == 0
+
+
+async def test_dev_provisioning_into_a_new_workspace_audits_its_creation_once(world):
+    pool, _ = world
+    name = f"{PREFIX}-devws"
+    first = await admin.provision_dev_user(pool, f"d1@{DOMAIN}", workspace_name=name)
+    second = await admin.provision_dev_user(pool, f"d2@{DOMAIN}", workspace_name=name)
+    ws_id, ws_org = (lambda r: (r["id"], r["org_id"]))(
+        await pool.fetchrow("SELECT id, org_id FROM workspaces WHERE name = $1", name))
+    for user in (first, second):
+        assert await pool.fetchval("SELECT home_org_id FROM users WHERE id = $1", user) == ws_org
+    actions = await _actions(pool, ws_id)
+    assert actions.count("org.create") == 1 and actions.count("workspace.create") == 1
+    assert actions.count("membership.add") == 2
+
+
+async def test_a_role_change_through_set_member_keeps_the_grant(world):
+    pool, m = world
+    p_email = await pool.fetchval("SELECT email FROM users WHERE id = $1", m.p_analyst)
+    ws_name = await pool.fetchval("SELECT name FROM workspaces WHERE id = $1", m.provider_ws)
+    await admin.set_member(pool, workspace=ws_name, email=p_email, role="analyst",
+                           provider_wide=True)
+    await admin.set_member(pool, workspace=ws_name, email=p_email, role="admin")
+    assert m.client1_ws in await enterable_workspaces(pool, m.p_analyst)
+    await admin.set_member(pool, workspace=ws_name, email=p_email, role="admin",
+                           provider_wide=False)
+    assert m.client1_ws not in await enterable_workspaces(pool, m.p_analyst)

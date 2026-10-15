@@ -6,6 +6,7 @@ import asyncio
 import pytest
 from _tenancy import drop_orgs
 
+from auspex.config import get_settings
 from auspex.db import create_pool
 from auspex.tenancy.__main__ import main
 
@@ -54,3 +55,25 @@ def test_an_unknown_region_is_refused_before_anything_is_written(clean, capsys):
         main(["create-org", "--kind", "direct", "--name", f"{PREFIX}-r",
               "--workspace", f"{PREFIX}-r", "--admin", f"r@{PREFIX}.auspex.dev",
               "--region", "mars"])
+
+
+def test_provider_wide_survives_a_role_change_until_withdrawn(clean):
+    async def granted():
+        pool = await create_pool(get_settings().database_url, retries=2, delay=0.5)
+        try:
+            return await pool.fetchval(
+                "SELECT m.provider_wide FROM memberships m JOIN users u ON u.id = m.user_id"
+                " WHERE lower(u.email) = $1", f"pw@{PREFIX}.auspex.dev")
+        finally:
+            await pool.close()
+
+    ws, email = f"{PREFIX}-pw", f"pw@{PREFIX}.auspex.dev"
+    assert main(["create-org", "--kind", "provider", "--name", ws, "--workspace", ws,
+                 "--admin", f"boss@{PREFIX}.auspex.dev"]) == 0
+    assert main(["set-member", "--workspace", ws, "--email", email, "--role", "analyst",
+                 "--provider-wide"]) == 0
+    assert main(["set-member", "--workspace", ws, "--email", email, "--role", "admin"]) == 0
+    assert asyncio.run(granted()) is True
+    assert main(["set-member", "--workspace", ws, "--email", email, "--role", "admin",
+                 "--no-provider-wide"]) == 0
+    assert asyncio.run(granted()) is False

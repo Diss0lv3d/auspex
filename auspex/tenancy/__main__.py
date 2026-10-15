@@ -44,7 +44,8 @@ def _parser() -> argparse.ArgumentParser:
     member.add_argument("--workspace", required=True)
     member.add_argument("--email", required=True)
     member.add_argument("--role", choices=["admin", "analyst", "viewer"], required=True)
-    member.add_argument("--provider-wide", action="store_true")
+    member.add_argument("--provider-wide", action=argparse.BooleanOptionalAction, default=None,
+                        help="grant or withdraw; omitted leaves an existing grant alone")
 
     remove = sub.add_parser("remove-member")
     remove.add_argument("--workspace", required=True)

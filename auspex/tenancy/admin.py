@@ -145,22 +145,29 @@ def _check_region(region: str) -> str:
 
 _WORKSPACE_SQL = (
     "SELECT w.id, w.name, w.org_id, o.kind AS org_kind, o.parent_id"
-    " FROM workspaces w JOIN organizations o ON o.id = w.org_id"
+    " FROM workspaces w LEFT JOIN organizations o ON o.id = w.org_id"
 )
+
+
+def _not_reserved(row: asyncpg.Record) -> asyncpg.Record:
+    """D-035: no membership is ever written into the deployment's system workspace."""
+    if row["name"] == DEPLOYMENT_WORKSPACE:
+        raise Refused(f"{DEPLOYMENT_WORKSPACE!r} is reserved for the deployment")
+    return row
 
 
 async def _workspace(conn, workspace_id: UUID) -> asyncpg.Record:
     row = await conn.fetchrow(f"{_WORKSPACE_SQL} WHERE w.id = $1", workspace_id)
     if row is None:
         raise NotFound("No such workspace")
-    return row
+    return _not_reserved(row)
 
 
 async def _workspace_named(conn, name: str) -> asyncpg.Record:
     row = await conn.fetchrow(f"{_WORKSPACE_SQL} WHERE w.name = $1", name)
     if row is None:
         raise NotFound(f"No workspace named {name!r}")
-    return row
+    return _not_reserved(row)
 
 
 async def _organization_named(conn, name: str) -> asyncpg.Record:
@@ -360,8 +367,9 @@ async def remove_member(pool, *, workspace_id: UUID, user_id: UUID, actor: Actor
 
 
 async def set_member(pool, *, workspace: str, email: str, role: str,
-                     provider_wide: bool = False, actor: Actor = CLI) -> UUID:
-    """The CLI's upsert: add, or change role and grant, by names."""
+                     provider_wide: bool | None = None, actor: Actor = CLI) -> UUID:
+    """The CLI's upsert: add, or change role and grant, by names. `provider_wide`
+    None leaves an existing member's grant alone (a new member gets none)."""
     email, role = _clean_email(email), _check_role(role)
     async with pool.acquire() as conn, conn.transaction():
         ws = await _workspace_named(conn, workspace)
@@ -371,7 +379,7 @@ async def set_member(pool, *, workspace: str, email: str, role: str,
             ws["id"], user_id,
         )
         if member is None:
-            await _add(conn, ws, user_id, role, provider_wide, actor)
+            await _add(conn, ws, user_id, role, bool(provider_wide), actor)
         else:
             await _change(conn, ws, user_id, actor, role, provider_wide)
         return user_id
