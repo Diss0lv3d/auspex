@@ -372,3 +372,27 @@ are never deleted.
   `auspex/agent/capabilities.py` (`recorded`), `auspex/enrich/store.py`.
   Related: B-015.
 - **Status:** open.
+
+## B-021 — a re-homed person's audit event shows the new organization's admins the OLD organization's name
+
+- **Found:** 2026-10-15, S30 (Claude), the fresh review of the final review's
+  fix wave (`b75c5d3`, `rehome-person`).
+- **What happened (reproduced by the fix's own test):** `admin.rehome_person`
+  records `person.rehome` with `details={"from": <old org name>, "to": <new org
+  name>}` in every workspace of the NEW organization
+  (`auspex/tenancy/admin.py:402-404`), and `GET /api/audit` returns it to that
+  organization's admins (`auspex/tenancy/audit.py`, `list_events`). So one
+  customer reads another customer's organization name — e.g. a client learns
+  that a sibling client exists under the same MSSP. The spec keeps exactly that
+  out of the 409 ("without naming it", S30 design §3). The test pins the leak
+  as behaviour: `tests/test_tenancy_cli.py:136`.
+- **Fix sketch:** the event in the new organization keeps only `to`; the old
+  organization's name goes to the operator's CLI output only (the CLI prints
+  no email). Same change: a second concurrent rehome of one person answers
+  `NotFound` instead of waiting (`admin.py:384-391` locks the user JOIN
+  organizations row; lock `users` alone, then read the name), and `admin.py`'s
+  docstring overclaims that every membership write takes the workspace lock
+  (`provision_dev_user` does not).
+- **Burhan's call (2026-10-15):** promote S30 now, fix in the next backend
+  session (S31's Step 0) unless B3 takes it first.
+- **Status:** open.
