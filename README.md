@@ -201,7 +201,9 @@ Read this part. A demo that only walks the happy path is a demo that lies.
   A workspace the engine may not serve gets no co-analyst turn, and one whose
   region no connected source may serve gets no third-party lookup — refused by
   code, with the reason. There are no per-workspace engines: a KSA client on a
-  global deployment has the LLM-free answers only.
+  global deployment has the LLM-free answers only. A workspace's own records
+  (chats, indicators, investigations, its audit trail) are stored on this
+  deployment's own database and search index, wherever the deployment runs.
 
 ---
 
