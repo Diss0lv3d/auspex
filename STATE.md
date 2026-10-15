@@ -2,9 +2,9 @@
 
 _Last updated: 2026-10-15 — **S30 CLOSED** (session-end ritual run). `./ci.sh`
 green at S30's close: **1554 tests, 129 modules**. `/api/health/ready` 200.
-Branch `staging`. **Promote slate: all of S29 and all of S30** (S30 is a
-promote milestone; `/promote` runs right after this ritual — follow-up #1 says
-whether it did). Promote #35 (`1a7708f`) was the last one._
+Branch `staging`. **Promote #36** (`605f95a`, back-merge `4c83f76`; GitHub CI
+green on push and PR) shipped all of S29 and all of S30. **Promote slate:
+empty** (only this note since)._
 
 ## Tracks (D-051) — read this first
 
@@ -636,11 +636,10 @@ scoped by a decision or a bug. **The integration phase (S30–S41, F4–F9) buil
 the spec; S30 is done.**
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: all of S29 and all of S30** (S29: eight review fixes, the
-   review record, the spec, D-060…D-067; S30: the tenancy build, its reviews'
-   fixes, D-068, D-069, the records, this ritual). **S30 is a promote
-   milestone: `/promote` runs right after this ritual**; if this line still
-   reads so, it did not. **The S30 migration cannot be rolled back** (it drops
+1. **Promote slate: empty.** Promote #36 (`605f95a`, back-merge `4c83f76`;
+   GitHub CI green on push and PR) shipped all of S29 and all of S30 (S29's
+   review fixes, spec and D-060…D-067; S30's tenancy build, its reviews'
+   fixes, D-068, D-069, the records). **The S30 migration cannot be rolled back** (it drops
    `users.workspace_id` and `users.role`; a pre-S30 image cannot boot on a
    migrated database): no production database exists yet, so take a `pg_dump`
    before the first real deploy. Promote #35 (`1a7708f`, back-merge `a8503f6`)
@@ -1076,6 +1075,9 @@ records what the split left). F2 added #20–#22.
   `docs/probes/f3-timeline/`. Headless Chromium for them was installed with
   Playwright 1.48.2 in the session scratchpad, not the repo.
 
+- **Promote #36 (2026-10-15):** `605f95a` on main, back-merge `4c83f76`;
+  `./ci.sh` green fresh before it, GitHub CI green on push and PR, main's tree
+  equals staging's.
 - **S30 session-end (2026-10-15):** staging, identity `bh3082336888-cell`.
   `./ci.sh` **green, 1554 tests, 129 modules**, `/api/health/ready` **200**,
   all three containers healthy, `./scripts/demo.sh` **exits 0**.
