@@ -2344,3 +2344,24 @@ Detail: docs/superpowers/specs/2026-10-15-integration-phase-design.md, D-062.
 **Bounds, stated.** Customer code on Auspex infrastructure needs per-tenant
 sandboxes and a later D-entry. Inside the Edge Agent, a customer's own code is
 not sandboxed from the agent: it is their code on their host.
+
+## D-063 — Edge secrets are names in Auspex; only Cloud Agent secrets are sealed in Auspex (2026-10-15, S29)
+
+**Decision (Burhan's call, S29: names only, over sealing to the agent's key
+or storing values in Auspex).**
+- An integration's config holds `secret:<name>`. The value lives on the Edge
+  Agent's host (a 0600 secret file, an env var, or a vault reference). Auspex
+  never holds an edge secret, encrypted or not. A missing secret fails "Test
+  connection" naming the secret and the agent.
+- Cloud Agent secrets (S41) are sealed in Auspex: envelope encryption under a
+  documented master key, rotatable, write-only.
+- No secret value ever reaches an API response, a log, the page or the model;
+  tests scan for it. A credential pasted into a conversation is refused and
+  rotation requested.
+
+Detail: docs/superpowers/specs/2026-10-15-integration-phase-design.md, D-063.
+
+**What this supersedes.** Nothing ratified.
+
+**Bounds, stated.** Setting up an edge integration takes a second step on the
+agent's host.
