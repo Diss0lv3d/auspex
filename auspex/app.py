@@ -30,6 +30,7 @@ from auspex.routes import (
     timeline,
     ui,
     watchers,
+    workspace,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -110,5 +111,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(retrohunt.router)
     app.include_router(watchers.router)
     app.include_router(timeline.router)
+    app.include_router(workspace.router)
     app.include_router(ui.router)
     return app
