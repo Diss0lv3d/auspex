@@ -1,11 +1,10 @@
 # NEXT-SESSION-FE — track: front end · session: F4
 
 _Paste everything below the first line of dashes into a fresh Claude Code
-window opened in the Auspex repo. **F4 waits for S30** (MSSP tenancy and
-`GET /api/auth/me`): the order table in `NEXT-SESSION-BE.md` runs S29, S30,
-then F4. **Do not start F4 until STATE.md's Tracks table shows S30 closed.**
-F3 closed 2026-10-14 (the collaborator Hunaiza, D-059); its spec is the base
-F4 builds on._
+window opened in the Auspex repo. **S30 closed 2026-10-15** (MSSP tenancy,
+`GET /api/auth/me`, the switch), so **F4 is next in the order table and the
+focus** (STATE.md). F3 closed 2026-10-14 (the collaborator Hunaiza, D-059); its
+spec is the base F4 builds on._
 
 _Below the F4 prompt is **Burhan's front-end plan for the whole phase,
 F4–F9**. `/session-end` writes the next prompt from its entry, keeps the plan
@@ -34,6 +33,24 @@ Step 0 (do BEFORE new scope):
    `GET /api/auth/me` and the workspace switch, as an MSSP analyst (explicit
    memberships, and a provider-wide grant with a `restricted` client), a client
    admin, a client analyst and a viewer (D-061). Save it to `docs/probes/`.
+   What S30 shipped, to probe rather than trust (docs/probes/2026-10-15-s30-tenancy-live.md
+   is S30's own run):
+   - **Set the people up with the CLI** (organizations are CLI-only, D-068):
+     `docker compose exec app python -m auspex.tenancy create-org | create-client
+     | set-member | set-restricted | list`. A dev login provisions an unknown
+     email as an analyst in `default` and lands a known one in its home
+     organization's first workspace.
+   - `GET /api/auth/me` → `user`, `organization`, `workspace` (id, name,
+     region, role, organization), `workspaces[]` (id, name, region, role, `via`
+     membership|provider_wide, organization {id, name, kind}), home first.
+   - `POST /api/auth/switch {workspace_id}` → a new `access_token` and the
+     workspace; a login session only (an API key is a 403); a foreign and a
+     missing workspace are the same 404; a malformed id is a 422. The old token
+     stays valid for its own workspace.
+   - A viewer's write is a 403 ("This needs the analyst or admin role in this
+     workspace."); a removed membership is a 403 at the next request ("You no
+     longer have access to this workspace.") and ends the approvals stream with
+     an `error` frame; a residency refusal is a 403 before any stream starts.
 
 Goal: **F4 — one shell for every page, role-aware, with a workspace switcher**
 (the plan's F4 entry below is the contract: its exit criteria are the done
@@ -201,6 +218,11 @@ session starts only after the backend sessions it depends on have closed.**
     - **Memberships (D-061).** An admin manages memberships and roles in their
       workspace. A provider admin grants and removes provider-wide access and
       marks a client `restricted`. Every refusal is the server's.
+      _S30 note: the API exists (`GET|POST /api/workspace/members`,
+      `PATCH|DELETE /api/workspace/members/{user_id}`, `GET /api/audit`, all
+      admin, active workspace only), but **`restricted` is CLI-only** (D-068
+      call 1): a page control for it needs a backend route first — Burhan's
+      call before F5._
     - **The approval policy** for each client workspace (S34) can be read and
       edited by an admin who may edit it, and only by them.
     - Live end to end against the rebuilt container, as an MSSP admin, a
