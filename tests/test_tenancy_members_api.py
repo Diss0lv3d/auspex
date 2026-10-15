@@ -146,3 +146,16 @@ async def test_two_admins_removing_each_other_over_http_leave_one(world, client,
         assert await pool.fetchval(
             "SELECT count(*) FROM memberships WHERE workspace_id = $1 AND role = 'admin'",
             m.direct_ws) == 1
+
+
+async def test_the_audit_read_refuses_a_before_without_an_offset(world, client, settings):
+    """F5 (S30 final review): an offset-less `before` was read in the server's
+    timezone, so the same string paged differently on another host."""
+    pool, m = world
+    headers = token(settings, m.d_user, m.direct_ws)
+    for naive in ("2026-10-15T12:00:00", "2026-10-15 12:00:00.123456"):
+        resp = client.get("/api/audit", params={"before": naive}, headers=headers)
+        assert resp.status_code == 422, naive
+    for aware in ("2026-10-15T12:00:00Z", "2026-10-15T12:00:00+03:00"):
+        resp = client.get("/api/audit", params={"before": aware}, headers=headers)
+        assert resp.status_code == 200, aware

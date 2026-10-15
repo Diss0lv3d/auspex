@@ -2,12 +2,11 @@
 memberships and its audit trail. Every route here is Admin, and acts only on
 `auth.workspace_id`; no other workspace id appears in any of them."""
 
-from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel, EmailStr
+from pydantic import AwareDatetime, BaseModel, EmailStr
 
 from auspex.auth import Admin, AuthContext
 from auspex.tenancy import admin
@@ -77,7 +76,8 @@ async def remove_workspace_member(request: Request, user_id: UUID, auth: Admin) 
 async def workspace_audit(
     request: Request,
     auth: Admin,
-    before: datetime | None = None,
+    # Aware only: an offset-less value would be read in the server's timezone.
+    before: AwareDatetime | None = None,
     limit: int = Query(50, ge=1, le=AUDIT_PAGE_MAX),
 ) -> dict:
     return {
