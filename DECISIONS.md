@@ -2308,3 +2308,39 @@ S30.
   KSA client on a non-KSA deployment has no co-analyst turns.
 - A provider-wide grant reaches every unrestricted client the moment it is
   created; restricting a client is the MSSP admin's act.
+
+## D-062 — Connector code runs on an outbound-only Edge Agent, and later a Cloud Agent, from hash-pinned packages (2026-10-15, S29)
+
+**Context.** Burhan: "Some security controls are on-prem only, how do you
+propose to handle them considering we are a cloud based app".
+
+**Decision (Burhan's call, S29: the proposal, ratified).**
+- **One image, two placements.** The Edge Agent runs on the customer's or
+  MSSP's network; the Cloud Agent (S41) is the same image run by Auspex,
+  isolated, for internet-reachable controls, first-party connectors only.
+- **Outbound only**: HTTPS long-poll for jobs, results posted back; no inbound
+  rule, no VPN.
+- **An agent belongs to one workspace** and serves only its integrations (over
+  letting a provider's agent serve its clients' workspaces). Its credential is
+  enrolled with a one-time token, stored hashed, revocable, and reaches only the
+  edge API.
+- **Code is pulled from the catalogue by content hash, or installed locally on
+  air-gapped sites** (Burhan: both). Either way a package runs only after its
+  hash matches the job's, so what was approved is what runs. S33 builds
+  pull-by-hash; local install comes with the first site that needs it.
+- A customer-written connector runs only on that customer's own agent (v1).
+- Each command runs in a subprocess with a timeout; the SDK's HTTP client
+  reaches only declared hosts; TLS is verified or pinned, never off. Core code
+  validates every result against its output schema before anything uses it.
+- Offline is a state (heartbeats: online, stale, offline); approved actions
+  wait, and D-048's doors apply. Every job carries an idempotency key.
+- Raw on-prem data and credentials stay on the edge; D-061 governs what
+  crosses.
+
+Detail: docs/superpowers/specs/2026-10-15-integration-phase-design.md, D-062.
+
+**What this supersedes.** Nothing ratified.
+
+**Bounds, stated.** Customer code on Auspex infrastructure needs per-tenant
+sandboxes and a later D-entry. Inside the Edge Agent, a customer's own code is
+not sandboxed from the agent: it is their code on their host.
