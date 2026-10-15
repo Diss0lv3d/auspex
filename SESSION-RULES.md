@@ -184,7 +184,42 @@ change to those modes keeps `contract_repair` honest.
 - A page change is verified in a real browser against the rebuilt container,
   not only by reading the diff.
 
+## Tenancy (D-061, D-068, built at S30)
+
+- **One answer to "may this person enter, and as what":**
+  `enterable_workspaces` (`auspex/tenancy/access.py`). `resolve_user`
+  re-checks it on every request; the role is never read from a token. A
+  cross-client view filters on that function's set, nothing else.
+- **Every tenancy write goes through `auspex/tenancy/admin.py`**, which holds
+  the rules once (home-organization reach, provider-wide only on a provider's
+  workspace, no self-change, `__deployment__` takes no member). Membership
+  writes hold the workspace row and re-check the acting admin inside the
+  transaction. Organizations and workspaces are created only by the CLI:
+  `docker compose exec app python -m auspex.tenancy …` (`list`, `create-org`,
+  `create-client`, `set-member`, `remove-member`, `set-restricted`,
+  `rehome-person`).
+- **Every route takes its identity through `AnyRole`, `Analyst` or `Admin`**
+  (`auspex/auth.py`). A write without `Analyst`/`Admin`, or any route reading a
+  workspace, tenant or organization id from its path, query, headers or body
+  (the switch excepted), fails `tests/test_tenancy_roles.py`, which walks the
+  app. Do not widen its allowlists to pass; that is a D-entry.
+- **Residency is code.** A route that reaches the engine for a workspace calls
+  `engine_refusal(auth.region, …)` in its body before storing anything; every
+  `enrich(` call passes `region=`; a new enrichment provider declares `region`
+  in its own class body. `tests/test_region_guard.py` pins all three.
+- **Every new table and route gets a cross-tenant test.** A test workspace
+  needs an organization: use `tests/_tenancy.py` (`ensure_workspace`,
+  `ensure_member`, `build_mssp`, `token`) under a unique `t-…` prefix cleaned
+  with `drop_orgs`.
+- A dev login provisions an unknown email as an analyst in `default`. An
+  admin or viewer for a live probe comes from the CLI's `set-member`.
+
 ## Code conventions
+
+- **FastAPI 0.139 wraps included routers** (`app.routes` holds
+  `_IncludedRouter`s). Walk routes with
+  `fastapi.routing.iter_route_contexts(app.routes)`; each item has `.path`,
+  `.methods` and `.route.dependant`.
 
 - Reuse caps, never re-declare them. A tunable that belongs to us is a code
   constant (D-026).
