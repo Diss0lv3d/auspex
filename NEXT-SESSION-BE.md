@@ -1,244 +1,85 @@
-# NEXT-SESSION-BE — track: backend · session: S29
+# NEXT-SESSION-BE — track: backend · session: S30
 
 _Paste everything below the first line of dashes into a fresh Claude Code
-window opened in /home/burhan/auspex-new. **S29 opens the integration phase**
-(Burhan, 2026-10-14: "lets work on integrating a SIEM on the platform and build
-the incident management platform but i believe in order to do that we first
-need to build an application module which relies on the build your own
-integration module"). **Start it only after F3 has closed.** F3 is out with the
-collaborator (D-059), and one session at a time spans both machines (D-051)._
+window opened in /home/burhan/auspex-new. **S30 builds MSSP tenancy (D-061)**,
+the first build session of the integration phase, and a promote milestone. The
+phase's spec is docs/superpowers/specs/2026-10-15-integration-phase-design.md;
+its decisions are D-060…D-067, all ratified by Burhan at S29._
 
-_(S29 was re-scoped on 2026-10-14, in a planning window with no session id. Its
-old goals wait in STATE.md: TD-036 is follow-up #3 and TD-044 is follow-up #4.
-The review of S28's code stays as Step 0.)_
-
-_Below the S29 prompt is the **backend plan for the whole phase, S29–S41**:
-each session's goal, what it depends on, and its exit criteria. The front-end
-half (F4–F9) is in `NEXT-SESSION-FE.md`, after F3. **`/session-end` writes the
-next session's prompt from its entry in the plan, keeps the plan section, and
-ticks the session it closed.** A change to the plan's order is Burhan's call._
+_Below the S30 prompt is the **backend plan for the whole phase, S29–S41**,
+re-checked against the spec at S29. **`/session-end` writes the next session's
+prompt from its entry in the plan, keeps the plan section, and ticks the
+session it closed.** A change to the plan's order is Burhan's call._
 
 ---
 
-SESSION S29 of Auspex, **backend track** (D-051). The working dir must be
-/home/burhan/auspex-new. Run `/session-start be S29` first (the full ritual).
+SESSION S30 of Auspex, **backend track** (D-051). The working dir must be
+/home/burhan/auspex-new. Run `/session-start be S30` first (the full ritual).
 It reads `SESSION-RULES.md` (standing rules for every track) and STATE.md.
-
-**S29 ships decisions, a spec and probes. No feature code.** Probe scripts
-live under `docs/probes/`, as usual.
 
 Step 0 (do BEFORE new scope):
 
-1. **F3 must be closed and merged.** F3 closed 2026-10-14, and its work
-   (with its session-end docs) is the PR from `f3-timeline-csp` into
-   `staging`. Review and merge that PR first; until then, STATE.md on
-   `staging` still shows F3 in flight. Run `git fetch` and read
-   `origin/staging` before anything else (D-051, D-059).
-2. **If STATE.md says the promote slate is not empty, `/promote` it.** Read the
-   diff, not the list.
-3. **An adversarial second-pass review of S28's own code.** Every integration
-   action will run through this code, so it is read before anything is built on
-   it. Each change was mutant-checked or battery-judged by its author, but
-   nobody else has read it adversarially. Read and attack:
-   - D-046: `_on_offer`, `_dispatch_within_budget` and the last-call notice
-     (`auspex/agent/loop.py`), and the budget declaration
-     (`auspex/agent/capabilities.py`). Check `run` and `run_stream` parity,
-     and what a call refused for budget looks like on the page;
-   - D-048: `run_stale_approval`, the shared `_run_claimed`, `withdraw`, and
-     the queue's new clause (`auspex/actions/settlement.py`), plus the two
-     routes. Check against every claim-token and `resolved_by` rule;
-   - D-049: `record` in `enrich_observable` and the route's lambda. What gets
-     written, for which workspace, and what the model is told on failure.
-     (B2 has since added the `reputation: unknown` lines to the same payload,
-     `fce2f55` and `58b45e4`; read the current version);
-   - D-047: `_IDENTITY_RE` (`auspex/classify/classifier.py`);
-   - D-050: `_NOTE_ASK_RE`, `_NOTE_REQUEST_RE`, the shortcut veto, and the
-     `action_request` contract;
-   - `e2af082`: JSON alert name precedence and the new keys;
-   - the review fixes `831dedc` and `3a09fcd`.
+1. **One window at a time (D-051, D-059).** `git fetch` and read
+   `origin/staging` first. If anything moves that you did not move, check `ps`
+   for a second `claude` in this directory and stop.
+2. **The promote slate** (STATE.md follow-up #1) holds all of S29. S30 is a
+   promote milestone, so it ships at S30's close with S30's work, unless
+   STATE.md says Burhan promoted it in between.
+3. **Read D-060 and D-061, and the spec's D-061 section, before any code.**
+   They are the contract; this session builds them, it does not re-decide
+   them. Re-debating one is "overturn or drop?" to Burhan (CLAUDE.md).
+4. **Probe reality first (CLAUDE.md rule 4).** Save to
+   `docs/probes/<date>-s30-tenancy-baseline.md`:
+   - the live schema of `workspaces`, `users`, `api_keys` and every table with
+     a `user_id` (`\d` in psql against the dev DB, port 55432);
+   - the row counts that the migration must carry (workspaces, users, users
+     per email, api keys), with no emails or tenant data in the record;
+   - every route that depends on `resolve_user` (`auspex/auth.py:80`) or reads
+     `workspace_id`, by `file:line`.
 
-   Same discipline as before: reproduce by execution first, fix with a test
-   that fails pre-fix, and record what you clear in a probe record.
+Goal: **S30, the plan's entry below, is the contract: its exit criteria are
+the done line.** In short: organizations (direct, provider, client,
+`restricted`), each provider's own workspace, workspaces with a region, one
+user per person, memberships with `admin|analyst|viewer` and the
+`provider_wide` grant, one `enterable_workspaces` function, one workspace per
+token with an audited switch, `require_role`, `GET /api/auth/me`, the region
+guard over the engine and third-party enrichment (`ENGINE_REGION`), the
+structural and cross-tenant tests, an adversarial review, and the promote.
 
-Goal (three items, in order):
+**Design first, then a plan.** D-061 decided the model; it left these to S30.
+Brainstorm them with Burhan, one question at a time, then write the
+implementation plan (`docs/superpowers/plans/<date>-s30-tenancy.md`) and ask
+him how to execute it:
+- **Who creates organizations and workspaces?** There is no deployment-level
+  operator yet. A seed command, an operator API on the `__deployment__`
+  workspace (D-035), or both, and what the first admin of a new organization
+  is.
+- **What a dev login becomes** (today every dev login lands in `default`,
+  `auth.py:124`): its organization, its membership and its role, so the demo,
+  the page and the tests keep working.
+- **The migration.** Existing users become a person plus a membership. What
+  happens to the same email in two workspaces, and which organization
+  `default` belongs to.
+- **The audit trail** for switches, membership changes and provider-wide
+  grants: a table, its fields, and who can read it.
+- **The region vocabulary** (`global`, `ksa`, …) and which engine regions
+  serve which workspace regions.
 
-1. **Design the integration phase, and put its decisions to Burhan.**
-   Brainstorm first. The spec goes to
-   `docs/superpowers/specs/<date>-integration-phase-design.md`. Inputs: the
-   plan below, the incident-management line in IDEAS.md, and the code as it
-   stands (the map under "Where the code stands" below; re-verify every
-   citation before relying on it). Each decision becomes a D-entry once Burhan
-   ratifies it:
-   a. **Where integration code runs: the runner, and its two placements.**
-      Burhan asked: "Some security controls are on-prem only, how do you
-      propose to handle them considering we are a cloud based app". The
-      runner proposal below is the answer to put to him. He ratifies it,
-      changes it, or drops it.
-   b. **The manifest contract, v1.** An integration is a typed, versioned
-      manifest plus Python handlers (ADR 0007: the contract generates the
-      config form, the action specs, the agent's tool text and the contract
-      tests). Fields, versioning, and how a manifest action maps onto
-      `ActionSpec` (`auspex/actions/types.py:164`) and passes `validate_spec`
-      (`:239`).
-   c. **Credential custody.** Edge-placed applications keep their credentials
-      on the edge, and Auspex stores only a name. Cloud-placed ones (S41) need
-      sealed secrets. No secret ever reaches an API response, a log, the page
-      or the model.
-   d. **Tenancy for MSSPs, and roles.** Burhan, 2026-10-14: "My other concern
-      is MSSP clients and their multi tenancy problem". The MSSP proposal below
-      is the answer to put to him. It decides where a role lives (on a
-      membership, not on the user), so it must be ratified before S30 builds
-      anything.
-   e. **A jobs queue.** D-001 promised "jobs via SKIP LOCKED" and none exists.
-      Background work is plain asyncio tasks in the lifespan
-      (`auspex/app.py:41-95`). Fetch schedules and runner work need a real
-      queue: lease, retry, dead state.
-   f. **TD-023 and TD-025 come out of Deferred for this phase.** Edit
-      SESSION-RULES.md in its own commit. TD-025's own fix order applies: TTL
-      first, grant-checked scope before the first third-party action. The
-      idempotency key is needed the day an action reaches a network, and S34
-      is that day.
-   g. **The vocabulary**, fixed once (see the plan's "Words" below):
-      organization, workspace, membership, integration, application, runner,
-      alert, incident.
-2. **Where the QRadar lives (no credentials needed).** QRadar is the first SIEM,
-   and Burhan already runs one on another machine (2026-10-14). He shares its
-   credentials later, once the application module exists.
-   - **Credentials never go into the chat**, and never into a probe record or
-     a commit. They go into the gitignored `.env` under a documented name, or
-     into the edge runner's own secret file once S33 exists. If a token is
-     pasted into a conversation anyway, refuse to use it and ask Burhan to
-     rotate it (org policy).
-   - **Without credentials, probe and save to
-     `docs/probes/<date>-qradar-reachability.md`:**
-     - its address and port, and whether it is reachable from where the dev
-       edge runner will run;
-     - its TLS certificate. A self-signed certificate is the common case on an
-       on-prem console. The runner then needs a pinned CA or certificate from
-       the application's config, **never a silent "don't verify"**. That is an
-       input to goal 1b;
-     - whatever the API tells an unauthenticated caller (for example, its
-       version).
-   - **Ask Burhan what data it holds.** Lab or synthetic data only can reach
-     the dev engine, which processes in Singapore. Any customer data, KSA data
-     above all, never can. Record his answer in the probe.
-   - **The full API probe** waits for the token. It runs at the first session's
-     Step 0 after Burhan saves the token, and at the latest at S36's Step 0.
-     The list it must answer is in S36's entry below.
-3. **Re-check this plan against the spec.** Adjust S30–S41's goals and exit
-   criteria in this file, and F4–F9 in `NEXT-SESSION-FE.md` (you may edit the
-   other track's plan here, because the phase is one plan). A change of
-   order goes to Burhan.
+Candidates: none. Ending early with the rituals done beats starting S31's
+work.
 
-**The runner proposal (goal 1a; Burhan's call):**
-- **One integration format and one runner image, with two placements.**
-  - **Edge runner.** The customer (or their MSSP) runs it inside the network
-    that holds the control, as a container or a service on a VM. It connects
-    **out** to Auspex over HTTPS, and nothing connects in: no inbound firewall
-    rule and no VPN. It long-polls for jobs on the applications assigned to it,
-    runs each command locally against the on-prem control (the QRadar
-    console, a firewall, AD, an EDR manager), and posts the result back.
-  - **Cloud runner.** The same image, run by Auspex in an isolated container,
-    for controls the internet can reach (SaaS SIEM and EDR APIs). It comes
-    later in the plan (S41), with sealed secrets.
-- **Who writes the code that runs where (v1).** A customer-written integration
-  runs only on that customer's own edge runner: their code, on their
-  infrastructure. Auspex-hosted runners run only first-party integrations
-  Auspex has reviewed. Running customer code on Auspex infrastructure needs
-  per-tenant sandboxes, and is a later D-entry, not v1. This is what keeps the
-  tenant-isolation invariant intact without building a sandbox platform first.
-- **Credentials.** An edge holds its own credentials, in its local secret file
-  or vault, and Auspex stores only the secret's name. On-prem credentials never
-  leave the customer's network.
-- **What the core trusts.**
-  - A runner enrolls with a one-time token. It then holds a runner credential,
-    stored hashed (the `api_keys` pattern, `auspex/migrations.py:43`),
-    revocable, and scoped to one owner (a workspace, or an MSSP's provider
-    organization) and the applications assigned to it.
-  - It can claim only its own jobs, and it can call no other API.
-  - Core code validates every result against the command's output schema
-    before anything is stored, shown or handed to the model (code over
-    prompts).
-- **Offline is a state, not an error.** Heartbeats drive the application's
-  health. An approved action whose runner is offline waits: `check_executable`
-  refuses with "runner offline", and D-048's stale doors apply. A fetch
-  resumes from its cursor.
-- **Retries are safe.** Every job carries an idempotency key (TD-025), so a
-  result lost on its way back never runs an action twice.
-- **Residency.** Raw on-prem data and credentials stay on the edge. Only what a
-  fetch returns crosses to the cloud, and the integration can filter or redact
-  before it does. Org policy on KSA-tenant data applies to whatever crosses.
-- **The dev topology mirrors a customer's.** Burhan's QRadar, on another
-  machine, stands in for "on-prem", and the edge runner reaches it over the
-  network the way a customer's would.
-
-**The MSSP proposal (goal 1d; Burhan's call):**
-- **The workspace stays the isolation unit.** Every data row keeps its
-  `workspace_id` (D-008, unchanged). An organization does not hold data. It
-  only decides who may enter which workspace.
-- **Organizations own workspaces.**
-  - A direct customer is one organization with its workspace(s).
-  - An MSSP is a **provider** organization. Each of its clients is a
-    **client** organization, under that provider, with its own workspace(s).
-- **Memberships carry the role.**
-  - A user has one home organization, and a membership in each workspace they
-    may enter. The role lives on the membership, not on `users.role`.
-  - An MSSP assigns its analysts to client workspaces by membership. A
-    client's own users get memberships only in their own organization's
-    workspaces.
-  - Identity becomes one user per person. Today the same email can exist once
-    per workspace (`UNIQUE (workspace_id, email)`, `auspex/migrations.py:39`),
-    and OAuth matches on email (TD-001, a hard gate before Google sign-in).
-- **One workspace per token, minted only for a membership the user holds.**
-  The JWT already carries one `wid` (`auspex/auth.py:48`). Switching client
-  means minting a new token, and the switch is audited. Nothing takes a
-  workspace or tenant id from a request body, a header or a query string
-  (org invariant).
-- **Cross-client views are computed from memberships, never unscoped.** The
-  MSSP's "all my clients' incidents" queue filters on
-  `workspace_id = ANY(<the caller's membership workspaces>)`, where code
-  builds that list from memberships and never from input. A structural test
-  refuses any alert or incident query that lacks a workspace filter.
-- **The co-analyst never mixes clients.** A chat session belongs to one
-  workspace. Its context, tools, spend and engine are that workspace's, even
-  for an MSSP analyst who can enter both.
-- **Shared SIEMs: one application, many clients.**
-  - MSSPs often run one multi-tenant SIEM. QRadar has domains for this, and
-    other SIEMs have their own equivalents.
-  - Such an application belongs to the provider organization. A routing map,
-    written by an MSSP admin, sends each item to a client workspace (for
-    example, QRadar domain → workspace).
-  - **An item with no mapping is quarantined at the provider level. It never
-    lands in a guessed or default workspace.**
-  - An action on a routed incident goes back through the same shared
-    application, limited to that item's domain.
-- **Who approves on whose systems is a per-client policy.** For example,
-  MSSP analysts propose, and a destructive action on a client's own systems
-  needs a client approver unless the contract says otherwise. The policy is
-  data, and the gate is code: D-024's claim path reads it.
-- **Residency per client.** A workspace carries its region. A KSA client's
-  workspace never sends data to an engine or a runner outside KSA. Code
-  refuses it; no prompt is involved. Engines are deployment-wide today
-  (D-005). S29 decides whether the engine becomes per-workspace in this phase,
-  or keeps that guard and defers the rest ("KSA residency routing" is in
-  ROADMAP.md's Later).
-- **Audit.** Every incident event and approval records the acting user and
-  their home organization, so a client sees which MSSP analyst did what.
-- **Herd Immunity stays deferred.** An MSSP's clients would be its natural
-  first flock (k≥3), but nothing in this design shares data across
-  workspaces until its own D-entry.
-
-Candidates: none. S29 is goals 1–3. Ending early with the rituals done beats
-starting S30's work.
-
-Constraints: everything in `SESSION-RULES.md`.
-- **No KSA-tenant or customer data in the dev stack, ever.** The dev engine
-  processes in Singapore. What reaches it from QRadar is lab or synthetic data
-  only (goal 2's answer).
-- Decisions get made once. If the spec needs to overturn a D-entry (D-005,
-  D-008, D-023, D-024, D-037 and D-039 are the likely ones), point at it and
-  ask Burhan "overturn or drop?". Superseding is a new numbered entry.
-- Do not start S30's work in S29, even where it looks small (scope lock).
+Constraints: everything in `SESSION-RULES.md`, and the plan's "Standing for
+every session in this phase" below.
+- **Tenant isolation is an invariant** (org policy). Nothing takes a workspace
+  or tenant id from a request body, a header or a query string. A
+  non-super-admin can never override `tenant_id` or read across tenants.
+- **A tenancy change gets a fresh-agent adversarial review before the close,
+  and so do the review's fixes** (SESSION-RULES.md).
+- `ENGINE_REGION` goes into `.env.example` and `docs/ENV_VARS.md` the moment
+  it exists. TD-001 stays a hard gate before Google sign-in.
+- Run pytest only when no live probe is running; the suite purges the shared
+  `analyst@auspex.dev` user, which the migration also touches.
+- Do not start S31's work in S30, even where it looks small (scope lock).
 
 ---
 
