@@ -2258,3 +2258,53 @@ files are rewritten to these (S29 goal 3).
 
 **Bounds, stated.** Customer-facing copy follows D-002 as ever: the engine is
 never named.
+
+## D-061 — Tenancy for MSSPs: organizations own workspaces, memberships carry roles, one workspace per token, and a region guard (2026-10-15, S29)
+
+**Context.** Burhan, 2026-10-14: "My other concern is MSSP clients and their
+multi tenancy problem". Today a user row belongs to one workspace, `users.role`
+is never read, and engines are deployment-wide (D-005, D-035). S30 builds this
+before anything else stands on roles.
+
+**Decision (Burhan's calls, S29, one at a time).**
+1. **Organizations own workspaces; a provider has its own workspace** (over
+   org-owned rows or a polymorphic owner). Shared integrations, routing maps,
+   quarantine and their jobs live there, so every data row keeps
+   `workspace_id` (D-008 unchanged). Exemptions in the schema test:
+   `organizations`, and `users` once identity leaves the workspace.
+2. **One user per person**, with a home organization; email unique across the
+   deployment. TD-001 still gates Google sign-in.
+3. **Memberships: explicit by default, plus an opt-in provider-wide grant**
+   (Burhan: both). A provider-wide grant applies in every current and future
+   client workspace **except a client marked `restricted`**. A membership's
+   workspace must belong to the user's home organization or a client of it,
+   enforced by code. One function computes the workspaces a person may enter,
+   and every token mint and cross-client view uses it.
+4. **Roles: `admin`, `analyst`, `viewer`** (over adding `approver`, or two
+   roles). Who may approve is the workspace's approval policy (S34), not a
+   role.
+5. **One workspace per token**, minted only for an enterable workspace;
+   switching is audited; a removed membership ends access at the next request.
+   Nothing takes a workspace or tenant id from input.
+6. **Residency is a region guard** (over per-workspace or per-organization
+   engines). Each workspace carries a region and the deployment declares its
+   engine's (`ENGINE_REGION`, born in S30). Code refuses an engine turn the
+   engine may not serve, **and the same guard covers third-party enrichment**:
+   a `ksa` workspace gets no third-party lookups until an in-region provider
+   exists. LLM-free paths keep working.
+7. Shared SIEMs route by a routing map in the provider's workspace; an unmapped
+   item is quarantined there, never guessed. Every case event, approval and
+   switch records the actor and their home organization. Herd Immunity stays
+   deferred.
+
+Detail: docs/superpowers/specs/2026-10-15-integration-phase-design.md, D-061.
+
+**What this supersedes.** Nothing ratified. D-008 stands. D-005 and D-035
+stand; a guard is added. `users.workspace_id` and `users.role` are migrated by
+S30.
+
+**Bounds, stated.**
+- Per-workspace engines stay in ROADMAP's Later ("KSA residency routing"), so a
+  KSA client on a non-KSA deployment has no co-analyst turns.
+- A provider-wide grant reaches every unrestricted client the moment it is
+  created; restricting a client is the MSSP admin's act.
