@@ -245,499 +245,457 @@ Constraints: everything in `SESSION-RULES.md`.
 ## The integration phase — backend plan (S29–S41)
 
 _Written 2026-10-14 (Burhan, planning window); MSSP tenancy added the same day
-at his request. **Scope lock: S29 works only on the prompt above.** The
-sessions below are the plan, not S29's scope. Each session-end writes the next
-session's prompt from its entry here, keeps this section, and ticks the closed
-session._
+at his request. **Re-checked at S29 against the phase's spec**
+(docs/superpowers/specs/2026-10-15-integration-phase-design.md) and its
+D-entries, D-060…D-067: the words changed (D-060), and S30, S32, S33, S35 and
+S36 gained what the spec decided. The order did not change. Each session-end
+writes the next session's prompt from its entry here, keeps this section, and
+ticks the closed session._
 
-### Words (S29 fixes them in a D-entry)
+### Words (D-060; the full table is in the spec)
 
-- **Organization**: who a customer is.
-  - A direct customer is one organization.
-  - An MSSP is a provider organization whose clients are client
-    organizations.
-  - An organization owns workspaces, and holds no data itself.
-- **Workspace**: the isolation unit (D-008). Every data row belongs to exactly
-  one.
-- **Membership**: a user's right to enter one workspace, with a role.
-- **Integration**: a package a customer, an MSSP or Auspex writes. It is a
-  typed, versioned manifest plus Python handlers, built with the Auspex SDK.
-  Its commands are `test` (connectivity), `fetch` (bring alerts or incidents
-  in) and `action` (do something, under D-023's contract).
-- **Application**: an integration configured for one owner, either a
-  workspace or (for a shared SIEM) a provider organization. It carries config
-  values, its credentials' names, its placement, its fetch schedule, its
-  health, and, when shared, a routing map.
-- **Runner**: what executes an application's commands. One image, placed on a
-  customer's or MSSP's network (edge) or in Auspex's cloud (S41).
-- **Alert**: one item a fetch brought in, normalized through `AlertEnvelope`
-  (`auspex/alerts/envelope.py:59`), in exactly one workspace.
-- **Incident**: the analyst's unit of work. It has a lifecycle, an assignee,
-  an append-only event log, linked alerts, observables and proposals. This is
-  not `investigations` (`auspex/migrations.py:204`), which is one pasted
-  subject's ACH analysis.
+- **Organization** (direct, provider, client; a client may be `restricted`)
+  owns **workspaces**; a provider has its own workspace. Every data row belongs
+  to exactly one workspace (D-008).
+- **Membership**: a user's right to enter one workspace, as `admin`, `analyst`
+  or `viewer`; a provider-wide grant reaches every unrestricted client.
+- **Connector**: the package (manifest plus Python handlers, built with the
+  SDK). **Integration**: a connector configured in one workspace.
+- **Edge Agent / Cloud Agent**: what runs an integration's commands
+  (`auspex/edge/`, apart from the co-analyst's `auspex/agent/`).
+- **Routing key / map / quarantine**, **alert**, and **case** (the analyst's
+  unit of work; "incident" stays the SIEM's own word).
 
 ### The order, both tracks (one session at a time, D-051)
 
 | # | Session | Track | Depends on | Delivers |
 |---|---|---|---|---|
-| 0 | F3 | fe | — | closed 2026-10-14 by the collaborator (D-059); its PR `f3-timeline-csp` → `staging` is merged before S29 |
-| 1 | S29 | be | F3 closed | the S28 review, decisions and spec, where the QRadar lives |
-| 2 | S30 | be | S29 | MSSP tenancy: organizations, memberships, roles, one workspace per token |
+| 0 | F3 | fe | — | closed 2026-10-14 by the collaborator (D-059); its PR #34 merged at S29 |
+| 1 | S29 | be | F3 closed | closed: the S28 review, the spec and D-060…D-067 |
+| 2 | S30 | be | S29 | MSSP tenancy: organizations, provider workspaces, memberships, roles, one workspace per token, the region guard |
 | 3 | F4 | fe | S30 | one shell for every page, role-aware, a workspace switcher |
-| 4 | S31 | be | S30 | jobs queue, TD-025's first half |
-| 5 | S32 | be | S31 | the manifest contract, the SDK, the catalogues |
-| 6 | S33 | be | S32 | applications and the edge runner, "Test connection" end to end |
-| 7 | S34 | be | S33 | application actions through approvals and per-client policy |
-| 8 | F5 | fe | S34 | integrations, applications, runners and approval policy admin |
+| 4 | S31 | be | S30 | the jobs queue, TD-025's first half |
+| 5 | S32 | be | S31 | the connector contract, the SDK (Python and YAML), the catalogue |
+| 6 | S33 | be | S32 | integrations and the Edge Agent, "Test connection" end to end |
+| 7 | S34 | be | S33 | integration actions through approvals and per-client policy |
+| 8 | F5 | fe | S34 | connectors, integrations, Edge Agents, memberships and approval policy admin |
 | 9 | S35 | be | S33 | fetch schedules, cursors, alerts, routing for shared SIEMs |
-| 10 | S36 | be | S34, S35 | QRadar on the edge runner, live |
+| 10 | S36 | be | S34, S35 | QRadar on the Edge Agent, live on the lab domain |
 | 11 | F6 | fe | S36 | the alerts queue, the quarantine and the routing map |
-| 12 | S37 | be | S36 | incidents: lifecycle, events, assignment, linking |
-| 13 | F7 | fe | S37 | incidents list and detail, across clients for an MSSP |
+| 12 | S37 | be | S36 | cases: lifecycle, events, assignment, linking |
+| 13 | F7 | fe | S37 | cases list and detail, across clients for an MSSP |
 | 14 | S38 | be | S37 | two-way sync with the SIEM, every write approved |
-| 15 | S39 | be | S37 | the co-analyst on the incident |
-| 16 | F8 | fe | S38, S39 | sync state and the co-analyst inside the incident |
+| 15 | S39 | be | S37 | the co-analyst on the case |
+| 16 | F8 | fe | S38, S39 | sync state and the co-analyst inside the case |
 | 17 | S40 | be | S38 | SLAs, metrics per client and for the MSSP, closure, the demo |
 | 18 | F9 | fe | S40 | the dashboard, polish, Burhan's hands-on walk |
-| 19 | S41 | be | S40 | after the path: cloud runner, sealed secrets, a second SIEM |
+| 19 | S41 | be | S40 | after the path: the Cloud Agent, sealed secrets, a second SIEM |
 
 - **The focus follows the order.** Each session-end sets STATE.md's focus to
-  the next session's track, so F3's session-end moves it to the backend.
+  the next session's track.
 - **Promote at the milestones:** S30 (tenancy), S33 ("Test connection" end to
   end), S36 (QRadar data in), S38 (the loop closed), and S40 (the phase's
   demo).
 
-### Where the code stands (2026-10-14; re-verify before relying on it)
+### Where the code stands (2026-10-15; re-verify before relying on it)
 
 - **Actions** (`auspex/actions/`):
   - `EXECUTABLE_SYSTEMS = frozenset({"auspex"})` (`settlement.py:50`), checked
-    only in `check_executable`. Widening it is code plus review (D-024).
-  - There is one built-in action, `annotate_observable` (`builtin.py`).
-  - The registry is in-process and workspace-blind (TD-023).
-  - There is no idempotency key and no proposal TTL (TD-025).
+    only in `check_executable`. Widening it is code plus review (D-024, D-066).
+  - One built-in action, `annotate_observable` (`builtin.py`). `ActionSpec` is
+    `types.py:164`, `validate_spec` `:239`.
+  - The registry is in-process and workspace-blind (TD-023). No idempotency key
+    and no proposal TTL (TD-025). Both left Deferred at S29 (D-066).
 - **Tenancy** (`auspex/auth.py`):
   - A user row belongs to one workspace (`users.workspace_id` NOT NULL,
-    `UNIQUE (workspace_id, email)`, `auspex/migrations.py:31-41`), and dev
-    logins all land in `default` (`get_or_create_user`, `auth.py:124`).
-  - The JWT carries one `wid` (`auth.py:48`), and `resolve_user` (`:80`) is
-    the single chokepoint.
-  - `users.role` is never read. There are no organizations and no
+    `UNIQUE (workspace_id, email)`, `auspex/migrations.py:31-41`); dev logins
+    all land in `default` (`get_or_create_user`, `auth.py:124`).
+  - The JWT carries one `wid` (`auth.py:53`); `resolve_user` (`:80`) is the
+    single chokepoint. `users.role` is never read. No organizations, no
     memberships.
 - **Secrets.** Provider keys are env-only and deployment-wide
-  (`auspex/config.py`). There is no per-workspace secret storage.
-- **Background work** is asyncio tasks in the lifespan (`auspex/app.py:41-95`).
-  There is no jobs table. `ingest_state` (`auspex/migrations.py:173`) is the
-  pattern for a per-source cursor.
+  (`auspex/config.py`). No per-workspace secret storage.
+- **Background work** is asyncio tasks in the lifespan (`auspex/app.py:41-95`);
+  no jobs table. `ingest_state` (`auspex/migrations.py:173`) is the pattern for
+  a per-source cursor.
 - **Schema**: one list, `SCHEMA_V0` (`auspex/migrations.py`). Every table
-  carries `workspace_id` (D-008), and `tests/test_schema.py` enforces it.
-  Organization-level tables (provider applications, routing maps) are the
-  first that would not. That exemption is a decision, and the test must name
-  each exempt table.
-- **Alerts** arrive only pasted into chat. `normalize` and `score_alert` live
-  in `auspex/alerts/`.
-- **Enrichment providers** (`auspex/enrich/providers/base.py:24`) are the
-  nearest existing shape to an integration.
-- **Compose** runs `app`, `postgres` and `opensearch`. There is no worker and
-  no runner.
+  carries `workspace_id` (D-008), enforced by `tests/test_schema.py`. D-061
+  names its only exemptions: `organizations`, and `users` once identity leaves
+  the workspace.
+- **Alerts** arrive only pasted into chat (`normalize`, `score_alert` in
+  `auspex/alerts/`). **Enrichment providers** (`auspex/enrich/providers/base.py:24`)
+  are the nearest existing shape to a connector.
+- **Compose** runs `app`, `postgres` and `opensearch`. No worker, no agent.
+- **Open bugs that touch this phase** (BUGS.md): B-010 (three classify rules
+  still backtrack on crafted input), B-015/B-020 (what the agent says it
+  recorded), B-017 (a malformed tool name from the endpoint crashes a turn),
+  B-018 (a URL's credentials are kept).
 
 ### Standing for every session in this phase
 
-- **SESSION-RULES.md applies unchanged.** In particular, a change to the rail,
-  an action, tenancy or the approvals state machine gets a read-only
-  adversarial review by a fresh agent before the close. In this phase that is
-  nearly every session.
-- **Tenant isolation is an invariant** (org policy). No route takes a
-  workspace or tenant id from input. A cross-client view is computed from
-  memberships by code. Every new table and route gets a cross-tenant test.
+- **SESSION-RULES.md applies unchanged.** A change to the rail, an action,
+  tenancy or the approvals state machine gets a read-only adversarial review by
+  a fresh agent before the close. In this phase that is nearly every session.
+  At S29 the review of the review's own fixes found two more defects: review
+  the fixes too.
+- **Tenant isolation is an invariant** (org policy, D-061). No route takes a
+  workspace or tenant id from input. Cross-client views use
+  `enterable_workspaces`. Every new table and route gets a cross-tenant test.
+- **Residency is code** (D-061): an engine turn or a third-party lookup the
+  workspace's region forbids is refused.
 - **CI stays hermetic.** QRadar is reached only through a fake built from
-  recorded probe responses, never the live machine. Live checks are separate,
-  and recorded in `docs/probes/` with no secrets and no non-synthetic data.
-- **Anything a SIEM sends is attacker-controlled.** It reaches the model only
-  through the data channel, under the input guard (D-027). It reaches the
-  page only as text.
+  synthetic recorded responses (D-067). Live checks are separate, on the lab
+  domain, and recorded in `docs/probes/` with no secrets and no real data.
+- **Anything a SIEM or a connector sends is attacker-controlled.** It reaches
+  the model only through the data channel, under the input guard (D-027), and
+  the page only as text.
 - **Every write to a customer system goes through an approval** (D-014,
-  D-024). There is no auto-run, whatever a fetch says.
+  D-024). No auto-run, whatever a fetch says.
 - **Specs over prompts.** The manifest generates forms, action specs, the
-  agent's tool text and contract tests. Nothing is written twice by hand.
+  agent's tool text and contract tests (D-064). Nothing is written twice.
 - New package → `pyproject.toml` and the Dockerfile skeleton. New env var →
   `.env.example` and `docs/ENV_VARS.md` at birth.
 
 ### Sessions
 
-- [ ] **S29 — The S28 review, the phase's decisions and spec, and where the
-  QRadar lives.** (the prompt above)
-  - **Exit criteria:**
-    - The S28 review is recorded in `docs/probes/`. Each finding is either
-      fixed with a test that failed first, or logged.
-    - The spec is committed. The D-entries from goal 1 (a–g) are ratified by
-      Burhan, or explicitly parked with his reason. Decision 1d (MSSP
-      tenancy) is not parked, because S30 builds on it.
-    - SESSION-RULES.md's Deferred list no longer holds TD-023 and TD-025, in
-      its own commit.
-    - The QRadar reachability probe is saved: address, TLS, and Burhan's
-      answer on its data. No credential appears anywhere in the repo.
-    - The plan below, and F4–F9, are re-checked against the spec.
+- [x] **S29 — The S28 review, the phase's decisions and spec, and where the
+  QRadar lives.** Closed 2026-10-15. The review: 21 findings, 7 fixed (two HIGH),
+  13 logged, the fixes reviewed in turn (docs/probes/2026-10-14-s29-s28-code-review.md).
+  The spec and D-060…D-067, every decision Burhan's. TD-023/TD-025 out of
+  Deferred. QRadar: real data (hence D-067); its address is still to come.
 
-- [ ] **S30 — Tenancy for MSSPs: organizations, memberships, roles, one
-  workspace per token.**
-  - **Depends on:** S29's decision 1d.
-  - **Goal:** an MSSP analyst can enter the client workspaces they are
-    assigned to, one at a time. A client's users see only their own. Every
-    query is still scoped to one workspace.
+- [ ] **S30 — Tenancy for MSSPs: organizations, provider workspaces,
+  memberships, roles, one workspace per token, and the region guard.**
+  - **Depends on:** D-061 (spec, D-061).
+  - **Goal:** an MSSP analyst enters the client workspaces they may, one at a
+    time; a client's users see only their own; every query is still scoped to
+    one workspace; residency is refused by code.
   - **Exit criteria:**
     - **The model.**
-      - `organizations` (direct, provider, client, where a client points to
-        its provider) and `workspaces.org_id`.
-      - `memberships` (user × workspace × role).
-      - One user per person, and the identity question settled (TD-001's
-        hard gate stays in force for Google sign-in).
-      - Existing rows migrate. The `default` workspace and every dev login
-        keep working, and `__deployment__` stays reserved (D-035).
-    - **Tokens and switching.**
-      - A token names one workspace, and is minted only for a membership the
-        user holds.
-      - A switch route mints a new token, and the switch is audited.
-      - `GET /api/auth/me` returns the user, their organization, the active
-        workspace, its role, and the workspaces they may switch to. F4 needs
-        it.
-    - **Roles, enforced.** A `require_role` dependency sits beside
-      `resolve_user`, with the role read from the membership.
-    - **Structural tests.**
-      - Every admin route refuses an analyst.
-      - No route reads a workspace id from input.
-      - Every new table is workspace-scoped, or a named, decided exemption.
-    - **Cross-tenant tests.**
-      - A client user cannot reach a sibling client's workspace, nor the
-        provider's own.
-      - An MSSP analyst without a membership cannot enter a client.
-      - A removed membership ends access at the next request, not when the
-        token expires.
-      - No route lets anyone set their own role.
+      - `organizations` (direct, provider, client with its provider, and
+        `restricted`); `workspaces.org_id` and `workspaces.region`; **each
+        provider organization has its own workspace**.
+      - `memberships` (user × workspace × role `admin|analyst|viewer`, and
+        `provider_wide` on a provider-workspace membership).
+      - One user per person, with a home organization, email unique across the
+        deployment (TD-001's hard gate stays for Google sign-in).
+      - Existing rows migrate. `default` and every dev login keep working;
+        `__deployment__` stays reserved (D-035).
+    - **`enterable_workspaces(user)`**, one function: explicit memberships ∪
+      provider-wide grants, minus restricted clients. Code refuses a membership
+      outside the user's home organization or its clients.
+    - **Tokens and switching.** A token names one workspace, minted only for an
+      enterable one. A switch route mints a new token, audited.
+      `resolve_user` re-checks the membership on every request.
+      `GET /api/auth/me` returns the user, their organization, the active
+      workspace and role, and the switchable set (F4 needs it).
+    - **Roles, enforced.** `require_role` beside `resolve_user`.
+    - **The region guard.** `ENGINE_REGION` (in `.env.example` and
+      `docs/ENV_VARS.md`). An engine turn for a workspace whose region the
+      engine may not serve is refused by code with the reason; each enrichment
+      provider declares its region in code (all `global`), and a third-party
+      lookup the workspace's region forbids is refused too. LLM-free paths
+      still work.
+    - **Structural tests.** Every admin route refuses an analyst and a viewer.
+      No route reads a workspace id from input. Every table is
+      workspace-scoped, or one of the two named exemptions.
+    - **Cross-tenant tests.** A client user cannot reach a sibling client's
+      workspace, nor the provider's own. An MSSP analyst without a membership
+      cannot enter a client. A provider-wide grant reaches a new client but not
+      a restricted one. A removed membership ends access at the next request.
+      No route lets anyone set their own role or grant themselves
+      provider-wide.
     - An adversarial review covers tenancy and auth. **Promote.**
 
 - [ ] **S31 — A jobs queue, and TD-025's first half.**
-  - **Depends on:** S30, and S29's decisions 1e and 1f.
+  - **Depends on:** S30, D-065, D-066.
   - **Goal:** the background machinery every later session stands on.
   - **Exit criteria:**
-    - **The jobs queue.**
-      - A `jobs` table, workspace-scoped. Claims use
-        `FOR UPDATE SKIP LOCKED`, with a lease that expires, bounded retries
-        with backoff, and a dead state.
-      - A race test with two claimers proves exactly one claim.
-      - Its worker starts in the lifespan beside the ingest task and is
+    - **The jobs queue (D-065).**
+      - A `jobs` table, workspace-scoped, claimed with `FOR UPDATE SKIP
+        LOCKED`: a lease that expires, bounded retries with backoff, a dead
+        state, an idempotency key unique per workspace, claim tokens.
+      - The claim takes a scope (a workspace and, for an agent, its
+        integrations), so S33's Edge Agents reuse it over HTTP.
+      - A race test with two claimers proves exactly one claim. A result for a
+        job the claimer no longer holds is refused.
+      - The in-app worker starts in the lifespan beside the ingest task and is
         cancelled on shutdown.
-    - **One client cannot starve the rest.** The claim order keeps one busy
-      workspace from crowding out the others, and a test proves it.
-    - **TD-025, first half.**
-      - Every execution attempt carries an idempotency key, handed to
-        execute, undo and observe.
-      - Pending proposals expire after a TTL. The new status goes into the
-        one status-CHECK block, edited in place, and
+    - **One client cannot starve the rest.** The claim order serves workspaces
+      in turn, and a test proves it.
+    - **TD-025, first half (D-066).**
+      - Every execution attempt carries an idempotency key, handed to execute,
+        undo and observe.
+      - Pending proposals expire after a TTL. The new status goes into the one
+        status-CHECK block, edited in place, and
         `test_startup_survives_every_status_a_proposal_can_be_in` passes.
     - An adversarial review covers the approvals state machine.
 
-- [ ] **S32 — The integration contract, the SDK, and the catalogues.**
-  - **Depends on:** S31, and S29's decisions 1b and 1g.
-  - **Goal:** an integration is a typed, versioned manifest plus Python
-    handlers, written with an in-repo SDK. A workspace, and an MSSP for all
-    of its clients, knows which integrations it has. Nothing an integration
-    ships runs in the app process.
+- [ ] **S32 — The connector contract, the SDK, and the catalogue.**
+  - **Depends on:** S31, D-060, D-064.
+  - **Goal:** a connector is a typed, versioned manifest plus Python handlers,
+    written Python-first or in YAML, and both build to one canonical
+    `manifest.json`. A workspace knows which connectors it has. Nothing a
+    connector ships runs in the app process.
   - **Exit criteria:**
-    - **The manifest v1 types.**
-      - Identity and version.
-      - A config schema whose secret fields are marked, and TLS settings that
-        can pin a CA or certificate (S29's reachability probe).
-      - Declared hosts.
-      - The commands `test`, `fetch` and `action`, each with typed params
-        and an output schema. Actions carry D-023's risk, dry run and undo.
-      - For a fetch that serves many clients, the field that routes an item.
-    - **`validate_manifest` refuses with exact reasons.** The tests are
-      table-driven, one case per rule, including destructive-without-undo, an
-      undeclared host, and TLS verification turned off without a pin.
-    - **A manifest action maps onto `ActionSpec` and passes `validate_spec`**
-      unchanged.
-    - **The SDK** (a new package). Command decorators; a typed context; an
-      HTTP client limited to the declared hosts; logs that redact secrets; and
-      a local harness that runs a command against a recorded fixture. That
-      harness is how a customer tests their integration before uploading it.
-    - **The catalogues.**
-      - An admin registers an integration package, in a workspace, or in a
-        provider organization to share with all of its clients.
-      - Packages are content-hashed, like `spec_fingerprint`, so a changed
-        package is a new version.
-      - They answer TD-023's "which actions does this tenant have?".
-    - **A reference integration passes the harness** (a mock HTTP service,
-      used in tests).
-    - **A structural test:** the app package never imports integration code.
+    - **The manifest v1 types** (D-064): identity; typed config with `secret`
+      (a name) and `tls` (verify or a pin; off is unrepresentable); declared
+      hosts; `test`, `fetch` and `actions[]` with typed params, output schemas,
+      risk, a required dry run, undo with `cannot_restore`, `targets`; the
+      routing key for a shared fetch.
+    - **`validate_manifest` refuses with exact reasons**, table-driven, one
+      case per rule (destructive without undo, an undeclared host, TLS off, a
+      missing dry run, a shared fetch without a routing key, a bad name, an
+      unknown type).
+    - **A manifest action compiles to an `ActionSpec`** with distinct
+      dispatcher callables and passes `validate_spec` unchanged; wire names are
+      prefixed per integration; **the spec fingerprint includes the connector
+      id and package hash.**
+    - **The SDK** (a new package): decorators, a typed context, an HTTP client
+      limited to declared hosts with TLS pinning, logs that redact secrets, and
+      a local harness that runs a command against a recorded fixture.
+      **`auspex-sdk build` turns Python or YAML into the same manifest**; for
+      YAML it checks each named handler exists with matching parameters. A test
+      builds the reference connector both ways and gets the same manifest.
+    - **The catalogue.** An admin registers a package in a workspace,
+      content-hashed; first-party is set by the catalogue. It answers TD-023's
+      "which actions does this tenant have?". **Whether and how a provider
+      offers its connectors to its clients' workspaces is S32's to propose and
+      Burhan's to decide** (a package is code, not tenant data; which catalogue
+      lists it is still tenancy).
+    - **A reference connector passes the harness** (a mock HTTP service).
+    - **Structural tests:** the app package never imports connector code; the
+      core never reads YAML.
 
-- [ ] **S33 — Applications and the edge runner: "Test connection", end to
+- [ ] **S33 — Integrations and the Edge Agent: "Test connection", end to
   end.**
-  - **Depends on:** S32, and S29's decisions 1a and 1c.
-  - **Goal:** an admin configures an application, assigns it to an edge
-    runner, and "Test connection" runs through a real runner container.
+  - **Depends on:** S32, D-062, D-063.
+  - **Step 0:** if Burhan has given the QRadar's address, run the reachability,
+    TLS and unauthenticated-API probes into
+    docs/probes/2026-10-14-qradar-reachability.md before any agent code.
+  - **Goal:** an admin configures an integration, enrolls an Edge Agent, and
+    "Test connection" runs through a real agent container.
   - **Exit criteria:**
-    - **Applications.**
-      - A table and API, admin only, with config validated against the
-        manifest.
-      - The owner is a workspace, or a provider organization for a shared
-        SIEM.
-      - Credentials are custodied per S29 (the cloud stores names only).
-      - No secret value appears in any API response or log. Tests scan both.
-    - **Runner enrollment.** A one-time token becomes a runner credential,
-      stored hashed, revocable, and scoped to one owner.
-    - **The runner API.**
-      - A runner can claim jobs only for its own applications, post results,
-        and send heartbeats.
-      - Core code validates each result against the output schema before
-        storing it.
-    - **The runner image.** A new package and Dockerfile, and a compose
-      service under a dev profile. Its env vars are in `.env.example` and
-      `docs/ENV_VARS.md`.
+    - **Integrations.** A table and API, admin only, config validated against
+      the manifest, secret fields stored as names only (D-063). An integration
+      lives in one workspace (a shared SIEM's in the provider's).
+    - **Edge Agent enrollment.** A one-time token becomes an agent credential,
+      stored hashed, revocable, belonging to one workspace.
+    - **The edge API.** An agent claims only its own integrations' jobs
+      (S31's claim), posts results, heartbeats, and fetches packages **by
+      hash**, verifying the hash before running. Core validates each result
+      against the output schema before storing it.
+    - **The agent image.** A new package `auspex/edge/`, a Dockerfile, a
+      compose service under a dev profile; each command in a subprocess with a
+      timeout. Env vars in `.env.example` and `docs/ENV_VARS.md`. The
+      local-install mode is logged as debt (D-062).
     - **"Test connection" runs end to end** through the container against the
-      reference integration. Heartbeats drive the application's health:
-      online, stale, offline.
-    - **Tests.**
-      - A runner cannot claim another owner's job.
-      - A revoked runner is refused.
-      - An expired lease can be re-claimed.
-      - A result for a job the runner doesn't hold is refused.
-      - A client's admin cannot see or touch the provider's applications.
-    - **Burhan's QRadar credentials** can be saved now, into the edge runner's
-      secret file. The full QRadar API probe then runs at the next session's
-      Step 0.
-    - An adversarial review covers tenancy and runner auth. **Promote.**
+      reference connector. Heartbeats drive health: online, stale, offline. A
+      missing secret fails naming the secret and the agent.
+    - **Tests.** An agent cannot claim another workspace's job. A revoked agent
+      is refused. An expired lease can be re-claimed. A result for a job the
+      agent doesn't hold is refused. A hash mismatch is refused. No secret
+      value appears in any response or log (scanned). A client admin cannot see
+      or touch the provider workspace's integrations.
+    - **Burhan's QRadar token** can be saved now, in the agent host's secret
+      file, scoped to the lab domain (D-067); never in the chat or the repo.
+    - An adversarial review covers tenancy and agent auth. **Promote.**
 
-- [ ] **S34 — Application actions through approvals, per-client policy, and
-  the agent.**
-  - **Depends on:** S33.
-  - **Goal:** an application's actions take the path that exists: proposal,
-    approval, claim, a job on the runner, the result, then settle or undo.
-    Each client's approval policy decides who may approve.
+- [ ] **S34 — Integration actions through approvals, per-client policy, and
+  the co-analyst.**
+  - **Depends on:** S33, D-064, D-066.
+  - **Goal:** an integration's actions take the path that exists: proposal (its
+    card from a dry-run job), approval, claim, a job on the agent, the result,
+    then settle or undo. Each client's approval policy decides who may approve.
   - **Exit criteria:**
     - **`EXECUTABLE_SYSTEMS` is widened by code and review (D-024).**
-      - An action is executable only on an enabled application the
-        incident's workspace may use, whose runner is online.
-      - `check_executable` refuses the rest with a reason: runner offline,
-        application disabled, package version changed, or approver not
-        allowed by policy.
-    - **Grant-checked scope (TD-025's second half, TD-023).**
-      - An action touches only what its application declares.
-      - On a shared application, an action touches only the item's own
-        routing key (its QRadar domain, say).
-    - **The per-client approval policy.**
-      - It is data per workspace: which roles, in which organization, may
-        approve each risk level.
-      - D-024's claim path enforces it, and the approver and their
-        organization are recorded.
+      `check_executable` refuses with a reason: agent offline, integration
+      disabled, package hash changed, outside the integration's grants, outside
+      the item's routing key, or approver not allowed by policy.
+    - **Grant-checked scope (TD-025's second half, TD-023).** An action touches
+      only what its integration declares; on a shared integration, only its
+      item's routing key (`targets`).
+    - **The per-client approval policy** is data per workspace (which roles, in
+      which organization, may approve each risk level). D-024's claim path
+      enforces it, and records the approver and their organization.
     - **A lost result never runs an action twice.** S31's key reaches the
-      handler. A test drops the result, has the job re-claimed, and proves
-      one execution.
-    - **Every door works on an application action:** undo, observe, abandon,
-      keep, withdraw, and D-048's stale doors.
-    - **The agent is offered application actions on the chat agent path**
-      (D-045).
-      - Their tool text is composed by code from the manifest's typed fields,
-        and capped.
-      - Customer-written text joins the rail's index. Re-run TD-044's
-        calibration with it, and move a floor only on that measurement.
-    - **Live:** a chat turn proposes a reference-integration action. It is
-      approved under the policy, runs on the runner, and is undone.
+      handler; a test drops the result, has the job re-claimed, and proves one
+      execution.
+    - **Every door works on an integration action:** undo, observe, abandon,
+      keep, withdraw, and D-048's stale doors. Proposing needs the agent online
+      (the dry run); offline is refused with the reason.
+    - **The co-analyst is offered integration actions on the agent path**
+      (D-045): tool text composed by code from the manifest's typed fields and
+      capped. Customer-written text joins the rail's index; TD-044's
+      calibration is re-run with it, and a floor moves only on that
+      measurement.
+    - **Live:** a chat turn proposes a reference-connector action; it is
+      approved under the policy, runs on the agent, and is undone.
     - An adversarial review covers actions, the rail and tenancy.
 
-- [ ] **S35 — Fetching: alerts from applications, and routing for shared
+- [ ] **S35 — Fetching: alerts from integrations, and routing for shared
   SIEMs.**
   - **Depends on:** S33 (S34 is not needed).
   - **Goal:** fetch commands run on a schedule, and what they return lands as
     alerts, each in exactly one workspace.
   - **Exit criteria:**
-    - **Schedules and cursors.**
-      - Each application's fetch schedule runs as jobs (S31), bounded by plan
-        limits per client (D-026: the plan is data, the limits are code).
-      - Each application has a cursor (the `ingest_state` pattern) that
-        advances only after a page is stored.
-    - **Routing.**
-      - A shared application's items go to the workspace its routing map
-        names.
-      - **An unmapped item is quarantined at the provider level. It never
-        lands in a default or guessed workspace.** Tested per case: mapped,
-        unmapped, a mapping removed mid-fetch, two maps naming the same key.
-    - **The `alerts` table.**
-      - It is unique on workspace, application and external id, so a
-        re-fetch is a no-op.
-      - The raw payload is size-capped. Alerts are normalized through
-        `AlertEnvelope` and scored by `score_alert`.
-      - A malformed item is quarantined. It never crashes the fetch.
-    - **Observables.** Indicators are extracted from alerts and recorded in
-      the alert's own workspace. **Whether they are enriched with third
-      parties is a decision beside D-039** (Burhan's call). It is off by
-      default until he makes it.
-    - **The alerts API** lists, filters, pages and gets alerts. Its
-      cross-client queue for an MSSP is built from memberships.
-    - **Tests.** A re-fetch is idempotent. The cursor resumes after a runner
+    - **Schedules and cursors.** Each integration's fetch schedule runs as jobs
+      (S31), bounded by plan limits per client (D-026). Each integration has a
+      cursor (the `ingest_state` pattern) that advances only after a page is
+      stored.
+    - **Routing.** A shared integration (in the provider's workspace) sends
+      each item to the workspace its routing map names. **An unmapped item is
+      quarantined in the provider's workspace and never lands in a default or
+      guessed one.** Tested per case: mapped, unmapped, a mapping removed
+      mid-fetch, two maps naming the same key.
+    - **The `alerts` table.** Unique on workspace, integration and external id,
+      so a re-fetch is a no-op. The raw payload is size-capped. Normalized
+      through `AlertEnvelope`, scored by `score_alert`. A malformed item is
+      quarantined, never a crash.
+    - **Observables** are extracted and recorded in the alert's own workspace.
+      **Whether they are enriched with third parties is a decision beside
+      D-039, under D-061's region guard** (Burhan's call); off by default until
+      he makes it.
+    - **The alerts API** lists, filters, pages and gets alerts; the
+      cross-client queue uses `enterable_workspaces`.
+    - **Tests.** A re-fetch is idempotent. The cursor resumes after an agent
       restart. The plan-limit cap holds. Bad items are quarantined. A
       cross-tenant read is refused.
     - An adversarial review covers tenancy and routing.
 
-- [ ] **S36 — QRadar, the first reference SIEM, on the edge runner, live.**
-  - **Depends on:** S34 and S35, plus Burhan's QRadar credentials (saved per
-    S33, never in the chat).
-  - **Step 0, if not already done:** the full QRadar API probe, saved to
-    `docs/probes/`. It must answer:
-    - the API version and how a token is sent;
-    - the offense list, a single offense, and its fields and timestamps;
-      paging and filtering;
-    - **domains and tenants**: whether they are configured, and how an offense
-      names its domain (the routing key for an MSSP);
-    - how an offense is noted, assigned and closed (closing reasons), and
-      **whether a closed offense can be reopened**. That decides whether
-      closing is an undoable write (D-023);
-    - how an offense's events and addresses are read, and what that costs;
-    - **a repeatable recipe for a synthetic offense**: synthetic events sent
-      to it that trip a rule. It must work twice in a row.
-  - **Goal:** QRadar's offenses arrive through an edge runner, routed to the
+- [ ] **S36 — QRadar, the first reference SIEM, on the Edge Agent, live on the
+  lab domain.**
+  - **Depends on:** S34 and S35, plus Burhan's QRadar token, saved per S33,
+    scoped to the lab domain (D-067), never in the chat.
+  - **Step 0:**
+    - **Confirm Burhan's edition has domain management**, and that the lab
+      domain exists with nothing but synthetic data. If it has no domain
+      management, STOP: the choice returns to Burhan (D-067).
+    - **The full QRadar API probe**, saved to `docs/probes/`, recording shapes
+      and field names, never real values. It must answer: the API version and
+      how a token is sent; the offense list, a single offense, its fields and
+      timestamps, paging and filtering; **domains**: how an offense names its
+      domain (the routing key); how an offense is noted, assigned and closed
+      (closing reasons), and **whether a closed offense can be reopened**
+      (whether closing is an undoable write, D-023); how its events and
+      addresses are read, and what that costs; **a repeatable recipe for a
+      synthetic offense** in the lab domain, working twice in a row.
+  - **Goal:** QRadar's offenses arrive through an Edge Agent, routed to the
     right workspace, and the analyst can act back on QRadar.
   - **Exit criteria:**
-    - **Built with the SDK only.** It is first-party, and it dogfoods "bring
-      your own integration". Anything the SDK lacked is fixed in the SDK, not
-      worked around in the integration.
-    - **Every QRadar endpoint used is in a probe record.** Nothing is coded
-      from memory.
-    - **What it does.**
-      - Test connection.
-      - Fetch offenses, with the evidence the probe found affordable. When
-        domains are configured, an offense routes by its domain (S35's map).
-      - Actions: add a note, assign, and close with a closing reason.
-      - Undo where QRadar allows it. **An irreversible external write
-        (closing, if it can't be reopened) needs a decision beside D-023**
-        (Burhan's call).
-    - **CI uses a QRadar fake built from the recorded responses** (synthetic
-      data).
-    - **Live on Burhan's QRadar.**
-      - A synthetic offense becomes an alert in the right workspace.
-      - A note approved in Auspex appears in QRadar.
-      - Recorded in `docs/probes/`. **Promote.**
+    - **Built with the SDK only**, first-party, dogfooding "bring your own
+      connector". Anything the SDK lacked is fixed in the SDK.
+    - **Every QRadar endpoint used is in a probe record.** Nothing coded from
+      memory.
+    - **What it does.** Test connection; fetch offenses with the evidence the
+      probe found affordable, routed by domain where configured; actions: add
+      a note, assign, close with a closing reason; undo where QRadar allows.
+      **An irreversible external write (closing, if it can't be reopened)
+      needs a decision beside D-023** (Burhan's call).
+    - **CI uses a QRadar fake built from synthetic recorded responses.**
+    - **Live, on the lab domain only:** a synthetic offense becomes an alert in
+      the right workspace; a note approved in Auspex appears in QRadar.
+      Recorded in `docs/probes/`. **Promote.**
 
-- [ ] **S37 — Incidents.**
+- [ ] **S37 — Cases.**
   - **Depends on:** S36.
-  - **Goal:** the incident is the analyst's unit of work.
+  - **Goal:** the case is the analyst's unit of work.
   - **Exit criteria:**
-    - **The model.**
-      - An `incidents` table plus an append-only incident event log. Each
-        event records the actor and the actor's home organization.
-      - Statuses and allowed transitions are owned by code, in one
-        status-CHECK block, like proposals. A closure needs a reason.
-      - Assignment goes only to users with a membership in the incident's
-        workspace. Incidents carry severity and priority.
-    - **Linking.**
-      - A source-native incident (a QRadar offense) creates an incident
-        directly.
-      - Other alerts are grouped by a rule (a dedup key plus a time window),
-        or by hand.
-      - An alert links to at most one incident, and only in its own
-        workspace.
-    - **Living Verdicts reach the incident.** A verdict flip or a retro-hunt
-      match on a linked observable appends an incident event. This is the
-      flagship's tie-in.
-    - **The API.**
-      - List, filter, get, transition, assign, note and link, all scoped to
-        the workspace.
-      - An MSSP's cross-client list is built from memberships.
-      - A read returns the allowed next transitions, so the page renders
-        from the API and never copies the state machine.
-    - **Tests.**
-      - Every illegal transition is refused.
-      - Two analysts racing one transition: exactly one wins (a conditional
-        UPDATE).
-      - Cross-workspace reads, links and assignments are refused.
-      - QRadar-born alerts become incidents.
+    - **The model.** A `cases` table plus an append-only case event log, each
+      event recording the actor and their home organization. Statuses and
+      allowed transitions owned by code in one status-CHECK block; a closure
+      needs a reason. Assignment only to users who may enter the case's
+      workspace. Severity and priority.
+    - **Linking.** A source case (a QRadar offense) creates a case directly.
+      Other alerts group by a rule (a dedup key plus a time window) or by hand.
+      An alert links to at most one case, only in its own workspace.
+    - **Living Verdicts reach the case.** A verdict flip or a retro-hunt match
+      on a linked observable appends a case event (the flagship's tie-in).
+    - **The API.** List, filter, get, transition, assign, note and link, all
+      scoped to the workspace; the cross-client list uses
+      `enterable_workspaces`; a read returns the allowed next transitions, so
+      the page never copies the state machine.
+    - **Tests.** Every illegal transition is refused. Two analysts racing one
+      transition: exactly one wins. Cross-workspace reads, links and
+      assignments are refused. QRadar-born alerts become cases.
     - An adversarial review covers the state machine and tenancy.
 
 - [ ] **S38 — Two-way sync with the SIEM, every write approved.**
   - **Depends on:** S37.
-  - **Goal:** an incident and its source offense stay consistent, and nothing
-    writes to the customer's SIEM without an approval under the client's
-    policy.
+  - **Goal:** a case and its source offense stay consistent, and nothing writes
+    to the customer's SIEM without an approval under the client's policy.
   - **Exit criteria:**
-    - **Outbound.** An incident change the source should know about (close,
-      assign, note) proposes the matching application action. It runs only
-      once it is approved (D-014, S34's policy).
-    - **Inbound.** A change made in QRadar (closed, reassigned) reaches the
-      incident on the next fetch, as a "changed in source" event.
-    - **A conflict rule, decided and test-pinned.** For example, a SIEM
-      closure never silently overwrites a reopen in Auspex; both are recorded.
-    - **No echo loop.** Auspex's own change, coming back on the next fetch, is
-      recognised. Test-pinned.
-    - **Live.**
-      - Close in Auspex, approve, and the offense is closed in QRadar.
-      - Close in QRadar, and the incident shows it.
+    - **Outbound.** A case change the source should know (close, assign, note)
+      proposes the matching integration action; it runs only once approved.
+    - **Inbound.** A change made in QRadar reaches the case on the next fetch,
+      as a "changed in source" event.
+    - **A conflict rule, decided and test-pinned** (a SIEM closure never
+      silently overwrites a reopen in Auspex; both are recorded).
+    - **No echo loop.** Auspex's own change coming back is recognised;
+      test-pinned.
+    - **Live, on the lab domain:** close in Auspex, approve, and the offense
+      closes in QRadar; close in QRadar, and the case shows it.
     - An adversarial review covers actions. **Promote.**
 
-- [ ] **S39 — The co-analyst on the incident.**
-  - **Depends on:** S37 (S38 is helpful, not required).
-  - **Goal:** the co-analyst works an incident. It reads the incident, triages
-    it, and proposes actions inside it, never seeing another client.
+- [ ] **S39 — The co-analyst on the case.**
+  - **Depends on:** S37 (S38 helps, not required).
+  - **Goal:** the co-analyst works a case: reads it, triages it, proposes
+    actions inside it, never seeing another client.
   - **Exit criteria:**
-    - **An incident-scoped chat session**, in the incident's workspace, with
-      READ tools for the incident and its alerts. Tool results are data,
-      unindexed (D-031). No tool reaches another workspace, and a test proves
-      it for a user who holds both memberships.
-    - **A decision beside D-037 clause 1 and D-039** (Burhan's call).
-      - SIEM content is attacker-controlled, and here it reaches the agent
-        path for the first time.
-      - Which indicators in an incident count as supplied?
-      - The bound is stated.
-    - **Residency.** A workspace whose region forbids the configured engine
-      gets no turn, refused by code (S29's decision 1d).
+    - **A case-scoped chat session** in the case's workspace, with READ tools
+      for the case and its alerts. Tool results are data, unindexed (D-031). No
+      tool reaches another workspace; a test proves it for a user who can enter
+      both.
+    - **A decision beside D-037 clause 1 and D-039** (Burhan's call): SIEM
+      content reaches the agent path for the first time; which indicators in a
+      case count as supplied; the bound stated.
+    - **Residency.** A workspace whose region forbids the engine gets no turn,
+      refused by code (D-061).
     - **Triage.** Where a verdict is code-decided (D-043's alert path), code
-      decides it. The answer's contract is measured.
-    - **Proposals.** Those filed in the turn are linked to the incident and
-      appear in its event log.
-    - **New directive text is measured into the rail.** Re-run TD-044's
-      calibration; floors move only on that measurement. Any classifier,
-      resolver or mode change is judged on batteries written blind
-      (SESSION-RULES.md).
-    - **Spend per incident and per client**, from D-054's ledger.
-    - **Live on a QRadar-born incident** (lab data only). A triage, a
-      proposed note, approval, and the note visible in QRadar.
+      decides it; the answer's contract is measured.
+    - **Proposals** filed in the turn are linked to the case and appear in its
+      event log.
+    - **New directive text is measured into the rail** (TD-044); any
+      classifier, resolver or mode change is judged on blind batteries.
+    - **Spend per case and per client**, from D-054's ledger.
+    - **Live on a QRadar-born case from the lab domain:** a triage, a proposed
+      note, approval, the note visible in QRadar.
     - An adversarial review covers the rail, actions and tenancy.
 
 - [ ] **S40 — SLAs, metrics per client and for the MSSP, closure, and the
   phase's demo.**
   - **Depends on:** S38 (S39 for the demo's co-analyst step).
-  - **Goal:** the incident path measures itself, per client and across an
-    MSSP's clients, and a closure teaches the platform something.
+  - **Goal:** the case path measures itself, per client and across an MSSP's
+    clients, and a closure teaches the platform something.
   - **Exit criteria:**
     - **SLAs.** A policy per client workspace and severity (plan data, code
-      limits, D-026). Time to acknowledge and time to resolve come from the
-      event log. A breach becomes an event.
-    - **The metrics API.**
-      - MTTA and MTTR; open incidents by severity, status and assignee; per
-        application.
-      - Per client, plus an MSSP rollup built from memberships.
+      limits, D-026). Time to acknowledge and to resolve from the event log; a
+      breach becomes an event.
+    - **The metrics API.** MTTA and MTTR; open cases by severity, status and
+      assignee; per integration; per client, plus an MSSP rollup from
+      `enterable_workspaces`.
     - **Closure feedback.** A closure reason (true positive, false positive,
-      benign) reaches the linked observables' verdicts as a D-entry decides.
-      A closure is an analyst's judgement, not a provider's signal, and it
-      stays in its own workspace.
-    - **`./scripts/demo.sh` walks the incident path end to end, hermetically**
-      (the QRadar fake): an MSSP with two clients, an offense routed to one
-      of them, an incident, the co-analyst, an approval, and a closure synced
-      back.
+      benign) reaches the linked observables' verdicts as a D-entry decides. A
+      closure is an analyst's judgement, not a provider's signal, and stays in
+      its own workspace.
+    - **`./scripts/demo.sh` walks the case path end to end, hermetically** (the
+      QRadar fake): an MSSP with two clients, an offense routed to one, a case,
+      the co-analyst, an approval, and a closure synced back.
     - **Promote:** the phase's demo.
 
-- [ ] **S41 — After the path: the cloud runner, sealed secrets, and a second
+- [ ] **S41 — After the path: the Cloud Agent, sealed secrets, and a second
   SIEM.**
   - **Depends on:** S40. **Burhan re-scopes it at S40's end.**
-  - **Goal:** Auspex runs first-party integrations for internet-reachable
+  - **Goal:** Auspex runs first-party connectors for internet-reachable
     controls itself, and a second SIEM proves the contract generalizes.
   - **Exit criteria:**
-    - **Sealed secrets for cloud-placed applications.** Envelope encryption,
-      with a master key from a documented env var. Keys rotate, and a secret
-      is never logged and never returned.
-    - **The cloud runner.** The same image, isolated: its own network, no
-      database, limited egress. It runs first-party integrations only.
+    - **Sealed secrets for Cloud Agent integrations (D-063).** Envelope
+      encryption under a master key from a documented env var; rotation; never
+      logged, never returned.
+    - **The Cloud Agent (D-062).** The same image, isolated: its own network,
+      no database, limited egress, first-party connectors only.
     - **A second SIEM** (Elastic Security, Sentinel, or Burhan's pick), built
       with the same SDK and no core change. Any core change it needs is logged
       as a contract bug.
-    - Customer code on Auspex infrastructure stays out, unless a new D-entry
+    - Customer code on Auspex infrastructure stays out unless a new D-entry
       brings it in.
