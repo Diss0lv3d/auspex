@@ -851,6 +851,8 @@ moment:
 **Path to fix:** TTL + `stale` state first (cheapest, and the one that silently
 misleads); grant-checked scope before the first third-party action; roles when
 multi-user workspaces are real.
+**S29: out of Deferred (D-066)**, worked in this order: roles S30, TTL and the
+idempotency key S31, grant-checked scope S34.
 
 ## TD-024 (S18) — the digest's decay read is slower than the defect it replaced at the widest legal window
 **Where:** `auspex/timeline/store.py` `_DECAYED_SQL`; `MAX_SINCE_DAYS = 365` in
@@ -920,6 +922,8 @@ S18 (D-024). Remaining: (b) grant scopes per workspace and check them in the gat
 rather than only rendering them — now tracked in TD-025, which owns the live
 approval flow's bounds; (d) array params once a real action needs one, with a
 measured bound per the S2 finding.
+**S29: out of Deferred (D-066).** The per-workspace catalogue is S32's; (b)
+goes with TD-025 at S34; (d) stays deferred.
 
 ## TD-022 (S17) — a checker that dies AFTER succeeding once still reads as healthy
 **Where:** `auspex/checks.py` (`FailureCounter`, `CheckerStatus`),
