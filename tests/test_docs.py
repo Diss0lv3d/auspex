@@ -108,6 +108,14 @@ def test_the_readme_does_not_promise_what_the_code_does_not_do():
     assert "A code-decided verdict is held until it passes; nothing else is." in readme
     assert "hold = mode in CODE_DECIDED_MODES and not agent_path" in chat
 
+    # D-061 (S30): residency is a refusal by code, not routing, and the README
+    # says so in the words the code makes true.
+    region = (ROOT / "auspex" / "tenancy" / "region.py").read_text()
+    assert "Single-region, single-tenant-per-workspace" not in readme
+    assert "Residency is a refusal, not routing." in readme
+    assert 'REGIONS: frozenset[str] = frozenset({GLOBAL, "ksa"})' in region
+    assert "return workspace_region == GLOBAL or workspace_region == processor_region" in region
+
 
 def test_the_demo_only_calls_routes_that_exist():
     """A demo that 404s in front of a stranger is worse than no demo."""

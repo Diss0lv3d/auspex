@@ -2461,3 +2461,53 @@ responses only.
 
 **Bounds, stated.** S36's Step 0 must confirm Burhan's edition has domain
 management. If it does not, the choice returns to him.
+
+## D-068 — S30's tenancy calls: the CLI creates organizations, dev logins auto-provision, one organization per migrated workspace, admins read the audit, global serves global (2026-10-15, S30)
+
+**Context.** D-061 decided the tenancy model and left five questions to S30.
+Burhan answered each, one at a time, and approved the design section by
+section (docs/superpowers/specs/2026-10-15-s30-tenancy-design.md).
+
+**Decision (Burhan's calls, S30).**
+1. **Only a CLI creates organizations and workspaces** (`python -m auspex.tenancy`,
+   run in the app container), each with its first admin. Over HTTP, workspace
+   admins manage memberships only. There is no operator role, and
+   `__deployment__` stays memberless (D-035).
+2. **A dev login auto-provisions as before**: an unknown email becomes a person
+   homed in `default`'s organization, with an `analyst` membership there.
+   **Google sign-in never provisions**; the person must exist (TD-001 still
+   gates it).
+3. **The migration makes one `direct` organization per existing workspace**;
+   users keep their ids. Two user rows sharing a case-folded email stop the
+   migration, with a count and no email.
+4. **Workspace admins read their own workspace's audit trail**
+   (`GET /api/audit`). It records entries (login and switch), membership
+   changes, provider-wide grants and the CLI's acts, each with the actor and
+   their home organization. Append-only.
+5. **Regions are `global` and `ksa`; a processor serves `global` workspaces and
+   its own region.** `ENGINE_REGION` unset means `global`, and an unknown value
+   stops startup.
+
+**Also decided in the design, ratified with it.**
+- An explicit membership's role wins over a provider-wide grant on the same
+  workspace.
+- A token whose access is gone answers 403; 401 stays for a bad token.
+- `POST /api/auth/switch` is the one route that takes a workspace id from
+  input, and it needs a login session.
+- No one changes their own membership.
+- The region refusal sits in the route bodies, not in the test-seam
+  factories.
+- Dev provisioning is audited with a third actor kind, `system`, beside
+  `user` and `cli`.
+- The CLI's `set-member` leaves an existing provider-wide grant unchanged unless `--provider-wide` or `--no-provider-wide` is given.
+- `__deployment__` takes no membership: every membership write refuses it by name (D-035).
+
+**What this supersedes.** Nothing ratified. D-061 stands; this answers what it
+left open. D-035 stands: `__deployment__` belongs to no organization.
+
+**Bounds, stated.**
+- Organizations and regions are created only by the CLI, and a live
+  workspace's region does not change (IDEAS).
+- Postgres row-level security is not a second wall yet (IDEAS).
+- An old token stays valid for its own workspace until it expires; it is
+  re-checked on every request.

@@ -196,7 +196,12 @@ Read this part. A demo that only walks the happy path is a demo that lies.
 - **No billing, no multi-workspace federation, no admin console.** The plan tier
   list is a seam, not a commercial model. Herd Immunity — anonymised verdict
   propagation across workspaces at k≥3 — is designed and deliberately unbuilt.
-- **Single-region, single-tenant-per-workspace.** No data-residency routing.
+- **Residency is a refusal, not routing.** A workspace carries a region
+  (`global` or `ksa`) and the deployment one engine region (`ENGINE_REGION`).
+  A workspace the engine may not serve gets no co-analyst turn, and one whose
+  region no connected source may serve gets no third-party lookup — refused by
+  code, with the reason. There are no per-workspace engines: a KSA client on a
+  global deployment has the LLM-free answers only.
 
 ---
 
