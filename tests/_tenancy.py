@@ -141,3 +141,12 @@ async def build_mssp(db, prefix: str) -> Mssp:
 
 def token(settings, user_id: UUID, workspace_id: UUID) -> dict:
     return {"Authorization": f"Bearer {issue_jwt(settings, user_id, workspace_id)}"}
+
+
+async def make_membership_world(db, prefix: str, *, region: str = "global") -> tuple[UUID, UUID]:
+    """One direct organization with one workspace in `region` and one analyst."""
+    org = await make_org(db, f"{prefix}-org", "direct")
+    ws = await make_workspace(db, f"{prefix}-ws", org, region=region)
+    user = await make_user(db, f"analyst@{prefix}.auspex.dev", org)
+    await add_membership(db, ws, user, "analyst")
+    return ws, user

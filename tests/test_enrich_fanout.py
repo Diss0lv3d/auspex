@@ -48,6 +48,8 @@ def signal(provider: str, label=VerdictLabel.SUSPICIOUS, confidence=0.5) -> Prov
 
 
 class ScriptedProvider(Provider):
+    region = "global"
+
     def __init__(self, name, accepts=ALL_TYPES, *, result=None, error=None, delay=0.0):
         self.name = name
         self.accepts = accepts
@@ -90,7 +92,7 @@ async def test_providers_only_see_types_they_accept(poisoned_client):
         "hashes", frozenset({ObservableType.SHA256}), result=signal("hashes")
     )
     svc = service([ip_provider, hash_provider], client=poisoned_client)
-    outcome = await svc.enrich((obs(ObservableType.IPV4, "1.2.3.4"),))
+    outcome = await svc.enrich((obs(ObservableType.IPV4, "1.2.3.4"),), region="global")
     assert ip_provider.calls == ["1.2.3.4"]
     assert hash_provider.calls == []
     assert [s.provider for s in outcome.items[0].signals] == ["ips"]
@@ -101,7 +103,7 @@ async def test_partial_results_survive_a_failing_provider(poisoned_client):
     good = ScriptedProvider("good", result=signal("good"))
     bad = ScriptedProvider("bad", error=ProviderError("bad: HTTP 503"))
     svc = service([good, bad], client=poisoned_client)
-    outcome = await svc.enrich((obs(ObservableType.IPV4, "1.2.3.4"),))
+    outcome = await svc.enrich((obs(ObservableType.IPV4, "1.2.3.4"),), region="global")
     assert [s.provider for s in outcome.items[0].signals] == ["good"]
     assert outcome.provider_failures == {"bad": "unreachable or returned an error"}
 
@@ -110,7 +112,7 @@ async def test_slow_provider_times_out_without_sinking_the_turn(poisoned_client)
     fast = ScriptedProvider("fast", result=signal("fast"))
     slow = ScriptedProvider("slow", result=signal("slow"), delay=0.5)
     svc = service([fast, slow], client=poisoned_client, timeout=0.05)
-    outcome = await svc.enrich((obs(ObservableType.IPV4, "1.2.3.4"),))
+    outcome = await svc.enrich((obs(ObservableType.IPV4, "1.2.3.4"),), region="global")
     assert [s.provider for s in outcome.items[0].signals] == ["fast"]
     assert "timed out" in outcome.provider_failures["slow"]
 
@@ -119,7 +121,7 @@ async def test_unexpected_provider_crash_degrades_gracefully(poisoned_client):
     good = ScriptedProvider("good", result=signal("good"))
     buggy = ScriptedProvider("buggy", error=KeyError("parser bug"))
     svc = service([good, buggy], client=poisoned_client)
-    outcome = await svc.enrich((obs(ObservableType.IPV4, "1.2.3.4"),))
+    outcome = await svc.enrich((obs(ObservableType.IPV4, "1.2.3.4"),), region="global")
     assert [s.provider for s in outcome.items[0].signals] == ["good"]
     assert outcome.provider_failures["buggy"] == "unexpected error"
 
@@ -131,7 +133,7 @@ async def test_items_preserve_message_order(poisoned_client):
         obs(ObservableType.IPV4, "1.2.3.4"),
         obs(ObservableType.DOMAIN, "evil.example"),
     )
-    outcome = await svc.enrich(observables)
+    outcome = await svc.enrich(observables, region="global")
     assert tuple(i.observable for i in outcome.items) == observables
 
 
@@ -171,11 +173,11 @@ async def test_open_breaker_skips_the_provider_and_says_so(poisoned_client):
     one_ip = (obs(ObservableType.IPV4, "1.2.3.4"),)
 
     for _ in range(3):  # three failing turns open the circuit
-        await svc.enrich(one_ip)
+        await svc.enrich(one_ip, region="global")
     assert breakers["flaky"].state == "open"
     calls_before = len(flaky.calls)
 
-    outcome = await svc.enrich(one_ip)  # 4th turn: flaky never contacted
+    outcome = await svc.enrich(one_ip, region="global")  # 4th turn: flaky never contacted
     assert len(flaky.calls) == calls_before
     assert outcome.provider_failures["flaky"] == BREAKER_OPEN_REASON
     assert [s.provider for s in outcome.items[0].signals] == ["steady"]
@@ -183,7 +185,7 @@ async def test_open_breaker_skips_the_provider_and_says_so(poisoned_client):
     now[0] = 61.0  # cooldown over → half-open probe goes through
     flaky.error = None
     flaky.result = signal("flaky")
-    outcome = await svc.enrich(one_ip)
+    outcome = await svc.enrich(one_ip, region="global")
     assert len(flaky.calls) == calls_before + 1
     assert breakers["flaky"].state == "closed"
     assert {s.provider for s in outcome.items[0].signals} == {"flaky", "steady"}
@@ -229,7 +231,7 @@ async def test_provider_input_error_reports_but_never_feeds_the_breaker(poisoned
     svc = service([picky], client=poisoned_client, breakers=breakers)
     one_ip = (obs(ObservableType.IPV4, "185.220.101.34"),)
     for _ in range(4):
-        outcome = await svc.enrich(one_ip)
+        outcome = await svc.enrich(one_ip, region="global")
     assert breakers["picky"].state == "closed"  # never fed
     assert len(picky.calls) == 4  # still being asked every turn
     assert outcome.provider_failures["picky"] == INPUT_REJECTED_REASON
@@ -245,7 +247,8 @@ async def test_skipped_observables_never_reach_providers(poisoned_client):
             obs(ObservableType.IPV4, "10.0.0.1"),
             obs(ObservableType.DOMAIN, "google.com"),
             obs(ObservableType.IPV4, "185.220.101.34"),
-        )
+        ),
+        region="global",
     )
     assert provider.calls == ["185.220.101.34"]
     assert outcome.items[0].skip_reason == PRIVATE_IP_SKIP
@@ -262,7 +265,7 @@ async def test_per_turn_cap_bounds_fanout_and_skips_dont_consume_it(poisoned_cli
         obs(ObservableType.SHA256, "b" * 64),
         obs(ObservableType.SHA256, "c" * 64),
     )
-    outcome = await svc.enrich(observables)
+    outcome = await svc.enrich(observables, region="global")
     assert provider.calls == ["a" * 64, "b" * 64]
     assert outcome.items[3].skip_reason == CAP_SKIP
 
@@ -279,7 +282,7 @@ async def test_uncovered_types_dont_consume_cap_slots_or_get_asked(poisoned_clie
         obs(ObservableType.CVE, "CVE-2026-0001"),  # coverage 0 — no cap slot
         obs(ObservableType.SHA256, "a" * 64),  # must still fit in cap=1
     )
-    outcome = await svc.enrich(observables)
+    outcome = await svc.enrich(observables, region="global")
     assert hash_only.calls == ["a" * 64]
     assert outcome.items[0].skip_reason == NO_COVERAGE_SKIP
     assert outcome.items[1].skip_reason == NO_COVERAGE_SKIP
@@ -442,7 +445,7 @@ async def test_a_network_context_is_collected_apart_from_signals(poisoned_client
     quiet = ScriptedProvider("OTX", result=None)
     svc = service([owner, quiet], client=poisoned_client)
     ip = obs(ObservableType.IPV4, "34.187.179.218")
-    (item,) = (await svc.enrich((ip,))).items
+    (item,) = (await svc.enrich((ip,), region="global")).items
     assert item.signals == ()
     assert item.network == (GOOGLE_NETWORK,)
     assert item.sources_answered == 2
@@ -452,7 +455,8 @@ async def test_a_network_context_is_collected_apart_from_signals(poisoned_client
 async def test_a_lookup_can_return_a_signal_and_a_network_together(poisoned_client):
     both = ScriptedProvider("AbuseIPDB", result=(signal("AbuseIPDB"), GOOGLE_NETWORK))
     svc = service([both], client=poisoned_client)
-    (item,) = (await svc.enrich((obs(ObservableType.IPV4, "34.187.179.218"),))).items
+    one = (obs(ObservableType.IPV4, "34.187.179.218"),)
+    (item,) = (await svc.enrich(one, region="global")).items
     assert [s.provider for s in item.signals] == ["AbuseIPDB"]
     assert item.network == (GOOGLE_NETWORK,)
 

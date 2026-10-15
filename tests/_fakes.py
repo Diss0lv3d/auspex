@@ -123,10 +123,15 @@ class FakeEnrichmentService:
         self.coverage = coverage or {}
         self.active = active
         self.enrich_calls: list[tuple] = []
+        self.regions: list[str] = []
 
-    async def enrich(self, observables: tuple) -> Any:
+    async def enrich(self, observables: tuple, *, region: str) -> Any:
         self.enrich_calls.append(observables)
+        self.regions.append(region)
         return self.outcome
+
+    def serves(self, region: str) -> bool:
+        return self.active
 
     async def aclose(self) -> None:
         pass

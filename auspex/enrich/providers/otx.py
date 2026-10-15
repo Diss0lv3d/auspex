@@ -38,6 +38,7 @@ _BENIGN_VALIDATION_SOURCES = frozenset({"whitelist", "false_positive", "majestic
 
 class OTX(Provider):
     name = "OTX"
+    region = "global"
     accepts = frozenset(_PATH_BY_TYPE)
 
     def __init__(self, api_key: str = "") -> None:

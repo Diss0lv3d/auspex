@@ -23,6 +23,10 @@ from auspex.enrich.types import LookupResult, ProviderError
 
 class Provider(ABC):
     name: str  # display name used in echoes and verdict sources
+    # D-061: where this source processes what it is sent. Every provider
+    # declares it in its own body (pinned); a workspace whose region the
+    # source may not serve sends it nothing.
+    region: str
     accepts: frozenset[ObservableType]
 
     @abstractmethod

@@ -74,6 +74,7 @@ def _concept_hit() -> KBHit:
 
 def _build(*, enrichment=None, kb=None, observables=()):
     return build_capability_registry(
+        region="global",
         enrichment=enrichment or FakeEnrichmentService(EnrichmentOutcome(items=())),
         kb=kb or FakeKnowledgeService(),
         observables=observables,
@@ -661,7 +662,7 @@ class _LooksUpEverything(FakeEnrichmentService):
     def __init__(self):
         super().__init__(EnrichmentOutcome(items=()))
 
-    async def enrich(self, observables):
+    async def enrich(self, observables, *, region):
         self.enrich_calls.append(observables)
         return EnrichmentOutcome(
             items=tuple(ObservableEnrichment(observable=o, sources_answered=1) for o in observables)
@@ -737,6 +738,7 @@ async def test_an_indicator_from_an_earlier_analyst_message_was_supplied():
     be looked up now — the route passes them as `supplied`."""
     service = _LooksUpEverything()
     registry = build_capability_registry(
+        region="global",
         enrichment=service, kb=FakeKnowledgeService(),
         observables=_obs("and what about the other one?"),
         supplied=_obs("yesterday we saw 198.51.100.23 beaconing"),
@@ -783,6 +785,7 @@ async def test_a_snippet_cut_inside_an_indicator_supplies_neither_half(whole, cu
         return 1
 
     registry = build_capability_registry(
+        region="global",
         enrichment=service, kb=FakeKnowledgeService(hits=[hit]), observables=(), record=record,
     )
     shown = await registry.get("search_knowledge").handler({"query": "c2"})
@@ -870,6 +873,7 @@ async def test_an_enrichment_the_agent_ran_is_recorded_and_the_model_is_told():
         return 1
 
     registry = build_capability_registry(
+        region="global",
         enrichment=FakeEnrichmentService(outcome), kb=FakeKnowledgeService(),
         observables=observables, record=record,
     )
@@ -889,6 +893,7 @@ async def test_a_recording_that_failed_is_said_and_the_results_still_return():
         raise RuntimeError("simulated storage failure")
 
     registry = build_capability_registry(
+        region="global",
         enrichment=FakeEnrichmentService(_malicious(observables[0])),
         kb=FakeKnowledgeService(), observables=observables, record=record,
     )
@@ -910,6 +915,7 @@ async def test_nothing_looked_up_means_nothing_recorded():
         return 0
 
     registry = build_capability_registry(
+        region="global",
         enrichment=FakeEnrichmentService(EnrichmentOutcome(items=())),
         kb=FakeKnowledgeService(), observables=observables, record=record,
     )

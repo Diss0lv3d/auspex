@@ -234,6 +234,7 @@ def build_capability_registry(
     *,
     enrichment: EnrichmentService,
     kb: KnowledgeService,
+    region: str,
     observables: tuple[Observable, ...] = (),
     supplied: tuple[Observable, ...] = (),
     record: Callable[[EnrichmentOutcome], Awaitable[int]] | None = None,
@@ -245,6 +246,7 @@ def build_capability_registry(
     indicators addressable by their short ids. The services themselves are the
     app-wide singletons — the same objects the shortcut path uses, so breakers,
     caps and provider health are shared rather than duplicated.
+    `region` is the workspace's (D-061): only sources it allows are asked.
 
     **D-039: only indicators someone other than the model supplied reach a
     provider.** `observables` (this message) and `supplied` (the analyst's
@@ -316,7 +318,7 @@ def build_capability_registry(
         not_supplied = [o for o in resolved if o.obs_id not in allowed]
         resolved = [o for o in resolved if o.obs_id in allowed]
         within, beyond = resolved[:enrich_budget], resolved[enrich_budget:]
-        outcome = await enrichment.enrich(tuple(within)) if within else None
+        outcome = await enrichment.enrich(tuple(within), region=region) if within else None
         items = []
         for item in outcome.items if outcome else ():
             entry = {

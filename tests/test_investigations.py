@@ -216,7 +216,10 @@ class _StubEnrichment:
 
     active = True
 
-    async def enrich(self, observables):
+    def serves(self, region):
+        return True
+
+    async def enrich(self, observables, *, region):
         items = tuple(
             ObservableEnrichment(
                 observable=o,
@@ -471,7 +474,10 @@ class _DeadEnrichment:
 
     active = True
 
-    async def enrich(self, observables):
+    def serves(self, region):
+        return True
+
+    async def enrich(self, observables, *, region):
         items = tuple(
             ObservableEnrichment(
                 observable=o, signals=(), skip_reason=None, sources_answered=0
@@ -625,7 +631,7 @@ def test_concurrent_lookup_folds_do_not_duplicate_evidence(client, settings):
     )
 
     class _SlowStub:
-        async def enrich(self, observables):
+        async def enrich(self, observables, *, region):
             await asyncio.sleep(0.1)  # hold both folds in flight together
             return tuple(
                 ObservableEnrichment(
@@ -667,7 +673,7 @@ def test_concurrent_lookup_folds_do_not_duplicate_evidence(client, settings):
                 rec = await load_investigation(pool, workspace_id=ws, investigation_id=inv)
                 _, plan = _assess(rec)
                 chosen = plan.ranked[0].candidate
-                items = await stub.enrich((chosen.observable,))
+                items = await stub.enrich((chosen.observable,), region="global")
                 new_ev = [e for item in items for e in evidence_from_enrichment(item)]
                 return await add_evidence(
                     pool, workspace_id=ws, investigation_id=inv, evidence=new_ev
