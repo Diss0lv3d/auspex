@@ -68,6 +68,15 @@ def decode_jwt(settings: Settings, token: str) -> dict:
     )
 
 
+def _claim_uuid(claims: dict, name: str) -> UUID:
+    """A token's id claim. Only a UUID string is one; anything else (a number, a
+    list) is a bad token, refused like one."""
+    value = claims[name]
+    if not isinstance(value, str):
+        raise ValueError(f"the {name} claim is not a UUID")
+    return UUID(value)
+
+
 # --- The chokepoint -----------------------------------------------------------
 
 
@@ -114,7 +123,7 @@ async def resolve_user(request: Request) -> AuthContext:
         token = authorization.removeprefix("Bearer ").strip()
         try:
             claims = decode_jwt(settings, token)
-            user_id, workspace_id = UUID(claims["sub"]), UUID(claims["wid"])
+            user_id, workspace_id = _claim_uuid(claims, "sub"), _claim_uuid(claims, "wid")
         except (jwt.InvalidTokenError, ValueError) as err:
             raise HTTPException(status_code=401, detail="Invalid or expired token") from err
         return await _context(pool, user_id, workspace_id, "jwt")

@@ -294,6 +294,39 @@ async def test_an_api_key_is_re_checked_like_a_token(client, settings):
         await conn.close()
 
 
+async def test_a_token_whose_person_was_deleted_is_401(client, settings):
+    """The token is no longer anyone's: a bad token (401), not a lost access (403)."""
+    conn = await asyncpg.connect(settings.database_url)
+    try:
+        ws = await ensure_workspace(conn, "t-s30-auth-deleted")
+        uid = await ensure_member(conn, ws, "deleted@s30-auth.auspex.dev")
+        headers = {"Authorization": f"Bearer {issue_jwt(settings, uid, ws)}"}
+        assert client.get("/api/auth/whoami", headers=headers).status_code == 200
+        await conn.execute("DELETE FROM users WHERE id = $1", uid)
+        resp = client.get("/api/auth/whoami", headers=headers)
+        assert resp.status_code == 401
+        assert resp.json()["detail"] != NO_ACCESS
+    finally:
+        await conn.execute("DELETE FROM workspaces WHERE name = 't-s30-auth-deleted'")
+        await conn.execute("DELETE FROM users WHERE email = 'deleted@s30-auth.auspex.dev'")
+        await conn.execute("DELETE FROM organizations WHERE name = 't-s30-auth-deleted'")
+        await conn.close()
+
+
+def test_a_token_whose_ids_are_not_uuids_is_401(client, settings):
+    """Signed with the right key, but `sub` or `wid` is not a UUID: 401, never a
+    500 and never a 403."""
+    good = "00000000-0000-0000-0000-000000000000"
+    now = datetime.now(UTC)
+    for sub, wid in (("not-a-uuid", good), (good, "not-a-uuid"), (good, ""), (good, 42),
+                     (good, ["x"])):
+        claims = {"iss": JWT_ISSUER, "sub": sub, "wid": wid, "iat": now,
+                  "exp": now + timedelta(minutes=5)}
+        token = jwt.encode(claims, settings.secret_key, algorithm=JWT_ALGORITHM)
+        resp = client.get("/api/auth/whoami", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 401, (sub, wid)
+
+
 # --- config fail-closed --------------------------------------------------------
 
 
