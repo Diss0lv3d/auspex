@@ -9,6 +9,7 @@ from uuid import uuid4
 import asyncpg
 import pytest
 from _fakes import FORBIDDEN_ENGINE_NAMES
+from _tenancy import ensure_member, ensure_workspace
 
 from auspex.enrich.types import (
     EnrichmentOutcome,
@@ -325,10 +326,7 @@ def store_pool(client):
 
 
 async def _scratch_workspace(conn) -> str:
-    return await conn.fetchval(
-        "INSERT INTO workspaces (name) VALUES ('test-ach-store') "
-        "ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id"
-    )
+    return await ensure_workspace(conn, "test-ach-store")
 
 
 def test_store_roundtrip_preserves_hard_contradictions(client, settings):
@@ -704,18 +702,9 @@ def test_two_workspace_tenancy_end_to_end(client, settings):
     async def _mk_b():
         conn = await asyncpg.connect(settings.database_url)
         try:
-            ws = await conn.fetchval(
-                "INSERT INTO workspaces (name) VALUES ('test-tenancy-b') "
-                "ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id"
-            )
-            user = await conn.fetchval(
-                """
-                INSERT INTO users (workspace_id, email, display_name)
-                VALUES ($1, 'intruder@tenancy-b.test', 'B')
-                ON CONFLICT (workspace_id, email) DO UPDATE SET display_name = 'B'
-                RETURNING id
-                """,
-                ws,
+            ws = await ensure_workspace(conn, "test-tenancy-b")
+            user = await ensure_member(
+                conn, ws, "intruder@tenancy-b.test", display_name="B"
             )
             return ws, user
         finally:

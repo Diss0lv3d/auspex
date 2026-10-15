@@ -37,7 +37,8 @@ def _workspace_id(settings) -> str:
         conn = await asyncpg.connect(settings.database_url)
         try:
             return await conn.fetchval(
-                "SELECT workspace_id FROM users WHERE email = $1", HARDENING_EMAIL
+                "SELECT m.workspace_id FROM memberships m JOIN users u ON u.id = m.user_id"
+                " WHERE u.email = $1", HARDENING_EMAIL
             )
         finally:
             await conn.close()

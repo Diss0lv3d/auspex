@@ -1,6 +1,7 @@
 """Scorecard logic: mode decision thresholds, fingerprint stability, persistence."""
 
 import asyncpg
+from _tenancy import ensure_workspace
 
 from auspex.db import create_pool
 from auspex.llm.scorecard import (
@@ -67,9 +68,7 @@ async def test_scorecard_roundtrip_in_postgres(client, settings):
     pool = await create_pool(settings.database_url, retries=2, delay=0.5)
     conn = await asyncpg.connect(settings.database_url)
     try:
-        workspace_id = await conn.fetchval(
-            "INSERT INTO workspaces (name) VALUES ('t-sc-roundtrip') RETURNING id"
-        )
+        workspace_id = await ensure_workspace(conn, "t-sc-roundtrip")
         sc = _sc(
             native_tool_calling=True,
             native_reasoning=True,

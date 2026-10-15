@@ -185,7 +185,6 @@ SCHEMA_V0: list[str] = [
     CREATE UNIQUE INDEX IF NOT EXISTS idx_ingest_state_global_feed
         ON ingest_state (feed) WHERE workspace_id IS NULL
     """,
-    "CREATE INDEX IF NOT EXISTS idx_users_workspace ON users (workspace_id)",
     "CREATE INDEX IF NOT EXISTS idx_api_keys_workspace ON api_keys (workspace_id)",
     "CREATE INDEX IF NOT EXISTS idx_chat_sessions_ws_user ON chat_sessions (workspace_id, user_id)",
     """
@@ -641,6 +640,162 @@ SCHEMA_V0: list[str] = [
         ON turn_spend (session_id, created_at)
     """,
 ]
+
+# The list as it stood before S30 (with idx_users_workspace removed): the
+# migration test builds a pre-S30 database from it.
+PRE_S30_STATEMENTS: tuple[str, ...] = tuple(SCHEMA_V0)
+
+# S30 (D-061; docs/superpowers/specs/2026-10-15-s30-tenancy-design.md §1).
+# Organizations own workspaces; a user is a PERSON with a home organization and
+# memberships, no longer a row per workspace. `organizations` and `users` are
+# the two tables D-061 exempts from D-008's workspace_id (tests/test_schema.py).
+S30_TENANCY: list[str] = [
+    """
+    CREATE TABLE IF NOT EXISTS organizations (
+        id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        name        text NOT NULL UNIQUE,
+        kind        text NOT NULL CHECK (kind IN ('direct', 'provider', 'client')),
+        parent_id   uuid REFERENCES organizations(id) ON DELETE RESTRICT,
+        restricted  boolean NOT NULL DEFAULT false,
+        created_at  timestamptz NOT NULL DEFAULT now(),
+        CHECK ((kind = 'client') = (parent_id IS NOT NULL)),
+        CHECK (NOT restricted OR kind = 'client')
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_organizations_parent ON organizations (parent_id)",
+    """
+    ALTER TABLE workspaces
+        ADD COLUMN IF NOT EXISTS org_id uuid REFERENCES organizations(id) ON DELETE RESTRICT,
+        ADD COLUMN IF NOT EXISTS region text NOT NULL DEFAULT 'global'
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_workspaces_org ON workspaces (org_id)",
+    # THE ONLY BLOCK THAT DEFINES THIS CONSTRAINT; it holds the full list and
+    # must equal auspex/tenancy/region.py's REGIONS (pinned by a test). A new
+    # region is added HERE, in place — the proposals-status rule (S26).
+    """
+    DO $$
+    BEGIN
+        ALTER TABLE workspaces DROP CONSTRAINT IF EXISTS workspaces_region_check;
+        ALTER TABLE workspaces ADD CONSTRAINT workspaces_region_check
+            CHECK (region IN ('global', 'ksa'));
+    END $$
+    """,
+    """
+    ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS home_org_id uuid REFERENCES organizations(id) ON DELETE RESTRICT
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS memberships (
+        id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id   uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        user_id        uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role           text NOT NULL CHECK (role IN ('admin', 'analyst', 'viewer')),
+        provider_wide  boolean NOT NULL DEFAULT false,
+        created_at     timestamptz NOT NULL DEFAULT now(),
+        updated_at     timestamptz NOT NULL DEFAULT now(),
+        UNIQUE (workspace_id, user_id)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_memberships_user ON memberships (user_id)",
+    # Append-only (no code updates or deletes a row; pinned by a test). The
+    # actor columns carry no foreign key on purpose: purging a user must not
+    # erase who acted. clock_timestamp(): these rows are read back in order.
+    """
+    CREATE TABLE IF NOT EXISTS audit_events (
+        id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id     uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        actor_kind       text NOT NULL CHECK (actor_kind IN ('user', 'cli', 'system')),
+        actor_user_id    uuid,
+        actor_org_id     uuid,
+        action           text NOT NULL,
+        subject_user_id  uuid,
+        details          jsonb NOT NULL DEFAULT '{}',
+        created_at       timestamptz NOT NULL DEFAULT clock_timestamp(),
+        CHECK ((actor_kind = 'user') = (actor_user_id IS NOT NULL))
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_audit_events_ws_created
+        ON audit_events (workspace_id, created_at DESC)
+    """,
+    # THE ONLY BLOCK THAT DEFINES THIS CONSTRAINT; it must equal
+    # auspex/tenancy/audit.py's ACTIONS (pinned by a test). Edited in place.
+    """
+    DO $$
+    BEGIN
+        ALTER TABLE audit_events DROP CONSTRAINT IF EXISTS audit_events_action_check;
+        ALTER TABLE audit_events ADD CONSTRAINT audit_events_action_check
+            CHECK (action IN ('workspace.enter', 'membership.add', 'membership.role',
+                              'membership.remove', 'membership.provider_wide',
+                              'org.create', 'org.restricted', 'workspace.create'));
+    END $$
+    """,
+    # The one-time move, guarded on the old column like S16's watcher_id block:
+    # after it runs, every later boot skips it. One transaction with the whole
+    # list (run_migrations), so a refusal leaves the old shape untouched.
+    """
+    DO $$
+    DECLARE
+        dupes integer;
+        stranded integer;
+    BEGIN
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = 'users'
+               AND column_name = 'workspace_id'
+        ) THEN
+            SELECT count(*) INTO dupes FROM (
+                SELECT lower(email) FROM users GROUP BY 1 HAVING count(*) > 1
+            ) d;
+            IF dupes > 0 THEN
+                RAISE EXCEPTION 'S30 migration refused: % email address(es) on 2+ user rows',
+                    dupes USING HINT = 'One person, one home organization (D-061): merge the rows.';
+            END IF;
+            SELECT count(*) INTO stranded
+              FROM users u JOIN workspaces w ON w.id = u.workspace_id
+             WHERE w.name = '__deployment__';
+            IF stranded > 0 THEN
+                RAISE EXCEPTION 'S30 migration refused: % user(s) in __deployment__ (reserved)',
+                    stranded USING HINT = 'D-035: nobody may belong to the deployment workspace.';
+            END IF;
+            INSERT INTO organizations (name, kind)
+            SELECT w.name, 'direct' FROM workspaces w
+             WHERE w.org_id IS NULL AND w.name <> '__deployment__'
+            ON CONFLICT (name) DO NOTHING;
+            UPDATE workspaces w SET org_id = o.id
+              FROM organizations o
+             WHERE w.org_id IS NULL AND w.name <> '__deployment__' AND o.name = w.name;
+            UPDATE users u SET home_org_id = w.org_id
+              FROM workspaces w
+             WHERE w.id = u.workspace_id AND u.home_org_id IS NULL;
+            INSERT INTO memberships (workspace_id, user_id, role)
+            SELECT u.workspace_id, u.id,
+                   CASE WHEN u.role IN ('admin', 'analyst', 'viewer') THEN u.role
+                        ELSE 'viewer' END
+              FROM users u
+            ON CONFLICT (workspace_id, user_id) DO NOTHING;
+            ALTER TABLE users DROP CONSTRAINT IF EXISTS users_workspace_id_email_key;
+            DROP INDEX IF EXISTS idx_users_workspace;
+            ALTER TABLE users DROP COLUMN workspace_id;
+            ALTER TABLE users DROP COLUMN role;
+        END IF;
+    END $$
+    """,
+    "ALTER TABLE users ALTER COLUMN home_org_id SET NOT NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON users (lower(email))",
+    # Only the deployment's system workspace (D-035) belongs to no organization:
+    # nothing can ever reach it through a membership.
+    """
+    DO $$
+    BEGIN
+        ALTER TABLE workspaces DROP CONSTRAINT IF EXISTS workspaces_org_required;
+        ALTER TABLE workspaces ADD CONSTRAINT workspaces_org_required
+            CHECK (org_id IS NOT NULL OR name = '__deployment__');
+    END $$
+    """,
+]
+
+SCHEMA_V0 = [*SCHEMA_V0, *S30_TENANCY]
 
 
 async def run_migrations(pool: asyncpg.Pool) -> None:

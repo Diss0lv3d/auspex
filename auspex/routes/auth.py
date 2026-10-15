@@ -14,13 +14,15 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr
 
 from auspex.auth import (
+    NO_WORKSPACE,
     AuthContext,
     generate_api_key,
-    get_or_create_user,
     issue_jwt,
     resolve_user,
 )
 from auspex.config import Settings
+from auspex.tenancy.access import landing, user_by_email
+from auspex.tenancy.admin import TenancyError, provision_dev_user
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -90,13 +92,23 @@ async def google_callback(request: Request, code: str) -> dict:
     # OIDC userinfo returns email_verified=false for exactly those accounts.
     if info.get("email_verified") is not True:
         raise HTTPException(status_code=401, detail="Google email not verified")
-    user_id, workspace_id = await get_or_create_user(
-        request.app.state.pool,
-        email=info["email"],
-        display_name=info.get("name", ""),
-        google_sub=info.get("sub"),
-    )
-    return {"access_token": issue_jwt(settings, user_id, workspace_id), "token_type": "bearer"}
+    # S30 call 2: Google sign-in never provisions. The person must already
+    # exist (an admin added them). TD-001 still gates configuring Google at all:
+    # the immutable `sub` is not yet compared.
+    pool = request.app.state.pool
+    user_id = await user_by_email(pool, info["email"])
+    if user_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail="No account exists for this email. Ask an administrator to add you.",
+        )
+    access = await landing(pool, user_id)
+    if access is None:
+        raise HTTPException(status_code=403, detail=NO_WORKSPACE)
+    return {
+        "access_token": issue_jwt(settings, user_id, access.workspace_id),
+        "token_type": "bearer",
+    }
 
 
 class DevLoginBody(BaseModel):
@@ -110,10 +122,18 @@ async def dev_login(request: Request, body: DevLoginBody) -> dict:
     settings = _settings(request)
     if settings.app_env != "dev":
         raise HTTPException(status_code=404, detail="Not found")
-    user_id, workspace_id = await get_or_create_user(
-        request.app.state.pool, email=body.email, display_name=body.display_name
-    )
-    return {"access_token": issue_jwt(settings, user_id, workspace_id), "token_type": "bearer"}
+    pool = request.app.state.pool
+    try:
+        user_id = await provision_dev_user(pool, body.email, body.display_name)
+    except TenancyError as err:
+        raise HTTPException(status_code=err.status, detail=str(err)) from err
+    access = await landing(pool, user_id)
+    if access is None:
+        raise HTTPException(status_code=403, detail=NO_WORKSPACE)
+    return {
+        "access_token": issue_jwt(settings, user_id, access.workspace_id),
+        "token_type": "bearer",
+    }
 
 
 class ApiKeyBody(BaseModel):

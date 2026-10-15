@@ -17,9 +17,10 @@ import asyncio
 
 import asyncpg
 import pytest
+from _tenancy import ensure_workspace
 from starlette.requests import Request
 
-from auspex.auth import AuthContext, get_or_create_user
+from auspex.auth import AuthContext
 from auspex.db import create_pool
 from auspex.llm.scorecard import (
     DEPLOYMENT_WORKSPACE,
@@ -29,6 +30,8 @@ from auspex.llm.scorecard import (
     save_scorecard,
 )
 from auspex.routes.chat import get_endpoint_resolver
+from auspex.tenancy.access import landing
+from auspex.tenancy.admin import provision_dev_user
 
 TEST_BASE = "https://d035-deployment-scope.test/v1"
 TEST_MODEL = "d035-model"
@@ -115,7 +118,7 @@ def test_a_scorecard_in_the_analysts_own_workspace_is_not_the_deployments(
     client = default_endpoint_is_the_test_one
 
     async def write_in_analyst_workspace(pool):
-        _, workspace_id = await get_or_create_user(pool, email=DEV_EMAIL)
+        workspace_id = (await landing(pool, await provision_dev_user(pool, DEV_EMAIL))).workspace_id
         await save_scorecard(pool, workspace_id, _sc(native_reasoning=True))
 
     _db(settings, write_in_analyst_workspace)
@@ -136,13 +139,10 @@ def test_no_other_workspace_decides_the_deployments_endpoint(
 
     async def write_elsewhere(pool):
         if other == "another tenant":
-            _, ws = await get_or_create_user(
-                pool, email=TENANT_B_EMAIL, workspace_name="d035-tenant-b"
-            )
+            user = await provision_dev_user(pool, TENANT_B_EMAIL, workspace_name="d035-tenant-b")
+            ws = (await landing(pool, user)).workspace_id
         else:
-            ws = await pool.fetchval(
-                "INSERT INTO workspaces (name) VALUES ('d035-userless') RETURNING id"
-            )
+            ws = await ensure_workspace(pool, "d035-userless")
         await save_scorecard(pool, ws, _sc(native_reasoning=True))
 
     _db(settings, write_elsewhere)
@@ -202,7 +202,8 @@ def _resolve_as_the_analyst(client):
 
     async def resolve():
         pool = client.app.state.pool
-        user_id, workspace_id = await get_or_create_user(pool, email=DEV_EMAIL)
+        user_id = await provision_dev_user(pool, DEV_EMAIL)
+        workspace_id = (await landing(pool, user_id)).workspace_id
 
         async def receive():
             return {"type": "http.request", "body": b"{}", "more_body": False}
@@ -212,7 +213,16 @@ def _resolve_as_the_analyst(client):
              "app": client.app},
             receive,
         )
-        auth = AuthContext(user_id=user_id, workspace_id=workspace_id, via="jwt")
+        auth = AuthContext(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            via="jwt",
+            role="analyst",
+            home_org_id=await pool.fetchval(
+                "SELECT home_org_id FROM users WHERE id = $1", user_id
+            ),
+            region="global",
+        )
         endpoint = await (await get_endpoint_resolver(request, auth)).resolve()
         try:
             return (endpoint.id, endpoint.native_reasoning, endpoint.client.base_url,
@@ -283,11 +293,11 @@ async def test_no_user_can_be_provisioned_into_the_deployment_workspace(client, 
     conn = await asyncpg.connect(settings.database_url)
     try:
         with pytest.raises(ValueError, match="reserved"):
-            await get_or_create_user(
-                pool, email="d035-intruder@auspex.dev", workspace_name=DEPLOYMENT_WORKSPACE
+            await provision_dev_user(
+                pool, "d035-intruder@auspex.dev", workspace_name=DEPLOYMENT_WORKSPACE
             )
         members = await conn.fetchval(
-            "SELECT count(*) FROM users u JOIN workspaces w ON w.id = u.workspace_id"
+            "SELECT count(*) FROM memberships m JOIN workspaces w ON w.id = m.workspace_id"
             " WHERE w.name = $1",
             DEPLOYMENT_WORKSPACE,
         )

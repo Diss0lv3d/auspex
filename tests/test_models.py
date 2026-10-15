@@ -102,7 +102,12 @@ def test_models_404_in_prod():
     with TestClient(app) as prod_client:
         # bypass auth so we reach (and prove) the dev-only gate itself
         app.dependency_overrides[resolve_user] = lambda: AuthContext(
-            user_id=uuid4(), workspace_id=uuid4(), via="jwt"
+            user_id=uuid4(),
+            workspace_id=uuid4(),
+            via="jwt",
+            role="analyst",
+            home_org_id=uuid4(),
+            region="global",
         )
         try:
             assert prod_client.get("/api/models").status_code == 404
