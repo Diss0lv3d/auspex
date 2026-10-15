@@ -2401,3 +2401,26 @@ connector action compiles to.
 
 **Bounds, stated.** Proposing a connector action needs its agent online (the
 card comes from a dry-run job). Params stay primitive until TD-023(d).
+
+## D-065 — The jobs queue is our own Postgres table, claimed with SKIP LOCKED (2026-10-15, S29)
+
+**Context.** D-001 promised "jobs via SKIP LOCKED" in Postgres; none exists.
+Background work is plain asyncio tasks in the lifespan.
+
+**Decision (Burhan's call, S29: our own table, over a job library or an
+external broker).**
+- A workspace-scoped `jobs` table claimed with `FOR UPDATE SKIP LOCKED`, in
+  settlement's style (conditional UPDATEs, claim tokens): a lease that expires,
+  bounded retries with backoff, a dead state, an idempotency key unique per
+  workspace.
+- Two kinds of claimer: Edge Agents over HTTP (their own integrations' jobs
+  only), and an in-app worker started in the lifespan.
+- A result for a job the claimer no longer holds is refused.
+- The claim order serves workspaces in turn, so one busy client cannot starve
+  the rest; a test proves it.
+
+Detail: docs/superpowers/specs/2026-10-15-integration-phase-design.md, D-065.
+
+**What this supersedes.** Nothing; it keeps D-001's promise.
+
+**Bounds, stated.** A polled queue; LISTEN/NOTIFY is not in v1.
