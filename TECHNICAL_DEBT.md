@@ -1412,6 +1412,25 @@ change with tests.
 **HARD GATE:** must be fixed *before* any `GOOGLE_CLIENT_ID` is configured in any
 environment. Raised by the S1 adversarial review (2/2 verifiers confirmed).
 
+## TD-059 (S30) — a workspace admin can home any email in their own organization
+**Where:** `auspex/tenancy/admin.py` `add_member` (`_person` creates an unknown email
+homed in the workspace's organization), reached by `POST /api/workspace/members`
+(`auspex/routes/workspace.py`).
+**Risk:** An admin who adds an email their organization does not own homes that
+person in their own organization. The person's real organization then gets 409
+("belongs to another organization") from the API and from the CLI's `create-org
+--admin` and `set-member`, and once Google sign-in is live the person's sign-in
+lands in the claiming organization's workspace. Executed by the S30 final review.
+**Why deferred:** Google sign-in is config-stubbed (503 until a client ID exists)
+and never provisions, so today the effect is a blocked add, and it has a recovery:
+the claiming admin removes the membership, then the CLI's `rehome-person --email E
+--org O` gives the person a new home (only while they hold no membership; audited
+as `person.rehome`). Limiting creation needs the domains an organization owns, which
+Auspex does not record yet.
+**HARD GATE:** person creation over the API must be limited (e.g. to domains the
+organization owns) *before* any `GOOGLE_CLIENT_ID` is configured in any environment,
+beside TD-001. Recorded in D-068's bounds.
+
 ## TD-002 (S3/D-016) — two-pass reasoning doubles LLM calls for non-native endpoints
 **Where:** `auspex/routes/chat.py` `event_stream()` two-pass branch.
 **Risk:** endpoints without native reasoning (Scout, most instruct models) make

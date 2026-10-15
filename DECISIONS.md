@@ -2511,3 +2511,7 @@ left open. D-035 stands: `__deployment__` belongs to no organization.
 - Postgres row-level security is not a second wall yet (IDEAS).
 - An old token stays valid for its own workspace until it expires; it is
   re-checked on every request.
+- A workspace admin can create a person over the API with any email, homed in
+  that workspace's organization; before Google sign-in is configured, person
+  creation over the API must be limited (e.g. to domains the organization
+  owns) — TD-059.
