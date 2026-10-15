@@ -1,85 +1,92 @@
-# NEXT-SESSION-BE — track: backend · session: S30
+# NEXT-SESSION-BE — track: backend · session: S31
 
 _Paste everything below the first line of dashes into a fresh Claude Code
-window opened in /home/burhan/auspex-new. **S30 builds MSSP tenancy (D-061)**,
-the first build session of the integration phase, and a promote milestone. The
-phase's spec is docs/superpowers/specs/2026-10-15-integration-phase-design.md;
-its decisions are D-060…D-067, all ratified by Burhan at S29._
+window opened in /home/burhan/auspex-new. **S31 builds the jobs queue and
+TD-025's first half (D-065, D-066).** The order table below puts **F4 (front
+end) before S31**: start S31 when STATE.md's focus is the backend, or when
+Burhan picks it. S30 closed 2026-10-15 (MSSP tenancy; STATE.md)._
 
-_Below the S30 prompt is the **backend plan for the whole phase, S29–S41**,
-re-checked against the spec at S29. **`/session-end` writes the next session's
-prompt from its entry in the plan, keeps the plan section, and ticks the
-session it closed.** A change to the plan's order is Burhan's call._
+_Below the S31 prompt is the **backend plan for the whole phase, S29–S41**.
+**`/session-end` writes the next session's prompt from its entry in the plan,
+keeps the plan section, and ticks the session it closed.** A change to the
+plan's order is Burhan's call._
 
 ---
 
-SESSION S30 of Auspex, **backend track** (D-051). The working dir must be
-/home/burhan/auspex-new. Run `/session-start be S30` first (the full ritual).
-It reads `SESSION-RULES.md` (standing rules for every track) and STATE.md.
+SESSION S31 of Auspex, **backend track** (D-051). The working dir must be
+/home/burhan/auspex-new. Run `/session-start be S31` first (the full ritual).
+It reads `SESSION-RULES.md` (standing rules for every track, including the
+**Tenancy** section S30 added) and STATE.md.
 
 Step 0 (do BEFORE new scope):
 
 1. **One window at a time (D-051, D-059).** `git fetch` and read
    `origin/staging` first. If anything moves that you did not move, check `ps`
    for a second `claude` in this directory and stop.
-2. **The promote slate** (STATE.md follow-up #1) holds all of S29. S30 is a
-   promote milestone, so it ships at S30's close with S30's work, unless
-   STATE.md says Burhan promoted it in between.
-3. **Read D-060 and D-061, and the spec's D-061 section, before any code.**
-   They are the contract; this session builds them, it does not re-decide
-   them. Re-debating one is "overturn or drop?" to Burhan (CLAUDE.md).
-4. **Probe reality first (CLAUDE.md rule 4).** Save to
-   `docs/probes/<date>-s30-tenancy-baseline.md`:
-   - the live schema of `workspaces`, `users`, `api_keys` and every table with
-     a `user_id` (`\d` in psql against the dev DB, port 55432);
-   - the row counts that the migration must carry (workspaces, users, users
-     per email, api keys), with no emails or tenant data in the record;
-   - every route that depends on `resolve_user` (`auspex/auth.py:80`) or reads
-     `workspace_id`, by `file:line`.
+2. **If STATE.md says the promote slate is not empty, `/promote` it.** Read
+   the diff, not the list.
+3. **B-021, unless BUGS.md says B3 fixed it** (Burhan, 2026-10-15: "promote
+   now, fix next session"). `rehome-person` records the OLD organization's name
+   in the NEW organization's audit trail, which that organization's admins read
+   (`auspex/tenancy/admin.py:402-404`; the test that pins the leak is
+   `tests/test_tenancy_cli.py:136`). Fix it as BUGS.md sketches: the event keeps
+   only `to`; the old name goes to the operator's CLI output. In the same lines:
+   a second concurrent rehome answers `NotFound` (lock `users` alone, then read
+   the organization's name), and `admin.py`'s docstring overclaims the
+   workspace lock (`provision_dev_user` takes none). Test first; a fresh-agent
+   review (a tenancy change, SESSION-RULES.md); `fixed <commit> (S31)` in
+   BUGS.md.
+4. **D-069's build: ask Burhan where it goes** before anything else of it.
+   Proposed: here, as Step 0 — the deployment declares its storage region (an
+   env var born with it, in `.env.example` and `docs/ENV_VARS.md`), and the CLI's
+   `create-org` / `create-client` refuse a `ksa` workspace unless that region is
+   `ksa`. If he places it elsewhere, write that into STATE.md and the target
+   prompt and move on.
+5. **Read D-065 and D-066, and the spec's sections on them, before any code**
+   (docs/superpowers/specs/2026-10-15-integration-phase-design.md). They are the
+   contract; re-debating one is "overturn or drop?" to Burhan.
+6. **Probe reality first (CLAUDE.md rule 4).** Save to
+   `docs/probes/<date>-s31-jobs-baseline.md`:
+   - the live `proposals` schema and its status CHECK block
+     (`auspex/migrations.py`), and every claim/finish path in
+     `auspex/actions/settlement.py` by `file:line` (D-041, D-048: claim tokens,
+     `claimed_at`, the stale doors);
+   - the lifespan's background tasks (`auspex/app.py`) and the `ingest_state`
+     cursor pattern;
+   - what an execution attempt hands `execute` / `undo` / `observe` today.
 
-Goal: **S30, the plan's entry below, is the contract: its exit criteria are
-the done line.** In short: organizations (direct, provider, client,
-`restricted`), each provider's own workspace, workspaces with a region, one
-user per person, memberships with `admin|analyst|viewer` and the
-`provider_wide` grant, one `enterable_workspaces` function, one workspace per
-token with an audited switch, `require_role`, `GET /api/auth/me`, the region
-guard over the engine and third-party enrichment (`ENGINE_REGION`), the
-structural and cross-tenant tests, an adversarial review, and the promote.
+Goal: **S31, the plan's entry below, is the contract: its exit criteria are
+the done line.** In short: a workspace-scoped `jobs` table claimed with
+`FOR UPDATE SKIP LOCKED` (lease, bounded retries with backoff, a dead state, an
+idempotency key unique per workspace, claim tokens, a claim that takes a scope),
+a race test, fairness across workspaces, the in-app worker in the lifespan;
+then TD-025's first half: an idempotency key on every execution attempt, and a
+TTL on pending proposals (a new status in the one CHECK block). An adversarial
+review of the approvals state machine.
 
-**Design first, then a plan.** D-061 decided the model; it left these to S30.
-Brainstorm them with Burhan, one question at a time, then write the
-implementation plan (`docs/superpowers/plans/<date>-s30-tenancy.md`) and ask
-him how to execute it:
-- **Who creates organizations and workspaces?** There is no deployment-level
-  operator yet. A seed command, an operator API on the `__deployment__`
-  workspace (D-035), or both, and what the first admin of a new organization
-  is.
-- **What a dev login becomes** (today every dev login lands in `default`,
-  `auth.py:124`): its organization, its membership and its role, so the demo,
-  the page and the tests keep working.
-- **The migration.** Existing users become a person plus a membership. What
-  happens to the same email in two workspaces, and which organization
-  `default` belongs to.
-- **The audit trail** for switches, membership changes and provider-wide
-  grants: a table, its fields, and who can read it.
-- **The region vocabulary** (`global`, `ksa`, …) and which engine regions
-  serve which workspace regions.
+**Design first, then a plan.** Brainstorm with Burhan, one question at a time,
+then write `docs/superpowers/plans/<date>-s31-jobs.md` and ask how to execute
+it. Questions D-065/D-066 leave to S31:
+- the TTL's length (a code constant, D-026) and what an expired proposal says
+  on its card and in the approvals list;
+- the retry cap, the backoff curve and the lease length;
+- the claim's scope shape, so S33's Edge Agents reuse it over HTTP;
+- which job kind S31 runs at all (the proposal-expiry sweep is the obvious
+  first), since connectors arrive at S32.
 
-Candidates: none. Ending early with the rituals done beats starting S31's
+Candidates: none. Ending early with the rituals done beats starting S32's
 work.
 
 Constraints: everything in `SESSION-RULES.md`, and the plan's "Standing for
 every session in this phase" below.
-- **Tenant isolation is an invariant** (org policy). Nothing takes a workspace
-  or tenant id from a request body, a header or a query string. A
-  non-super-admin can never override `tenant_id` or read across tenants.
-- **A tenancy change gets a fresh-agent adversarial review before the close,
-  and so do the review's fixes** (SESSION-RULES.md).
-- `ENGINE_REGION` goes into `.env.example` and `docs/ENV_VARS.md` the moment
-  it exists. TD-001 stays a hard gate before Google sign-in.
-- Run pytest only when no live probe is running; the suite purges the shared
-  `analyst@auspex.dev` user, which the migration also touches.
-- Do not start S31's work in S30, even where it looks small (scope lock).
+- `jobs` carries `workspace_id` (D-008); it is not an exemption. Every new
+  table and route gets a cross-tenant test (`tests/_tenancy.py`).
+- Any new status goes into the ONE `proposals_status_check` block, edited in
+  place, and `test_startup_survives_every_status_a_proposal_can_be_in` passes.
+- **An approvals-state-machine change gets a fresh-agent adversarial review
+  before the close, and so do the review's fixes** (SESSION-RULES.md).
+- Run pytest only when no live probe is running.
+- Do not start S32's work in S31 (scope lock).
 
 ---
 
@@ -113,7 +120,7 @@ ticks the closed session._
 |---|---|---|---|---|
 | 0 | F3 | fe | — | closed 2026-10-14 by the collaborator (D-059); its PR #34 merged at S29 |
 | 1 | S29 | be | F3 closed | closed: the S28 review, the spec and D-060…D-067 |
-| 2 | S30 | be | S29 | MSSP tenancy: organizations, provider workspaces, memberships, roles, one workspace per token, the region guard |
+| 2 | S30 | be | S29 | closed 2026-10-15: MSSP tenancy (D-061, D-068); D-069 decided, built later |
 | 3 | F4 | fe | S30 | one shell for every page, role-aware, a workspace switcher |
 | 4 | S31 | be | S30 | the jobs queue, TD-025's first half |
 | 5 | S32 | be | S31 | the connector contract, the SDK (Python and YAML), the catalogue |
@@ -138,7 +145,7 @@ ticks the closed session._
   end), S36 (QRadar data in), S38 (the loop closed), and S40 (the phase's
   demo).
 
-### Where the code stands (2026-10-15; re-verify before relying on it)
+### Where the code stands (2026-10-15, after S30; re-verify before relying on it)
 
 - **Actions** (`auspex/actions/`):
   - `EXECUTABLE_SYSTEMS = frozenset({"auspex"})` (`settlement.py:50`), checked
@@ -147,13 +154,18 @@ ticks the closed session._
     `types.py:164`, `validate_spec` `:239`.
   - The registry is in-process and workspace-blind (TD-023). No idempotency key
     and no proposal TTL (TD-025). Both left Deferred at S29 (D-066).
-- **Tenancy** (`auspex/auth.py`):
-  - A user row belongs to one workspace (`users.workspace_id` NOT NULL,
-    `UNIQUE (workspace_id, email)`, `auspex/migrations.py:31-41`); dev logins
-    all land in `default` (`get_or_create_user`, `auth.py:124`).
-  - The JWT carries one `wid` (`auth.py:53`); `resolve_user` (`:80`) is the
-    single chokepoint. `users.role` is never read. No organizations, no
-    memberships.
+- **Tenancy** (`auspex/tenancy/`, `auspex/auth.py`; built at S30, D-061/D-068):
+  - organizations (`direct|provider|client`, `restricted`), memberships with
+    `admin|analyst|viewer` and `provider_wide`, `users.home_org_id`,
+    `workspaces.region`; `audit_events` (append-only). Schema-test exemptions:
+    `workspaces`, `organizations`, `users`.
+  - `enterable_workspaces` (`access.py`) is re-checked by `resolve_user` on
+    every request; `require_role` aliases `AnyRole` / `Analyst` / `Admin`;
+    `POST /api/auth/switch`, `GET /api/auth/me`; the membership API and
+    `GET /api/audit` (`auspex/routes/workspace.py`); the CLI
+    `python -m auspex.tenancy`; the region guard (`ENGINE_REGION`, `region.py`).
+  - Every write already needs `Analyst` or `Admin` (pinned by
+    `tests/test_tenancy_roles.py`); a new route inherits that check.
 - **Secrets.** Provider keys are env-only and deployment-wide
   (`auspex/config.py`). No per-workspace secret storage.
 - **Background work** is asyncio tasks in the lifespan (`auspex/app.py:41-95`);
@@ -167,7 +179,8 @@ ticks the closed session._
   `auspex/alerts/`). **Enrichment providers** (`auspex/enrich/providers/base.py:24`)
   are the nearest existing shape to a connector.
 - **Compose** runs `app`, `postgres` and `opensearch`. No worker, no agent.
-- **Open bugs that touch this phase** (BUGS.md): B-010 (three classify rules
+- **Open bugs that touch this phase** (BUGS.md): B-021 (a rehome names the
+  old organization to the new one's admins; S31's Step 0), B-010 (three classify rules
   still backtrack on crafted input), B-015/B-020 (what the agent says it
   recorded), B-017 (a malformed tool name from the endpoint crashes a turn),
   B-018 (a URL's credentials are kept).
@@ -205,8 +218,11 @@ ticks the closed session._
   The spec and D-060…D-067, every decision Burhan's. TD-023/TD-025 out of
   Deferred. QRadar: real data (hence D-067); its address is still to come.
 
-- [ ] **S30 — Tenancy for MSSPs: organizations, provider workspaces,
+- [x] **S30 — Tenancy for MSSPs: organizations, provider workspaces,
   memberships, roles, one workspace per token, and the region guard.**
+  Closed 2026-10-15. Built to the S30 design (D-068), every exit criterion met;
+  the final adversarial review's fixes reviewed in turn; B-021 open (S31 Step 0);
+  D-069 decided (a ksa workspace only on a KSA-storage deployment), built later.
   - **Depends on:** D-061 (spec, D-061).
   - **Goal:** an MSSP analyst enters the client workspaces they may, one at a
     time; a client's users see only their own; every query is still scoped to
