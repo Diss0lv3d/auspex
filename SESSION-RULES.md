@@ -215,8 +215,11 @@ That is recorded, not owned; do not fix it unasked.
 ## Deferred; do NOT pick up in any track unless explicitly re-scoped
 
 - KB-doc citability / ioc_check→KB-CVE-context (parked 20×);
-- TD-014; TD-015; TD-016; TD-017; TD-019; TD-020; TD-021; TD-022; TD-023;
-  TD-024; TD-025 (idempotency matters the day an action reaches a network);
+- TD-014; TD-015; TD-016; TD-017; TD-019; TD-020; TD-021; TD-022; TD-024;
+  (TD-023 and TD-025 left this list for the integration phase, D-066, worked
+  in TD-025's own order: S30 roles, S31 TTL and idempotency key, S32 the
+  per-workspace catalogue, S34 grant-checked scope. TD-023(d), array params,
+  stays deferred until a real action needs one);
 - **TD-027 (HARD GATE)**; TD-029; TD-030; TD-031/032/033;
 - the card stream emitting status changes;
 - model-PROPOSED hypotheses/evidence and falsifiers (D-019-later, D-021);
