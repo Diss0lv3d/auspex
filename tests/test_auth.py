@@ -342,3 +342,31 @@ def test_dev_login_hidden_in_prod():
     with TestClient(app) as prod_client:
         resp = prod_client.post("/api/auth/dev-login", json={"email": DEV_EMAIL})
         assert resp.status_code == 404
+
+
+# --- where a token is minted ----------------------------------------------------
+
+
+def test_the_auth_routes_name_every_place_a_token_is_minted():
+    """F4 (S30 final review): the module said "exactly two places"; the switch
+    is a third. Found by walking the code, so a fourth cannot hide."""
+    import ast
+    from pathlib import Path
+
+    import auspex.routes.auth as routes
+
+    root = Path(__file__).resolve().parents[1] / "auspex"
+    minting = set()
+    for path in root.rglob("*.py"):
+        for fn in ast.walk(ast.parse(path.read_text())):
+            if isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef) and any(
+                isinstance(n, ast.Call) and getattr(n.func, "id", None) == "issue_jwt"
+                for n in ast.walk(fn)
+            ):
+                minting.add((path.name, fn.name))
+    assert minting == {("auth.py", "google_callback"), ("auth.py", "dev_login"),
+                       ("auth.py", "switch")}
+    doc = " ".join(routes.__doc__.split())
+    assert "exactly three places" in doc
+    for named in ("the OAuth callback", "dev login", "the workspace switch"):
+        assert named in doc, named

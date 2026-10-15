@@ -1,8 +1,10 @@
 """Auth endpoints: Google OAuth (config-stubbed until a client ID exists),
-dev login (APP_ENV=dev only), API key management, and whoami.
+dev login (APP_ENV=dev only), API key management, whoami, the workspace switch
+and me.
 
-JWT issuance happens in exactly two places — the OAuth callback and dev login —
-both funnel through `issue_jwt`.
+JWT issuance happens in exactly three places — the OAuth callback, dev login and
+the workspace switch — all funnel through `issue_jwt`, and each mints a token
+for a workspace `enter` returned (auspex/tenancy/entry.py).
 """
 
 from typing import Annotated
