@@ -1,5 +1,24 @@
 # Technical debt — logged the moment it's taken
 
+## TD-060 (S30) — the suite leaves tenancy rows in the shared dev database
+
+**Where:** the S30 tests that delete a workspace but not its organization
+(`tests/test_auth.py`'s `t-s30-auth-*`, the `ensure_workspace` callers in
+`tests/_tenancy.py`), and every dev-login in the suite, which records a
+`workspace.enter` event in `default` (`auspex/tenancy/entry.py`).
+**Risk:** LOW. Measured by the S30 final review: 27 organizations without a
+workspace (5 with people homed in them) and 2,708 `workspace.enter` rows in
+`default`'s append-only trail after a day of runs. It grows by a few hundred
+audit rows per full suite run and is bounded for organizations (get-or-create by
+name). Nothing reads it but a person looking at `default`'s audit.
+**Why taken:** the plan moved ~25 test sites onto `ensure_workspace` /
+`ensure_member` without changing what each test deletes.
+**Path to fix:** delete by prefix in a session-scoped teardown (organizations
+named `t-`, `test-`, `d035-`, their people, and `default`'s `workspace.enter`
+rows for the suite's own users), or give the suite its own database.
+**Trigger:** a person reading `default`'s audit trail, or the dev database
+growing noticeably.
+
 ## TD-058 (S29) — a very long URL may exceed the observables index's row limit, and then nothing in that lookup is recorded
 
 **Where:** `auspex/enrich/store.py` (`persist_enrichment`, one transaction),
