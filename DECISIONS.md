@@ -2424,3 +2424,23 @@ Detail: docs/superpowers/specs/2026-10-15-integration-phase-design.md, D-065.
 **What this supersedes.** Nothing; it keeps D-001's promise.
 
 **Bounds, stated.** A polled queue; LISTEN/NOTIFY is not in v1.
+
+## D-066 — TD-023 and TD-025 leave Deferred for the integration phase, in TD-025's own order (2026-10-15, S29)
+
+**Decision (Burhan's call, S29).** Both leave SESSION-RULES.md's Deferred
+list (its own commit), and are worked in this order:
+- **S30:** roles are real (D-061), so `decided_by` can be enforced once S34's
+  policy reads them.
+- **S31:** pending proposals expire after a TTL (a new status in the one
+  status-CHECK block); every execution attempt carries an idempotency key,
+  handed to execute, undo and observe.
+- **S32:** the catalogue answers "which actions does this tenant have?" per
+  workspace.
+- **S34:** grant-checked scope before the first third-party action runs; on a
+  shared integration, only its item's routing key. `EXECUTABLE_SYSTEMS` widens
+  by code and review (D-024).
+
+Still deferred: array params (TD-023(d)) and the polled card stream (TD-046).
+Detail: docs/superpowers/specs/2026-10-15-integration-phase-design.md, D-066.
+
+**What this supersedes.** Nothing ratified; it re-scopes two Deferred items.
