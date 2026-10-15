@@ -4,7 +4,7 @@ container as `python -m auspex.tenancy …`. Driven in-process here."""
 import asyncio
 
 import pytest
-from _tenancy import drop_orgs
+from _tenancy import drop_orgs, token
 
 from auspex.config import get_settings
 from auspex.db import create_pool
@@ -77,3 +77,62 @@ def test_provider_wide_survives_a_role_change_until_withdrawn(clean):
     assert main(["set-member", "--workspace", ws, "--email", email, "--role", "admin",
                  "--no-provider-wide"]) == 0
     assert asyncio.run(granted()) is False
+
+
+async def _person_and_workspace(email: str, workspace: str):
+    pool = await create_pool(get_settings().database_url, retries=2, delay=0.5)
+    try:
+        return (await pool.fetchval("SELECT id FROM users WHERE lower(email) = $1", email),
+                await pool.fetchval("SELECT id FROM workspaces WHERE name = $1", workspace))
+    finally:
+        await pool.close()
+
+
+def test_a_person_claimed_by_another_organization_is_recovered_by_the_cli(
+        clean, client, settings, capsys):
+    """F2 (S30 final review): A's admin adds B's future CEO over the API, which
+    homes the CEO in A. B (and the CLI) get 409 until A removes the membership
+    and the CLI rehomes the person; then B's admin adds them."""
+    a, b = f"{PREFIX}-a", f"{PREFIX}-b"
+    ceo = f"ceo@{PREFIX}-b.auspex.dev"
+    assert main(["create-org", "--kind", "direct", "--name", a, "--workspace", a,
+                 "--admin", f"admin@{PREFIX}-a.auspex.dev"]) == 0
+    a_admin, a_ws = asyncio.run(_person_and_workspace(f"admin@{PREFIX}-a.auspex.dev", a))
+    claimed = client.post("/api/workspace/members", json={"email": ceo, "role": "viewer"},
+                          headers=token(settings, a_admin, a_ws))
+    assert claimed.status_code == 201, claimed.text
+    ceo_id = claimed.json()["user_id"]
+    capsys.readouterr()
+
+    assert main(["create-org", "--kind", "direct", "--name", b, "--workspace", b,
+                 "--admin", ceo]) == 1
+    assert "another organization" in capsys.readouterr().err
+    assert main(["create-org", "--kind", "direct", "--name", b, "--workspace", b,
+                 "--admin", f"boss@{PREFIX}-b.auspex.dev"]) == 0
+    b_admin, b_ws = asyncio.run(_person_and_workspace(f"boss@{PREFIX}-b.auspex.dev", b))
+    b_headers = token(settings, b_admin, b_ws)
+    blocked = client.post("/api/workspace/members", json={"email": ceo, "role": "admin"},
+                          headers=b_headers)
+    assert blocked.status_code == 409
+    assert main(["set-member", "--workspace", b, "--email", ceo, "--role", "admin"]) == 1
+    capsys.readouterr()
+
+    assert main(["rehome-person", "--email", ceo, "--org", b]) == 1  # A still holds them
+    held = capsys.readouterr()
+    assert "1 membership" in held.err and "@" not in held.out + held.err
+    assert client.delete(f"/api/workspace/members/{ceo_id}",
+                         headers=token(settings, a_admin, a_ws)).status_code == 200
+    assert main(["rehome-person", "--email", ceo, "--org", b]) == 0
+    done = capsys.readouterr()
+    assert b in done.out and "@" not in done.out + done.err
+
+    added = client.post("/api/workspace/members", json={"email": ceo, "role": "admin"},
+                        headers=b_headers)
+    assert added.status_code == 201, added.text
+    assert added.json()["user_id"] == ceo_id
+    events = client.get("/api/audit", headers=b_headers).json()["events"]
+    rehomed = [e for e in events if e["action"] == "person.rehome"]
+    assert len(rehomed) == 1
+    assert rehomed[0]["details"] == {"from": a, "to": b}
+    assert rehomed[0]["subject"]["user_id"] == ceo_id
+    assert rehomed[0]["actor"]["kind"] == "cli"

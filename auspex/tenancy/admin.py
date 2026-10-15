@@ -243,7 +243,10 @@ async def _add(conn, workspace: asyncpg.Record, user_id: UUID, role: str,
     """The membership rules, once (D-061 decision 3)."""
     if actor.user_id == user_id:
         raise Refused(SELF_CHANGE)
-    home = await conn.fetchval("SELECT home_org_id FROM users WHERE id = $1", user_id)
+    # FOR SHARE: a rehome of this person in flight (rehome_person) finishes
+    # first, and this reads where it put them.
+    home = await conn.fetchval(
+        "SELECT home_org_id FROM users WHERE id = $1 FOR SHARE", user_id)
     if workspace["org_id"] != home and workspace["parent_id"] != home:
         raise Conflict("This person belongs to another organization")
     if provider_wide and workspace["org_kind"] != "provider":
@@ -366,6 +369,40 @@ async def set_restricted(pool, *, client: str, restricted: bool, actor: Actor = 
         for row in await conn.fetch("SELECT id FROM workspaces WHERE org_id = $1", org["id"]):
             await audit.record(conn, workspace_id=row["id"], action="org.restricted",
                                actor=actor, details={"restricted": restricted})
+
+
+async def rehome_person(pool, *, email: str, org: str, actor: Actor = CLI) -> UUID:
+    """The recovery for a person homed in the wrong organization (an admin
+    added an email that belongs to another customer): a new home, only while
+    they hold no membership anywhere, so nothing they can reach moves with
+    them. Audited in every workspace of the new home organization."""
+    email, org = _clean_email(email), _check_name(org, "organization")
+    async with pool.acquire() as conn, conn.transaction():
+        target = await _organization_named(conn, org)
+        # NO KEY UPDATE: an add of this person in flight (`_add` reads the home
+        # FOR SHARE) commits first, and the count below sees its membership.
+        found = await conn.fetchrow(
+            "SELECT u.id, o.id AS org_id, o.name AS org_name"
+            "  FROM users u JOIN organizations o ON o.id = u.home_org_id"
+            " WHERE lower(u.email) = lower($1) FOR NO KEY UPDATE OF u",
+            email,
+        )
+        if found is None:
+            raise NotFound("No person with that email")
+        if found["org_id"] == target["id"]:
+            raise Invalid("This person is already homed in that organization")
+        held = await conn.fetchval(
+            "SELECT count(*) FROM memberships WHERE user_id = $1", found["id"])
+        if held:
+            raise Conflict(f"This person still holds {held} membership(s);"
+                           " each must be removed before a new home is set")
+        await conn.execute("UPDATE users SET home_org_id = $2 WHERE id = $1",
+                           found["id"], target["id"])
+        for row in await conn.fetch("SELECT id FROM workspaces WHERE org_id = $1", target["id"]):
+            await audit.record(conn, workspace_id=row["id"], action="person.rehome",
+                               actor=actor, subject_user_id=found["id"],
+                               details={"from": found["org_name"], "to": target["name"]})
+        return found["id"]
 
 
 async def add_member(pool, *, workspace_id: UUID, email: str, role: str, actor: Actor) -> UUID:

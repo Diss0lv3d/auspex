@@ -17,6 +17,7 @@ ACTIONS: frozenset[str] = frozenset({
     "org.create",
     "org.restricted",
     "workspace.create",
+    "person.rehome",
 })
 AUDIT_PAGE_MAX = 100
 

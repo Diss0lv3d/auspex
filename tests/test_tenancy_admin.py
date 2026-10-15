@@ -404,3 +404,98 @@ async def test_a_membership_write_waits_for_the_workspace_then_re_checks(world):
     with pytest.raises(admin.Refused, match="current admin"):
         await write
     assert await _admins(pool, m.direct_ws) == 1
+
+
+# --- F2 (S30 final review): a person homed in the wrong organization is rehomed ---
+
+
+async def _org_name(pool, org_id):
+    return await pool.fetchval("SELECT name FROM organizations WHERE id = $1", org_id)
+
+
+async def test_a_person_is_rehomed_only_with_no_membership_left(world):
+    pool, m = world
+    direct = await _org_name(pool, m.direct)
+    c1_email = await pool.fetchval("SELECT email FROM users WHERE id = $1", m.c1_user)
+    with pytest.raises(admin.Conflict) as held:
+        await admin.rehome_person(pool, email=c1_email, org=direct)
+    assert "1 membership" in str(held.value)
+    assert "@" not in str(held.value) and PREFIX not in str(held.value)  # a count, no names
+    assert await pool.fetchval(
+        "SELECT home_org_id FROM users WHERE id = $1", m.c1_user) == m.client1
+    await pool.execute("DELETE FROM memberships WHERE user_id = $1", m.c1_user)
+    moved = await admin.rehome_person(pool, email=f"  {c1_email.upper()} ", org=direct)
+    assert moved == m.c1_user
+    assert await pool.fetchval(
+        "SELECT home_org_id FROM users WHERE id = $1", m.c1_user) == m.direct
+    event = (await list_events(pool, m.direct_ws))[0]
+    assert event["action"] == "person.rehome"
+    assert event["actor"]["kind"] == "cli"
+    assert event["subject"]["user_id"] == str(m.c1_user)
+    assert event["details"] == {"from": f"{PREFIX}-client1", "to": f"{PREFIX}-direct"}
+
+
+async def test_rehoming_refuses_the_unknown_the_reserved_and_a_no_op(world):
+    pool, m = world
+    loose = await make_user(pool, f"loose@{DOMAIN}", m.direct)  # no membership
+    direct = await _org_name(pool, m.direct)
+    with pytest.raises(admin.NotFound):
+        await admin.rehome_person(pool, email=f"nobody@{DOMAIN}", org=direct)
+    with pytest.raises(admin.NotFound):
+        await admin.rehome_person(pool, email=f"loose@{DOMAIN}", org=f"{PREFIX}-nowhere")
+    with pytest.raises(admin.Refused, match="reserved"):
+        await admin.rehome_person(pool, email=f"loose@{DOMAIN}", org="__deployment__")
+    with pytest.raises(admin.Invalid):
+        await admin.rehome_person(pool, email=f"loose@{DOMAIN}", org=direct)
+    assert await pool.fetchval("SELECT home_org_id FROM users WHERE id = $1", loose) == m.direct
+    assert "person.rehome" not in await _actions(pool, m.direct_ws)
+
+
+async def test_an_add_that_meets_a_rehome_in_flight_reads_the_new_home(world):
+    """The add waits for the person's row, then refuses: they now belong elsewhere."""
+    pool, m = world
+    loose = await make_user(pool, f"loose@{DOMAIN}", m.direct)
+    add = None
+    async with pool.acquire() as conn:
+        tx = conn.transaction()
+        await tx.start()
+        try:
+            await conn.execute("UPDATE users SET home_org_id = $2 WHERE id = $1",
+                               loose, m.client1)
+            add = asyncio.create_task(admin.add_member(
+                pool, workspace_id=m.direct_ws, email=f"loose@{DOMAIN}", role="viewer",
+                actor=person(m.d_user, m.direct)))
+            done, _ = await asyncio.wait({add}, timeout=0.5)
+            assert not done, "the add did not wait for the rehome"
+            await tx.commit()
+        except BaseException:
+            await tx.rollback()
+            raise
+    with pytest.raises(admin.Conflict, match="another organization"):
+        await add
+    assert await pool.fetchval("SELECT count(*) FROM memberships WHERE user_id = $1", loose) == 0
+
+
+async def test_a_rehome_that_meets_an_add_in_flight_counts_it(world):
+    """The rehome waits for an add of the same person, then sees the membership."""
+    pool, m = world
+    loose = await make_user(pool, f"loose@{DOMAIN}", m.direct)
+    client1 = await _org_name(pool, m.client1)
+    rehome = None
+    async with pool.acquire() as conn:
+        tx = conn.transaction()
+        await tx.start()
+        try:
+            await conn.execute("SELECT 1 FROM users WHERE id = $1 FOR SHARE", loose)
+            await add_membership(conn, m.direct_ws, loose, "viewer")
+            rehome = asyncio.create_task(admin.rehome_person(
+                pool, email=f"loose@{DOMAIN}", org=client1))
+            done, _ = await asyncio.wait({rehome}, timeout=0.5)
+            assert not done, "the rehome did not wait for the add"
+            await tx.commit()
+        except BaseException:
+            await tx.rollback()
+            raise
+    with pytest.raises(admin.Conflict, match="1 membership"):
+        await rehome
+    assert await pool.fetchval("SELECT home_org_id FROM users WHERE id = $1", loose) == m.direct

@@ -727,7 +727,8 @@ S30_TENANCY: list[str] = [
         ALTER TABLE audit_events ADD CONSTRAINT audit_events_action_check
             CHECK (action IN ('workspace.enter', 'membership.add', 'membership.role',
                               'membership.remove', 'membership.provider_wide',
-                              'org.create', 'org.restricted', 'workspace.create'));
+                              'org.create', 'org.restricted', 'workspace.create',
+                              'person.rehome'));
     END $$
     """,
     # The one-time move, guarded on the old column like S16's watcher_id block:
