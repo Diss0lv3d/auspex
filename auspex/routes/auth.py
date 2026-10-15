@@ -7,7 +7,9 @@ both funnel through `issue_jwt`.
 
 from typing import Annotated
 from urllib.parse import urlencode
+from uuid import UUID
 
+import asyncpg
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
@@ -21,8 +23,9 @@ from auspex.auth import (
     resolve_user,
 )
 from auspex.config import Settings
-from auspex.tenancy.access import landing, user_by_email
+from auspex.tenancy.access import enterable_workspaces, user_by_email
 from auspex.tenancy.admin import TenancyError, provision_dev_user
+from auspex.tenancy.entry import NoAccess, enter
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -102,9 +105,10 @@ async def google_callback(request: Request, code: str) -> dict:
             status_code=403,
             detail="No account exists for this email. Ask an administrator to add you.",
         )
-    access = await landing(pool, user_id)
-    if access is None:
-        raise HTTPException(status_code=403, detail=NO_WORKSPACE)
+    try:
+        access = await enter(pool, user_id, via="login")
+    except NoAccess as err:
+        raise HTTPException(status_code=403, detail=NO_WORKSPACE) from err
     return {
         "access_token": issue_jwt(settings, user_id, access.workspace_id),
         "token_type": "bearer",
@@ -127,9 +131,10 @@ async def dev_login(request: Request, body: DevLoginBody) -> dict:
         user_id = await provision_dev_user(pool, body.email, body.display_name)
     except TenancyError as err:
         raise HTTPException(status_code=err.status, detail=str(err)) from err
-    access = await landing(pool, user_id)
-    if access is None:
-        raise HTTPException(status_code=403, detail=NO_WORKSPACE)
+    try:
+        access = await enter(pool, user_id, via="login")
+    except NoAccess as err:
+        raise HTTPException(status_code=403, detail=NO_WORKSPACE) from err
     return {
         "access_token": issue_jwt(settings, user_id, access.workspace_id),
         "token_type": "bearer",
@@ -170,4 +175,60 @@ async def whoami(auth: Auth) -> dict:
         "user_id": str(auth.user_id),
         "workspace_id": str(auth.workspace_id),
         "via": auth.via,
+    }
+
+
+class SwitchBody(BaseModel):
+    workspace_id: UUID
+
+
+@router.post("/switch")
+async def switch(request: Request, body: SwitchBody, auth: Auth) -> dict:
+    """The ONE route that takes a workspace id from input (D-061). It reaches only
+    what enterable_workspaces returns: anything else is the same 404 whether the
+    workspace is someone else's or does not exist. A login session only, so a
+    leaked API key cannot become a session."""
+    if auth.via != "jwt":
+        raise HTTPException(status_code=403, detail="Switching requires a login session")
+    try:
+        access = await enter(request.app.state.pool, auth.user_id, via="switch",
+                             workspace_id=body.workspace_id)
+    except NoAccess as err:
+        raise HTTPException(status_code=404, detail="Unknown workspace") from err
+    return {
+        "access_token": issue_jwt(_settings(request), auth.user_id, access.workspace_id),
+        "token_type": "bearer",
+        "workspace": {"id": str(access.workspace_id), "name": access.workspace_name,
+                      "role": access.role, "region": access.region},
+    }
+
+
+@router.get("/me")
+async def me(request: Request, auth: Auth) -> dict:
+    """Who the caller is, where they are, and where they may go (F4's switcher)."""
+    pool: asyncpg.Pool = request.app.state.pool
+    user = await pool.fetchrow(
+        "SELECT u.email, u.display_name, o.id AS org_id, o.name AS org_name, o.kind"
+        " FROM users u JOIN organizations o ON o.id = u.home_org_id WHERE u.id = $1",
+        auth.user_id,
+    )
+    reachable = sorted(
+        (await enterable_workspaces(pool, auth.user_id)).values(),
+        key=lambda a: (a.org_id != auth.home_org_id, a.workspace_name),
+    )
+    active = next(a for a in reachable if a.workspace_id == auth.workspace_id)
+    return {
+        "user": {"id": str(auth.user_id), "email": user["email"],
+                 "display_name": user["display_name"]},
+        "organization": {"id": str(user["org_id"]), "name": user["org_name"],
+                         "kind": user["kind"]},
+        "workspace": {"id": str(active.workspace_id), "name": active.workspace_name,
+                      "region": active.region, "role": active.role,
+                      "organization": active.org_name},
+        "workspaces": [
+            {"id": str(a.workspace_id), "name": a.workspace_name, "region": a.region,
+             "role": a.role, "via": a.via,
+             "organization": {"id": str(a.org_id), "name": a.org_name, "kind": a.org_kind}}
+            for a in reachable
+        ],
     }
