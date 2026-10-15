@@ -2365,3 +2365,39 @@ Detail: docs/superpowers/specs/2026-10-15-integration-phase-design.md, D-063.
 
 **Bounds, stated.** Setting up an edge integration takes a second step on the
 agent's host.
+
+## D-064 — The connector contract v1: one canonical manifest, written in Python or YAML, compiled to today's ActionSpec (2026-10-15, S29)
+
+**Decision (Burhan's calls, S29).**
+- **Both authoring formats, one reader.** A connector is written Python-first
+  (SDK decorators) or as hand-written YAML with Python handlers;
+  `auspex-sdk build` turns either into the same `manifest.json`, package and
+  content hash, and for YAML checks every named handler exists with matching
+  parameters. **The core reads only `manifest.json`**, never YAML and never
+  connector code (a structural test).
+- **The package's content hash is its identity**; first-party is set by the
+  catalogue, never self-declared.
+- **The manifest**: identity; typed config (`secret` is a name; `tls` is verify
+  or a pin, and off is unrepresentable); declared hosts; `test`;
+  `fetch(cursor, limit)` with items carrying `external_id`, kind, the
+  `AlertEnvelope` fields, a capped `raw` and a `routing_key` when shared;
+  `actions[]` with risk, primitive params, a required dry run, an undo with
+  `cannot_restore`, an output schema and `targets`.
+- **`validate_manifest` refuses with exact reasons**, one table-driven test per
+  rule.
+- **A manifest action compiles to an `ActionSpec`** whose dry run, execute and
+  undo are distinct job dispatchers, so `validate_spec` passes unchanged. Wire
+  names are prefixed per integration. **The spec fingerprint gains the
+  connector id and package hash**, closing D-024's handler-body gap for
+  connectors.
+- The model's text is composed by code from typed fields and capped;
+  customer-written descriptions join the rail's index, measured (TD-044) at
+  S34.
+
+Detail: docs/superpowers/specs/2026-10-15-integration-phase-design.md, D-064.
+
+**What this supersedes.** Nothing ratified. D-023's contract is what a
+connector action compiles to.
+
+**Bounds, stated.** Proposing a connector action needs its agent online (the
+card comes from a dry-run job). Params stay primitive until TD-023(d).
