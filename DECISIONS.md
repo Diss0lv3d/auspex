@@ -2515,3 +2515,37 @@ left open. D-035 stands: `__deployment__` belongs to no organization.
   that workspace's organization; before Google sign-in is configured, person
   creation over the API must be limited (e.g. to domains the organization
   owns) — TD-059.
+
+## D-069 — A ksa workspace lives only on a deployment that stores data in KSA (2026-10-15, S30)
+
+**Context.** S30's final adversarial review (M1) found that D-061's residency
+guard covers processing only: a `ksa` workspace on a deployment hosted outside
+KSA gets no engine turn and no third-party lookup, but its chats, indicators,
+investigations and audit trail are stored on that deployment's own Postgres and
+OpenSearch, wherever they run. Org policy: KSA tenant data never goes through
+non-KSA infrastructure. D-061's bound ("a KSA client on a non-KSA deployment has
+no co-analyst turns") allowed such a workspace to exist. Put to Burhan as
+overturn or drop.
+
+**Decision (Burhan's call, S30: overturn, built in a later session).**
+- The deployment declares where it stores data (a region from the same closed
+  vocabulary as `ENGINE_REGION`, `auspex/tenancy/region.py`; the env var is born
+  with the build, with `.env.example` and `docs/ENV_VARS.md`).
+- **A `ksa` workspace can be created only on a deployment whose storage region
+  is `ksa`.** The CLI (`create-org`, `create-client`) refuses otherwise, by code,
+  with the reason; the database CHECK stays the vocabulary's.
+- Which session builds it is Burhan's call (proposed: S31's Step 0, beside
+  B-021). Until it is built, nothing stops a `ksa` workspace on this deployment;
+  the README's residency paragraph says where a workspace's records are stored.
+
+**What this supersedes.** D-061's stated bound that a KSA client may sit on a
+non-KSA deployment with only its engine turns refused. The rest of D-061, and
+D-068's region rule for processing (`global` serves global; a region serves
+itself), stand.
+
+**Bounds, stated.**
+- Workspaces created before the build are not re-checked by it; the build
+  should say what it does with any `ksa` workspace already on a non-KSA
+  deployment (today: none outside tests).
+- The declaration is the operator's; nothing verifies where the database
+  actually runs.
