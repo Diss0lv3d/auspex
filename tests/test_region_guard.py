@@ -3,10 +3,11 @@ gets no engine turn, refused by code with the reason and nothing stored; a
 third-party lookup its region forbids is refused too; LLM-free paths work."""
 
 import ast
+import json
 from pathlib import Path
 
 import pytest
-from _fakes import StreamingFakeLLMClient
+from _fakes import SequencedStreamingFakeLLMClient, StreamingFakeLLMClient
 from _tenancy import drop_orgs, make_membership_world, token
 
 from auspex.app import create_app
@@ -16,9 +17,10 @@ from auspex.db import create_pool
 from auspex.enrich import EnrichmentService
 from auspex.enrich.providers.base import Provider
 from auspex.enrich.types import ProviderSignal, VerdictLabel
-from auspex.llm.client import StreamEvent
+from auspex.llm.client import StreamEvent, Usage
 from auspex.routes.chat import ChatEndpoint, ChatEndpointResolver, get_endpoint_resolver
 from auspex.routes.investigations import get_summary_client_factory
+from auspex.tenancy.region import region_skip
 
 ROOT = Path(__file__).resolve().parents[1]
 PREFIX = "t-s30-region"
@@ -174,6 +176,65 @@ async def test_a_ksa_engine_serves_a_ksa_workspace(settings):
             app.dependency_overrides.clear()
             await drop_orgs(pool, f"{PREFIX}-k")
             await pool.close()
+
+
+async def test_a_ksa_agent_turn_looks_nothing_up_outside_its_region(settings):
+    """The agent path's lookups obey the workspace's region too (S30 final
+    review: forcing chat.py's registry to region="global" survived the suite).
+    On a ksa engine a ksa workspace gets its agent turn; the model's
+    enrich_observable call on the indicator the analyst typed reaches no
+    global source, and the tool result says why."""
+    from fastapi.testclient import TestClient
+
+    ip = "185.220.101.45"
+    message = (f"We saw {ip} beaconing every 60s from a finance host after a user "
+               "opened an invoice attachment; what does that suggest?")
+    fake = SequencedStreamingFakeLLMClient([
+        [
+            StreamEvent(kind="content", text="I'll check the address first."),
+            StreamEvent(kind="tool_call", tool_index=0, tool_delta={
+                "id": "call_1", "function": {
+                    "name": "enrich_observable",
+                    "arguments": json.dumps({"observables": [ip]})}}),
+            StreamEvent(kind="finish", finish_reason="tool_calls"),
+            StreamEvent(kind="usage", usage=Usage(10, 5, 15)),
+        ],
+        [
+            StreamEvent(kind="content", text="It was not checked in this region."),
+            StreamEvent(kind="finish", finish_reason="stop"),
+            StreamEvent(kind="usage", usage=Usage(20, 10, 30)),
+        ],
+    ])
+    provider = _CountingProvider()
+    prefix = f"{PREFIX}-agent"
+    app = create_app(Settings(engine_region="ksa", secret_key=settings.secret_key))
+    with TestClient(app) as ksa_client:
+        pool = await create_pool(settings.database_url, retries=2, delay=0.5)
+        await drop_orgs(pool, prefix)
+        saved = app.state.enrichment
+        app.state.enrichment = EnrichmentService([provider])
+        try:
+            ws, user = await make_membership_world(pool, prefix, region="ksa")
+            app.dependency_overrides[get_endpoint_resolver] = lambda: (
+                ChatEndpointResolver.fixed(ChatEndpoint(
+                    client=fake, native_reasoning=True, id="test",
+                    agent_mode="native_tools", streams_tools=True)))
+            resp = ksa_client.post("/api/chat", json={"message": message},
+                                   headers=token(settings, user, ws))
+        finally:
+            app.dependency_overrides.clear()
+            await app.state.enrichment.aclose()
+            app.state.enrichment = saved
+            await drop_orgs(pool, prefix)
+            await pool.close()
+    assert resp.status_code == 200, resp.text
+    assert '"path": "agent"' in resp.text
+    assert fake.turns == 2
+    assert provider.lookups == 0
+    told = [json.loads(m["content"]) for m in fake.stream_calls[1]["messages"]
+            if m["role"] == "tool"]
+    (entry,) = told[0]["results"]
+    assert entry["not_checked"] == region_skip("ksa")
 
 
 def test_every_provider_declares_its_region():
