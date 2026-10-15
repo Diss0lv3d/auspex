@@ -89,10 +89,12 @@ Who works here. Personal accounts only; no employer account or email (such as
 - **The two untracked overview files are Burhan's and stay untracked**
   (`Auspex-Product-Architecture-Overview.pdf`, `docs/auspex-overview.html`).
   Do not ask about them, commit, move, publish or delete them.
-- **A fix to the rail, an action, tenancy or the approvals state machine gets
-  a read-only adversarial review by a fresh agent before the session closes.**
-  Act on what it finds, or log it. At B2, two of the four reviews found a real
-  defect in a fix that had passed its own tests and mutants.
+- **A fix to the rail, an action, tenancy, the approvals state machine or the
+  agent loop gets a read-only adversarial review by a fresh agent before the
+  session closes, and so do the fixes that review produces.** Act on what it
+  finds, or log it. At B2, two of the four reviews found a real defect in a fix
+  that had passed its own tests and mutants; at S29, the review of six review
+  fixes found two more.
 - End with `/session-end`.
 
 ## Inference costs real money
@@ -182,7 +184,42 @@ change to those modes keeps `contract_repair` honest.
 - A page change is verified in a real browser against the rebuilt container,
   not only by reading the diff.
 
+## Tenancy (D-061, D-068, built at S30)
+
+- **One answer to "may this person enter, and as what":**
+  `enterable_workspaces` (`auspex/tenancy/access.py`). `resolve_user`
+  re-checks it on every request; the role is never read from a token. A
+  cross-client view filters on that function's set, nothing else.
+- **Every tenancy write goes through `auspex/tenancy/admin.py`**, which holds
+  the rules once (home-organization reach, provider-wide only on a provider's
+  workspace, no self-change, `__deployment__` takes no member). Membership
+  writes hold the workspace row and re-check the acting admin inside the
+  transaction. Organizations and workspaces are created only by the CLI:
+  `docker compose exec app python -m auspex.tenancy …` (`list`, `create-org`,
+  `create-client`, `set-member`, `remove-member`, `set-restricted`,
+  `rehome-person`).
+- **Every route takes its identity through `AnyRole`, `Analyst` or `Admin`**
+  (`auspex/auth.py`). A write without `Analyst`/`Admin`, or any route reading a
+  workspace, tenant or organization id from its path, query, headers or body
+  (the switch excepted), fails `tests/test_tenancy_roles.py`, which walks the
+  app. Do not widen its allowlists to pass; that is a D-entry.
+- **Residency is code.** A route that reaches the engine for a workspace calls
+  `engine_refusal(auth.region, …)` in its body before storing anything; every
+  `enrich(` call passes `region=`; a new enrichment provider declares `region`
+  in its own class body. `tests/test_region_guard.py` pins all three.
+- **Every new table and route gets a cross-tenant test.** A test workspace
+  needs an organization: use `tests/_tenancy.py` (`ensure_workspace`,
+  `ensure_member`, `build_mssp`, `token`) under a unique `t-…` prefix cleaned
+  with `drop_orgs`.
+- A dev login provisions an unknown email as an analyst in `default`. An
+  admin or viewer for a live probe comes from the CLI's `set-member`.
+
 ## Code conventions
+
+- **FastAPI 0.139 wraps included routers** (`app.routes` holds
+  `_IncludedRouter`s). Walk routes with
+  `fastapi.routing.iter_route_contexts(app.routes)`; each item has `.path`,
+  `.methods` and `.route.dependant`.
 
 - Reuse caps, never re-declare them. A tunable that belongs to us is a code
   constant (D-026).
@@ -215,8 +252,11 @@ That is recorded, not owned; do not fix it unasked.
 ## Deferred; do NOT pick up in any track unless explicitly re-scoped
 
 - KB-doc citability / ioc_check→KB-CVE-context (parked 20×);
-- TD-014; TD-015; TD-016; TD-017; TD-019; TD-020; TD-021; TD-022; TD-023;
-  TD-024; TD-025 (idempotency matters the day an action reaches a network);
+- TD-014; TD-015; TD-016; TD-017; TD-019; TD-020; TD-021; TD-022; TD-024;
+  (TD-023 and TD-025 left this list for the integration phase, D-066, worked
+  in TD-025's own order: S30 roles, S31 TTL and idempotency key, S32 the
+  per-workspace catalogue, S34 grant-checked scope. TD-023(d), array params,
+  stays deferred until a real action needs one);
 - **TD-027 (HARD GATE)**; TD-029; TD-030; TD-031/032/033;
 - the card stream emitting status changes;
 - model-PROPOSED hypotheses/evidence and falsifiers (D-019-later, D-021);

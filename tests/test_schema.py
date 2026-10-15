@@ -3,12 +3,17 @@
 import re
 
 import asyncpg
+import pytest
+from _tenancy import ensure_member, ensure_workspace
 
 from auspex.db import create_pool
 from auspex.migrations import run_migrations
 
 EXPECTED_TABLES = {
     "workspaces",
+    "organizations",
+    "memberships",
+    "audit_events",
     "users",
     "api_keys",
     "chat_sessions",
@@ -25,9 +30,10 @@ EXPECTED_TABLES = {
     "verdict_flips",
 }
 
-# D-008: workspace_id on EVERY table. `workspaces` is the sole exception —
-# its primary key IS the workspace id.
-WORKSPACE_ID_EXEMPT = {"workspaces"}
+# D-008: workspace_id on EVERY table. D-061 (S30) names the only exemptions:
+# `workspaces` (its key IS the workspace id), `organizations` (they OWN
+# workspaces) and `users` (a person, no longer a row per workspace).
+WORKSPACE_ID_EXEMPT = {"workspaces", "organizations", "users"}
 
 
 async def _connect(settings) -> asyncpg.Connection:
@@ -81,9 +87,7 @@ async def test_llm_scorecard_agent_mode_is_constrained(client, settings):
     """S2: agent_mode must be one of the three runtime modes; scorecard is jsonb."""
     conn = await _connect(settings)
     try:
-        workspace_id = await conn.fetchval(
-            "INSERT INTO workspaces (name) VALUES ('t-scorecard') RETURNING id"
-        )
+        workspace_id = await ensure_workspace(conn, "t-scorecard")
         # valid row round-trips
         await conn.execute(
             "INSERT INTO llm_endpoint_scorecards"
@@ -113,9 +117,7 @@ async def test_proposals_check_constraints(client, settings):
     auto-executes reads, so 'read' is intentionally not a legal tool_level."""
     conn = await _connect(settings)
     try:
-        workspace_id = await conn.fetchval(
-            "INSERT INTO workspaces (name) VALUES ('t-proposals') RETURNING id"
-        )
+        workspace_id = await ensure_workspace(conn, "t-proposals")
         # a valid write proposal round-trips at the default status
         pid = await conn.fetchval(
             "INSERT INTO proposals (workspace_id, tool_name, tool_level, tool_input)"
@@ -156,9 +158,7 @@ async def test_verdict_decay_fields_are_constrained(client, settings):
     floor <= confidence_at_write; half_life_days must be positive."""
     conn = await _connect(settings)
     try:
-        workspace_id = await conn.fetchval(
-            "INSERT INTO workspaces (name) VALUES ('t-verdicts') RETURNING id"
-        )
+        workspace_id = await ensure_workspace(conn, "t-verdicts")
         observable_id = await conn.fetchval(
             "INSERT INTO observables (workspace_id, obs_id, type, value)"
             " VALUES ($1, 'ipv4-deadbeef', 'ipv4', '203.0.113.7') RETURNING id",
@@ -204,13 +204,8 @@ async def test_verdict_decay_fields_are_constrained(client, settings):
 async def test_messages_role_is_constrained(client, settings):
     conn = await _connect(settings)
     try:
-        workspace_id = await conn.fetchval(
-            "INSERT INTO workspaces (name) VALUES ('t-schema') RETURNING id"
-        )
-        user_id = await conn.fetchval(
-            "INSERT INTO users (workspace_id, email) VALUES ($1, 't@auspex.dev') RETURNING id",
-            workspace_id,
-        )
+        workspace_id = await ensure_workspace(conn, "t-schema")
+        user_id = await ensure_member(conn, workspace_id, "t@auspex.dev")
         session_id = await conn.fetchval(
             "INSERT INTO chat_sessions (workspace_id, user_id) VALUES ($1, $2) RETURNING id",
             workspace_id,
@@ -249,9 +244,7 @@ async def test_startup_survives_every_status_a_proposal_can_be_in(client, settin
         )
         statuses = re.findall(r"'([a-z_]+)'::text", definition)
         assert {"incomplete", "abandoned", "pending_approval"} <= set(statuses)
-        ws = await conn.fetchval(
-            "INSERT INTO workspaces (name) VALUES ('t-every-status') RETURNING id"
-        )
+        ws = await ensure_workspace(conn, "t-every-status")
         for status in statuses:
             await conn.execute(
                 "INSERT INTO proposals (workspace_id, tool_name, tool_level, tool_input, status)"
@@ -268,3 +261,48 @@ async def test_startup_survives_every_status_a_proposal_can_be_in(client, settin
     finally:
         await pool.execute("DELETE FROM workspaces WHERE name = 't-every-status'")
         await pool.close()
+
+
+async def test_identity_left_the_workspace(client, settings):
+    conn = await _connect(settings)
+    try:
+        columns = {
+            r["column_name"] for r in await conn.fetch(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = 'users'"
+            )
+        }
+        assert "workspace_id" not in columns and "role" not in columns
+        assert "home_org_id" in columns
+    finally:
+        await conn.close()
+
+
+async def test_s30_constraints_hold(client, settings):
+    conn = await _connect(settings)
+    try:
+        bad = [
+            "INSERT INTO organizations (name, kind) VALUES ('t-s30-orphan', 'client')",
+            "INSERT INTO organizations (name, kind, restricted) VALUES ('t-s30-r', 'direct', true)",
+            "INSERT INTO workspaces (name) VALUES ('t-s30-no-org')",
+            "INSERT INTO workspaces (name, org_id, region)"
+            " SELECT 't-s30-mars', id, 'mars' FROM organizations LIMIT 1",
+        ]
+        for sql in bad:
+            with pytest.raises(asyncpg.CheckViolationError):
+                await conn.execute(sql)
+    finally:
+        await conn.close()
+
+
+async def test_the_region_check_is_the_codes_vocabulary(client, settings):
+    from auspex.tenancy.region import REGIONS
+
+    conn = await _connect(settings)
+    try:
+        definition = await conn.fetchval(
+            "SELECT pg_get_constraintdef(oid) FROM pg_constraint"
+            " WHERE conname = 'workspaces_region_check'"
+        )
+        assert set(re.findall(r"'(\w+)'", definition)) == REGIONS
+    finally:
+        await conn.close()

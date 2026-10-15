@@ -8,7 +8,7 @@ LLM**. You bring an OpenAI-compatible endpoint; the platform adapts to whatever
 it can actually do. We never pay for inference, and neither does a pilot.
 
 > **Status: pre-beta.** Everything described below is built, tested and running
-> — 1392 tests, `docker compose up` green. The [What Auspex does not do
+> — 1554 tests, `docker compose up` green. The [What Auspex does not do
 > yet](#what-auspex-does-not-do-yet) section is not a roadmap wish-list; it is
 > the honest boundary of what you get today, and it is worth reading before the
 > feature list.
@@ -196,7 +196,14 @@ Read this part. A demo that only walks the happy path is a demo that lies.
 - **No billing, no multi-workspace federation, no admin console.** The plan tier
   list is a seam, not a commercial model. Herd Immunity — anonymised verdict
   propagation across workspaces at k≥3 — is designed and deliberately unbuilt.
-- **Single-region, single-tenant-per-workspace.** No data-residency routing.
+- **Residency is a refusal, not routing.** A workspace carries a region
+  (`global` or `ksa`) and the deployment one engine region (`ENGINE_REGION`).
+  A workspace the engine may not serve gets no co-analyst turn, and one whose
+  region no connected source may serve gets no third-party lookup — refused by
+  code, with the reason. There are no per-workspace engines: a KSA client on a
+  global deployment has the LLM-free answers only. A workspace's own records
+  (chats, indicators, investigations, its audit trail) are stored on this
+  deployment's own database and search index, wherever the deployment runs.
 
 ---
 
@@ -246,7 +253,7 @@ off-corpus question returns an honest miss instead of a confident wrong answer.
 ## Development
 
 ```bash
-./ci.sh          # the gate: ruff + 1392 tests + container build + installed-dist check
+./ci.sh          # the gate: ruff + 1554 tests + container build + installed-dist check
 make check       # same thing
 make up / down   # stack lifecycle
 ```

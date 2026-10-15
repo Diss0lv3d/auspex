@@ -17,6 +17,7 @@ BASE_URL = "https://internetdb.shodan.io"
 
 class InternetDB(Provider):
     name = "InternetDB"
+    region = "global"
     accepts = frozenset({ObservableType.IPV4, ObservableType.IPV6})
 
     async def lookup(

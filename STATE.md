@@ -1,25 +1,23 @@
 # STATE — Auspex
 
-_Last updated: 2026-10-14 — **F3 CLOSED** (session-end ritual run), by the
-collaborator Hunaiza (D-059), on her machine. `./ci.sh` green at F3's close:
-**1392 tests, 121 modules**. `/api/health/ready` 200. **F3 goes to `staging`
-as a PR from the branch `f3-timeline-csp`** (Hunaiza's call: nothing pushed
-until she had checked it on her own container); **Burhan merges it before
-S29.** **Promote slate: D-059 and the F3 handoff docs, the 2026-10-14
-integration-phase plan, and all of F3** (Step 0 of S29 promotes it). Promote
-#33 (`991b397`) is the last one._
+_Last updated: 2026-10-15 — **S30 CLOSED** (session-end ritual run). `./ci.sh`
+green at S30's close: **1554 tests, 129 modules**. `/api/health/ready` 200.
+Branch `staging`. **Promote slate: all of S29 and all of S30** (S30 is a
+promote milestone; `/promote` runs right after this ritual — follow-up #1 says
+whether it did). Promote #35 (`1a7708f`) was the last one._
 
 ## Tracks (D-051) — read this first
 
 | Track | Prompt | Last closed | Next | Status |
 |---|---|---|---|---|
-| backend | `NEXT-SESSION-BE.md` | S28 (2026-10-11) | S29 | **focus** · opens the integration phase (re-scoped 2026-10-14); merge F3's PR into `staging` first |
-| front end | `NEXT-SESSION-FE.md` | F3 (2026-10-14) | F4 | waits for S30 (tenancy, `GET /api/auth/me`), the order table in `NEXT-SESSION-BE.md` |
-| bugs | `NEXT-SESSION-BUGS.md` | B2 (2026-10-13) | B3 | B-005 and B-009 open; both wait on Burhan's call on the deferred fabricated-specifics item |
+| backend | `NEXT-SESSION-BE.md` | S30 (2026-10-15) | S31 | after F4 in the order table · Step 0: B-021, then where D-069 is built (Burhan's call) |
+| front end | `NEXT-SESSION-FE.md` | F3 (2026-10-14) | F4 | **focus** · S30 closed: `GET /api/auth/me` and the switch exist; one shell for every page, role-aware, a switcher |
+| bugs | `NEXT-SESSION-BUGS.md` | B2 (2026-10-13) | B3 | S29 logged B-010…B-020 (B-010 is a stall a single message can cause), S30 logged B-021 (placed in S31); B-005 and B-009 still wait on Burhan's call |
 
-- **Focus: backend** (F3's session-end, as Burhan's plan says: "The focus
-  follows the order", and S29 is next). The front-end focus Burhan set on
-  2026-10-10 ran F1–F3.
+- **Focus: front end, F4** (the order table: S29, S30, then F4; S30 closed).
+  **Burhan's calls to make:** whether B3 takes B-010 (three old classify rules
+  a crafted message can stall for seconds) before F4 or S31 — the order table
+  does not place B3; and **where D-069 is built** (proposed: S31's Step 0).
 - **The 2026-10-12 two-window collision is over.** F1 and B1 ran at once that
   morning, and both ran Step 0's `/promote`. B1 opened PR #30 while F1's
   `ci.sh` ran, and merged it 4 s before F1's merge; the promote is correct
@@ -45,11 +43,15 @@ integration-phase plan, and all of F3** (Step 0 of S29 promotes it). Promote
     landed on `origin/staging` while F3 ran; F3 merged them (`7c64126`, no
     conflict, docs only) and its PR carries the merge.
   - Her row is on SESSION-RULES.md's "Who works here" table (`f54c9ce`).
-- **The integration phase is planned** (Burhan, 2026-10-14, in a planning
-  window with no session id and no code). The goal is a SIEM on the platform
-  and incident management, built on applications. An application is an
-  integration configured in a workspace, and customers can write their own
-  integrations.
+- **The integration phase is planned (2026-10-14) and designed (S29).** The
+  goal is a SIEM on the platform and case management, built on integrations
+  (a connector configured in a workspace); customers and MSSPs can write
+  their own connectors. **S29's spec,
+  docs/superpowers/specs/2026-10-15-integration-phase-design.md, and D-060…
+  D-067, every one ratified by Burhan, are the contract from S30 on.** The
+  bullets below are the plan as it stood before S29; D-060 renamed its words
+  (application → integration, integration → connector, runner → Edge Agent,
+  incident → case).
   - **The plan lives in the two prompt files.** Backend: S29–S41 in
     `NEXT-SESSION-BE.md`. Front end: F4–F9 in `NEXT-SESSION-FE.md`, after F3,
     whose prompt is unchanged. Each entry has a goal and exit criteria.
@@ -76,9 +78,147 @@ integration-phase plan, and all of F3** (Step 0 of S29 promotes it). Promote
       answer is an outbound-only edge runner plus a later cloud runner, with
       customer code running only on the customer's edge in v1. It is S29's
       goal 1a, a D-entry he ratifies.
-  - **S29 starts only after F3 closes** — it has; S29 merges F3's PR first.
-    One session at a time spans both machines (D-051, D-059).
+  - **S29 ran after F3 closed**, merged F3's PR, and closed 2026-10-15
+    (section below). One session at a time spans both machines (D-051,
+    D-059).
+  - **S30 built MSSP tenancy** and closed 2026-10-15 (section below): D-068
+    holds its five calls, D-069 overturns D-061's storage bound.
 - Standing rules every track obeys: `SESSION-RULES.md`. Bugs: `BUGS.md`.
+
+## S30 — what happened (backend track; MSSP tenancy)
+
+S30 ran 2026-10-15, alone, on Burhan's machine. Burhan's calls, one at a time:
+- **the five design questions** D-061 left (D-068): only a CLI creates
+  organizations and workspaces; a dev login auto-provisions as before; one
+  organization per migrated workspace; workspace admins read their audit;
+  `global` and `ksa`, a `global` processor serves only `global`;
+- **the design**, section by section, and the spec and plan;
+- **subagent-driven execution**;
+- at the close: **promote now, fix B-021 next session**, and **overturn
+  D-061's storage bound** (D-069).
+
+1. **Step 0.** Reality probed (docs/probes/2026-10-15-s30-tenancy-baseline.md):
+   3 workspaces, 13 users all in `default`, no email in two workspaces, no API
+   keys; every route on `resolve_user`, none reading a workspace id from input.
+2. **Design and plan.** Spec docs/superpowers/specs/2026-10-15-s30-tenancy-design.md
+   (with an "after execution" note); plan
+   docs/superpowers/plans/2026-10-15-s30-tenancy.md, nine tasks. IDEAS: RLS as a
+   second wall, changing a live workspace's region.
+3. **Built** (`b93791c`…`29c6ae8`, each task implemented by a fresh agent and
+   reviewed by another; Tasks 3 and 5 needed one fix round each):
+   - `auspex/tenancy/`: `region.py` (`ENGINE_REGION`, born with
+     `.env.example`/`docs/ENV_VARS.md`), `access.py` (`enterable_workspaces`),
+     `audit.py`, `admin.py`, `entry.py`, the CLI `__main__.py`;
+   - the migration: identity left the workspace (persons with a home
+     organization, memberships, `audit_events`); it ran on the dev database;
+   - `resolve_user` re-checks access every request (JWT and API key); roles
+     enforced on every write; `POST /api/auth/switch`, `GET /api/auth/me`;
+   - `auspex/routes/workspace.py`: the membership API and `GET /api/audit`;
+   - the region guard over chat, the investigation summary and lookups, and
+     every enrichment provider;
+   - structural suites that walk the app (every write role-guarded; no tenant
+     id from input, every spelling; region pins) and a cross-tenant suite
+     through HTTP; **mutants 10/10** (one needed an added pin).
+   - Task-review fixes: `__deployment__` refused explicitly, the create paths
+     pinned, `set-member` no longer silently withdraws a grant (Task 3); the
+     tenant-id walk normalised and unwrapping nested bodies (Task 5).
+4. **The final adversarial review** (fresh agent, the most capable model,
+   every finding reproduced by execution): **no tenant-isolation or residency
+   break.** Three Important, fixed in one wave (`137eedd`…`e951ce6`):
+   - two admins removing each other at once left zero admins (19/20 over
+     HTTP) → membership writes hold the workspace row and re-check the acting
+     admin inside the transaction;
+   - a mis-homed person had no recovery → `rehome-person` (audited
+     `person.rehome`); creation over the API stays open, **TD-059, a hard gate
+     beside TD-001**;
+   - the ksa agent path was unpinned (a forcing mutant survived 183 tests) →
+     pinned; also a malformed token claim was a 500 → 401, the auth docstring,
+     an offset-less audit `before` → 422, the README says where a workspace's
+     records are stored.
+5. **The fixes' own fresh review** (stress: 1,800 concurrent operations, no
+   deadlock, no admin-less workspace): all addressed; **B-021** open (the
+   re-home event names the old organization to the new one's admins), two
+   minors with it. **Burhan: promote now, fix next session.**
+6. **D-069** (Burhan: overturn): a `ksa` workspace will live only on a
+   deployment that stores data in KSA; placement of the build is his call.
+7. **Live** (docs/probes/2026-10-15-s30-tenancy-live.md): the CLI built a
+   provider and a ksa client; `/me` listed both; a provider-wide switch into
+   the client; a deep turn there refused 403 before anything was stored; the
+   CVE shortcut answered; the entry audited; rows cleaned up.
+
+No engine calls. One new env var (`ENGINE_REGION`). +142 tests (1412 → 1554),
++8 modules (121 → 129). Logged: B-021, TD-059, TD-060; IDEAS: API keys a
+workspace admin can see, offboarding across clients.
+
+## S29 — what happened (backend track; opens the integration phase)
+
+S29 ran 2026-10-14 into 2026-10-15, alone, on Burhan's machine. Burhan's calls,
+one at a time: every decision of the phase (below), the QRadar's data ("some
+real data") and its address ("later").
+
+1. **Step 0.**
+   - The working tree on `f3-timeline-csp` held uncommitted edits reverting
+     STATE.md and both prompt files to `staging`'s pre-F3 versions
+     (byte-identical to `ff19016`); restored to HEAD, nothing lost.
+   - **F3's PR #34** reviewed (feed text built as text, the CSP on both pages,
+     GitHub CI green) and merged by fast-forward, keeping Hunaiza's
+     one-concern commits and the SHAs STATE.md cites.
+   - **Promote #35** (`1a7708f`, back-merge `a8503f6`): D-059 and the handoff
+     docs, the integration plan, all of F3. Gate green at 1392; GitHub CI
+     green twice.
+2. **The adversarial review of S28's code** (record:
+   docs/probes/2026-10-14-s29-s28-code-review.md; scripts in
+   docs/probes/s29-review/). Four fresh read-only reviewers, one per area;
+   every finding reproduced by execution here before anything was fixed.
+   **21 findings: 7 fixed, 13 logged, 1 already Deferred.**
+   - **Two HIGH, fixed (`8187925`):** D-047's identity lead-in backtracked
+     exponentially (1.3 s for 55 characters, ~13 min within its 80-character
+     cap) and D-050's note-request prefix quadratically (~1 min at 32,000
+     characters, twice a turn), both on the route's event loop. Possessive
+     whitespace; 0 of 58,707 differential inputs changed; the D-047 and D-050
+     pins hold.
+   - **`14bafba`:** a context-only lookup (InternetDB's ports, or reputation
+     sources down) overwrote a stored `malicious` verdict with `unknown`, a
+     flip, and retired watchers, against D-055's own text. Reproduced live.
+   - **`b069b84`:** a KB snippet cut inside an indicator supplied a different,
+     real one (`185.220.101.45` → `.4`), sent to providers and recorded.
+   - **`6750028`, `39908b5`:** D-046's "up to 5 calls" did not hold (a model
+     calling the withdrawn tool ran to 9), and a failed call spent the budget
+     without the notice.
+   - **`d16afaa`:** `e2af082` dropped `alert.name` / `detection.name`.
+   - **Logged:** B-010…B-019, TD-056…TD-058.
+   - **The fixes had their own fresh review**, which found two defects in the
+     budget stop, both fixed (`47c3f35`, `34fe9a1`), plus B-020 and a third
+     old stalling rule (added to B-010). +20 tests (1392 → 1412), each failing
+     first; mutants caught on every guard (one surviving mutant got a pin).
+3. **Goal 1: the phase's spec and D-060…D-067**
+   (docs/superpowers/specs/2026-10-15-integration-phase-design.md), Burhan's
+   call on each:
+   - **D-060 words:** connector, integration, case, Edge Agent / Cloud Agent.
+   - **D-061 tenancy:** a provider's own workspace; explicit memberships plus
+     an opt-in provider-wide grant, with `restricted` clients; roles admin,
+     analyst, viewer; one workspace per token; a region guard over the engine
+     AND third-party enrichment.
+   - **D-062:** outbound-only Edge Agents, one workspace each, running
+     hash-pinned packages (pulled, or installed locally when air-gapped).
+   - **D-063:** edge secrets are names in Auspex; only Cloud Agent secrets are
+     sealed.
+   - **D-064:** one canonical `manifest.json`, written in Python or YAML,
+     compiled to today's `ActionSpec`; the fingerprint gains the package hash.
+   - **D-065:** our own SKIP LOCKED jobs table. **D-066:** TD-023/TD-025 out
+     of Deferred, in TD-025's order. **D-067:** live QRadar checks on a
+     synthetic-only lab domain.
+   - Supersedes nothing. SESSION-RULES.md's Deferred list updated (`f0ad2ef`).
+4. **Goal 2: QRadar** (docs/probes/2026-10-14-qradar-reachability.md). It
+   holds some real data, hence D-067. **The address is not given yet**, so
+   reachability, TLS and the unauthenticated API answer are unprobed; S33's
+   Step 0 runs them once Burhan gives it.
+5. **Goal 3:** S30–S41 and F4–F9 re-checked against the spec (`3d017b3`,
+   `c38fbde`): the words, S30's provider workspace and region guard, S32's
+   two authoring paths, S33's pull-by-hash and Step 0 probe, S36 on the lab
+   domain, F5's memberships admin. The order is unchanged.
+
+No engine calls. No new env vars (`ENGINE_REGION` is born in S30). +20 tests.
 
 ## F3 — what happened (front-end track's third session)
 
@@ -484,22 +624,27 @@ Phase 4:
   leaves nothing behind (B-008).**
 - **F3 (front end, the collaborator): the timeline page runs under the chat
   page's policy, builds feed text as text, and its logic is tested (TD-051).**
+- **S29 (backend): S28's code reviewed by others (two message-driven stalls,
+  a verdict overwrite, a laundered indicator and D-046's bound fixed), and the
+  integration phase designed: D-060…D-067.**
+- **S30 (backend): MSSP tenancy — organizations, memberships and roles, one
+  workspace per token with an audited switch, access re-checked on every
+  request, and residency refused by code (D-068); D-069 decided.**
 
-The ROADMAP through S20 is complete; S21–S28, F1, B1, F2, B2 and F3 were each
-scoped by a decision or a bug.
+The ROADMAP through S20 is complete; S21–S30, F1, B1, F2, B2 and F3 were each
+scoped by a decision or a bug. **The integration phase (S30–S41, F4–F9) builds
+the spec; S30 is done.**
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: D-059 and the F3 handoff docs** (`66dc12f`…`cb0b204`
-   plus this note: DECISIONS, SESSION-RULES, two commands, HANDOFF.md,
-   CLAUDE.md, NEXT-SESSION-FE.md, STATE.md), **plus the 2026-10-14
-   integration-phase plan** (both prompt files, STATE.md, IDEAS.md; docs
-   only), **plus all of F3** (`f54c9ce`…, via the `f3-timeline-csp` PR into
-   `staging`: the timeline under D-057, its tests, F3's session-end docs).
-   F3 did not promote (Hunaiza's call: a PR into `staging`, Burhan merges);
-   S29's Step 0 promotes it once that PR is merged. Promote #33
-   (`991b397`, back-merge `ca3262d`; GitHub CI passed twice) shipped all of B2
-   and F2's session-end docs. Promote #32 (`6f898c5`, back-merge `1a9e774`)
-   shipped all of F2.
+1. **Promote slate: all of S29 and all of S30** (S29: eight review fixes, the
+   review record, the spec, D-060…D-067; S30: the tenancy build, its reviews'
+   fixes, D-068, D-069, the records, this ritual). **S30 is a promote
+   milestone: `/promote` runs right after this ritual**; if this line still
+   reads so, it did not. **The S30 migration cannot be rolled back** (it drops
+   `users.workspace_id` and `users.role`; a pre-S30 image cannot boot on a
+   migrated database): no production database exists yet, so take a `pg_dump`
+   before the first real deploy. Promote #35 (`1a7708f`, back-merge `a8503f6`)
+   shipped D-059, the plan and all of F3.
    - **The first session of any track runs `/promote` as its Step 0 — but
      only ONE window at a time** (the 2026-10-12 collision).
    - Read `git diff origin/main..staging --stat`, never the commit list.
@@ -507,20 +652,22 @@ scoped by a decision or a bug.
      2026-10-10.** `Auspex-Product-Architecture-Overview.pdf` and
      `docs/auspex-overview.html` are his; never commit, move, publish or delete
      them, and do not ask again.
-2. **S28's own code has had no second-pass review.** Each change was
-   mutant-checked or battery-judged by its author, but nobody else has read it
-   adversarially:
-   - D-046's budget (`_on_offer`, `_dispatch_within_budget`, the notice);
-   - D-048's two doors (`run_stale_approval`, `withdraw`, the shared
-     `_run_claimed`, the queue clause);
-   - D-049's `record`;
-   - D-047's `_IDENTITY_RE`;
-   - D-050's `_NOTE_ASK_RE`/`_NOTE_REQUEST_RE` and the `action_request`
-     contract;
-   - the alert-name precedence (`e2af082`);
-   - the review fixes `831dedc` and `3a09fcd`.
-
-   The S27 review of S27's code (closed at S28) found three.
+2. **S29's review of S28's code left 13 entries open** (it is otherwise
+   DONE; docs/probes/2026-10-14-s29-s28-code-review.md):
+   - **B-010: three older classify rules still stall the event loop** on
+     crafted input: the refang rules (3.65 s), `_GREETING_RE` (~18 s) and
+     `_DOMAIN_CAND_RE` (5.7 s), each at the 32,000-character cap. A message
+     from any signed-in user. Burhan's call where it goes (Tracks table).
+   - B-011, B-012 (the D-050 and D-047 rules route some analysis, drafting
+     and bot/AI questions wrongly; a change needs blind batteries, and B-012
+     is partly Burhan's call), B-013 (a fully flattened ECS export is not
+     detected as an alert), B-014 (the `action_request` contract passes any
+     answer), B-015 and B-020 (what the agent says it recorded), B-016
+     (approvals wording), B-017 (a non-string tool name from the endpoint
+     crashes a turn), B-018 (a URL's credentials are kept and sent), B-019 (a
+     refused call reads as a search).
+   - TD-056 (latent stream hold), TD-057 (`tool_names` not enforced at
+     dispatch, before S34 passes it), TD-058 (an overlong URL).
 3. **TD-036's trigger FIRED at S28 — the analyst reads the answer twice.** In
    2 of 3 D-049 probe turns, glm-4.5-air wrote a full answer before its
    annotate call. It passed the 400-char hold, streamed as answer, and then the
@@ -552,6 +699,8 @@ scoped by a decision or a bug.
        thinking; and general's two rules, now ONE 43-word run over the
        thinking floor (B-006, `c80bf29`). Re-measure general-mode thinking
        first (TD-044).
+   - **S34 adds customer-written connector text to the index (D-064)**, and
+     re-runs the calibration with it before anything ships.
 5. **The card stream still emits only new cards, never status changes.** A
    client watching `/stream` is not told when a claim goes stale, or when a row
    becomes `incomplete`/`kept`/`withdrawn`, or rejoins the queue as a stale
@@ -581,11 +730,12 @@ scoped by a decision or a bug.
    - **B-004 fixed (B2).** A note may name its observable as written, not
      only by its short id. The bound is TD-054: the stored string is
      re-resolved at execute time and not pinned to the card's target.
-10. **D-041's bound, and TD-025.**
+10. **D-041's bound, and TD-025** (S30 did TD-025's roles step).
     - A merely slow handler on an abandoned run can land after its put-back.
       It is recorded on the row, not prevented.
     - There is no idempotency key: **both matter the day an action reaches a
-      network.**
+      network.** TD-025 left Deferred at S29 (D-066): S31 adds the key and a
+      proposal TTL, S34 grant-checked scope.
     - TD-042 is closed (D-048). Its own bound: `resolved_by` is the LATEST
       human resolver.
 11. **Brand, partly owned now (D-047).** The identity shortcut catches 18/45
@@ -607,8 +757,12 @@ scoped by a decision or a bug.
 14. **D-046's price.**
     - Thin-topic turns reach fewer documents. The LockBit turns lost T1566;
       TA0001 still grounds the vectors.
-    - A refused over-budget call shows in the turn as `· error`.
+    - A refused over-budget call shows in the turn as `· error` (and as a
+      search on the status line: B-019).
     - The cause is KB coverage (IDEAS: ATT&CK groups and software).
+    - **Since S29 the bound holds:** a step with a budget refusal in which
+      nothing ran or was proposed goes to the synthesis pass (`6750028`,
+      `34fe9a1`).
 
 15. **Model-written links are clickable now (D-053, Burhan's call).** They are
     https only, show their real host, and open with `noopener noreferrer`. A
@@ -666,8 +820,9 @@ scoped by a decision or a bug.
       question that F1 saw cut**; the route tests with the logged run are the
       proof.
 24. **A fresh-agent adversarial review after each fix (B2: 2 of 4 found a real
-    defect).** SESSION-RULES.md now asks for it on rail, action and tenancy
-    changes.
+    defect).** SESSION-RULES.md asks for it on rail, action, tenancy and
+    approvals changes, **and since S29 on the agent loop and on a review's own
+    fixes** (S29: the review of six fixes found two more defects).
 25. **F3's deferred minors** (the final review; kept so they are not lost):
     nothing pins `timeline.js` to the null-safe `conf`/`pct` (a raw
     `.toFixed` would pass); the click-listener assertion is met by the header
@@ -679,6 +834,44 @@ scoped by a decision or a bug.
     headless Chromium without a turn; Review/Undo on a reopened proposal, the
     empty-answer note, server errors and narration on its own line were not
     reached (docs/probes/2026-10-14-f3-timeline-csp.md).
+27. **The QRadar's address is not known yet** (Burhan, S29: "later").
+    Reachability, its TLS certificate and its unauthenticated API answer are
+    unprobed (docs/probes/2026-10-14-qradar-reachability.md). S33's Step 0
+    runs them once he gives it; S33's agent work depends on the TLS answer.
+    It holds real data, so D-067's synthetic-only lab domain is the only part
+    of it the phase may fetch.
+
+28. **S30's open ends** (they die by being done):
+    - **B-021**: a re-homed person's audit event names the old organization to
+      the new one's admins (BUGS.md). Burhan: S31's Step 0, unless B3 first.
+    - **D-069 is decided, not built**: until it is, nothing stops a `ksa`
+      workspace on this (non-KSA) deployment. Where it is built is Burhan's
+      call (proposed: S31's Step 0).
+    - **TD-059 is a hard gate beside TD-001**: limit person creation over the
+      API before any Google client id is configured.
+    - **The deferred minors of S30's reviews** (kept so they are not lost; the
+      final review triaged each "can wait"): a blank `ENGINE_REGION=` stops
+      startup; `workspaces_org_required` would let `__deployment__` take an
+      organization by SQL; a client's parent kind is checked in code only;
+      no test drives the concurrent-loser branch of dev provisioning; the
+      migration's fix-it advice is a `HINT`, not in the boot log; Google
+      sign-in no longer records `google_sub` (it must, with TD-001); `ROLES`
+      is not pinned to the DDL; refusal tests don't assert "nothing audited";
+      `/me` would 500 rather than 403 in a vanishing-workspace race; the
+      stream's access check sits outside its poll's `try`; the raw-input
+      source pin misses cookies/body/form/url; `require_role` has no direct
+      test; the member API's refusal edges (DELETE-self, PATCH non-member,
+      empty PATCH) are thin over HTTP; the region guard's pin is per file;
+      the isolation suite probes data by id, not through a list; the docs pin
+      covers the README heading, not its body; the suite's residue in the dev
+      database (TD-060).
+
+**Closed at S30, so they leave this list:** none outright; #1 now carries S30
+and #10's roles step is done. S30 added #28.
+
+**Closed at S29, so they leave this list:** the old #2, "S28's own code has
+had no second-pass review" (done; 21 findings, now #2's open remainder).
+#10's TD-025 and #14's bound moved (D-066; `6750028`). S29 added #27.
 
 **Closed at F3, so they leave this list:** none of the numbered items closed
 outright; #21's TD-051 clause is done (TD-051 closed). F3 added #25–#26.
@@ -705,8 +898,9 @@ records what the split left). F2 added #20–#22.
   issue is the scorer, now in IDEAS).
 
 ## Blockers / open risks
-1. **TD-001 (OAuth identity keyed on email)** is a hard gate before any
-   GOOGLE_CLIENT_ID is configured.
+1. **TD-001 (OAuth identity keyed on email) and TD-059 (person creation over
+   the API is unlimited)** are hard gates before any GOOGLE_CLIENT_ID is
+   configured.
 2. **Open debt.**
    - Still open: TD-014 … TD-025, TD-027, TD-029, TD-030, TD-031/032/033,
      TD-035 (the two-pass path only), **TD-036 (trigger fired, S28)**,
@@ -720,6 +914,10 @@ records what the split left). F2 added #20–#22.
      dist check covers `*.py` only), and B2's TD-054 (a note named by value is
      re-resolved at execute time) and TD-055 (only the ceiling refusal discards
      a stored question).
+   - **S29:** TD-056 … TD-058 logged; **TD-023 and TD-025 left Deferred**
+     (D-066) and are worked from S30 on.
+   - **S30:** TD-059 (a hard gate beside TD-001) and TD-060 (test residue in
+     the dev database) logged.
    - **Closed at F3:** TD-051.
    - **Closed at F2:** TD-045.
    - **Closed at S28:** TD-042, TD-043.
@@ -740,6 +938,9 @@ records what the split left). F2 added #20–#22.
 6. **An intermittent, unattributed test failure was observed once in S22.** Not
    reproduced in any later full run, including about ten at S28. Still recorded
    rather than dismissed.
+7. **A signed-in user can still stall the chat route's event loop for
+   seconds** with one crafted message (B-010: three older classify rules; S29
+   fixed the two S28 ones). Open until B-010 is fixed.
 
 ## Host notes (reality snapshot)
 - Postgres 55432; app 8000; OpenSearch 9200. Host runs pin via `auspex.devhost`.
@@ -875,6 +1076,31 @@ records what the split left). F2 added #20–#22.
   `docs/probes/f3-timeline/`. Headless Chromium for them was installed with
   Playwright 1.48.2 in the session scratchpad, not the repo.
 
+- **S30 session-end (2026-10-15):** staging, identity `bh3082336888-cell`.
+  `./ci.sh` **green, 1554 tests, 129 modules**, `/api/health/ready` **200**,
+  all three containers healthy, `./scripts/demo.sh` **exits 0**.
+- **The dev database is on S30's shape**: a user is a person
+  (`home_org_id`), access is `memberships`; `default` and `dev` are each a
+  `direct` organization; `__deployment__` has none. Manage it with
+  `docker compose exec app python -m auspex.tenancy …` (SESSION-RULES.md,
+  Tenancy). It holds S30 test residue (TD-060).
+- **S30 ran subagent-driven**: implementers and reviewers were fresh agents.
+  Commit `4c1714c`'s Co-Authored-By names the model that wrote it (Sonnet), not
+  this session's line; amending is banned, so it stays.
+- **S29 session-end (2026-10-15):** staging, identity `bh3082336888-cell`.
+  `./ci.sh` **green, 1412 tests, 121 modules**, `/api/health/ready` **200**,
+  all three containers healthy, `./scripts/demo.sh` **exits 0**. Promote #35
+  merged.
+- **The gate lints `auspex tests scripts server.py` only** (`ci.sh:14`).
+  `ruff check .` also lints `docs/probes/` scripts and reports old issues
+  there; lint a test edit with the gate's own scope before committing (S29's
+  first post-fix gate went red on two long test lines).
+- **Python is 3.12 everywhere** (venv, `python:3.12-slim`, CI), so possessive
+  quantifiers (`\s*+`) and atomic groups are available; S29's two classify
+  fixes rely on them.
+- **Timing tests:** S29 pinned the two fixed classify rules at < 50 ms on
+  inputs sized so a regressed rule fails in seconds (~1000× margin today).
+
 ## Reference intelligence (from the SARA Open architecture study)
 Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 - ACH analogues (S12): 2026-08-08-sara-ach-analogues.md
@@ -888,20 +1114,12 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 **Pick a track (D-051); the Tracks table at the top has the ids.** Paste the
 prompt file of the track you mean. `/session-start` with no track asks.
 One window at a time (D-051).
-- **S29, backend, the focus** (`NEXT-SESSION-BE.md`). **First merge F3's PR
-  (`f3-timeline-csp` → `staging`)**, then S29 opens the integration phase:
-  - Step 0: the promote slate (now with F3), then the review of S28's code;
-  - goal 1: the phase's decisions and spec (the runner and its placements,
-    the manifest contract, credential custody, roles, a jobs queue, TD-023
-    and TD-025 out of Deferred, and MSSP tenancy);
-  - goal 2: where Burhan's QRadar lives (reachability and TLS, no
-    credentials), and what data it holds.
-
-  TD-036 and TD-044 wait here as follow-ups #3 and #4.
-- **F4, front end** (`NEXT-SESSION-FE.md`): one shell for every page, after
-  S30 closes (the order table). It builds on F3's spec and fixes F3's
-  deferred minors (#25) in the shared modules.
-- **B3, bugs** (`NEXT-SESSION-BUGS.md`): B-005 and B-009 are the only open
-  bugs, and both wait on Burhan's call on the deferred fabricated-specifics
-  item (a D-entry if it comes out of Deferred). Without that call, B3 waits
-  for new bugs from using the platform.
+- **F4, front end, the focus** (`NEXT-SESSION-FE.md`): one shell for every
+  page, role-aware, with a workspace switcher on S30's `GET /api/auth/me` and
+  switch (probe them first). It builds on F3's spec and fixes F3's deferred
+  minors (#25) in the shared modules.
+- **S31, backend, after F4** (`NEXT-SESSION-BE.md`): Step 0 fixes B-021 and
+  asks where D-069 is built; then the jobs queue and TD-025's first half.
+- **B3, bugs** (`NEXT-SESSION-BUGS.md`), **if Burhan picks it**: B-010 (a
+  crafted message stalls the event loop) heads twelve open entries; B-005 and
+  B-009 still wait on his call.

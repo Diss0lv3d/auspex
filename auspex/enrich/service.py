@@ -19,11 +19,20 @@ from auspex.enrich.fanout import fan_out
 from auspex.enrich.filters import skip_reason
 from auspex.enrich.providers import Provider, build_providers
 from auspex.enrich.types import EnrichmentOutcome, ObservableEnrichment
+from auspex.tenancy.region import may_process, region_skip
 
 CALL_TIMEOUT_SECONDS = 6.0
 ENRICH_MAX_OBSERVABLES = 8
 CAP_SKIP = "beyond this turn's enrichment cap — parsed and recorded as text only"
 NO_COVERAGE_SKIP = "no connected source covers this observable type yet"
+
+
+def _coverage(providers: list[Provider]) -> dict[ObservableType, int]:
+    counts: dict[ObservableType, int] = {}
+    for provider in providers:
+        for type_ in provider.accepts:
+            counts[type_] = counts.get(type_, 0) + 1
+    return counts
 
 
 class EnrichmentService:
@@ -56,11 +65,11 @@ class EnrichmentService:
     @property
     def coverage(self) -> dict[ObservableType, int]:
         """How many active providers accept each observable type."""
-        counts: dict[ObservableType, int] = {}
-        for provider in self._providers:
-            for type_ in provider.accepts:
-                counts[type_] = counts.get(type_, 0) + 1
-        return counts
+        return _coverage(self._providers)
+
+    def serves(self, region: str) -> bool:
+        """Whether any active provider may serve a workspace in `region` (D-061)."""
+        return any(may_process(region, p.region) for p in self._providers)
 
     def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -70,8 +79,14 @@ class EnrichmentService:
             )
         return self._client
 
-    async def enrich(self, observables: tuple[Observable, ...]) -> EnrichmentOutcome:
-        coverage = self.coverage
+    async def enrich(
+        self, observables: tuple[Observable, ...], *, region: str
+    ) -> EnrichmentOutcome:
+        # D-061: a lookup sends the indicator to the provider — tenant data
+        # leaving the region. Only providers the workspace's region allows run.
+        allowed = [p for p in self._providers if may_process(region, p.region)]
+        everywhere = self.coverage
+        coverage = _coverage(allowed)
         skips: dict[str, str] = {}
         eligible: list[Observable] = []
         for o in observables:
@@ -80,7 +95,9 @@ class EnrichmentService:
                 # A type no active provider accepts (email, CVE for now) must
                 # not eat a cap slot the turn spends zero calls on, and must
                 # not be persisted as if a lookup happened (store contract).
-                reason = NO_COVERAGE_SKIP
+                # Covered somewhere but not here is a residency refusal, said
+                # as one; covered nowhere is the old honest "no source yet".
+                reason = region_skip(region) if everywhere.get(o.type) else NO_COVERAGE_SKIP
             if reason is not None:
                 skips[o.obs_id] = reason
             elif len(eligible) >= self._cap:
@@ -92,10 +109,10 @@ class EnrichmentService:
         failures: dict[str, str] = {}
         answered: dict[str, int] = {}
         network: dict[str, list] = {}
-        if eligible and self._providers:
+        if eligible and allowed:
             signals, failures, answered, network = await fan_out(
                 self._get_client(),
-                self._providers,
+                allowed,
                 eligible,
                 self._breakers,
                 call_timeout=self._call_timeout,

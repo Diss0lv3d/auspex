@@ -204,3 +204,195 @@ are never deleted.
   and its table); docs/probes/b2-b006/raw-repro-after.jsonl (the three answers
   verbatim).
 - **Status:** open.
+
+## B-010 — two older classify rules backtrack on a long whitespace run, and stall the chat route's event loop
+
+- **Found:** 2026-10-14, S29 (Claude), the Step 0 adversarial review of S28's code; same class as the two S28 rules fixed in `8187925`, but older.
+- **What happened:** `extract()`'s refang rules (`auspex/classify/observables.py:120-121`,
+  from `8e03985`) and `_GREETING_RE` (`auspex/classify/classifier.py`, from
+  `b7eaa04`) backtrack quadratically on a run of whitespace.
+  `extract("x" + " " * 31998 + "x")` took 3.65 s; the greeting rule took 1.1 s
+  at 8,000 characters (~18 s at the 32,000-character message cap). Both run
+  synchronously on the route's event loop, so one message stalls every request
+  on the worker.
+- **A third, found by the review of S29's fixes:** `_DOMAIN_CAND_RE`
+  (`auspex/classify/observables.py:181`) is quadratic on `"a." * n`:
+  `extract` took 89 ms at 8,000 characters and 1.4 s at 16,000, and
+  `classify("a." * 16000)` (32,000 characters) took 5.7 s. `_EMAIL_RE`
+  (`:153`) took 92 ms on the same input. A plain possessive would stop
+  matching "evil.com." at the end of a sentence; candidates must start only at
+  the beginning of a dotted run.
+- **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 8; docs/probes/s29-review/classify/redos.py.
+- **Status:** open.
+
+## B-011 — a request to analyse or draft that leads with "Note" or "write a note" resolves to `action_request`
+
+- **Found:** 2026-10-14, S29 (Claude), the Step 0 adversarial review of S28's code.
+- **What happened:** each of these resolves to `action_request` (executed:
+  `resolve_mode`), whose directive tells the model its job is to record
+  something on an indicator:
+  - "Note - this came from the CEO's mailbox. Is hxxp://evil[.]net/x malicious?"
+  - "Note 203.0.113.9 appeared in three alerts; is it a C2?"
+  - "note how the attacker pivoted from fin-ws-12 to dc01 and explain the TTPs"
+  - "write a short note to the CISO summarizing the qakbot incident"
+  - "add comments to this sigma rule explaining each condition"
+  - "annotate this powershell for me: powershell -enc SQBFAFgA"
+  - "log comments show 203.0.113.9 failed 400 logins"
+
+  D-050's stated bounds cover "leads with the note, then asks" and asks the
+  platform can't do, not "Note" meaning "observe this", nor drafting for
+  people. On the agent path the model may file an `annotate_observable`
+  proposal nobody asked for (a human still approves it); elsewhere the analysis
+  is replaced by "why nothing could be proposed" (inferred, not run live).
+- **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 9; docs/probes/s29-review/classify/note_fp.py.
+  A rule change is judged on blind batteries (SESSION-RULES.md), and the D-050
+  operating point is pinned.
+- **Status:** open.
+
+## B-012 — the identity shortcut answers questions about bots, AI and providers under investigation
+
+- **Found:** 2026-10-14, S29 (Claude), the Step 0 adversarial review of S28's code.
+- **What happened:** each returns the canned identity copy (executed:
+  `classify`): "who is behind this bot?", "who owns this bot?", "who created
+  this chat?", "which ai made this?", "what llm made this?", "which model did
+  this?", "which provider do you use?", "what engine do you use?", "is this
+  gemini?". In a SOC these are botnet, Telegram and Teams-phishing questions,
+  attribution of AI-made lures, a follow-up on the enrichment echo (which names
+  its providers), and a phished exchange. The classifier's own rule is that a
+  wrong shortcut is a wrong answer.
+- **Burhan's call in part:** D-047 counts "chat / bot / platform" as meaning
+  the assistant. A bare "this" after a maker verb was excluded for the same
+  reason these would be.
+- **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 10; docs/probes/s29-review/classify/ident_fp.py.
+  The D-047 operating point is pinned; a change is judged on blind batteries.
+- **Status:** open.
+
+## B-013 — a fully flattened ECS export is not detected as an alert, and reaches the model raw
+
+- **Found:** 2026-10-14, S29 (Claude), the Step 0 adversarial review of S28's code (the detection gap predates S28).
+- **What happened:** an ECS alert whose keys are all dotted
+  (`{"@timestamp": …, "rule.name": "LSASS memory dump", "host.name": "dc01",
+  "source.ip": …, "event.severity": 73}`) resolves to `ioc_enrichment`, format
+  unknown, `parsed=False`. Adding one plain `"message"` key gives
+  `alert_triage` with every field right. `_JSON_KEY_RE` is `"\w+"\s*:`
+  (`classifier.py:64`, `normalizer.py:29`), and `\w` excludes `.` and `@`. The
+  paste skips code-owned triage and the DEFERRED rail, which TD-013's
+  mitigation is meant to prevent.
+- **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 11; docs/probes/s29-review/classify/alerts.py.
+- **Status:** open.
+
+## B-014 — the `action_request` contract passes any answer, a claim that the note was added included
+
+- **Found:** 2026-10-14, S29 (Claude), the Step 0 adversarial review of S28's code.
+- **What happened:** `contract_for(Mode.ACTION_REQUEST).validate(...)` returns
+  `ok=True` for "Done — I've added the note to 203.0.113.9.", for "   " and for
+  "## Risk\nHIGH" (executed). So the done frame reports `contract_valid: true`
+  for an answer that breaks the mode's only rule. No action can be faked (a
+  proposal only comes from a tool call), but the stored answer can say the
+  change was made. The test
+  `test_the_action_request_contract_asks_for_no_sections_and_never_a_claim_of_done`
+  (`tests/test_modes.py`) never checks the claim its name promises.
+- **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 12.
+- **Status:** open.
+
+## B-015 — the agent's `recorded: true` claims more than was written
+
+- **Found:** 2026-10-14, S29 (Claude), the Step 0 adversarial review of S28's code (D-049's payload).
+- **What happened:** one `enrich_observable` call over a routable IP with no
+  signal, `10.0.0.5` and an unsupplied `8.8.4.4` returned a top-level
+  `"recorded": true` (executed with fakes). No verdict was written for any of
+  them, and the last two were never recorded at all. The IOC check says
+  "Verdicts are recorded" only when an item has signals. And when every
+  requested item is skipped, no `recorded` key appears, so D-049's "the model
+  is told whether it was recorded" does not hold there.
+- **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 13; docs/probes/s29-review/d049/probe1.py.
+- **Status:** open.
+
+## B-016 — approvals wording: a lost claim says "executed", and a just-refused approve reads as still starting
+
+- **Found:** 2026-10-14, S29 (Claude), the Step 0 adversarial review of S28's code (D-048).
+- **What happened (by reading; deterministic paths):**
+  - Approve's own run that loses its claim to a withdraw (a stall of more than
+    300 s between its read and its claim) returns `already_running`: "this
+    proposal is already executing or has executed". The row is `withdrawn`.
+  - After an approve-time refusal (for example `spec_changed`), the card sits
+    in Decided with "Run now" and "Withdraw". Withdraw answers 409 "approved
+    less than 300s ago — its own run may still be starting", which is false:
+    the run was refused and the page just said so. Run-now repeats the true
+    reason. The page half belongs to the front-end track.
+- **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 14 (the reviewer's repro sketches are there).
+- **Status:** open.
+
+## B-017 — a non-string tool name from the endpoint crashes the agent turn
+
+- **Found:** 2026-10-14, S29 (Claude), the Step 0 adversarial review of S28's code; predates S28.
+- **What happened:** a tool call named `["lookup_ip"]` (a list) raises
+  `TypeError: unhashable type: 'list'` in the loop (executed with
+  `FakeLLMClient`). The client assigns any truthy `function.name`
+  (`auspex/llm/client.py:388-389`). The endpoint is the customer's, so its
+  output is not trusted to be well-formed.
+- **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 15.
+- **Status:** open.
+
+## B-018 — a URL pasted with credentials keeps them, and they are sent to a provider and stored
+
+- **Found:** 2026-10-14, S29 (Claude), the Step 0 adversarial review of S28's code; predates S28, and D-049 widened it to agent lookups.
+- **What happened (by reading):** `http://user:pass@host/` keeps `user:pass`
+  in the observable's `value` (`auspex/classify/observables.py:207-218`). The
+  URL is looked up at URLhaus and upserted into `observables`. Credentials in
+  a pasted artefact are exactly what the org's data-handling rules say never to
+  echo or store. The model cannot invent one (D-039).
+- **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 16.
+- **Status:** open.
+
+## B-019 — a call refused for budget reads as a real search on the page and in the turn log
+
+- **Found:** 2026-10-14, S29 (Claude), the Step 0 adversarial review of S28's code (D-046).
+- **What happened (by reading):** the `phase` event makes the page say
+  "Searching the knowledge base" for a call refused without running, and the
+  turn log names calls without their status, so a refused call cannot be told
+  from an executed search there. D-046 accepted only the `· error` line.
+- **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 17.
+- **Status:** open.
+
+## B-020 — after a lookup that found only context, the answer doesn't say the workspace's earlier verdict still stands
+
+- **Found:** 2026-10-14, S29 (Claude), the review of S29's own fix `14bafba`.
+- **What happened (by reading):** `14bafba` keeps a stored `malicious` (or
+  any known) verdict when a later lookup finds only context, as D-055 says.
+  But what the analyst and the model are told did not change with it: the IOC
+  check prints "no reputation verdict — context: InternetDB: open ports …" and
+  "Verdicts are recorded and decay over time", and the agent's tool result says
+  `"reputation": "unknown"` with `"recorded": true`. Nothing says the earlier
+  `malicious` verdict stands, so "recorded" reads as "recorded as unknown",
+  while the timeline shows `malicious`. Before `14bafba` the two agreed because
+  the store was wrong.
+- **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md (the fix
+  review); `auspex/enrich/echo.py:26,51-55,78-79`,
+  `auspex/agent/capabilities.py` (`recorded`), `auspex/enrich/store.py`.
+  Related: B-015.
+- **Status:** open.
+
+## B-021 — a re-homed person's audit event shows the new organization's admins the OLD organization's name
+
+- **Found:** 2026-10-15, S30 (Claude), the fresh review of the final review's
+  fix wave (`b75c5d3`, `rehome-person`).
+- **What happened (reproduced by the fix's own test):** `admin.rehome_person`
+  records `person.rehome` with `details={"from": <old org name>, "to": <new org
+  name>}` in every workspace of the NEW organization
+  (`auspex/tenancy/admin.py:402-404`), and `GET /api/audit` returns it to that
+  organization's admins (`auspex/tenancy/audit.py`, `list_events`). So one
+  customer reads another customer's organization name — e.g. a client learns
+  that a sibling client exists under the same MSSP. The spec keeps exactly that
+  out of the 409 ("without naming it", S30 design §3). The test pins the leak
+  as behaviour: `tests/test_tenancy_cli.py:136`.
+- **Fix sketch:** the event in the new organization keeps only `to`; the old
+  organization's name goes to the operator's CLI output only (the CLI prints
+  no email). Same change: a second concurrent rehome of one person answers
+  `NotFound` instead of waiting (`admin.py:384-391` locks the user JOIN
+  organizations row; lock `users` alone, then read the name), and `admin.py`'s
+  docstring overclaims that every membership write takes the workspace lock
+  (`provision_dev_user` does not).
+- **Burhan's call (2026-10-15):** promote S30 now, fix in the next backend
+  session (S31's Step 0) unless B3 takes it first.
+- **Status:** open.

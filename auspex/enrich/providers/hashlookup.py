@@ -28,6 +28,7 @@ _MAX_CONFIDENCE = 0.5
 
 class Hashlookup(Provider):
     name = "CIRCL hashlookup"
+    region = "global"
     accepts = frozenset(_PATH_BY_TYPE)
 
     async def lookup(

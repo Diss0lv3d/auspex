@@ -51,7 +51,7 @@ from auspex.ach.store import (
     load_investigation,
 )
 from auspex.alerts import normalize
-from auspex.auth import AuthContext, resolve_user
+from auspex.auth import Analyst, AnyRole
 from auspex.classify.classifier import _is_alert_paste, _is_email_paste
 from auspex.classify.observables import Observable, ObservableType, observable_id
 from auspex.enrich import EnrichmentService, persist_enrichment
@@ -59,12 +59,13 @@ from auspex.limits import Meter, UsageLimiter
 from auspex.llm.client import LLMClient, LLMError
 from auspex.phishing import decide_verdict, parse_email
 from auspex.phishing.victims import filter_victim_iocs
+from auspex.tenancy.region import engine_refusal, lookup_refusal
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/investigations", tags=["investigations"])
 
-Auth = Annotated[AuthContext, Depends(resolve_user)]
+Auth = AnyRole
 
 
 class CreateInvestigationBody(BaseModel):
@@ -250,7 +251,7 @@ async def _owned_session(request: Request, auth: Auth, session_id: UUID) -> None
 
 
 @router.post("", status_code=201)
-async def create(request: Request, body: CreateInvestigationBody, auth: Auth) -> dict:
+async def create(request: Request, body: CreateInvestigationBody, auth: Analyst) -> dict:
     """Open an investigation over a pasted alert or email. Format decides the
     subject kind (the 92/8 rule: format beats keywords); anything else is a
     422 — ACH v1 analyzes structured subjects, not open questions."""
@@ -314,7 +315,7 @@ async def get_one(request: Request, investigation_id: UUID, auth: Auth) -> dict:
 
 @router.post("/{investigation_id}/lookups")
 async def run_lookup(
-    request: Request, investigation_id: UUID, body: RunLookupBody, auth: Auth
+    request: Request, investigation_id: UUID, body: RunLookupBody, auth: Analyst
 ) -> dict:
     """Execute the engine's recommended lookup (or a named candidate) through
     the S5 enrichment fan-out, fold the outcome in as evidence, re-assess.
@@ -337,6 +338,8 @@ async def run_lookup(
     enrichment: EnrichmentService = request.app.state.enrichment
     if not enrichment.active:
         raise HTTPException(status_code=503, detail="Enrichment is disabled on this host")
+    if not enrichment.serves(auth.region):
+        raise HTTPException(status_code=403, detail=lookup_refusal(auth.region))
 
     _, plan = _assess(record)
     if not plan.ranked:
@@ -355,7 +358,7 @@ async def run_lookup(
                 detail="obs_id is not among the current lookup candidates",
             )
 
-    outcome = await enrichment.enrich((chosen.observable,))
+    outcome = await enrichment.enrich((chosen.observable,), region=auth.region)
     await persist_enrichment(pool, auth.workspace_id, outcome)  # the S5 trail too
     # evidence_from_enrichment already handles the completed-but-unknown case
     # (a weak ENRICHMENT_NO_SIGNAL row: retires the candidate, applies the
@@ -428,7 +431,7 @@ async def get_summary_client_factory(request: Request):
 async def render_summary(
     request: Request,
     investigation_id: UUID,
-    auth: Auth,
+    auth: Analyst,
     llm_factory: Annotated[object, Depends(get_summary_client_factory)],
 ) -> dict:
     """Render a model-written, citation-carrying summary of the investigation
@@ -448,6 +451,10 @@ async def render_summary(
     )
     if record is None:
         raise HTTPException(status_code=404, detail="Unknown investigation")
+
+    refusal = engine_refusal(auth.region, request.app.state.settings.engine_region)
+    if refusal is not None:
+        raise HTTPException(status_code=403, detail=refusal)
 
     assessment, plan = _assess(record)
     bundle = investigation_directive(record, assessment, plan)

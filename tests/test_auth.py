@@ -1,16 +1,29 @@
 """Auth: JWT round-trip, API keys stored as SHA-256 hash + prefix, the
 resolve_user chokepoint, and the config-stubbed Google OAuth endpoints."""
 
+import asyncio
 import hashlib
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 import asyncpg
 import jwt
+from _tenancy import ensure_member, ensure_workspace
 from fastapi.testclient import TestClient
 
 from auspex.app import create_app
-from auspex.auth import API_KEY_PREFIX, JWT_ALGORITHM, JWT_ISSUER, generate_api_key, hash_api_key
+from auspex.auth import (
+    API_KEY_PREFIX,
+    JWT_ALGORITHM,
+    JWT_ISSUER,
+    NO_ACCESS,
+    generate_api_key,
+    hash_api_key,
+    issue_jwt,
+)
 from auspex.config import Settings
+from auspex.db import create_pool
+from auspex.tenancy.admin import provision_dev_user
 
 # .test/.example TLDs are rejected by email-validator; use a real-shaped domain.
 DEV_EMAIL = "analyst@auspex.dev"
@@ -191,7 +204,19 @@ def test_google_callback_rejects_unverified_email(monkeypatch):
         assert "not verified" in resp.json()["detail"].lower()
 
 
-def test_google_callback_accepts_verified_email(monkeypatch):
+def _provision(settings, email: str) -> None:
+    async def _run():
+        pool = await create_pool(settings.database_url, retries=2, delay=0.5)
+        try:
+            await provision_dev_user(pool, email)
+        finally:
+            await pool.close()
+
+    asyncio.run(_run())
+
+
+def test_google_callback_signs_in_an_existing_person(monkeypatch, settings):
+    _provision(settings, "victim@auspex.dev")
     monkeypatch.setattr(
         "auspex.routes.auth.httpx.AsyncClient",
         _fake_google_client(
@@ -202,6 +227,104 @@ def test_google_callback_accepts_verified_email(monkeypatch):
         resp = oauth.get("/api/auth/google/callback?code=x")
         assert resp.status_code == 200, resp.text
         assert resp.json()["token_type"] == "bearer"
+
+
+async def test_google_callback_never_provisions(monkeypatch, settings):
+    email = "nobody-yet@auspex.dev"
+    monkeypatch.setattr(
+        "auspex.routes.auth.httpx.AsyncClient",
+        _fake_google_client({"email": email, "email_verified": True, "sub": "2"}),
+    )
+    with TestClient(_oauth_app()) as oauth:
+        resp = oauth.get("/api/auth/google/callback?code=x")
+    assert resp.status_code == 403
+    assert "administrator" in resp.json()["detail"]
+    conn = await asyncpg.connect(settings.database_url)
+    try:
+        assert await conn.fetchval("SELECT count(*) FROM users WHERE email = $1", email) == 0
+    finally:
+        await conn.close()
+
+
+async def test_a_token_for_a_workspace_without_access_is_403(client, settings):
+    token = _dev_token(client)
+    claims = jwt.decode(token, options={"verify_signature": False})
+    conn = await asyncpg.connect(settings.database_url)
+    try:
+        foreign = await ensure_workspace(conn, "t-s30-auth-foreign")
+        forged = issue_jwt(settings, UUID(claims["sub"]), foreign)
+        resp = client.get("/api/auth/whoami", headers={"Authorization": f"Bearer {forged}"})
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == NO_ACCESS
+    finally:
+        await conn.execute("DELETE FROM workspaces WHERE name = 't-s30-auth-foreign'")
+        await conn.close()
+
+
+async def test_a_removed_membership_ends_access_at_the_next_request(client, settings):
+    conn = await asyncpg.connect(settings.database_url)
+    try:
+        ws = await ensure_workspace(conn, "t-s30-auth-removed")
+        uid = await ensure_member(conn, ws, "removed@s30-auth.auspex.dev")
+        headers = {"Authorization": f"Bearer {issue_jwt(settings, uid, ws)}"}
+        assert client.get("/api/auth/whoami", headers=headers).status_code == 200
+        await conn.execute("DELETE FROM memberships WHERE user_id = $1", uid)
+        assert client.get("/api/auth/whoami", headers=headers).status_code == 403
+    finally:
+        await conn.execute("DELETE FROM workspaces WHERE name = 't-s30-auth-removed'")
+        await conn.execute("DELETE FROM users WHERE email = 'removed@s30-auth.auspex.dev'")
+        await conn.close()
+
+
+async def test_an_api_key_is_re_checked_like_a_token(client, settings):
+    conn = await asyncpg.connect(settings.database_url)
+    try:
+        ws = await ensure_workspace(conn, "t-s30-auth-key")
+        uid = await ensure_member(conn, ws, "keyholder@s30-auth.auspex.dev")
+        jwt_headers = {"Authorization": f"Bearer {issue_jwt(settings, uid, ws)}"}
+        raw = client.post("/api/auth/api-keys", json={"name": "k"}, headers=jwt_headers)
+        assert raw.status_code == 201, raw.text
+        key_headers = {"X-API-Key": raw.json()["api_key"]}
+        assert client.get("/api/auth/whoami", headers=key_headers).status_code == 200
+        await conn.execute("DELETE FROM memberships WHERE user_id = $1", uid)
+        assert client.get("/api/auth/whoami", headers=key_headers).status_code == 403
+    finally:
+        await conn.execute("DELETE FROM workspaces WHERE name = 't-s30-auth-key'")
+        await conn.execute("DELETE FROM users WHERE email = 'keyholder@s30-auth.auspex.dev'")
+        await conn.close()
+
+
+async def test_a_token_whose_person_was_deleted_is_401(client, settings):
+    """The token is no longer anyone's: a bad token (401), not a lost access (403)."""
+    conn = await asyncpg.connect(settings.database_url)
+    try:
+        ws = await ensure_workspace(conn, "t-s30-auth-deleted")
+        uid = await ensure_member(conn, ws, "deleted@s30-auth.auspex.dev")
+        headers = {"Authorization": f"Bearer {issue_jwt(settings, uid, ws)}"}
+        assert client.get("/api/auth/whoami", headers=headers).status_code == 200
+        await conn.execute("DELETE FROM users WHERE id = $1", uid)
+        resp = client.get("/api/auth/whoami", headers=headers)
+        assert resp.status_code == 401
+        assert resp.json()["detail"] != NO_ACCESS
+    finally:
+        await conn.execute("DELETE FROM workspaces WHERE name = 't-s30-auth-deleted'")
+        await conn.execute("DELETE FROM users WHERE email = 'deleted@s30-auth.auspex.dev'")
+        await conn.execute("DELETE FROM organizations WHERE name = 't-s30-auth-deleted'")
+        await conn.close()
+
+
+def test_a_token_whose_ids_are_not_uuids_is_401(client, settings):
+    """Signed with the right key, but `sub` or `wid` is not a UUID: 401, never a
+    500 and never a 403."""
+    good = "00000000-0000-0000-0000-000000000000"
+    now = datetime.now(UTC)
+    for sub, wid in (("not-a-uuid", good), (good, "not-a-uuid"), (good, ""), (good, 42),
+                     (good, ["x"])):
+        claims = {"iss": JWT_ISSUER, "sub": sub, "wid": wid, "iat": now,
+                  "exp": now + timedelta(minutes=5)}
+        token = jwt.encode(claims, settings.secret_key, algorithm=JWT_ALGORITHM)
+        resp = client.get("/api/auth/whoami", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 401, (sub, wid)
 
 
 # --- config fail-closed --------------------------------------------------------
@@ -252,3 +375,31 @@ def test_dev_login_hidden_in_prod():
     with TestClient(app) as prod_client:
         resp = prod_client.post("/api/auth/dev-login", json={"email": DEV_EMAIL})
         assert resp.status_code == 404
+
+
+# --- where a token is minted ----------------------------------------------------
+
+
+def test_the_auth_routes_name_every_place_a_token_is_minted():
+    """F4 (S30 final review): the module said "exactly two places"; the switch
+    is a third. Found by walking the code, so a fourth cannot hide."""
+    import ast
+    from pathlib import Path
+
+    import auspex.routes.auth as routes
+
+    root = Path(__file__).resolve().parents[1] / "auspex"
+    minting = set()
+    for path in root.rglob("*.py"):
+        for fn in ast.walk(ast.parse(path.read_text())):
+            if isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef) and any(
+                isinstance(n, ast.Call) and getattr(n.func, "id", None) == "issue_jwt"
+                for n in ast.walk(fn)
+            ):
+                minting.add((path.name, fn.name))
+    assert minting == {("auth.py", "google_callback"), ("auth.py", "dev_login"),
+                       ("auth.py", "switch")}
+    doc = " ".join(routes.__doc__.split())
+    assert "exactly three places" in doc
+    for named in ("the OAuth callback", "dev login", "the workspace switch"):
+        assert named in doc, named

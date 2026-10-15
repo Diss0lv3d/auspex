@@ -22,9 +22,9 @@ import logging
 from datetime import timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
-from auspex.auth import AuthContext, resolve_user
+from auspex.auth import AnyRole
 from auspex.retrohunt.types import note_for
 from auspex.timeline import Digest, VerdictTimeline, digest, timeline_for
 from auspex.timeline.staleness import (
@@ -40,7 +40,7 @@ logger = logging.getLogger("auspex.timeline")
 
 router = APIRouter(prefix="/api/timeline", tags=["timeline"])
 
-Auth = Annotated[AuthContext, Depends(resolve_user)]
+Auth = AnyRole
 
 DEFAULT_SINCE_DAYS = 7  # "the view an analyst opens after a week away"
 MAX_SINCE_DAYS = 365

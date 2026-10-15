@@ -117,10 +117,11 @@ async def load_latest_scorecard(
 # not per workspace, so its scorecard is deployment-scoped too (D-035): it lives
 # in this one reserved system workspace. D-008 holds — the row still carries a
 # workspace_id — and no analyst request ever reads ANOTHER TENANT's workspace:
-# it reads this one, which no user can be provisioned into (auth.get_or_create_user
-# refuses the name). Before D-035 the only writer (the harness) wrote to a
-# workspace called 'dev' while the only reader read the analyst's, so the
-# default endpoint never found its own scorecard.
+# it reads this one, which no user can be provisioned into
+# (auspex/tenancy/admin.py provision_dev_user refuses the name). Before D-035
+# the only writer (the harness) wrote to a workspace called 'dev' while the
+# only reader read the analyst's, so the default endpoint never found its own
+# scorecard.
 DEPLOYMENT_WORKSPACE = "__deployment__"
 
 

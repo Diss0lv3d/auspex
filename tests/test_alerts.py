@@ -7,6 +7,8 @@ SARA conditions. Errors bias to DEFERRED, never a confident LOW.
 
 import json
 
+import pytest
+
 from auspex.alerts import (
     AlertFormat,
     Severity,
@@ -398,5 +400,15 @@ def test_a_graph_alert_carries_its_command_line_and_time():
 def test_a_flat_alert_with_a_top_level_name_keeps_it():
     """The S10 shapes are unchanged: a bare top-level `name` is still the name."""
     env = normalize(json.dumps({"name": "Beacon detected", "severity": "high",
+                                "host": "ws-12"}))
+    assert env.name == "Beacon detected"
+
+
+@pytest.mark.parametrize("wrapper", ["alert", "detection"])
+def test_an_alert_named_under_its_own_wrapper_keeps_its_name(wrapper):
+    """S29 review of e2af082. Before it, any `.name` was read, so these shapes
+    named the alert; the precedence that stopped an ECS alert being named after
+    its host dropped them. Named here one by one, never "any .name" again."""
+    env = normalize(json.dumps({wrapper: {"name": "Beacon detected", "severity": "high"},
                                 "host": "ws-12"}))
     assert env.name == "Beacon detected"

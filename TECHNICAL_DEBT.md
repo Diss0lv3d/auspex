@@ -1,5 +1,63 @@
 # Technical debt — logged the moment it's taken
 
+## TD-060 (S30) — the suite leaves tenancy rows in the shared dev database
+
+**Where:** the S30 tests that delete a workspace but not its organization
+(`tests/test_auth.py`'s `t-s30-auth-*`, the `ensure_workspace` callers in
+`tests/_tenancy.py`), and every dev-login in the suite, which records a
+`workspace.enter` event in `default` (`auspex/tenancy/entry.py`).
+**Risk:** LOW. Measured by the S30 final review: 27 organizations without a
+workspace (5 with people homed in them) and 2,708 `workspace.enter` rows in
+`default`'s append-only trail after a day of runs. It grows by a few hundred
+audit rows per full suite run and is bounded for organizations (get-or-create by
+name). Nothing reads it but a person looking at `default`'s audit.
+**Why taken:** the plan moved ~25 test sites onto `ensure_workspace` /
+`ensure_member` without changing what each test deletes.
+**Path to fix:** delete by prefix in a session-scoped teardown (organizations
+named `t-`, `test-`, `d035-`, their people, and `default`'s `workspace.enter`
+rows for the suite's own users), or give the suite its own database.
+**Trigger:** a person reading `default`'s audit trail, or the dev database
+growing noticeably.
+
+## TD-058 (S29) — a very long URL may exceed the observables index's row limit, and then nothing in that lookup is recorded
+
+**Where:** `auspex/enrich/store.py` (`persist_enrichment`, one transaction),
+the `UNIQUE (workspace_id, type, value)` index on `observables`
+(`auspex/migrations.py`).
+**Risk:** LOW. Reasoned by the S29 review, not executed: an incompressible URL
+over about 2.7 KB would exceed the btree row limit, the upsert would raise, and
+the whole call's records roll back. The agent is told `recorded: false`, which
+is honest.
+**Why taken:** not taken; found (docs/probes/2026-10-14-s29-s28-code-review.md, finding 20).
+**Path to fix:** cap observable values at extraction, or index a hash of the
+value.
+**Trigger:** an indicator over 2 KB in any pasted artefact, or the first
+`program_limit_exceeded` in a log.
+
+## TD-057 (S29) — `tool_names` limits what the agent is offered, not what it may run
+
+**Where:** `auspex/agent/loop.py` (`wire_specs(tool_names)` and `_dispatch`).
+**Risk:** LOW. Executed by the S29 review: with `tool_names=["lookup_cve"]`,
+a call to `search_knowledge` still ran. No production caller passes
+`tool_names` today (docs/probes/2026-10-14-s29-s28-code-review.md, finding 19).
+**Why taken:** not taken; found.
+**Path to fix:** `_dispatch` refuses a name outside the turn's offered set.
+**Trigger:** the first caller that passes `tool_names` (S34 offers application
+actions per workspace; that is the day).
+
+## TD-056 (S29) — once every offered tool is withdrawn, the stream stops holding the model's lead-in prose
+
+**Where:** `auspex/agent/loop.py`, `run_stream`: the narration hold is on only
+when this step's kwargs carry `tools`.
+**Risk:** LOW, latent. Executed by the S29 review with every offered tool
+budgeted: a model that calls the withdrawn tool from history streams its
+lead-in ("Let me search once more…") as answer, the TD-036 symptom. Unreachable
+in the chat route today, because `enrich_observable` and `lookup_cve` carry no
+budget and are always offered (docs/probes/2026-10-14-s29-s28-code-review.md, finding 18).
+**Why taken:** not taken; found.
+**Path to fix:** decide the hold from the turn's tool list, not the step's.
+**Trigger:** a route or mode that offers only budgeted tools.
+
 ## TD-055 (B2) — only the ceiling refusal discards a stored question; other failures before the claim still leave one
 
 **Where:** `auspex/routes/chat.py`, `chat()`. B-008's fix (`4680bf6`) deletes
@@ -812,6 +870,8 @@ moment:
 **Path to fix:** TTL + `stale` state first (cheapest, and the one that silently
 misleads); grant-checked scope before the first third-party action; roles when
 multi-user workspaces are real.
+**S29: out of Deferred (D-066)**, worked in this order: roles S30, TTL and the
+idempotency key S31, grant-checked scope S34.
 
 ## TD-024 (S18) — the digest's decay read is slower than the defect it replaced at the widest legal window
 **Where:** `auspex/timeline/store.py` `_DECAYED_SQL`; `MAX_SINCE_DAYS = 365` in
@@ -881,6 +941,8 @@ S18 (D-024). Remaining: (b) grant scopes per workspace and check them in the gat
 rather than only rendering them — now tracked in TD-025, which owns the live
 approval flow's bounds; (d) array params once a real action needs one, with a
 measured bound per the S2 finding.
+**S29: out of Deferred (D-066).** The per-workspace catalogue is S32's; (b)
+goes with TD-025 at S34; (d) stays deferred.
 
 ## TD-022 (S17) — a checker that dies AFTER succeeding once still reads as healthy
 **Where:** `auspex/checks.py` (`FailureCounter`, `CheckerStatus`),
@@ -1368,6 +1430,25 @@ different non-NULL `sub`) changes the provisioning contract and deserves its own
 change with tests.
 **HARD GATE:** must be fixed *before* any `GOOGLE_CLIENT_ID` is configured in any
 environment. Raised by the S1 adversarial review (2/2 verifiers confirmed).
+
+## TD-059 (S30) — a workspace admin can home any email in their own organization
+**Where:** `auspex/tenancy/admin.py` `add_member` (`_person` creates an unknown email
+homed in the workspace's organization), reached by `POST /api/workspace/members`
+(`auspex/routes/workspace.py`).
+**Risk:** An admin who adds an email their organization does not own homes that
+person in their own organization. The person's real organization then gets 409
+("belongs to another organization") from the API and from the CLI's `create-org
+--admin` and `set-member`, and once Google sign-in is live the person's sign-in
+lands in the claiming organization's workspace. Executed by the S30 final review.
+**Why deferred:** Google sign-in is config-stubbed (503 until a client ID exists)
+and never provisions, so today the effect is a blocked add, and it has a recovery:
+the claiming admin removes the membership, then the CLI's `rehome-person --email E
+--org O` gives the person a new home (only while they hold no membership; audited
+as `person.rehome`). Limiting creation needs the domains an organization owns, which
+Auspex does not record yet.
+**HARD GATE:** person creation over the API must be limited (e.g. to domains the
+organization owns) *before* any `GOOGLE_CLIENT_ID` is configured in any environment,
+beside TD-001. Recorded in D-068's bounds.
 
 ## TD-002 (S3/D-016) — two-pass reasoning doubles LLM calls for non-native endpoints
 **Where:** `auspex/routes/chat.py` `event_stream()` two-pass branch.

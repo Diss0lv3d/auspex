@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 
 import asyncpg
 import pytest
+from _tenancy import ensure_member, ensure_workspace
 
 from auspex.auth import issue_jwt
 from auspex.chat_history import TITLE_MAX, pair_turns, title_of
@@ -180,12 +181,17 @@ def neighbour(client, settings):
 @pytest.fixture
 def outsider(settings):
     """A user in ANOTHER workspace, with a token of its own."""
-    ws = _db(settings, "INSERT INTO workspaces (name) VALUES ('t-chat-history-other')"
-             " ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id")[0]["id"]
-    uid = _db(settings, "INSERT INTO users (workspace_id, email)"
-              " VALUES ($1, 'history-outsider@auspex.dev')"
-              " ON CONFLICT (workspace_id, email) DO UPDATE SET email = EXCLUDED.email"
-              " RETURNING id", ws)[0]["id"]
+
+    async def _make():
+        conn = await asyncpg.connect(settings.database_url)
+        try:
+            ws = await ensure_workspace(conn, "t-chat-history-other")
+            uid = await ensure_member(conn, ws, "history-outsider@auspex.dev")
+            return ws, uid
+        finally:
+            await conn.close()
+
+    ws, uid = asyncio.run(_make())
     yield issue_jwt(settings, uid, ws), uid, ws
     _db(settings, "DELETE FROM workspaces WHERE id = $1", ws)
 

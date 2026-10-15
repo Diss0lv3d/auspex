@@ -24,6 +24,7 @@ _NO_RESULT_STATUSES = {"no_results"}
 
 class URLhaus(Provider):
     name = "URLhaus"
+    region = "global"
     accepts = frozenset(
         {
             ObservableType.DOMAIN,

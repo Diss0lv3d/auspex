@@ -17,6 +17,7 @@ BASE_URL = "https://api.greynoise.io"
 
 class GreyNoise(Provider):
     name = "GreyNoise"
+    region = "global"
     accepts = frozenset({ObservableType.IPV4})
 
     def __init__(self, api_key: str) -> None:

@@ -12,6 +12,7 @@ Zero LLM anywhere — the whole path is rows we already have plus the D-017 curv
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from _tenancy import ensure_workspace
 
 from auspex.checks import DEGRADED_AFTER, FailureCounter
 from auspex.classify.observables import Observable, ObservableType, observable_id
@@ -77,22 +78,14 @@ async def pool(client, settings):
 
 @pytest.fixture
 async def workspace_id(pool):
-    ws = await pool.fetchval(
-        "INSERT INTO workspaces (name) VALUES ($1)"
-        " ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id",
-        "t-timeline",
-    )
+    ws = await ensure_workspace(pool, "t-timeline")
     yield ws
     await pool.execute("DELETE FROM workspaces WHERE id = $1", ws)
 
 
 @pytest.fixture
 async def other_workspace_id(pool):
-    ws = await pool.fetchval(
-        "INSERT INTO workspaces (name) VALUES ($1)"
-        " ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id",
-        "t-timeline-other",
-    )
+    ws = await ensure_workspace(pool, "t-timeline-other")
     yield ws
     await pool.execute("DELETE FROM workspaces WHERE id = $1", ws)
 

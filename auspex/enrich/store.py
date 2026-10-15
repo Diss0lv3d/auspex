@@ -15,7 +15,7 @@ import json
 
 import asyncpg
 
-from auspex.enrich.types import EnrichmentOutcome
+from auspex.enrich.types import EnrichmentOutcome, VerdictLabel
 from auspex.enrich.verdict import synthesize
 from auspex.retrohunt.flips import latest_verdict, record_flip_if_changed
 
@@ -72,6 +72,18 @@ async def persist_enrichment(pool: asyncpg.Pool, workspace_id, outcome: Enrichme
             previous = await latest_verdict(
                 conn, workspace_id=workspace_id, observable_id=observable_row_id
             )
+            # Silence is not evidence (D-017). An `unknown` from this run — only
+            # context such as InternetDB's open ports, or every reputation source
+            # quiet or down — does not replace a label the workspace already
+            # holds: that verdict stands and decays, as D-055 says. It would
+            # otherwise flip malicious → unknown and retire the old verdict's
+            # watchers (S29 review of D-049). A first `unknown` is still written.
+            if (
+                verdict.label is VerdictLabel.UNKNOWN
+                and previous is not None
+                and previous["label"] != VerdictLabel.UNKNOWN.value
+            ):
+                continue
             details = {
                 "signals": [
                     {

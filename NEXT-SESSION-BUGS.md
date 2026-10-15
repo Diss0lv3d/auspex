@@ -1,8 +1,10 @@
 # NEXT-SESSION-BUGS — track: bugs · session: B3
 
 _Paste everything below the line into a fresh Claude Code window opened in
-/home/burhan/auspex-new. The bugs track works from BUGS.md (D-051). The front
-end is the current focus (STATE.md); start B3 only when Burhan picks it._
+/home/burhan/auspex-new. The bugs track works from BUGS.md (D-051). The
+front end is the current focus (F4, STATE.md); start B3 only when Burhan picks
+it. S29's review of S28's code logged B-010…B-020 and S30 logged B-021, so B3
+has work now._
 
 ---
 
@@ -17,17 +19,36 @@ Step 0 (do BEFORE new scope):
 2. **If STATE.md says the promote slate is not empty, `/promote` it.** Read
    the diff, not the list.
 3. **Read BUGS.md, then put the scope question to Burhan before any bug.**
-   B2 fixed B-002, B-004, B-006 and B-008. The only open entries are **B-005
-   and B-009, and both sit next to the deferred fabricated-specifics item**
-   (SESSION-RULES.md, Deferred: "a fix that needs this item goes to Burhan
-   first"). Ask him, with the evidence:
-   - **Does that item come out of Deferred?** That is a scope decision, so it
-     gets a new D-entry, and the fix approach is his call too.
-   - If not, has he **seen anything broken using the platform?** Log each with
-     `/bug` and take the one he picks.
-   - If neither, **end early with the ritual.** A short session is fine.
+   B2 fixed B-002, B-004, B-006 and B-008. S29's review of S28's code logged
+   **B-010…B-020** (record: docs/probes/2026-10-14-s29-s28-code-review.md,
+   scripts in docs/probes/s29-review/). **B-010 is the most severe:** three
+   older classify rules let one crafted message stall the chat route's event
+   loop for seconds (the refang rules, `_GREETING_RE`, `_DOMAIN_CAND_RE`; S29
+   fixed the two S28 rules with possessive quantifiers, `8187925`). **B-005
+   and B-009 still sit next to the deferred fabricated-specifics item**
+   (SESSION-RULES.md, Deferred). **S30 logged B-021** (a re-homed person's
+   audit event names the old organization to the new one's admins); Burhan
+   placed it in S31's Step 0, so take it here only if he says so. Ask him, with
+   the evidence:
+   - **Which open bug first?** The track's default is the top open entry;
+     B-010's severity argues for it.
+   - **Does the fabricated-specifics item come out of Deferred** (for B-005 and
+     B-009)? That is a scope decision and a new D-entry.
+   - Has he **seen anything broken using the platform?** Log each with `/bug`.
+   - **B-011 and B-012 change classifier rules**, so they are judged on blind
+     batteries (SESSION-RULES.md) against pinned operating points. **B-012 is
+     partly Burhan's call:** D-047 counts "bot / chat / platform" as the
+     assistant.
 
-Goal (only if Burhan re-scopes; one bug at a time, his order):
+Goal (one bug at a time, Burhan's order; the S29 entries are in BUGS.md with
+their evidence and the reviewer's repro sketch):
+- **B-010: the classify pass can still be stalled by crafted whitespace or
+  dotted input.** A plain possessive would stop `_DOMAIN_CAND_RE` matching
+  "evil.com." at the end of a sentence, so candidates must start only at the
+  beginning of a dotted run. Pin each rule with a timing test like
+  `tests/test_classifier.py`'s, and prove by differential fuzz that what it
+  matches did not change.
+- **The S29 entries B-011…B-020**, as Burhan picks.
 
 - **B-009: the agent calls a no-signal IP "legitimate"**, inferred from its
   operator and from the absence of signals.

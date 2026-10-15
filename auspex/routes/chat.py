@@ -61,7 +61,7 @@ from auspex.agent.loop import AgentLoop, ToolInvocation
 from auspex.agent.permissions import PgProposalStore
 from auspex.alerts import normalize, score_alert
 from auspex.alerts.render import deterministic_triage_answer, deterministic_triage_block
-from auspex.auth import AuthContext, resolve_user
+from auspex.auth import Analyst, AnyRole, AuthContext
 from auspex.chat_history import pair_turns, title_of
 from auspex.classify import Category, classify, shortcut_answer
 from auspex.classify.observables import ObservableType, extract_observables
@@ -89,12 +89,13 @@ from auspex.outguard import (
 )
 from auspex.phishing import decide_verdict, deterministic_phishing_block, parse_email
 from auspex.phishing.render import deterministic_phishing_answer
+from auspex.tenancy.region import engine_refusal
 
 logger = logging.getLogger("auspex.chat")
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
-Auth = Annotated[AuthContext, Depends(resolve_user)]
+Auth = AnyRole
 
 CHAT_SYSTEM_PROMPT = (
     "You are Auspex, a calm, precise security operations co-analyst. Answer "
@@ -675,7 +676,7 @@ async def list_models(request: Request, auth: Auth) -> dict:
 async def chat(
     request: Request,
     body: ChatBody,
-    auth: Auth,
+    auth: Analyst,
     resolver: Annotated[ChatEndpointResolver, Depends(get_endpoint_resolver)],
 ) -> StreamingResponse:
     pool: asyncpg.Pool = request.app.state.pool
@@ -693,6 +694,13 @@ async def chat(
     # 92/8 gate (S4): code picks the path before the model is ever touched.
     classification = classify(body.message)
     shortcut = shortcut_answer(classification)
+    # D-061: residency is refused by code, before a session or a message is
+    # stored (B-008's rule) and before the endpoint is resolved. Shortcuts need
+    # no engine and pass.
+    if shortcut is None:
+        refusal = engine_refusal(auth.region, _settings(request).engine_region)
+        if refusal is not None:
+            raise HTTPException(status_code=403, detail=refusal)
     if shortcut is None and not resolver.configured:
         raise HTTPException(status_code=503, detail="LLM endpoint not configured")
     session_id = await _ensure_session(pool, auth, body.session_id)
@@ -744,7 +752,7 @@ async def chat(
             and enrichment.active
             and classification.observables
         ):
-            outcome = await enrichment.enrich(classification.observables)
+            outcome = await enrichment.enrich(classification.observables, region=auth.region)
             # A persistence hiccup must not 500 away a fully-computed answer;
             # the copy then says the results were NOT recorded (D-014 — never
             # claim storage that didn't happen). S5 review finding.
@@ -887,6 +895,7 @@ async def chat(
             build_capability_registry(
                 enrichment=request.app.state.enrichment,
                 kb=request.app.state.kb,
+                region=auth.region,
                 observables=classification.observables,
                 # D-039: what the ANALYST supplied earlier in the session may be
                 # looked up; the model's own answers supply nothing.

@@ -13,6 +13,7 @@ import asyncio
 
 import asyncpg
 import pytest
+from _tenancy import ensure_workspace
 
 from auspex.classify.observables import Observable, ObservableType, observable_id
 from auspex.db import create_pool
@@ -65,11 +66,7 @@ async def pool(client, settings):
 
 
 async def _workspace(pool, name: str):
-    return await pool.fetchval(
-        "INSERT INTO workspaces (name) VALUES ($1)"
-        " ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id",
-        name,
-    )
+    return await ensure_workspace(pool, name)
 
 
 @pytest.fixture

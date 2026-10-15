@@ -74,6 +74,7 @@ def _concept_hit() -> KBHit:
 
 def _build(*, enrichment=None, kb=None, observables=()):
     return build_capability_registry(
+        region="global",
         enrichment=enrichment or FakeEnrichmentService(EnrichmentOutcome(items=())),
         kb=kb or FakeKnowledgeService(),
         observables=observables,
@@ -661,7 +662,7 @@ class _LooksUpEverything(FakeEnrichmentService):
     def __init__(self):
         super().__init__(EnrichmentOutcome(items=()))
 
-    async def enrich(self, observables):
+    async def enrich(self, observables, *, region):
         self.enrich_calls.append(observables)
         return EnrichmentOutcome(
             items=tuple(ObservableEnrichment(observable=o, sources_answered=1) for o in observables)
@@ -737,6 +738,7 @@ async def test_an_indicator_from_an_earlier_analyst_message_was_supplied():
     be looked up now — the route passes them as `supplied`."""
     service = _LooksUpEverything()
     registry = build_capability_registry(
+        region="global",
         enrichment=service, kb=FakeKnowledgeService(),
         observables=_obs("and what about the other one?"),
         supplied=_obs("yesterday we saw 198.51.100.23 beaconing"),
@@ -760,6 +762,53 @@ async def test_an_indicator_one_of_our_tools_returned_was_supplied():
     await registry.get("enrich_observable").handler({"observables": ["evil.example.com"]})
 
     assert [o.value for call in service.enrich_calls for o in call] == ["evil.example.com"]
+
+
+@pytest.mark.parametrize(("whole", "cut"), [
+    ("185.220.101.45", "185.220.101.4"),
+    ("badsite.com", "badsite.co"),
+    ("a" * 64, "a" * 40),  # a SHA-256 cut down to a SHA-1's length
+])
+async def test_a_snippet_cut_inside_an_indicator_supplies_neither_half(whole, cut):
+    """S29 review of D-049. The result shows the model only the first
+    SNIPPET_CHARS of a hit, and a cut that lands inside an indicator leaves a
+    different, real one: the next address down, a shorter domain, a hash of
+    another type. Nobody supplied that one. It must not go to a provider, nor
+    be recorded in the workspace (D-039, D-049)."""
+    text = "z" * (SNIPPET_CHARS - len(cut) - 1) + f" {whole} was the C2 server."
+    hit = _cve_hit(text=text)
+    service = _LooksUpEverything()
+    recorded = []
+
+    async def record(o):
+        recorded.append(o)
+        return 1
+
+    registry = build_capability_registry(
+        region="global",
+        enrichment=service, kb=FakeKnowledgeService(hits=[hit]), observables=(), record=record,
+    )
+    shown = await registry.get("search_knowledge").handler({"query": "c2"})
+    assert shown["results"][0]["text"].endswith(f" {cut}")  # what the model saw
+    result = await registry.get("enrich_observable").handler({"observables": [cut]})
+
+    assert service.enrich_calls == []
+    assert recorded == []
+    assert result["results"][0]["not_checked"] == NOT_SUPPLIED_SKIP
+
+
+async def test_an_indicator_wholly_inside_a_cut_snippet_is_still_supplied():
+    """The cut takes away only what it split. An indicator the model was shown
+    whole, ahead of the cut, came from our own source and may be looked up."""
+    text = "Campaign C2 at 185.220.101.45 rotated weekly. " + "z" * SNIPPET_CHARS
+    hit = _cve_hit(text=text)
+    service = _LooksUpEverything()
+    registry = _build(enrichment=service, kb=FakeKnowledgeService(hits=[hit]))
+
+    await registry.get("search_knowledge").handler({"query": "c2"})
+    await registry.get("enrich_observable").handler({"observables": ["185.220.101.45"]})
+
+    assert [o.value for call in service.enrich_calls for o in call] == ["185.220.101.45"]
 
 
 async def test_the_models_own_earlier_answer_supplies_nothing():
@@ -824,6 +873,7 @@ async def test_an_enrichment_the_agent_ran_is_recorded_and_the_model_is_told():
         return 1
 
     registry = build_capability_registry(
+        region="global",
         enrichment=FakeEnrichmentService(outcome), kb=FakeKnowledgeService(),
         observables=observables, record=record,
     )
@@ -843,6 +893,7 @@ async def test_a_recording_that_failed_is_said_and_the_results_still_return():
         raise RuntimeError("simulated storage failure")
 
     registry = build_capability_registry(
+        region="global",
         enrichment=FakeEnrichmentService(_malicious(observables[0])),
         kb=FakeKnowledgeService(), observables=observables, record=record,
     )
@@ -864,6 +915,7 @@ async def test_nothing_looked_up_means_nothing_recorded():
         return 0
 
     registry = build_capability_registry(
+        region="global",
         enrichment=FakeEnrichmentService(EnrichmentOutcome(items=())),
         kb=FakeKnowledgeService(), observables=observables, record=record,
     )

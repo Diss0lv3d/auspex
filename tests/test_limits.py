@@ -10,6 +10,7 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from _tenancy import ensure_workspace
 
 from auspex.db import create_pool
 from auspex.limits import (
@@ -31,11 +32,7 @@ async def pool(client, settings):
 
 @pytest.fixture
 async def workspace_id(pool):
-    ws = await pool.fetchval(
-        "INSERT INTO workspaces (name) VALUES ($1)"
-        " ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id",
-        "t-limits",
-    )
+    ws = await ensure_workspace(pool, "t-limits")
     yield ws
     await pool.execute("DELETE FROM workspaces WHERE id = $1", ws)
 
@@ -156,10 +153,7 @@ async def test_an_unmetered_plan_still_counts(pool, workspace_id):
 async def test_workspaces_are_metered_independently(pool, workspace_id):
     """D-008 tenancy, applied to spend: one workspace exhausting its plan must
     not affect another's."""
-    other = await pool.fetchval(
-        "INSERT INTO workspaces (name) VALUES ('t-limits-other')"
-        " ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id"
-    )
+    other = await ensure_workspace(pool, "t-limits-other")
     try:
         limiter = UsageLimiter(pool)
         limit = PLANS["free"].inference_calls_per_hour

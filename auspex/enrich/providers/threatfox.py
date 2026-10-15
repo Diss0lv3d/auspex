@@ -26,6 +26,7 @@ def _is_no_result(status: str) -> bool:
 
 class ThreatFox(Provider):
     name = "ThreatFox"
+    region = "global"
     accepts = frozenset(
         {
             ObservableType.IPV4,

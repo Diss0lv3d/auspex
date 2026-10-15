@@ -22,6 +22,7 @@ import uuid
 from unittest import mock
 
 import pytest
+from _tenancy import ensure_member, ensure_workspace
 
 from auspex.actions import (
     STALE_CLAIM_SECONDS,
@@ -59,22 +60,14 @@ async def pool(client, settings):
 
 @pytest.fixture
 async def workspace_id(pool):
-    ws = await pool.fetchval(
-        "INSERT INTO workspaces (name) VALUES ($1)"
-        " ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id",
-        "t-settlement",
-    )
+    ws = await ensure_workspace(pool, "t-settlement")
     yield ws
     await pool.execute("DELETE FROM workspaces WHERE id = $1", ws)
 
 
 @pytest.fixture
 async def other_workspace_id(pool):
-    ws = await pool.fetchval(
-        "INSERT INTO workspaces (name) VALUES ($1)"
-        " ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id",
-        "t-settlement-other",
-    )
+    ws = await ensure_workspace(pool, "t-settlement-other")
     yield ws
     await pool.execute("DELETE FROM workspaces WHERE id = $1", ws)
 
@@ -682,10 +675,7 @@ async def route_ws(pool, client):
     Same get-or-create as `auth.py:135`, so the fixture provisions it exactly
     the way a real dev-login does instead of inventing a second shape.
     """
-    ws = await pool.fetchval(
-        "INSERT INTO workspaces (name) VALUES ('default')"
-        " ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id"
-    )
+    ws = await ensure_workspace(pool, "default")
     assert ws is not None
     value = "route-settlement.test"
     obs_id = observable_id(ObservableType.DOMAIN, value)
@@ -2064,9 +2054,7 @@ async def test_a_queue_row_nobody_looked_up_twins_for_does_not_say_it_has_none(
 
 async def _two_users(pool, workspace_id):
     return [
-        await pool.fetchval(
-            "INSERT INTO users (workspace_id, email) VALUES ($1, $2) RETURNING id",
-            workspace_id, email)
+        await ensure_member(pool, workspace_id, email)
         for email in ("approver@settlement.test", "resolver@settlement.test")
     ]
 

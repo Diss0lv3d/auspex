@@ -5,6 +5,8 @@ routing decision. Bias rule under test: errors must fall toward DEEP (wrong
 deep = wasted tokens; wrong shortcut = wrong answer).
 """
 
+import time
+
 from auspex.classify import Category, ObservableType, classify
 
 
@@ -245,3 +247,50 @@ def test_a_question_about_notes_keeps_its_shortcut():
     for q in ["what notes already exist on evil-cdn[.]net?",
               "Who added the note on 198.51.100.4 and when?"]:
         assert _cat(q) is Category.IOC_CHECK, q
+
+
+# -- S29 review of S28's code: its two lead-in rules are bounded ---------------
+#
+# classify() runs inside the chat route's event loop (auspex/routes/chat.py), so
+# a rule that backtracks on crafted input stalls every request on the worker.
+# D-047's lead-in and D-050's note-request prefix each held two `\s*` with only
+# optional text between them, and a run of whitespace could be split between
+# them in every way: measured 1.3 s for a 55-character identity question (x5
+# per extra "hi"; the 80-character cap allowed ~13 min), and ~1 min for a
+# 32,000-character note request, run twice a turn. The inputs below are sized
+# so a regressed rule fails in seconds, not hangs the gate. Three older rules
+# in the same pass still backtrack (B-010).
+_BOUNDED_MS = 50
+
+
+def _elapsed_ms(fn, arg) -> float:
+    start = time.perf_counter()
+    fn(arg)
+    return (time.perf_counter() - start) * 1000
+
+
+def test_the_identity_lead_in_does_not_backtrack():
+    for lead in ("hi    ", "ok 　 ", "so , - "):
+        q = lead * 9 + "x"
+        assert _elapsed_ms(classify, q) < _BOUNDED_MS, repr(q)
+
+
+def test_the_note_request_prefix_does_not_backtrack():
+    from auspex.classify.classifier import is_note_request
+
+    for lead in ("hey", "hi", "ok", "so", "btw"):
+        q = lead + " " * 8000 + "x"
+        assert _elapsed_ms(is_note_request, q) < _BOUNDED_MS, lead
+
+
+def test_the_bounded_rules_still_read_their_lead_ins():
+    """Possessive whitespace changes how the rules match, not what: the next
+    token after a lead-in is never whitespace."""
+    from auspex.classify.classifier import is_note_request
+
+    for q in ("hey, who made you?", "so -- but who made you", "quick question: who trained you",
+              "btw—who built you", "hi    who are you"):
+        assert classify(q).category is Category.IDENTITY, q
+    for q in ("hey, add a note to 203.0.113.9: pentest box", "ok   add a note on it",
+              "btw: annotate 203.0.113.9 as our scanner"):
+        assert is_note_request(q), q

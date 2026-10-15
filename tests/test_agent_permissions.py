@@ -6,6 +6,8 @@ dev DB (reality over memory) and cleans up its own workspace.
 
 import json
 
+from _tenancy import ensure_workspace
+
 from auspex.agent.permissions import (
     PermissionOutcome,
     PgProposalStore,
@@ -36,9 +38,7 @@ def test_unknown_level_fails_safe_to_propose():
 async def test_pg_proposal_store_round_trips(client, settings):
     pool = await create_pool(settings.database_url, retries=2, delay=0.5)
     try:
-        workspace_id = await pool.fetchval(
-            "INSERT INTO workspaces (name) VALUES ('t-propstore') RETURNING id"
-        )
+        workspace_id = await ensure_workspace(pool, "t-propstore")
         store = PgProposalStore(pool)
         proposal_id = await store.create(
             workspace_id=workspace_id,

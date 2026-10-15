@@ -1214,7 +1214,8 @@ def _no_usage_residue(settings):
         conn = await asyncpg.connect(settings.database_url)
         try:
             ws = await conn.fetchval(
-                "SELECT workspace_id FROM users WHERE email = $1", CHAT_EMAIL
+                "SELECT m.workspace_id FROM memberships m JOIN users u ON u.id = m.user_id"
+                " WHERE u.email = $1", CHAT_EMAIL
             )
             if ws:
                 await conn.execute(
@@ -1622,7 +1623,7 @@ def test_a_recitation_in_the_agent_paths_thinking_is_still_cut(client, settings,
     docs/probes/2026-10-13-b2-b002-reproduce-and-calibrate.md)."""
     from auspex.agent.capabilities import build_capability_registry
 
-    registry = build_capability_registry(enrichment=client.app.state.enrichment,
+    registry = build_capability_registry(enrichment=client.app.state.enrichment, region="global",
                                          kb=client.app.state.kb)
     text = (DEFAULT_SYSTEM_PROMPT if recited == "system message"
             else registry.get("enrich_observable").description)
@@ -1811,7 +1812,8 @@ def _analyst_workspace(settings):
         conn = await asyncpg.connect(settings.database_url)
         try:
             return await conn.fetchval(
-                "SELECT workspace_id FROM users WHERE email = $1", CHAT_EMAIL
+                "SELECT m.workspace_id FROM memberships m JOIN users u ON u.id = m.user_id"
+                " WHERE u.email = $1", CHAT_EMAIL
             )
         finally:
             await conn.close()
@@ -2003,7 +2005,7 @@ def test_a_recitation_of_what_the_tools_were_told_is_cut_off(client, settings, r
     from auspex.agent.capabilities import build_capability_registry
     from auspex.agent.loop import _SYNTHESIS_NUDGE
 
-    registry = build_capability_registry(enrichment=client.app.state.enrichment,
+    registry = build_capability_registry(enrichment=client.app.state.enrichment, region="global",
                                          kb=client.app.state.kb)
     text = (registry.get("enrich_observable").description if recited == "tool description"
             else _SYNTHESIS_NUDGE)
@@ -2665,7 +2667,8 @@ def _chat_workspace(settings):
         conn = await asyncpg.connect(settings.database_url)
         try:
             return await conn.fetchval(
-                "SELECT workspace_id FROM users WHERE email = $1", CHAT_EMAIL)
+                "SELECT m.workspace_id FROM memberships m JOIN users u ON u.id = m.user_id"
+                " WHERE u.email = $1", CHAT_EMAIL)
         finally:
             await conn.close()
 

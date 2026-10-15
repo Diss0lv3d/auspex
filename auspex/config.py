@@ -10,6 +10,8 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from auspex.tenancy.region import REGIONS
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -52,6 +54,12 @@ class Settings(BaseSettings):
     otx_api_key: str = ""  # optional — OTX answers keyless (probed); key raises limits
     greynoise_api_key: str = ""
 
+    # --- Residency (D-061, S30). Where this deployment's engine processes the
+    # data it is sent. A workspace in another region gets no engine turn
+    # (auspex/tenancy/region.py). Unset ⇒ global, which fails safe: a global
+    # engine serves no ksa workspace.
+    engine_region: str = "global"
+
     # --- Knowledge base (S6). Lives on the OpenSearch container (D-009);
     # embeddings are server-side via the ML plugin (D-018). Tests/host runs pin
     # KB_ENABLED=false (hermetic; KB mockable at app.state.kb); container
@@ -75,6 +83,10 @@ class Settings(BaseSettings):
     def model_post_init(self, __context: object) -> None:
         if self.app_env not in ("dev", "prod"):
             raise RuntimeError(f"APP_ENV must be 'dev' or 'prod', got {self.app_env!r}")
+        if self.engine_region not in REGIONS:
+            raise RuntimeError(
+                f"ENGINE_REGION must be one of {sorted(REGIONS)}, got {self.engine_region!r}"
+            )
         if not self.secret_key:
             if self.app_env == "prod":
                 raise RuntimeError("SECRET_KEY is required when APP_ENV=prod")

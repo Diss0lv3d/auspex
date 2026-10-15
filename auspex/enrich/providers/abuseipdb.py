@@ -66,6 +66,7 @@ def _with(signal: ProviderSignal, network: NetworkContext | None) -> LookupResul
 
 class AbuseIPDB(Provider):
     name = "AbuseIPDB"
+    region = "global"
     accepts = frozenset({ObservableType.IPV4, ObservableType.IPV6})
 
     def __init__(self, api_key: str) -> None:

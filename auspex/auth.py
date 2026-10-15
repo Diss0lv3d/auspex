@@ -15,14 +15,15 @@ import hashlib
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Annotated
 from uuid import UUID
 
 import asyncpg
 import jwt
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 
 from auspex.config import Settings
-from auspex.llm.scorecard import DEPLOYMENT_WORKSPACE
+from auspex.tenancy.access import enterable_workspaces, home_org
 
 API_KEY_PREFIX = "apx_"
 JWT_ALGORITHM = "HS256"
@@ -67,7 +68,20 @@ def decode_jwt(settings: Settings, token: str) -> dict:
     )
 
 
+def _claim_uuid(claims: dict, name: str) -> UUID:
+    """A token's id claim. Only a UUID string is one; anything else (a number, a
+    list) is a bad token, refused like one."""
+    value = claims[name]
+    if not isinstance(value, str):
+        raise ValueError(f"the {name} claim is not a UUID")
+    return UUID(value)
+
+
 # --- The chokepoint -----------------------------------------------------------
+
+
+NO_ACCESS = "You no longer have access to this workspace."
+NO_WORKSPACE = "There is no workspace you may enter. Ask an administrator to add you."
 
 
 @dataclass(frozen=True)
@@ -75,6 +89,28 @@ class AuthContext:
     user_id: UUID
     workspace_id: UUID
     via: str  # "jwt" | "api_key"
+    role: str  # admin | analyst | viewer — resolved live, never from the token
+    home_org_id: UUID
+    region: str  # the active workspace's region (D-061's guard reads it)
+
+
+async def _context(pool: asyncpg.Pool, user_id: UUID, workspace_id: UUID, via: str) -> AuthContext:
+    """D-061: a token names one workspace, and access to it is re-checked on
+    EVERY request, so a removed membership ends access at the next request."""
+    home = await home_org(pool, user_id)
+    if home is None:
+        raise HTTPException(status_code=401, detail="Unknown user")
+    access = (await enterable_workspaces(pool, user_id, only=workspace_id)).get(workspace_id)
+    if access is None:
+        raise HTTPException(status_code=403, detail=NO_ACCESS)
+    return AuthContext(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        via=via,
+        role=access.role,
+        home_org_id=home,
+        region=access.region,
+    )
 
 
 async def resolve_user(request: Request) -> AuthContext:
@@ -87,16 +123,10 @@ async def resolve_user(request: Request) -> AuthContext:
         token = authorization.removeprefix("Bearer ").strip()
         try:
             claims = decode_jwt(settings, token)
-        except jwt.InvalidTokenError as err:
+            user_id, workspace_id = _claim_uuid(claims, "sub"), _claim_uuid(claims, "wid")
+        except (jwt.InvalidTokenError, ValueError) as err:
             raise HTTPException(status_code=401, detail="Invalid or expired token") from err
-        row = await pool.fetchrow(
-            "SELECT id, workspace_id FROM users WHERE id = $1 AND workspace_id = $2",
-            UUID(claims["sub"]),
-            UUID(claims["wid"]),
-        )
-        if row is None:
-            raise HTTPException(status_code=401, detail="Unknown user")
-        return AuthContext(user_id=row["id"], workspace_id=row["workspace_id"], via="jwt")
+        return await _context(pool, user_id, workspace_id, "jwt")
 
     api_key = request.headers.get("X-API-Key", "")
     if api_key:
@@ -109,56 +139,41 @@ async def resolve_user(request: Request) -> AuthContext:
         )
         if row is None:
             raise HTTPException(status_code=401, detail="Invalid API key")
+        context = await _context(pool, row["user_id"], row["workspace_id"], "api_key")
         await pool.execute(
             "UPDATE api_keys SET last_used_at = now() WHERE key_hash = $1",
             hash_api_key(api_key),
         )
-        return AuthContext(user_id=row["user_id"], workspace_id=row["workspace_id"], via="api_key")
+        return context
 
     raise HTTPException(status_code=401, detail="Not authenticated")
 
 
-# --- User provisioning (v0: single get-or-create default workspace) ------------
+AnyRole = Annotated[AuthContext, Depends(resolve_user)]
 
 
-async def get_or_create_user(
-    pool: asyncpg.Pool,
-    email: str,
-    display_name: str = "",
-    google_sub: str | None = None,
-    workspace_name: str = "default",
-) -> tuple[UUID, UUID]:
-    """Return (user_id, workspace_id), creating workspace/user rows as needed."""
-    if workspace_name == DEPLOYMENT_WORKSPACE:
-        # The deployment's system workspace holds what is configured per
-        # deployment (D-035). A user inside it could read, and a later writer
-        # could poison, what every tenant's turn is compiled from.
-        raise ValueError(f"{DEPLOYMENT_WORKSPACE!r} is reserved for the deployment")
-    async with pool.acquire() as conn, conn.transaction():
-        # Race-safe get-or-create: INSERT..ON CONFLICT DO NOTHING relies on the UNIQUE
-        # index on workspaces.name; on conflict we re-SELECT the existing row.
-        workspace_id = await conn.fetchval(
-            "INSERT INTO workspaces (name) VALUES ($1) ON CONFLICT (name) DO NOTHING RETURNING id",
-            workspace_name,
-        )
-        if workspace_id is None:
-            workspace_id = await conn.fetchval(
-                "SELECT id FROM workspaces WHERE name = $1", workspace_name
+def require_role(*roles: str):
+    """A dependency that admits only `roles` in the ACTIVE workspace (D-061).
+    The role comes from resolve_user's live re-check, never from the token."""
+    unknown = set(roles) - {"admin", "analyst", "viewer"}
+    if unknown:
+        raise ValueError(f"unknown roles: {sorted(unknown)}")
+
+    async def dependency(auth: AnyRole) -> AuthContext:
+        if auth.role not in roles:
+            raise HTTPException(
+                status_code=403,
+                detail=f"This needs the {' or '.join(roles)} role in this workspace.",
             )
-        user_id = await conn.fetchval(
-            """
-            INSERT INTO users (workspace_id, email, display_name, google_sub)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (workspace_id, email) DO UPDATE
-                SET display_name = CASE WHEN EXCLUDED.display_name <> ''
-                                        THEN EXCLUDED.display_name
-                                        ELSE users.display_name END,
-                    google_sub = COALESCE(EXCLUDED.google_sub, users.google_sub)
-            RETURNING id
-            """,
-            workspace_id,
-            email,
-            display_name,
-            google_sub,
-        )
-    return user_id, workspace_id
+        return auth
+
+    return dependency
+
+
+# Module-level singletons: the structural tests find a route's guard by
+# identity (tests/test_tenancy_roles.py).
+require_admin = require_role("admin")
+require_analyst = require_role("analyst", "admin")
+
+Analyst = Annotated[AuthContext, Depends(require_analyst)]
+Admin = Annotated[AuthContext, Depends(require_admin)]

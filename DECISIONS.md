@@ -2231,3 +2231,321 @@ stand.
   prove who is at the keyboard.
 - GitHub access is Burhan's to give and take away, in the repo's settings.
   Removing a row does not revoke access.
+
+## D-060 — The integration phase's words: organization, workspace, membership, connector, integration, Edge Agent, case (2026-10-15, S29)
+
+**Context.** The integration phase (S29–S41, F4–F9) needs one vocabulary
+before any table, route or page is named. The plan proposed "integration" for
+the package, "application" for the configured instance, "runner" and
+"incident".
+
+**Decision (Burhan's call, S29: rename all four).**
+- **Connector**: the package a customer, an MSSP or Auspex writes with the SDK
+  (manifest plus Python handlers; commands `test`, `fetch`, `action`).
+- **Integration**: a connector configured in one workspace.
+- **Case**: the analyst's unit of work. "Incident" stays free for a SIEM's own
+  word (a QRadar offense, a Sentinel incident). Not `investigations`.
+- **Edge Agent / Cloud Agent**: what runs an integration's commands. In code,
+  `auspex/edge/`, kept apart from the co-analyst's `auspex/agent/`.
+- Unchanged from the plan: **organization** (direct, provider, client),
+  **workspace** (the isolation unit), **membership**, **routing key / map /
+  quarantine**, **alert**.
+
+The table with every definition is in docs/superpowers/specs/2026-10-15-integration-phase-design.md.
+
+**What this supersedes.** Nothing ratified. The plan's words in both prompt
+files are rewritten to these (S29 goal 3).
+
+**Bounds, stated.** Customer-facing copy follows D-002 as ever: the engine is
+never named.
+
+## D-061 — Tenancy for MSSPs: organizations own workspaces, memberships carry roles, one workspace per token, and a region guard (2026-10-15, S29)
+
+**Context.** Burhan, 2026-10-14: "My other concern is MSSP clients and their
+multi tenancy problem". Today a user row belongs to one workspace, `users.role`
+is never read, and engines are deployment-wide (D-005, D-035). S30 builds this
+before anything else stands on roles.
+
+**Decision (Burhan's calls, S29, one at a time).**
+1. **Organizations own workspaces; a provider has its own workspace** (over
+   org-owned rows or a polymorphic owner). Shared integrations, routing maps,
+   quarantine and their jobs live there, so every data row keeps
+   `workspace_id` (D-008 unchanged). Exemptions in the schema test:
+   `organizations`, and `users` once identity leaves the workspace.
+2. **One user per person**, with a home organization; email unique across the
+   deployment. TD-001 still gates Google sign-in.
+3. **Memberships: explicit by default, plus an opt-in provider-wide grant**
+   (Burhan: both). A provider-wide grant applies in every current and future
+   client workspace **except a client marked `restricted`**. A membership's
+   workspace must belong to the user's home organization or a client of it,
+   enforced by code. One function computes the workspaces a person may enter,
+   and every token mint and cross-client view uses it.
+4. **Roles: `admin`, `analyst`, `viewer`** (over adding `approver`, or two
+   roles). Who may approve is the workspace's approval policy (S34), not a
+   role.
+5. **One workspace per token**, minted only for an enterable workspace;
+   switching is audited; a removed membership ends access at the next request.
+   Nothing takes a workspace or tenant id from input.
+6. **Residency is a region guard** (over per-workspace or per-organization
+   engines). Each workspace carries a region and the deployment declares its
+   engine's (`ENGINE_REGION`, born in S30). Code refuses an engine turn the
+   engine may not serve, **and the same guard covers third-party enrichment**:
+   a `ksa` workspace gets no third-party lookups until an in-region provider
+   exists. LLM-free paths keep working.
+7. Shared SIEMs route by a routing map in the provider's workspace; an unmapped
+   item is quarantined there, never guessed. Every case event, approval and
+   switch records the actor and their home organization. Herd Immunity stays
+   deferred.
+
+Detail: docs/superpowers/specs/2026-10-15-integration-phase-design.md, D-061.
+
+**What this supersedes.** Nothing ratified. D-008 stands. D-005 and D-035
+stand; a guard is added. `users.workspace_id` and `users.role` are migrated by
+S30.
+
+**Bounds, stated.**
+- Per-workspace engines stay in ROADMAP's Later ("KSA residency routing"), so a
+  KSA client on a non-KSA deployment has no co-analyst turns.
+- A provider-wide grant reaches every unrestricted client the moment it is
+  created; restricting a client is the MSSP admin's act.
+
+## D-062 — Connector code runs on an outbound-only Edge Agent, and later a Cloud Agent, from hash-pinned packages (2026-10-15, S29)
+
+**Context.** Burhan: "Some security controls are on-prem only, how do you
+propose to handle them considering we are a cloud based app".
+
+**Decision (Burhan's call, S29: the proposal, ratified).**
+- **One image, two placements.** The Edge Agent runs on the customer's or
+  MSSP's network; the Cloud Agent (S41) is the same image run by Auspex,
+  isolated, for internet-reachable controls, first-party connectors only.
+- **Outbound only**: HTTPS long-poll for jobs, results posted back; no inbound
+  rule, no VPN.
+- **An agent belongs to one workspace** and serves only its integrations (over
+  letting a provider's agent serve its clients' workspaces). Its credential is
+  enrolled with a one-time token, stored hashed, revocable, and reaches only the
+  edge API.
+- **Code is pulled from the catalogue by content hash, or installed locally on
+  air-gapped sites** (Burhan: both). Either way a package runs only after its
+  hash matches the job's, so what was approved is what runs. S33 builds
+  pull-by-hash; local install comes with the first site that needs it.
+- A customer-written connector runs only on that customer's own agent (v1).
+- Each command runs in a subprocess with a timeout; the SDK's HTTP client
+  reaches only declared hosts; TLS is verified or pinned, never off. Core code
+  validates every result against its output schema before anything uses it.
+- Offline is a state (heartbeats: online, stale, offline); approved actions
+  wait, and D-048's doors apply. Every job carries an idempotency key.
+- Raw on-prem data and credentials stay on the edge; D-061 governs what
+  crosses.
+
+Detail: docs/superpowers/specs/2026-10-15-integration-phase-design.md, D-062.
+
+**What this supersedes.** Nothing ratified.
+
+**Bounds, stated.** Customer code on Auspex infrastructure needs per-tenant
+sandboxes and a later D-entry. Inside the Edge Agent, a customer's own code is
+not sandboxed from the agent: it is their code on their host.
+
+## D-063 — Edge secrets are names in Auspex; only Cloud Agent secrets are sealed in Auspex (2026-10-15, S29)
+
+**Decision (Burhan's call, S29: names only, over sealing to the agent's key
+or storing values in Auspex).**
+- An integration's config holds `secret:<name>`. The value lives on the Edge
+  Agent's host (a 0600 secret file, an env var, or a vault reference). Auspex
+  never holds an edge secret, encrypted or not. A missing secret fails "Test
+  connection" naming the secret and the agent.
+- Cloud Agent secrets (S41) are sealed in Auspex: envelope encryption under a
+  documented master key, rotatable, write-only.
+- No secret value ever reaches an API response, a log, the page or the model;
+  tests scan for it. A credential pasted into a conversation is refused and
+  rotation requested.
+
+Detail: docs/superpowers/specs/2026-10-15-integration-phase-design.md, D-063.
+
+**What this supersedes.** Nothing ratified.
+
+**Bounds, stated.** Setting up an edge integration takes a second step on the
+agent's host.
+
+## D-064 — The connector contract v1: one canonical manifest, written in Python or YAML, compiled to today's ActionSpec (2026-10-15, S29)
+
+**Decision (Burhan's calls, S29).**
+- **Both authoring formats, one reader.** A connector is written Python-first
+  (SDK decorators) or as hand-written YAML with Python handlers;
+  `auspex-sdk build` turns either into the same `manifest.json`, package and
+  content hash, and for YAML checks every named handler exists with matching
+  parameters. **The core reads only `manifest.json`**, never YAML and never
+  connector code (a structural test).
+- **The package's content hash is its identity**; first-party is set by the
+  catalogue, never self-declared.
+- **The manifest**: identity; typed config (`secret` is a name; `tls` is verify
+  or a pin, and off is unrepresentable); declared hosts; `test`;
+  `fetch(cursor, limit)` with items carrying `external_id`, kind, the
+  `AlertEnvelope` fields, a capped `raw` and a `routing_key` when shared;
+  `actions[]` with risk, primitive params, a required dry run, an undo with
+  `cannot_restore`, an output schema and `targets`.
+- **`validate_manifest` refuses with exact reasons**, one table-driven test per
+  rule.
+- **A manifest action compiles to an `ActionSpec`** whose dry run, execute and
+  undo are distinct job dispatchers, so `validate_spec` passes unchanged. Wire
+  names are prefixed per integration. **The spec fingerprint gains the
+  connector id and package hash**, closing D-024's handler-body gap for
+  connectors.
+- The model's text is composed by code from typed fields and capped;
+  customer-written descriptions join the rail's index, measured (TD-044) at
+  S34.
+
+Detail: docs/superpowers/specs/2026-10-15-integration-phase-design.md, D-064.
+
+**What this supersedes.** Nothing ratified. D-023's contract is what a
+connector action compiles to.
+
+**Bounds, stated.** Proposing a connector action needs its agent online (the
+card comes from a dry-run job). Params stay primitive until TD-023(d).
+
+## D-065 — The jobs queue is our own Postgres table, claimed with SKIP LOCKED (2026-10-15, S29)
+
+**Context.** D-001 promised "jobs via SKIP LOCKED" in Postgres; none exists.
+Background work is plain asyncio tasks in the lifespan.
+
+**Decision (Burhan's call, S29: our own table, over a job library or an
+external broker).**
+- A workspace-scoped `jobs` table claimed with `FOR UPDATE SKIP LOCKED`, in
+  settlement's style (conditional UPDATEs, claim tokens): a lease that expires,
+  bounded retries with backoff, a dead state, an idempotency key unique per
+  workspace.
+- Two kinds of claimer: Edge Agents over HTTP (their own integrations' jobs
+  only), and an in-app worker started in the lifespan.
+- A result for a job the claimer no longer holds is refused.
+- The claim order serves workspaces in turn, so one busy client cannot starve
+  the rest; a test proves it.
+
+Detail: docs/superpowers/specs/2026-10-15-integration-phase-design.md, D-065.
+
+**What this supersedes.** Nothing; it keeps D-001's promise.
+
+**Bounds, stated.** A polled queue; LISTEN/NOTIFY is not in v1.
+
+## D-066 — TD-023 and TD-025 leave Deferred for the integration phase, in TD-025's own order (2026-10-15, S29)
+
+**Decision (Burhan's call, S29).** Both leave SESSION-RULES.md's Deferred
+list (its own commit), and are worked in this order:
+- **S30:** roles are real (D-061), so `decided_by` can be enforced once S34's
+  policy reads them.
+- **S31:** pending proposals expire after a TTL (a new status in the one
+  status-CHECK block); every execution attempt carries an idempotency key,
+  handed to execute, undo and observe.
+- **S32:** the catalogue answers "which actions does this tenant have?" per
+  workspace.
+- **S34:** grant-checked scope before the first third-party action runs; on a
+  shared integration, only its item's routing key. `EXECUTABLE_SYSTEMS` widens
+  by code and review (D-024).
+
+Still deferred: array params (TD-023(d)) and the polled card stream (TD-046).
+Detail: docs/superpowers/specs/2026-10-15-integration-phase-design.md, D-066.
+
+**What this supersedes.** Nothing ratified; it re-scopes two Deferred items.
+
+## D-067 — The phase's live QRadar checks run on a synthetic-only lab domain (2026-10-15, S29)
+
+**Context.** Burhan's QRadar holds real data
+(docs/probes/2026-10-14-qradar-reachability.md), and the dev engine processes
+in Singapore, where only lab or synthetic data may go (org policy).
+
+**Decision (Burhan's call, S29: a lab domain, over a separate lab QRadar or
+live checks that never reach the engine).** The phase's live checks use a
+QRadar domain holding only the synthetic offenses S36's recipe creates, and the
+Edge Agent's token is scoped to that domain alone, so a fetch can only return
+synthetic items, by QRadar's own permissions. It doubles as the MSSP routing
+test (domain → workspace). CI's QRadar fake is built from synthetic recorded
+responses only.
+
+**Bounds, stated.** S36's Step 0 must confirm Burhan's edition has domain
+management. If it does not, the choice returns to him.
+
+## D-068 — S30's tenancy calls: the CLI creates organizations, dev logins auto-provision, one organization per migrated workspace, admins read the audit, global serves global (2026-10-15, S30)
+
+**Context.** D-061 decided the tenancy model and left five questions to S30.
+Burhan answered each, one at a time, and approved the design section by
+section (docs/superpowers/specs/2026-10-15-s30-tenancy-design.md).
+
+**Decision (Burhan's calls, S30).**
+1. **Only a CLI creates organizations and workspaces** (`python -m auspex.tenancy`,
+   run in the app container), each with its first admin. Over HTTP, workspace
+   admins manage memberships only. There is no operator role, and
+   `__deployment__` stays memberless (D-035).
+2. **A dev login auto-provisions as before**: an unknown email becomes a person
+   homed in `default`'s organization, with an `analyst` membership there.
+   **Google sign-in never provisions**; the person must exist (TD-001 still
+   gates it).
+3. **The migration makes one `direct` organization per existing workspace**;
+   users keep their ids. Two user rows sharing a case-folded email stop the
+   migration, with a count and no email.
+4. **Workspace admins read their own workspace's audit trail**
+   (`GET /api/audit`). It records entries (login and switch), membership
+   changes, provider-wide grants and the CLI's acts, each with the actor and
+   their home organization. Append-only.
+5. **Regions are `global` and `ksa`; a processor serves `global` workspaces and
+   its own region.** `ENGINE_REGION` unset means `global`, and an unknown value
+   stops startup.
+
+**Also decided in the design, ratified with it.**
+- An explicit membership's role wins over a provider-wide grant on the same
+  workspace.
+- A token whose access is gone answers 403; 401 stays for a bad token.
+- `POST /api/auth/switch` is the one route that takes a workspace id from
+  input, and it needs a login session.
+- No one changes their own membership.
+- The region refusal sits in the route bodies, not in the test-seam
+  factories.
+- Dev provisioning is audited with a third actor kind, `system`, beside
+  `user` and `cli`.
+- The CLI's `set-member` leaves an existing provider-wide grant unchanged unless `--provider-wide` or `--no-provider-wide` is given.
+- `__deployment__` takes no membership: every membership write refuses it by name (D-035).
+
+**What this supersedes.** Nothing ratified. D-061 stands; this answers what it
+left open. D-035 stands: `__deployment__` belongs to no organization.
+
+**Bounds, stated.**
+- Organizations and regions are created only by the CLI, and a live
+  workspace's region does not change (IDEAS).
+- Postgres row-level security is not a second wall yet (IDEAS).
+- An old token stays valid for its own workspace until it expires; it is
+  re-checked on every request.
+- A workspace admin can create a person over the API with any email, homed in
+  that workspace's organization; before Google sign-in is configured, person
+  creation over the API must be limited (e.g. to domains the organization
+  owns) — TD-059.
+
+## D-069 — A ksa workspace lives only on a deployment that stores data in KSA (2026-10-15, S30)
+
+**Context.** S30's final adversarial review (M1) found that D-061's residency
+guard covers processing only: a `ksa` workspace on a deployment hosted outside
+KSA gets no engine turn and no third-party lookup, but its chats, indicators,
+investigations and audit trail are stored on that deployment's own Postgres and
+OpenSearch, wherever they run. Org policy: KSA tenant data never goes through
+non-KSA infrastructure. D-061's bound ("a KSA client on a non-KSA deployment has
+no co-analyst turns") allowed such a workspace to exist. Put to Burhan as
+overturn or drop.
+
+**Decision (Burhan's call, S30: overturn, built in a later session).**
+- The deployment declares where it stores data (a region from the same closed
+  vocabulary as `ENGINE_REGION`, `auspex/tenancy/region.py`; the env var is born
+  with the build, with `.env.example` and `docs/ENV_VARS.md`).
+- **A `ksa` workspace can be created only on a deployment whose storage region
+  is `ksa`.** The CLI (`create-org`, `create-client`) refuses otherwise, by code,
+  with the reason; the database CHECK stays the vocabulary's.
+- Which session builds it is Burhan's call (proposed: S31's Step 0, beside
+  B-021). Until it is built, nothing stops a `ksa` workspace on this deployment;
+  the README's residency paragraph says where a workspace's records are stored.
+
+**What this supersedes.** D-061's stated bound that a KSA client may sit on a
+non-KSA deployment with only its engine turns refused. The rest of D-061, and
+D-068's region rule for processing (`global` serves global; a region serves
+itself), stand.
+
+**Bounds, stated.**
+- Workspaces created before the build are not re-checked by it; the build
+  should say what it does with any `ksa` workspace already on a non-KSA
+  deployment (today: none outside tests).
+- The declaration is the operator's; nothing verifies where the database
+  actually runs.

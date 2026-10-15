@@ -487,6 +487,51 @@ BUGS.md) have their own sections at the end, before "Later".
     TD-044 (the index grew again).
   - 1292 tests; 120 modules; no new env vars.
 
+- [x] **S29 — S28's code reviewed by others, and the integration phase
+  designed.** (2026-10-14/15) F3's PR #34 merged and Promote #35 at Step 0.
+  - **The review** (docs/probes/2026-10-14-s29-s28-code-review.md): 21
+    findings, every one reproduced by execution first. Fixed: two message-driven
+    event-loop stalls (D-047's and D-050's regexes), a context-only lookup
+    overwriting a stored verdict (against D-055), a cut KB snippet supplying a
+    wrong indicator, D-046's bound (then twice more after the fixes' own
+    review), and a dropped alert name. Logged: B-010…B-020, TD-056…TD-058.
+  - **The spec and D-060…D-067, each Burhan's call**
+    (docs/superpowers/specs/2026-10-15-integration-phase-design.md): the words
+    (connector, integration, case, Edge Agent); MSSP tenancy with a provider
+    workspace, provider-wide grants, `restricted` clients, three roles and a
+    region guard over the engine and enrichment; outbound-only Edge Agents
+    running hash-pinned packages; edge secrets as names; one canonical
+    manifest from Python or YAML; our own SKIP LOCKED queue; TD-023/TD-025 out
+    of Deferred; live QRadar on a synthetic-only lab domain.
+  - QRadar holds real data (hence D-067); its address comes later.
+  - S30–S41 and F4–F9 re-checked against the spec; the order unchanged.
+  - 1412 tests; 121 modules; no new env vars; no engine calls.
+
+- [x] **S30 — MSSP tenancy: organizations, provider workspaces, memberships,
+  roles, one workspace per token, and the region guard.** (2026-10-15) A
+  promote milestone: the slate carries S29 and S30.
+  - **Design:** Burhan's five calls (docs/superpowers/specs/2026-10-15-s30-tenancy-design.md,
+    D-068): only a CLI creates organizations; dev login auto-provisions;
+    one organization per migrated workspace; admins read their audit; `global`
+    serves global. Baseline: docs/probes/2026-10-15-s30-tenancy-baseline.md.
+  - **Built** (plan docs/superpowers/plans/2026-10-15-s30-tenancy.md, nine
+    tasks, subagent-driven, each task reviewed): `auspex/tenancy/` (region,
+    access, audit, admin, entry, the CLI); identity left the workspace
+    (migration, one person per email); `enterable_workspaces` re-checked on
+    every request; `POST /api/auth/switch` and `GET /api/auth/me`; roles
+    enforced on every write; the membership API and `GET /api/audit`; the
+    region guard over the engine and enrichment (`ENGINE_REGION`); structural
+    and cross-tenant suites; mutants 10/10.
+  - **Final adversarial review** (no isolation or residency break found):
+    concurrent admin removals left zero admins (fixed: the workspace lock and
+    in-transaction re-check); a mis-homed person had no recovery (fixed:
+    `rehome-person`; TD-059 gates Google); the ksa agent path was unpinned
+    (pinned); a malformed token claim was a 500 (fixed). Their fixes reviewed
+    in turn: B-021 open (Burhan: next backend session).
+  - **D-069:** a ksa workspace will live only on a KSA-storage deployment
+    (Burhan overturned D-061's bound; built later).
+  - 1554 tests; 129 modules; `ENGINE_REGION` born; no engine calls.
+
 ## Track: front end (D-051)
 
 - [x] **F1 — Where a deep turn's reasoning loses its speed, measured first.**
@@ -561,9 +606,11 @@ BUGS.md) have their own sections at the end, before "Later".
     and a fresh-agent review (2 of 4 found a real defect, both fixed).
   - TD-054, TD-055 logged; TD-044 updated; B-009 logged; D-044 addendum.
   - 1385 tests; 121 modules; no new env vars.
-- [ ] **B3 — Burhan's call first:** B-005 and B-009 both wait on the deferred
-  fabricated-specifics item coming out of Deferred (a D-entry). Otherwise new
-  bugs from using the platform, or a short session.
+- [ ] **B3 — Burhan's call first:** S29 logged B-010…B-020 (B-010, a
+  message-driven event-loop stall, is the most severe); S30 logged B-021 (S31's
+  Step 0 takes it unless B3 does first). B-005 and B-009 still
+  wait on the deferred fabricated-specifics item coming out of Deferred (a
+  D-entry).
 
 ## Later / explicitly deferred
 Herd Immunity federation (needs k≥3 workspaces + privacy review) · billing ·
