@@ -2,10 +2,11 @@
 only, and read its audit trail; every admin route refuses an analyst and a
 viewer (found by walking the app, not by a list)."""
 
+from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
 
 import pytest
-from _tenancy import build_mssp, drop_orgs, token
+from _tenancy import add_membership, build_mssp, drop_orgs, make_user, token
 from fastapi.routing import APIRoute, iter_route_contexts
 
 from auspex.app import create_app
@@ -122,3 +123,26 @@ async def test_an_admin_sees_only_their_active_workspace(world, client, settings
                            headers=token(settings, m.p_admin, m.client1_ws)).json()
     assert {r["user_id"] for r in in_provider["members"]} == {str(m.p_admin), str(m.p_analyst)}
     assert {r["user_id"] for r in in_client["members"]} == {str(m.c1_user)}
+
+
+async def test_two_admins_removing_each_other_over_http_leave_one(world, client, settings):
+    """F1 (S30 final review): both requests pass the per-request check at once;
+    the write itself must still leave the workspace with an admin."""
+    pool, m = world
+    a1, a2 = m.d_user, await make_user(pool, f"d2-admin@{DOMAIN}", m.direct)
+    for _ in range(5):
+        await pool.execute("DELETE FROM memberships WHERE workspace_id = $1", m.direct_ws)
+        await add_membership(pool, m.direct_ws, a1, "admin")
+        await add_membership(pool, m.direct_ws, a2, "admin")
+        with ThreadPoolExecutor(2) as threads:
+            sent = [
+                threads.submit(client.delete, f"/api/workspace/members/{a2}",
+                               headers=token(settings, a1, m.direct_ws)),
+                threads.submit(client.delete, f"/api/workspace/members/{a1}",
+                               headers=token(settings, a2, m.direct_ws)),
+            ]
+            statuses = sorted(f.result().status_code for f in sent)
+        assert statuses == [200, 403]
+        assert await pool.fetchval(
+            "SELECT count(*) FROM memberships WHERE workspace_id = $1 AND role = 'admin'",
+            m.direct_ws) == 1

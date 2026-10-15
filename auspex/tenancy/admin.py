@@ -4,7 +4,9 @@ The CLI, the membership API and the tests all come through here, so the rules
 live once: a membership's workspace belongs to the person's home organization
 or to a client of it; `provider_wide` only on a provider's own workspace;
 nobody changes their own membership. Each write records its audit event in the
-same transaction as the change.
+same transaction as the change, and holds its workspace while it runs: membership
+writes to one workspace go one at a time, and a person acting is re-checked as
+that workspace's admin inside the write, not trusted from the request's start.
 """
 
 from uuid import UUID
@@ -13,7 +15,7 @@ import asyncpg
 
 from auspex.llm.scorecard import DEPLOYMENT_WORKSPACE
 from auspex.tenancy import audit
-from auspex.tenancy.access import ROLES
+from auspex.tenancy.access import ROLES, enterable_workspaces
 from auspex.tenancy.audit import CLI, SYSTEM, Actor
 from auspex.tenancy.region import GLOBAL, check_region
 
@@ -156,18 +158,40 @@ def _not_reserved(row: asyncpg.Record) -> asyncpg.Record:
     return row
 
 
-async def _workspace(conn, workspace_id: UUID) -> asyncpg.Record:
+NOT_AN_ADMIN = "Only a current admin of this workspace can change its memberships."
+
+
+async def _hold(conn, workspace_id: UUID, actor: Actor) -> None:
+    """Inside the write's transaction, before anything else is read: one
+    membership write per workspace at a time, and a person acting must be that
+    workspace's admin NOW. Without it two admins removing or demoting each other
+    at once both succeed and leave none, and a just-removed admin's in-flight
+    request still writes. NO KEY, so rows that only reference the workspace
+    (memberships, messages, audit events) are not blocked. The CLI is the
+    recovery path: it takes the lock but is not re-checked."""
+    await conn.execute("SELECT 1 FROM workspaces WHERE id = $1 FOR NO KEY UPDATE", workspace_id)
+    if actor.kind != "user":
+        return
+    access = await enterable_workspaces(conn, actor.user_id, only=workspace_id)
+    if workspace_id not in access or access[workspace_id].role != "admin":
+        raise Refused(NOT_AN_ADMIN)
+
+
+async def _workspace(conn, workspace_id: UUID, actor: Actor) -> asyncpg.Record:
+    """The workspace a membership write acts on, held for the write (`_hold`)."""
     row = await conn.fetchrow(f"{_WORKSPACE_SQL} WHERE w.id = $1", workspace_id)
     if row is None:
         raise NotFound("No such workspace")
-    return _not_reserved(row)
+    await _hold(conn, _not_reserved(row)["id"], actor)
+    return row
 
 
-async def _workspace_named(conn, name: str) -> asyncpg.Record:
+async def _workspace_named(conn, name: str, actor: Actor) -> asyncpg.Record:
     row = await conn.fetchrow(f"{_WORKSPACE_SQL} WHERE w.name = $1", name)
     if row is None:
         raise NotFound(f"No workspace named {name!r}")
-    return _not_reserved(row)
+    await _hold(conn, _not_reserved(row)["id"], actor)
+    return row
 
 
 async def _organization_named(conn, name: str) -> asyncpg.Record:
@@ -293,7 +317,8 @@ async def _create(conn, *, org_id: UUID, org_name: str, kind: str, workspace: st
                        details={"workspace": workspace, "region": region})
     if admin_email is not None:
         user_id = await _person(conn, admin_email, org_id)
-        await _add(conn, await _workspace(conn, workspace_id), user_id, "admin", False, actor)
+        await _add(conn, await _workspace(conn, workspace_id, actor), user_id, "admin", False,
+                   actor)
     return workspace_id
 
 
@@ -346,7 +371,7 @@ async def set_restricted(pool, *, client: str, restricted: bool, actor: Actor = 
 async def add_member(pool, *, workspace_id: UUID, email: str, role: str, actor: Actor) -> UUID:
     email, role = _clean_email(email), _check_role(role)
     async with pool.acquire() as conn, conn.transaction():
-        workspace = await _workspace(conn, workspace_id)
+        workspace = await _workspace(conn, workspace_id, actor)
         user_id = await _person(conn, email, workspace["org_id"])
         await _add(conn, workspace, user_id, role, False, actor)
         return user_id
@@ -357,13 +382,13 @@ async def change_member(pool, *, workspace_id: UUID, user_id: UUID, actor: Actor
     if role is not None:
         _check_role(role)
     async with pool.acquire() as conn, conn.transaction():
-        await _change(conn, await _workspace(conn, workspace_id), user_id, actor,
+        await _change(conn, await _workspace(conn, workspace_id, actor), user_id, actor,
                       role, provider_wide)
 
 
 async def remove_member(pool, *, workspace_id: UUID, user_id: UUID, actor: Actor) -> None:
     async with pool.acquire() as conn, conn.transaction():
-        await _remove(conn, await _workspace(conn, workspace_id), user_id, actor)
+        await _remove(conn, await _workspace(conn, workspace_id, actor), user_id, actor)
 
 
 async def set_member(pool, *, workspace: str, email: str, role: str,
@@ -372,7 +397,7 @@ async def set_member(pool, *, workspace: str, email: str, role: str,
     None leaves an existing member's grant alone (a new member gets none)."""
     email, role = _clean_email(email), _check_role(role)
     async with pool.acquire() as conn, conn.transaction():
-        ws = await _workspace_named(conn, workspace)
+        ws = await _workspace_named(conn, workspace, actor)
         user_id = await _person(conn, email, ws["org_id"])
         member = await conn.fetchval(
             "SELECT 1 FROM memberships WHERE workspace_id = $1 AND user_id = $2",
@@ -389,7 +414,7 @@ async def remove_member_by_email(pool, *, workspace: str, email: str,
                                  actor: Actor = CLI) -> None:
     email = _clean_email(email)
     async with pool.acquire() as conn, conn.transaction():
-        ws = await _workspace_named(conn, workspace)
+        ws = await _workspace_named(conn, workspace, actor)
         user_id = await conn.fetchval(
             "SELECT id FROM users WHERE lower(email) = lower($1)", email)
         if user_id is None:

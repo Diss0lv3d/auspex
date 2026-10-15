@@ -1,8 +1,10 @@
 """S30 (D-061; design §3): every tenancy write goes through admin.py, under
 one set of rules, and records its audit event in the same transaction."""
 
+import asyncio
+
 import pytest
-from _tenancy import build_mssp, drop_orgs
+from _tenancy import add_membership, build_mssp, drop_orgs, make_user
 
 from auspex.db import create_pool
 from auspex.tenancy import admin
@@ -290,3 +292,115 @@ async def test_a_role_change_through_set_member_keeps_the_grant(world):
     await admin.set_member(pool, workspace=ws_name, email=p_email, role="admin",
                            provider_wide=False)
     assert m.client1_ws not in await enterable_workspaces(pool, m.p_analyst)
+
+
+# --- F1 (S30 final review): membership writes re-check the actor, one at a time ---
+
+
+async def _second_admin(pool, m):
+    """direct_ws gets a second admin beside d_user; both are homed in direct."""
+    other = await make_user(pool, f"d2-admin@{DOMAIN}", m.direct)
+    await add_membership(pool, m.direct_ws, other, "admin")
+    return other
+
+
+async def _admins(pool, workspace_id):
+    return await pool.fetchval(
+        "SELECT count(*) FROM memberships WHERE workspace_id = $1 AND role = 'admin'",
+        workspace_id)
+
+
+def _one_done_one_refused(results):
+    refused = [r for r in results if isinstance(r, admin.Refused)]
+    assert len(refused) == 1 and results.count(None) == 1, results
+    assert str(refused[0]) == admin.NOT_AN_ADMIN
+
+
+async def test_two_admins_removing_each_other_at_once_leave_one(world):
+    pool, m = world
+    a1, a2 = m.d_user, await _second_admin(pool, m)
+    results = await asyncio.gather(
+        admin.remove_member(pool, workspace_id=m.direct_ws, user_id=a2,
+                            actor=person(a1, m.direct)),
+        admin.remove_member(pool, workspace_id=m.direct_ws, user_id=a1,
+                            actor=person(a2, m.direct)),
+        return_exceptions=True,
+    )
+    _one_done_one_refused(results)
+    assert await _admins(pool, m.direct_ws) == 1
+    assert (await _actions(pool, m.direct_ws)).count("membership.remove") == 1
+
+
+async def test_two_admins_demoting_each_other_at_once_leave_one(world):
+    pool, m = world
+    a1, a2 = m.d_user, await _second_admin(pool, m)
+    results = await asyncio.gather(
+        admin.change_member(pool, workspace_id=m.direct_ws, user_id=a2,
+                            actor=person(a1, m.direct), role="analyst"),
+        admin.change_member(pool, workspace_id=m.direct_ws, user_id=a1,
+                            actor=person(a2, m.direct), role="analyst"),
+        return_exceptions=True,
+    )
+    _one_done_one_refused(results)
+    assert await _admins(pool, m.direct_ws) == 1
+    assert (await _actions(pool, m.direct_ws)).count("membership.role") == 1
+
+
+async def test_a_removed_admin_is_refused_on_the_next_write(world):
+    pool, m = world
+    a1, a2 = m.d_user, await _second_admin(pool, m)
+    await admin.remove_member(pool, workspace_id=m.direct_ws, user_id=a2,
+                              actor=person(a1, m.direct))
+    gone = person(a2, m.direct)
+    for write in (
+        lambda: admin.remove_member(pool, workspace_id=m.direct_ws, user_id=a1, actor=gone),
+        lambda: admin.change_member(pool, workspace_id=m.direct_ws, user_id=a1, actor=gone,
+                                    role="viewer"),
+        lambda: admin.add_member(pool, workspace_id=m.direct_ws, email=f"late@{DOMAIN}",
+                                 role="viewer", actor=gone),
+    ):
+        with pytest.raises(admin.Refused, match="current admin"):
+            await write()
+    assert await _admins(pool, m.direct_ws) == 1
+    assert await pool.fetchval(
+        "SELECT count(*) FROM users WHERE email = $1", f"late@{DOMAIN}") == 0
+
+
+async def test_a_demoted_admin_is_refused_and_the_cli_still_acts(world):
+    pool, m = world
+    await pool.execute("UPDATE memberships SET role = 'analyst' WHERE user_id = $1", m.d_user)
+    with pytest.raises(admin.Refused, match="current admin"):
+        await admin.add_member(pool, workspace_id=m.direct_ws, email=f"nope@{DOMAIN}",
+                               role="viewer", actor=person(m.d_user, m.direct))
+    ws_name = await pool.fetchval("SELECT name FROM workspaces WHERE id = $1", m.direct_ws)
+    d_email = await pool.fetchval("SELECT email FROM users WHERE id = $1", m.d_user)
+    await admin.set_member(pool, workspace=ws_name, email=d_email, role="admin")  # recovery
+    assert await _admins(pool, m.direct_ws) == 1
+
+
+async def test_a_membership_write_waits_for_the_workspace_then_re_checks(world):
+    """The lock comes BEFORE the re-check: a write that starts while another is
+    in flight waits for it, then sees what it committed."""
+    pool, m = world
+    a1, a2 = m.d_user, await _second_admin(pool, m)
+    write = None
+    async with pool.acquire() as conn:
+        tx = conn.transaction()
+        await tx.start()
+        try:
+            await conn.execute(
+                "SELECT 1 FROM workspaces WHERE id = $1 FOR NO KEY UPDATE", m.direct_ws)
+            write = asyncio.create_task(admin.remove_member(
+                pool, workspace_id=m.direct_ws, user_id=a1, actor=person(a2, m.direct)))
+            done, _ = await asyncio.wait({write}, timeout=0.5)
+            assert not done, "the write did not wait for the workspace"
+            await conn.execute(
+                "DELETE FROM memberships WHERE workspace_id = $1 AND user_id = $2",
+                m.direct_ws, a2)
+            await tx.commit()
+        except BaseException:
+            await tx.rollback()
+            raise
+    with pytest.raises(admin.Refused, match="current admin"):
+        await write
+    assert await _admins(pool, m.direct_ws) == 1
