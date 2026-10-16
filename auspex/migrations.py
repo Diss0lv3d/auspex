@@ -796,7 +796,49 @@ S30_TENANCY: list[str] = [
     """,
 ]
 
-SCHEMA_V0 = [*SCHEMA_V0, *S30_TENANCY]
+# S31 (D-065; docs/superpowers/specs/2026-10-16-s31-jobs-design.md §1): the jobs
+# queue. Every job belongs to one workspace (D-008); a provider's shared
+# integration's jobs belong to the provider's workspace. `max_attempts` and
+# `lease_seconds` are copied from the kind at enqueue, so a claim needs no code.
+S31_JOBS: list[str] = [
+    """
+    CREATE TABLE IF NOT EXISTS jobs (
+        id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id     uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        kind             text NOT NULL,
+        integration_id   uuid,
+        payload          jsonb NOT NULL DEFAULT '{}',
+        idempotency_key  text NOT NULL,
+        status           text NOT NULL DEFAULT 'queued',
+        attempts         integer NOT NULL DEFAULT 0,
+        max_attempts     integer NOT NULL CHECK (max_attempts >= 1),
+        lease_seconds    integer NOT NULL CHECK (lease_seconds >= 1),
+        run_after        timestamptz NOT NULL DEFAULT now(),
+        lease_expires_at timestamptz,
+        claim_token      uuid,
+        claimed_by       text,
+        result           jsonb,
+        last_error       text,
+        created_at       timestamptz NOT NULL DEFAULT now(),
+        finished_at      timestamptz,
+        UNIQUE (workspace_id, idempotency_key)
+    )
+    """,
+    # THE ONLY BLOCK THAT MAY DEFINE THIS CONSTRAINT (the proposals rule, S26):
+    # a new job status is added HERE, in place.
+    """
+    DO $$
+    BEGIN
+        ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_status_check;
+        ALTER TABLE jobs ADD CONSTRAINT jobs_status_check
+            CHECK (status IN ('queued', 'claimed', 'done', 'failed', 'dead'));
+    END $$
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_jobs_ready ON jobs (status, run_after)",
+    "CREATE INDEX IF NOT EXISTS idx_jobs_ws_status ON jobs (workspace_id, status)",
+]
+
+SCHEMA_V0 = [*SCHEMA_V0, *S30_TENANCY, *S31_JOBS]
 
 
 async def run_migrations(pool: asyncpg.Pool) -> None:

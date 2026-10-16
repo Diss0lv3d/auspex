@@ -34,6 +34,7 @@ packages = [
     "auspex.enrich",
     "auspex.enrich.providers",
     "auspex.ingest",
+    "auspex.jobs",
     "auspex.kb",
     "auspex.modes",
     "auspex.retrohunt",
