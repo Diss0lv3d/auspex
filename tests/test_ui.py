@@ -341,3 +341,31 @@ def test_a_throw_while_a_turn_ends_cannot_leave_the_composer_stuck(client):
                   '$("send").disabled = false', '$("prompt").disabled = false'):
         assert ending.index(reset) < paint_at, reset
     assert "try { paint(pacer.flush()); }" in ending
+
+
+@pytest.mark.parametrize("path", ["/", "/timeline", "/css/chat.css", "/js/chat.js"])
+def test_a_file_the_browser_already_holds_is_answered_304(client, path):
+    """TD-047: `no-cache` makes every load ask (B-003), and FileResponse used
+    to answer a matching ETag with the whole file again. It now says "you have
+    it", with the headers a 200 would carry: a page's policy (D-057) included."""
+    first = client.get(path)
+    etag = first.headers["etag"]
+    again = client.get(path, headers={"If-None-Match": etag})
+    assert again.status_code == 304
+    assert again.content == b""
+    assert again.headers["etag"] == etag
+    assert "no-cache" in again.headers["cache-control"]
+    if not path.startswith(("/css/", "/js/")):
+        csp = first.headers["content-security-policy"]
+        assert again.headers["content-security-policy"] == csp
+
+
+def test_a_stale_or_absent_etag_gets_the_whole_file(client):
+    for headers in ({"If-None-Match": '"not-this-one"'}, {}):
+        resp = client.get("/js/chat.js", headers=headers)
+        assert resp.status_code == 200 and resp.content, headers
+
+
+def test_a_weak_or_listed_etag_still_matches(client):
+    etag = client.get("/").headers["etag"]
+    assert client.get("/", headers={"If-None-Match": f'"x", W/{etag}'}).status_code == 304
