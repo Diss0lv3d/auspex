@@ -2,9 +2,9 @@
 
 _Paste everything below the first line of dashes into a fresh Claude Code
 window opened in /home/burhan/auspex-new. **S31 builds the jobs queue and
-TD-025's first half (D-065, D-066).** The order table below puts **F4 (front
-end) before S31**: start S31 when STATE.md's focus is the backend, or when
-Burhan picks it. S30 closed 2026-10-15 (MSSP tenancy; STATE.md)._
+TD-025's first half (D-065, D-066).** **F4 closed 2026-10-16** (one shell for
+every page, D-070), so S31 is next in the order table and **the focus**
+(STATE.md); its Step 0 promotes F4. S30 closed 2026-10-15 (MSSP tenancy)._
 
 _Below the S31 prompt is the **backend plan for the whole phase, S29–S41**.
 **`/session-end` writes the next session's prompt from its entry in the plan,
@@ -121,7 +121,7 @@ ticks the closed session._
 | 0 | F3 | fe | — | closed 2026-10-14 by the collaborator (D-059); its PR #34 merged at S29 |
 | 1 | S29 | be | F3 closed | closed: the S28 review, the spec and D-060…D-067 |
 | 2 | S30 | be | S29 | closed 2026-10-15: MSSP tenancy (D-061, D-068); D-069 decided, built later |
-| 3 | F4 | fe | S30 | one shell for every page, role-aware, a workspace switcher |
+| 3 | F4 | fe | S30 | closed 2026-10-16: one shell for every page, role-aware, a workspace switcher (D-070) |
 | 4 | S31 | be | S30 | the jobs queue, TD-025's first half |
 | 5 | S32 | be | S31 | the connector contract, the SDK (Python and YAML), the catalogue |
 | 6 | S33 | be | S32 | integrations and the Edge Agent, "Test connection" end to end |

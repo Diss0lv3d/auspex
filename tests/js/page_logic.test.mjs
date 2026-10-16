@@ -9,8 +9,8 @@ import { test } from "node:test";
 import {
   createPacer, indicatorText, markdownNodes,
   doorsFor, statusText, undoText, undoLineFor, askedText, mergeQueue, armDoor, confirmable,
-  spendText, chatSpendText, chatIdFromHash, relativeTime, chatListLabel, ledgerSpendText, endingText, reopenedTurnPlan,
-  noAnswerNote, overlayAfter,
+  spendText, chatSpendText, chatIdFromHash, hashBelongsHere, relativeTime, chatListLabel, ledgerSpendText, endingText, reopenedTurnPlan,
+  noAnswerNote, overlayAfter, proposalLine,
 } from "../../auspex/static/js/page-logic.js";
 
 const FRAME_MS = 1000 / 60;
@@ -232,7 +232,7 @@ const proposal = (status, extra = {}) => ({
   created_at: "2026-10-12T02:00:00Z", decided_at: null, claimed_at: null, result: null,
   identical_pending: null, card: { summary: "add a note to 8.8.8.8", undo: UNDO, systems: [] }, ...extra,
 });
-const doors = (p) => doorsFor(p).map((d) => `${d.door}${d.confirm ? "²" : ""}`);
+const doors = (p, role = "analyst") => doorsFor(p, role).map((d) => `${d.door}${d.confirm ? "²" : ""}`);
 
 test("each status gets the server's doors for it, and only those", () => {
   assert.deepEqual(doors(proposal("pending_approval")), ["approve²", "reject"]);
@@ -251,10 +251,19 @@ test("an action that declares no undo is never offered one", () => {
 });
 
 test("a door that runs something says what it will run before it is confirmed", () => {
-  const approve = doorsFor(proposal("pending_approval")).find((d) => d.door === "approve");
+  const approve = doorsFor(proposal("pending_approval"), "analyst").find((d) => d.door === "approve");
   assert.match(approve.consequence, /add a note to 8\.8\.8\.8/);
-  const undo = doorsFor(proposal("executed")).find((d) => d.door === "undo");
+  const undo = doorsFor(proposal("executed"), "analyst").find((d) => d.door === "undo");
   assert.match(undo.consequence, /removes the note/);
+});
+
+test("a viewer gets no door on any card, whatever its status; the server refuses them anyway", () => {
+  const all = ["pending_approval", "approved", "executing", "undoing", "incomplete", "executed",
+    "kept", "abandoned", "rejected", "withdrawn", "undone", "failed"];
+  for (const s of all) assert.deepEqual(doors(proposal(s), "viewer"), [], s);
+  // not doors(): its default role would turn undefined into "analyst"
+  assert.deepEqual(doorsFor(proposal("pending_approval"), undefined), [], "no role is no door");
+  assert.deepEqual(doors(proposal("pending_approval"), "admin"), ["approve²", "reject"]);
 });
 
 test("the status line says what the row is waiting on, in words", () => {
@@ -346,6 +355,34 @@ test("a chat id comes from the hash only when it is a UUID", () => {
   for (const bad of ["", "#", "#chat=", "#chat=not-a-uuid", "#chat=" + CHAT + "x",
     "#other=" + CHAT, "#chat=" + CHAT + "&x=1", null, undefined]) {
     assert.equal(chatIdFromHash(bad), null, String(bad));
+  }
+});
+
+// D-070, and Back: an earlier history entry may hold another client's chat id.
+// The entry that holds a chat hash names whose it is (history.state); a hash
+// with no owner is one the human typed or pasted.
+const WHO = { user: { id: "u-1" }, workspace: { id: "ws-bank" } };
+
+test("a hash the human typed or pasted belongs here: it names no owner", () => {
+  assert.equal(hashBelongsHere(null, WHO), true);
+  assert.equal(hashBelongsHere(undefined, WHO), true);
+});
+
+test("a hash put in the history entry by this workspace and person belongs here", () => {
+  assert.equal(hashBelongsHere({ workspace: "ws-bank", user: "u-1" }, WHO), true);
+});
+
+test("a hash another workspace put in the history entry does not belong here", () => {
+  assert.equal(hashBelongsHere({ workspace: "ws-telco", user: "u-1" }, WHO), false);
+});
+
+test("a hash another person put in the history entry, in the same workspace, does not belong here", () => {
+  assert.equal(hashBelongsHere({ workspace: "ws-bank", user: "u-2" }, WHO), false);
+});
+
+test("an owner missing either half does not belong here", () => {
+  for (const state of [{ workspace: "ws-bank" }, { user: "u-1" }, {}]) {
+    assert.equal(hashBelongsHere(state, WHO), false, JSON.stringify(state));
   }
 });
 
@@ -473,4 +510,18 @@ test("the backdrop and Esc close whatever is open; a close button closes only it
   assert.deepEqual(overlayAfter({ chats: false, approvals: true }, "close-chats"), { chats: false, approvals: true });
   assert.deepEqual(overlayAfter({ chats: true, approvals: false }, "close-approvals"), { chats: true, approvals: false });
   assert.deepEqual(overlayAfter({ chats: true, approvals: false }, "nonsense"), { chats: true, approvals: false });
+});
+
+test("a proposal line reads the same from a reopened turn's row and from the panel's full row", () => {
+  const fromTurn = filed("33333333-0000-0000-0000-000000000000", "pending_approval");
+  const fromPanel = { id: fromTurn.id, action: "annotate_observable", status: "executed",
+    decided_at: "2026-10-12T11:00:00Z", claimed_at: null, result: { effects: null },
+    card: { summary: "add a note to 8.8.8.8" } };
+  assert.equal(proposalLine(fromTurn, NOON), "Proposal: add a note to 8.8.8.8 · Waiting for your approval");
+  assert.equal(proposalLine(fromPanel, NOON), "Proposal: add a note to 8.8.8.8 · Done");
+});
+
+test("a proposal with no summary anywhere is named by its action", () => {
+  assert.equal(proposalLine({ id: "x", action: "isolate_host", status: "rejected" }, NOON),
+    "Proposal: isolate_host · Rejected");
 });

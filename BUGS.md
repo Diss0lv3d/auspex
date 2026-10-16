@@ -396,3 +396,57 @@ are never deleted.
 - **Burhan's call (2026-10-15):** promote S30 now, fix in the next backend
   session (S31's Step 0) unless B3 takes it first.
 - **Status:** open.
+
+## B-022 — the output rail stops a note-only request when the model's thinking quotes the note tool's description
+
+- **Found:** 2026-10-16, F4 (Claude), the live walk of F2's page on `default`
+  (glm-4.5-air, agent path), in headless Chromium.
+- **What happened:** in a chat that had just looked 45.155.205.233 up, "Add a
+  note to 45.155.205.233: reviewed in the F4 live walk." was stopped
+  mid-stream. The page showed the rail's sentence ("This answer was stopped
+  mid-stream: it began reproducing the platform's own instructions…"). The
+  Thinking pane ended quoting `annotate_observable`'s description: "Calling
+  one of these FILES A PROPOSAL for a human to approve. It does not perform
+  the action, and nothing in this turn can: the result you get back is a
+  proposal id, never an outcome. Say that you have proposed it and what it
+  would". No proposal was filed; 1 engine call, tokens not reported. The same
+  intent phrased "check 45.155.205.233 again, and add a note that…" filed the
+  proposal on the next turn. Looks like TD-044's still-unmeasured
+  action-request case (thinking floor, D-040).
+- **Evidence:** docs/probes/2026-10-16-f4-shell-live.md ("F2's page with live
+  turns"); the reopened turn reads "No answer: stopped by the platform's output
+  check".
+- **Status:** open.
+
+## B-023 — a `lapsed` staleness pill on the timeline has no colour
+
+- **Found:** 2026-10-16, F4 (Claude), Task 8's code review of the timeline's
+  pill classes (pre-existing; F4 kept the behaviour).
+- **What happened:** for a verdict whose band is `lapsed`, the page builds a
+  pill with class `lapsed`, but `auspex/static/css/timeline.css` colours
+  `.lapsed-band` (the `.malicious, .lapsed-band` rule) and has no `.lapsed`
+  rule, so the pill shows in the default text colour while every other band
+  has its own. Read from the code; not yet seen on screen (no lapsed verdict in
+  the dev database during F4).
+- **Evidence:** `auspex/static/css/timeline.css` (the `.lapsed-band` rule) and
+  `auspex/static/js/timeline.js` (`pill(band, band)` with the server's
+  `staleness`); `LABEL_CLASSES` in `auspex/static/js/timeline-logic.js` passes
+  `lapsed` through unchanged.
+- **Status:** open.
+
+## B-024 — arrow keys on the closed workspace switcher may switch at every step
+
+- **Found:** 2026-10-16, F4 (Claude), the final whole-branch review (reasoned
+  from the code; **not reproduced**).
+- **What happened (expected, unverified):** the switcher is a native `<select>`
+  that switches on `change` (`auspex/static/js/shell.js`, `showSignedIn` /
+  `switchTo`). On Windows and Linux browsers, arrow keys on a closed, focused
+  select change its value and fire `change` at each step, so a keyboard user
+  would be reloaded into each client they pass on the way to the one they want
+  (WCAG 3.2.2). The live checks used pointer selection only.
+- **Evidence:** none observed yet; the review's reasoning is in the F4 session
+  record. Reproduce with a keyboard in Chrome on Windows or Linux before
+  fixing.
+- **Note:** a fix (a Switch button, or handling the keys) changes the
+  switcher's UX, which is Burhan's call.
+- **Status:** open.

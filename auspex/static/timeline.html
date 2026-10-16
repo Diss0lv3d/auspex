@@ -7,20 +7,17 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/base.css" />
   <link rel="stylesheet" href="/css/timeline.css" />
   <script type="module" src="/js/timeline.js"></script>
 </head>
 <body>
-  <header>
-    <span class="mark">auspex<span class="dot">.</span></span>
-    <span class="tag">the flock sees first</span>
-    <span class="spacer"></span>
-    <input id="email" value="burhan@auspexdev.com" />
-    <button id="login">Sign in</button>
-    <input id="obs" class="mono" placeholder="obs id, e.g. cve-1a2b3c4d" />
-    <button id="go" class="ghost">Open timeline</button>
-    <button id="back" class="ghost">Digest</button>
-    <span id="status"></span>
+  <header id="shell">
+    <div class="page-tools">
+      <input id="obs" class="mono" placeholder="obs id, e.g. cve-1a2b3c4d" />
+      <button id="go" class="ghost">Open timeline</button>
+      <button id="back" class="ghost">Digest</button>
+    </div>
   </header>
   <main id="main"></main>
 </body>

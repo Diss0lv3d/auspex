@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/base.css" />
   <link rel="stylesheet" href="/css/chat.css" />
 </head>
 <body>
@@ -20,18 +21,11 @@
     <div id="chats-list"></div>
     <div id="chats-note" class="panel-note">Sign in to see your chats.</div>
   </nav>
-  <header>
-    <button id="chats-toggle" class="ghost">Chats</button>
-    <span class="mark">Auspex<span class="dot">.</span></span>
-    <span class="tag">the flock sees first</span>
-    <span class="spacer"></span>
-    <div class="auth">
+  <header id="shell">
+    <div class="page-lead"><button id="chats-toggle" class="ghost">Chats</button></div>
+    <div class="page-tools">
       <button id="approvals" class="ghost" hidden>Approvals</button>
       <select id="endpoint" hidden aria-label="Endpoint"></select>
-      <input id="email" type="email" placeholder="you@analyst.dev" autocomplete="off" />
-      <button id="signin" class="ghost">Sign in</button>
-      <button id="signout" class="ghost" hidden>Sign out</button>
-      <span id="status">not signed in</span>
     </div>
   </header>
 
@@ -49,11 +43,12 @@
   </aside>
 
   <footer>
-    <div class="composer">
+    <div id="composer" class="composer">
       <input id="prompt" placeholder="Ask the co-analyst…" disabled autocomplete="off" />
       <button id="send" disabled>Send</button>
     </div>
     <div class="hint">Actions that change state are never executed on a model's say-so — they become proposals awaiting your approval.</div>
+    <div id="role-note" class="hint" hidden></div>
     <div id="chat-spend" class="hint"></div>
   </footer>
 

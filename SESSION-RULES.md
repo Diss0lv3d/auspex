@@ -170,10 +170,23 @@ change to those modes keeps `contract_repair` honest.
     https-only links that show their host.
   - Widening that subset, or rendering any other pane, is a new decision, not
     a refactor.
-- **The page's logic lives in `auspex/static/js/page-logic.js`**: pure,
-  exported functions, imported by the page (`js/chat.js`) and by
-  `tests/js/page_logic.test.mjs` under Node inside the pytest gate. New page
-  behaviour goes there, with tests, and the DOM wiring stays thin.
+- **Page logic lives in pure, exported modules** (`js/page-logic.js`,
+  `js/timeline-logic.js`, `js/shell-logic.js`), imported by the pages and by
+  `tests/js/*.test.mjs` under Node inside the pytest gate. New page behaviour
+  goes there, with tests, and the DOM wiring stays thin.
+- **Every page stands on the shared shell (F4, D-070).** Its markup has one
+  `<header id="shell">` (its own controls in `.page-lead`/`.page-tools`), links
+  `css/base.css` first, and its module calls `startShell({ page, ready,
+  signedOut })`. Every request goes through the shell's `api` (`js/api.js`),
+  every element through `js/dom.js`'s `el`. A page module never defines its own
+  `el`, touches `sessionStorage`, sets `Authorization` or calls `fetch(`
+  (`tests/test_ui.py` pins it). A name shown inside a longer line goes through
+  `isolateName`.
+- **D-070:** a switch reloads without the hash; `/me` is the only judge of
+  access; the page never computes the switchable set. **Anything about
+  history (Back, Forward, a restored page) is checked live with the
+  back/forward cache ON** — headless Playwright turns it off
+  (`docs/probes/f4-live/back-forward.cjs`; STATE.md Host notes).
 - **The chat page carries a strict CSP (D-057).** No inline script or style
   and no `on…=` in its markup; its files are served from an allow-list in
   `auspex/routes/ui.py`. A new external origin needs a D-entry.
@@ -220,6 +233,11 @@ change to those modes keeps `contract_repair` honest.
   `_IncludedRouter`s). Walk routes with
   `fastapi.routing.iter_route_contexts(app.routes)`; each item has `.path`,
   `.methods` and `.route.dependant`.
+
+- **A route file never contains the text `request.headers`**, not even in a
+  comment (`tests/test_tenancy_roles.py` scans the source). Read a header as a
+  declared `Header()` parameter, as `auspex/routes/ui.py` does for
+  `If-None-Match` (F4).
 
 - Reuse caps, never re-declare them. A tunable that belongs to us is a code
   constant (D-026).

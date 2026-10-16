@@ -1,91 +1,54 @@
-// The chat page's DOM wiring. Its pure logic is ./page-logic.js; this builds
-// elements from it and talks to the API. Model and tool text are always text,
-// never HTML (D-053).
+// The chat page's DOM wiring. Its pure logic is ./page-logic.js; the header,
+// the sign-in and every request's auth are the shell's (./shell.js, F4). This
+// builds elements and talks to the API through the shell's client. Model and
+// tool text are always text, never HTML (D-053).
 import {
   createPacer, indicatorText, markdownNodes, CONFIRM_MS, doorsFor, statusText, undoLineFor,
   askedText, mergeQueue, armDoor, confirmable, spendText, chatSpendText, chatIdFromHash,
-  chatListLabel, reopenedTurnPlan, noAnswerNote, overlayAfter,
+  hashBelongsHere, chatListLabel, reopenedTurnPlan, noAnswerNote, overlayAfter, proposalLine,
 } from "./page-logic.js";
+import { $, el } from "./dom.js";
+import { startShell } from "./shell.js";
+import { mayChange, viewerNote, CONNECTION_LOST } from "./shell-logic.js";
 
-const $ = (id) => document.getElementById(id);
-let token = null;
+let api = null;  // the shell's client, once /me has accepted this tab's token
+let me = null;   // GET /api/auth/me: who, where, and as what
+let setBusy = () => {};
 let sessionId = null;
 let busy = false;  // a turn is streaming: the chat cannot be switched under it
 
-// D-056: the sign-in survives a reload in this tab, and dies with the tab.
-// Storage that is blocked or missing leaves the page as it was before F2.
-const TOKEN_KEY = "auspex.token";
-function storedToken() { try { return sessionStorage.getItem(TOKEN_KEY); } catch (e) { return null; } }
-function storeToken(t) { try { sessionStorage.setItem(TOKEN_KEY, t); } catch (e) { /* kept in memory only */ } }
-function forgetToken() { try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) { /* nothing was kept */ } }
-
-function setStatus(text, cls) { const s = $("status"); s.textContent = text; s.className = cls || ""; }
-
-async function signIn() {
-  const email = $("email").value.trim();
-  if (!email) { setStatus("enter an email", "err"); return; }
-  setStatus("signing in…");
-  try {
-    const r = await fetch("/api/auth/dev-login", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
-    });
-    if (!r.ok) { setStatus("sign-in unavailable", "err"); return; }
-    token = (await r.json()).access_token;
-    storeToken(token);
-    signedIn();
-  } catch (e) { setStatus("network error", "err"); }
-}
-
-// Everything a page does once it holds a token, whether it just signed in
-// or brought the sign-in back from this tab's storage.
-function signedIn() {
-  setStatus("signed in", "ok");
-  $("email").style.display = "none"; $("signin").style.display = "none";
-  $("signout").hidden = false;
-  $("prompt").disabled = false; $("send").disabled = false; $("prompt").focus();
+// Everything the page does once the shell holds a token /me accepted. A
+// viewer gets no door that changes anything; the server refuses them anyway.
+function ready(ctx) {
+  ({ me, api, setBusy } = ctx);
+  if (mayChange(me.workspace.role)) {
+    $("prompt").disabled = false; $("send").disabled = false; $("prompt").focus();
+  } else {
+    $("composer").hidden = true;
+    $("new-chat").hidden = true;
+    $("role-note").textContent = viewerNote(me);
+    $("role-note").hidden = false;
+  }
   loadEndpoints();
   startApprovals();
-  $("new-chat").disabled = false;
   loadChats();
+  // D-070: a hash another workspace or person left in this history entry (Back
+  // after a switch) is dropped, never requested under this token.
   const id = chatIdFromHash(location.hash);
-  if (id) openChat(id);
+  if (id && hashBelongsHere(history.state, me)) openChat(id);
+  else if (id) setHash(null);
 }
 
-async function restoreSignIn() {
-  const t = storedToken();
-  if (!t) return;
-  setStatus("signing in…");
-  try {
-    const r = await fetch("/api/auth/whoami", { headers: { "Authorization": "Bearer " + t } });
-    if (r.ok) { token = t; signedIn(); return; }
-    if (r.status === 401) forgetToken();  // expired, or signed by a key that changed
-    setStatus("not signed in");
-  } catch (e) { setStatus("network error", "err"); }
-}
-
-function signOut() {
-  forgetToken();
-  history.replaceState(null, "", location.pathname + location.search);
-  location.reload();
-}
+function signedOut() { renderChats(); }
 
 async function loadEndpoints() {
   // Internal switcher: only appears when the server offers >1 endpoint.
-  try {
-    const r = await fetch("/api/models", { headers: { "Authorization": "Bearer " + token } });
-    if (!r.ok) return;
-    const { endpoints } = await r.json();
-    const sel = $("endpoint");
-    if (!endpoints || endpoints.length < 2) return;
-    sel.innerHTML = "";
-    for (const e of endpoints) {
-      const opt = document.createElement("option");
-      opt.value = e.id; opt.textContent = e.label;
-      sel.appendChild(opt);
-    }
-    sel.hidden = false;
-  } catch (e) { /* switcher is optional — ignore */ }
+  const r = await api.get("/api/models");
+  const endpoints = r.ok && r.body ? r.body.endpoints : null;
+  if (!endpoints || endpoints.length < 2) return;
+  const sel = $("endpoint");
+  sel.replaceChildren(...endpoints.map((e) => el("option", { value: e.id }, [e.label])));
+  sel.hidden = false;
 }
 
 function addMsg(who, cls) {
@@ -115,15 +78,6 @@ function ensureBubble(wrap) {
   return b;
 }
 
-// D-053's element factory: props are DOM properties (href, rel, …), and a
-// string child is appended as a text node. Nothing here parses HTML.
-function el(tag, props, children) {
-  const e = document.createElement(tag);
-  Object.assign(e, props);
-  e.append(...children);
-  return e;
-}
-
 // Each answer bubble's markdown so far; the bubble is rebuilt from it.
 const answerText = new WeakMap();
 
@@ -133,15 +87,12 @@ function showError(wrap, text) {
 
 // D-054: this chat's total, from the server, so turns that ended badly count.
 async function showChatSpend() {
-  if (!sessionId || !token) return;
+  if (!sessionId || !api) return;
   const asked = sessionId;  // write only if this is still the open chat when the reply lands
-  try {
-    const r = await fetch("/api/chat/sessions/" + encodeURIComponent(asked) + "/spend",
-      { headers: { "Authorization": "Bearer " + token } });
-    if (!r.ok) return;
-    const text = chatSpendText(await r.json()) || "";
-    if (asked === sessionId) $("chat-spend").textContent = text;
-  } catch (e) { /* the total is a convenience; the per-answer lines stand */ }
+  const r = await api.get("/api/chat/sessions/" + encodeURIComponent(asked) + "/spend");
+  if (!r.ok) return;  // the total is a convenience; the per-answer lines stand
+  const text = chatSpendText(r.body) || "";
+  if (asked === sessionId) $("chat-spend").textContent = text;
 }
 
 function scroll() { const m = $("transcript"); m.scrollTop = m.scrollHeight; }
@@ -198,8 +149,9 @@ function handleEvent(ev, wrap) {
 
 async function send() {
   const text = $("prompt").value.trim();
-  if (!text || !token || busy) return;
+  if (!text || !api || busy) return;
   busy = true;
+  setBusy(true);  // the switcher and Sign out wait for the turn (D-070)
   $("prompt").value = ""; $("send").disabled = true; $("prompt").disabled = true;
   addMsg("You", "user").appendChild(Object.assign(document.createElement("div"), { className: "bubble", textContent: text }));
   const wrap = addMsg("Co-analyst", "assistant");
@@ -236,20 +188,15 @@ async function send() {
     renderChats();  // inside the try: a throw here must not leave busy set
     const sel = $("endpoint");
     const endpointId = sel.hidden ? undefined : sel.value;
-    const r = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
-      body: JSON.stringify({ message: text, session_id: sessionId, endpoint_id: endpointId }),
-    });
+    const r = await api.stream("/api/chat", { message: text, session_id: sessionId, endpoint_id: endpointId });
     if (!r.ok) {
-      // HTTP errors carry a JSON detail, not SSE frames — the server's own
-      // sentence (the input rail's 400, the usage ceiling's 429), as is.
-      let detail = "The request failed (" + r.status + ").";
-      try { const d = (await r.json()).detail; if (typeof d === "string" && d) detail = d; } catch (e) {}
-      showError(wrap, detail);
+      // A refusal before the stream carries a JSON detail, not SSE frames:
+      // the input rail's 400, residency's 403, the usage ceiling's 429, in
+      // the server's own sentence (shell-logic's errorText).
+      showError(wrap, r.detail);
       return;
     }
-    const reader = r.body.getReader();
+    const reader = r.response.body.getReader();
     const dec = new TextDecoder();
     let buf = "";
     for (;;) {
@@ -270,11 +217,12 @@ async function send() {
     }
   } catch (e) {
     paint(pacer.flush());
-    showError(wrap, "[connection lost]");
+    showError(wrap, CONNECTION_LOST);
   } finally {
     // First, everything that gives the analyst the composer back (R7): a throw
     // while painting the turn's ending must not leave it looking alive.
     busy = false;
+    setBusy(false);
     open = false;
     clearInterval(ticker);
     $("send").disabled = false; $("prompt").disabled = false;
@@ -292,19 +240,15 @@ async function send() {
 // Every server string is text (D-053's builder for answers).
 const chats = { list: [], complete: true, failed: false };
 
+// The history entry that holds a chat hash names whose it is (D-070).
 function setHash(id) {
-  history.replaceState(null, "", id ? "#chat=" + id : location.pathname + location.search);
+  history.replaceState(id ? { workspace: me.workspace.id, user: me.user.id } : null, "", id ? "#chat=" + id : location.pathname + location.search);
 }
 
-function authed(path) { return fetch(path, { headers: { "Authorization": "Bearer " + token } }); }
-
 async function loadChats() {
-  try {
-    const r = await authed("/api/chat/sessions");
-    if (!r.ok) throw new Error(String(r.status));
-    const body = await r.json();
-    chats.list = body.sessions; chats.complete = body.complete; chats.failed = false;
-  } catch (e) { chats.failed = true; }
+  const r = await api.get("/api/chat/sessions");
+  if (r.ok && r.body) { chats.list = r.body.sessions; chats.complete = r.body.complete; chats.failed = false; }
+  else chats.failed = true;
   renderChats();
 }
 
@@ -317,8 +261,8 @@ function renderChats() {
     b.addEventListener("click", () => openChat(c.id));
     return b;
   }));
-  $("new-chat").disabled = busy || !token;
-  $("chats-note").textContent = !token ? "Sign in to see your chats."
+  $("new-chat").disabled = busy || !api;
+  $("chats-note").textContent = !api ? "Sign in to see your chats."
     : chats.failed ? "Couldn't load your chats."
     : !chats.list.length ? "No chats yet."
     : chats.complete ? "" : `Only the ${chats.list.length} most recent are listed.`;
@@ -344,15 +288,13 @@ function newChat(note) {
 let openSeq = 0;
 
 async function openChat(id) {
-  if (busy || !token) return;
+  if (busy || !api) return;
   const seq = ++openSeq;
-  let r;
-  try { r = await authed("/api/chat/sessions/" + encodeURIComponent(id) + "/turns"); }
-  catch (e) { if (seq === openSeq && !busy) $("chats-note").textContent = "Couldn't open that chat."; return; }
+  const r = await api.get("/api/chat/sessions/" + encodeURIComponent(id) + "/turns");
   if (seq !== openSeq || busy) return;
   if (r.status === 404) { newChat("That chat is not available to you."); return; }
   if (!r.ok) { $("chats-note").textContent = "Couldn't open that chat."; return; }
-  const { turns } = await r.json();
+  const { turns } = r.body;
   if (seq !== openSeq || busy) return;
   sessionId = id;
   setHash(id);
@@ -382,7 +324,9 @@ function renderReopenedTurn(parts) {
     } else if (part.kind === "proposal") {
       const review = el("button", { className: "ghost review" }, ["Review"]);
       review.addEventListener("click", () => reviewProposal(part.id));
-      wrap.appendChild(el("div", { className: "proposal" }, [part.text, review]));
+      const node = el("div", { className: "proposal" }, [el("span", { className: "line" }, [part.text]), review]);
+      node.dataset.proposal = part.id;
+      wrap.appendChild(node);
     }
   }
 }
@@ -391,10 +335,8 @@ function renderReopenedTurn(parts) {
 // does not hold it: fetch it into the decided list, where its doors are.
 async function reviewProposal(id) {
   if (!approvals.waiting.some((p) => p.id === id)) {
-    try {
-      const r = await api("/" + encodeURIComponent(id));
-      if (r.ok && r.body && r.body.id) recordDecided(r.body);
-    } catch (e) { /* offline: the panel still opens, on the queue it has */ }
+    const r = await proposals("/" + encodeURIComponent(id));
+    if (r.ok && r.body && r.body.id) recordDecided(r.body);
   }
   openApprovals(id);
 }
@@ -407,21 +349,15 @@ async function reviewProposal(id) {
 const approvals = { waiting: [], decided: [], complete: true, armed: null, open: false, highlight: null, notes: {}, failed: false };
 let approvalsTimer = null;
 
-async function api(path, method = "GET") {
-  const r = await fetch("/api/proposals" + path, { method, headers: { "Authorization": "Bearer " + token } });
-  let body = null;
-  try { body = await r.json(); } catch (e) {}
-  return { ok: r.ok, status: r.status, body };
+// Every proposals request, through the shell's client: { ok, status, body, detail }.
+function proposals(path, method = "GET") {
+  return method === "POST" ? api.post("/api/proposals" + path) : api.get("/api/proposals" + path);
 }
 
 async function pollApprovals() {
-  try {
-    const r = await api("");
-    if (!r.ok) throw new Error(String(r.status));
-    approvals.waiting = r.body.proposals;
-    approvals.complete = r.body.complete;
-    approvals.failed = false;
-  } catch (e) { approvals.failed = true; }
+  const r = await proposals("");
+  if (r.ok && r.body) { approvals.waiting = r.body.proposals; approvals.complete = r.body.complete; approvals.failed = false; }
+  else approvals.failed = true;
   renderApprovals();
 }
 
@@ -451,24 +387,32 @@ function setOverlays(action) {
 
 function recordDecided(p) {
   approvals.decided = [p, ...approvals.decided.filter((d) => d.id !== p.id)];
+  refreshProposalLines(p);
+}
+
+// STATE.md #20: a reopened turn's line for this proposal follows what the
+// panel learned, so it never says "Waiting" after a door was used.
+function refreshProposalLines(p) {
+  const now = Date.now();
+  for (const node of $("transcript").querySelectorAll(".proposal[data-proposal]")) {
+    if (node.dataset.proposal === p.id) node.querySelector(".line").textContent = proposalLine(p, now);
+  }
 }
 
 async function useDoor(id, door) {
   approvals.armed = null;
   approvals.notes[id] = { text: "…", ok: true };
   renderApprovals();
-  let r;
-  try { r = await api("/" + encodeURIComponent(id) + "/" + door, "POST"); } catch (e) { r = { ok: false, status: 0, body: null }; }
-  const detail = r.body && typeof r.body.detail === "string" ? r.body.detail : null;
+  const r = await proposals("/" + encodeURIComponent(id) + "/" + door, "POST");
   if (r.ok) {
     const refused = r.body.refused && r.body.refused.detail;
     const did = r.body.outcome && r.body.outcome.did;
     approvals.notes[id] = refused ? { text: refused, ok: false } : did ? { text: did, ok: true } : null;
   } else {
-    approvals.notes[id] = { text: detail || ("Request failed (" + r.status + ")"), ok: false };
+    approvals.notes[id] = { text: r.detail, ok: false };
   }
   // The server's row is the truth after any answer, success or not.
-  const fresh = r.ok && r.body.proposal ? r.body.proposal : (await api("/" + encodeURIComponent(id))).body;
+  const fresh = r.ok && r.body.proposal ? r.body.proposal : (await proposals("/" + encodeURIComponent(id))).body;
   if (fresh && fresh.id) recordDecided(fresh);
   await pollApprovals();
 }
@@ -476,7 +420,7 @@ async function useDoor(id, door) {
 function doorButtons(p) {
   const now = Date.now();
   const nodes = [];
-  for (const d of doorsFor(p)) {
+  for (const d of doorsFor(p, me.workspace.role)) {
     const armed = d.confirm && confirmable(approvals.armed, p.id, d.door, now);
     const b = el("button", { className: armed ? "confirm " + p.risk : d.confirm && d.door === "approve" ? "" : "ghost" },
       [armed ? "Confirm " + d.label.toLowerCase() : d.label]);
@@ -498,7 +442,7 @@ function cardFor(p) {
   const card = p.card || {};
   const writes = (card.systems || []).filter((x) => x.writes).map((x) => x.system);
   const armed = approvals.armed && approvals.armed.id === p.id && confirmable(approvals.armed, p.id, approvals.armed.door, Date.now())
-    ? doorsFor(p).find((d) => d.door === approvals.armed.door) : null;
+    ? doorsFor(p, me.workspace.role).find((d) => d.door === approvals.armed.door) : null;
   const note = approvals.notes[p.id];
   const parts = [
     el("div", { className: "top" }, [
@@ -533,6 +477,7 @@ function renderApprovals() {
   const { waiting, decided } = mergeQueue(approvals.waiting, approvals.decided);
   $("approvals-note").textContent = approvals.failed
     ? "Couldn't refresh the queue; retrying."
+    : !mayChange(me.workspace.role) ? "Deciding needs the analyst or admin role."
     : n ? "" : "Nothing is waiting on you.";
   const nodes = waiting.map(cardFor);
   if (decided.length) nodes.push(el("div", { className: "divider" }, ["Decided"]), ...decided.map(cardFor));
@@ -545,20 +490,18 @@ $("approvals").addEventListener("click", () => { approvals.open ? setOverlays("c
 $("approvals-close").addEventListener("click", () => setOverlays("close-approvals"));
 // </approvals-dom>
 
-$("signin").addEventListener("click", signIn);
-$("email").addEventListener("keydown", (e) => { if (e.key === "Enter") signIn(); });
 $("send").addEventListener("click", send);
 $("prompt").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
-$("signout").addEventListener("click", signOut);
 $("new-chat").addEventListener("click", () => newChat());
 $("chats-toggle").addEventListener("click", () => setOverlays("toggle-chats"));
 $("chats-close").addEventListener("click", () => setOverlays("close-chats"));
 // The backdrop and Esc close whichever overlay is open (F2 narrow pass).
 $("scrim").addEventListener("click", () => setOverlays("dismiss"));
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") setOverlays("dismiss"); });
-// A hash pasted into this tab's address bar opens that chat without a reload.
+// A hash pasted into this tab's address bar opens that chat without a reload;
+// one whose entry names another workspace or person does not (D-070).
 window.addEventListener("hashchange", () => {
   const id = chatIdFromHash(location.hash);
-  if (id && id !== sessionId) openChat(id);
+  if (id && id !== sessionId && me && hashBelongsHere(history.state, me)) openChat(id);
 });
-restoreSignIn();
+startShell({ page: "chat", ready, signedOut });

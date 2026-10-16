@@ -2,6 +2,8 @@
 // imports it (js/chat.js) and tests/js/page_logic.test.mjs imports it under
 // Node, so what is tested is the module the browser runs.
 
+import { mayChange } from "./shell-logic.js";
+
 // F1 measured the server at ~1 ms a delta and the page at ~3 ms to paint;
 // the endpoint's bursts and silences are what the analyst feels. Arrived
 // frames are released smoothly, and no text waits longer than this.
@@ -181,7 +183,10 @@ export function markdownNodes(text, h) {
 // in the queue BECAUSE it is stale, so no page clock decides it.
 export const CONFIRM_MS = 5000;
 
-export function doorsFor(p) {
+// `role` is the active workspace's (GET /api/auth/me). A role that may not
+// change anything gets no door at all; the server refuses them anyway (F4).
+export function doorsFor(p, role) {
+  if (!mayChange(role)) return [];
   const card = p.card || {};
   const runs = (door, label, consequence) => ({ door, label, confirm: true, consequence });
   const undo = card.undo
@@ -292,6 +297,15 @@ export function chatIdFromHash(hash) {
   return m ? m[1].toLowerCase() : null;
 }
 
+// D-070, and Back: an earlier history entry may hold another client's chat id.
+// The page writes whose a hash is into its entry (`history.state`); a hash with
+// no owner is one the human typed or pasted, and the server judges it. One
+// another workspace or person put there is never opened.
+export function hashBelongsHere(state, me) {
+  if (state == null) return true;
+  return state.workspace === me.workspace.id && state.user === me.user.id;
+}
+
 // An age in words. "yesterday" is 24 to 48 hours ago, not a calendar day:
 // the page knows no time zone of the analyst's to be right about.
 export function relativeTime(then, now) {
@@ -333,6 +347,15 @@ export function endingText(ending) {
   return Object.hasOwn(ENDING_COPY, ending ?? "") ? ENDING_COPY[ending] : "No answer was stored";
 }
 
+// A filed proposal's line in a reopened turn, in the panel's words for its
+// status now. The panel calls this again whenever it learns a newer row, so a
+// line never goes on saying what a door has since changed (STATE.md #20). A
+// turn's row carries `summary`; the panel's full row carries `card.summary`.
+export function proposalLine(p, now) {
+  const summary = p.summary || (p.card && p.card.summary) || p.action;
+  return `Proposal: ${summary} · ${statusText(p, now)}`;
+}
+
 // What a reopened turn renders, in order. Reasoning and tool lines were
 // never stored (the chat says so once, above its turns); proposals come
 // back with their CURRENT status, in the panel's own words.
@@ -344,7 +367,7 @@ export function reopenedTurnPlan(turn, now) {
   const spend = ledgerSpendText(turn.spend);
   if (spend) parts.push({ kind: "spend", text: spend });
   for (const p of turn.proposals || []) {
-    parts.push({ kind: "proposal", id: String(p.id), text: `Proposal: ${p.summary || p.action} · ${statusText(p, now)}` });
+    parts.push({ kind: "proposal", id: String(p.id), text: proposalLine(p, now) });
   }
   return parts;
 }

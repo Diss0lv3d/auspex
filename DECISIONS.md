@@ -2549,3 +2549,39 @@ itself), stand.
   deployment (today: none outside tests).
 - The declaration is the operator's; nothing verifies where the database
   actually runs.
+
+## D-070 — The page's tenancy rules: a switch reloads, /me judges access (2026-10-16, F4)
+
+**Context.** S30 made a token one workspace and gave people several (D-061,
+D-068); F4 gave every page one shell with a workspace switcher
+(docs/superpowers/specs/2026-10-16-f4-shell-design.md). A page that swapped
+the token in place would have to find and stop every timer, poll, stream and
+request of the previous client, and one missed would show or send that
+client's data under the next one's token.
+
+**Decision (Burhan's calls, F4).**
+- **A switch reloads the page.** The new token is stored and the page is
+  replaced by its own path and query, without its hash, so no `#chat=` id of
+  the previous client is ever sent with the next client's token. A switch is
+  held while a turn streams. Storage that will not keep the new token stops
+  the reload and says so, rather than signing the tab out.
+- **`GET /api/auth/me` is the page's only judge of access.** Any 403 makes the
+  shell re-check it, one check at a time. `/me` refusing (401/403) ends the
+  tab's sign-in, and the server's sentence is shown on the signed-out page; a
+  role or workspace that changed reloads the page; otherwise the refusal was a
+  role's, shown where the action was.
+- **The page never computes the switchable set** and sends a workspace id only
+  to `POST /api/auth/switch`. Doors follow the active role (`mayChange`,
+  `isAdmin`), and the server refuses them anyway.
+- **Earlier history entries follow the same rule.** A page the browser restores
+  from its back/forward cache reloads when the tab's token has changed since it
+  was built, and a chat hash opens only for the workspace and person that put it
+  in the history entry (`history.state`); one that does not belong is dropped
+  without a request.
+
+**Bounds, stated.**
+- Each tab holds its own token (D-056): two tabs may sit in two clients, and
+  nothing synchronises them.
+- A dead token cannot list where else its person may go (`/me` refuses it), so
+  lost access means signing in again.
+- A reload costs a page load; TD-047's 304s keep it to revalidations.

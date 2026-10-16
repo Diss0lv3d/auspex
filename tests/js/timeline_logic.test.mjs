@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  count, pct, conf, claimStatusClass, standingClass, digestBanner,
+  count, pct, conf, claimStatusClass, standingClass, digestBanner, labelClass,
 } from "../../auspex/static/js/timeline-logic.js";
 
 const rows = (n) => Array.from({ length: n }, () => ({}));
@@ -99,4 +99,13 @@ test("an active week the server cut states floors and says how to see the rest",
     text: "Your past got re-scored. 0 re-opened · 0 changed label · 0 claims contradicted · at least 50 went stale."
       + " Showing the first 50 of each — widen the page to see the rest.",
   });
+});
+
+test("a pill's class is one the stylesheet knows, or slate; a feed label cannot add classes", () => {
+  for (const known of ["malicious", "suspicious", "benign", "unknown", "fresh", "aging", "stale", "lapsed", "held", "slate"]) {
+    assert.equal(labelClass(known), known);
+  }
+  assert.equal(labelClass("benign current"), "slate");
+  assert.equal(labelClass("x onclick"), "slate");
+  assert.equal(labelClass(undefined), "slate");
 });

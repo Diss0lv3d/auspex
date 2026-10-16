@@ -48,3 +48,14 @@ export function digestBanner(d) {
   const cut = d.complete ? "" : ` Showing the first ${d.limit} of each — widen the page to see the rest.`;
   return { kind: "warn", text: `Your past got re-scored. ${counts}${cut}` };
 }
+
+// A pill's class from a feed label or band. Only the classes the stylesheet
+// knows pass; anything else is slate, so a label with spaces in it cannot add
+// classes to the element (F3 review, STATE.md #25).
+export const LABEL_CLASSES = new Set([
+  "malicious", "suspicious", "benign", "unknown", "fresh", "aging", "stale", "lapsed", "held", "slate",
+]);
+
+export function labelClass(label) {
+  return LABEL_CLASSES.has(label) ? label : "slate";
+}
