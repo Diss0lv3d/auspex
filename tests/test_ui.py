@@ -436,6 +436,35 @@ def test_a_switch_reloads_the_page_without_its_hash(client):
     assert "STORAGE_BLOCKED" in switch
 
 
+def test_a_page_restored_by_back_reloads_when_the_tabs_sign_in_moved_on(client):
+    """F4 final review (C1): chat -> Timeline -> switch -> Back restored the
+    frozen chat page from the back/forward cache, with the previous client's
+    transcript, poll and in-memory token. A restored page whose token is no
+    longer the tab's reloads, by path and query."""
+    js = _served(client, "/js/shell.js")
+    handler = js.split('addEventListener("pageshow"', 1)[1].split("\n  });\n", 1)[0]
+    assert "e.persisted" in handler and "stored(TOKEN_KEY) !== token" in handler
+    assert "location.replace(afterSwitchUrl(location))" in handler
+
+
+def test_a_chat_hash_opens_only_for_whoever_put_it_in_the_history_entry(client):
+    """F4 final review (C1): with no back/forward cache, Back loads an earlier
+    entry's `#chat=` id of the previous client under the next client's token.
+    The entry names whose hash it is (history.state), and the page opens it only
+    when that is the active workspace and person; one that is not is dropped
+    without a request."""
+    js = _served(client, "/js/chat.js")
+    set_hash = js.split("function setHash(id)", 1)[1].split("\n}\n", 1)[0]
+    owner = "history.replaceState(id ? { workspace: me.workspace.id, user: me.user.id } : null"
+    assert owner in set_hash
+    ready = js.split("function ready(ctx)", 1)[1].split("\n}\n", 1)[0]
+    assert "hashBelongsHere(history.state, me)" in ready and "setHash(null)" in ready
+    assert ready.index("hashBelongsHere(history.state, me)") < ready.index("openChat(id)")
+    listener = js.split('window.addEventListener("hashchange"', 1)[1].split("\n});\n", 1)[0]
+    assert "hashBelongsHere(history.state, me)" in listener
+    assert listener.index("hashBelongsHere(history.state, me)") < listener.index("openChat(id)")
+
+
 def test_any_refusal_re_checks_access_through_me_once(client):
     """D-070: /me is the page's only judge of access. Any 403 asks it, one
     check at a time; a /me that refuses ends this tab's sign-in in the

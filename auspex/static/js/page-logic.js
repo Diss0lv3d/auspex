@@ -297,6 +297,15 @@ export function chatIdFromHash(hash) {
   return m ? m[1].toLowerCase() : null;
 }
 
+// D-070, and Back: an earlier history entry may hold another client's chat id.
+// The page writes whose a hash is into its entry (`history.state`); a hash with
+// no owner is one the human typed or pasted, and the server judges it. One
+// another workspace or person put there is never opened.
+export function hashBelongsHere(state, me) {
+  if (state == null) return true;
+  return state.workspace === me.workspace.id && state.user === me.user.id;
+}
+
 // An age in words. "yesterday" is 24 to 48 hours ago, not a calendar day:
 // the page knows no time zone of the analyst's to be right about.
 export function relativeTime(then, now) {

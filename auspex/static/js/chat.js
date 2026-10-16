@@ -5,7 +5,7 @@
 import {
   createPacer, indicatorText, markdownNodes, CONFIRM_MS, doorsFor, statusText, undoLineFor,
   askedText, mergeQueue, armDoor, confirmable, spendText, chatSpendText, chatIdFromHash,
-  chatListLabel, reopenedTurnPlan, noAnswerNote, overlayAfter, proposalLine,
+  hashBelongsHere, chatListLabel, reopenedTurnPlan, noAnswerNote, overlayAfter, proposalLine,
 } from "./page-logic.js";
 import { $, el } from "./dom.js";
 import { startShell } from "./shell.js";
@@ -32,8 +32,11 @@ function ready(ctx) {
   loadEndpoints();
   startApprovals();
   loadChats();
+  // D-070: a hash another workspace or person left in this history entry (Back
+  // after a switch) is dropped, never requested under this token.
   const id = chatIdFromHash(location.hash);
-  if (id) openChat(id);
+  if (id && hashBelongsHere(history.state, me)) openChat(id);
+  else if (id) setHash(null);
 }
 
 function signedOut() { renderChats(); }
@@ -237,8 +240,9 @@ async function send() {
 // Every server string is text (D-053's builder for answers).
 const chats = { list: [], complete: true, failed: false };
 
+// The history entry that holds a chat hash names whose it is (D-070).
 function setHash(id) {
-  history.replaceState(null, "", id ? "#chat=" + id : location.pathname + location.search);
+  history.replaceState(id ? { workspace: me.workspace.id, user: me.user.id } : null, "", id ? "#chat=" + id : location.pathname + location.search);
 }
 
 async function loadChats() {
@@ -494,9 +498,10 @@ $("chats-close").addEventListener("click", () => setOverlays("close-chats"));
 // The backdrop and Esc close whichever overlay is open (F2 narrow pass).
 $("scrim").addEventListener("click", () => setOverlays("dismiss"));
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") setOverlays("dismiss"); });
-// A hash pasted into this tab's address bar opens that chat without a reload.
+// A hash pasted into this tab's address bar opens that chat without a reload;
+// one whose entry names another workspace or person does not (D-070).
 window.addEventListener("hashchange", () => {
   const id = chatIdFromHash(location.hash);
-  if (id && id !== sessionId) openChat(id);
+  if (id && id !== sessionId && me && hashBelongsHere(history.state, me)) openChat(id);
 });
 startShell({ page: "chat", ready, signedOut });

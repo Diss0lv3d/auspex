@@ -199,6 +199,13 @@ export function startShell({ page, ready, signedOut }) {
     if (out) out.disabled = on;
   }
 
+  // D-070, and Back: a page the browser restores from its back/forward cache
+  // still runs on the token it was built under. If this tab's sign-in has
+  // moved on since (a switch, Sign out, lost access), it reloads instead.
+  window.addEventListener("pageshow", (e) => {
+    if (e.persisted && stored(TOKEN_KEY) !== token) location.replace(afterSwitchUrl(location));
+  });
+
   const notice = stored(NOTICE_KEY);
   if (notice) forget(NOTICE_KEY);
   if (token) enter();

@@ -9,7 +9,7 @@ import { test } from "node:test";
 import {
   createPacer, indicatorText, markdownNodes,
   doorsFor, statusText, undoText, undoLineFor, askedText, mergeQueue, armDoor, confirmable,
-  spendText, chatSpendText, chatIdFromHash, relativeTime, chatListLabel, ledgerSpendText, endingText, reopenedTurnPlan,
+  spendText, chatSpendText, chatIdFromHash, hashBelongsHere, relativeTime, chatListLabel, ledgerSpendText, endingText, reopenedTurnPlan,
   noAnswerNote, overlayAfter, proposalLine,
 } from "../../auspex/static/js/page-logic.js";
 
@@ -355,6 +355,34 @@ test("a chat id comes from the hash only when it is a UUID", () => {
   for (const bad of ["", "#", "#chat=", "#chat=not-a-uuid", "#chat=" + CHAT + "x",
     "#other=" + CHAT, "#chat=" + CHAT + "&x=1", null, undefined]) {
     assert.equal(chatIdFromHash(bad), null, String(bad));
+  }
+});
+
+// D-070, and Back: an earlier history entry may hold another client's chat id.
+// The entry that holds a chat hash names whose it is (history.state); a hash
+// with no owner is one the human typed or pasted.
+const WHO = { user: { id: "u-1" }, workspace: { id: "ws-bank" } };
+
+test("a hash the human typed or pasted belongs here: it names no owner", () => {
+  assert.equal(hashBelongsHere(null, WHO), true);
+  assert.equal(hashBelongsHere(undefined, WHO), true);
+});
+
+test("a hash put in the history entry by this workspace and person belongs here", () => {
+  assert.equal(hashBelongsHere({ workspace: "ws-bank", user: "u-1" }, WHO), true);
+});
+
+test("a hash another workspace put in the history entry does not belong here", () => {
+  assert.equal(hashBelongsHere({ workspace: "ws-telco", user: "u-1" }, WHO), false);
+});
+
+test("a hash another person put in the history entry, in the same workspace, does not belong here", () => {
+  assert.equal(hashBelongsHere({ workspace: "ws-bank", user: "u-2" }, WHO), false);
+});
+
+test("an owner missing either half does not belong here", () => {
+  for (const state of [{ workspace: "ws-bank" }, { user: "u-1" }, {}]) {
+    assert.equal(hashBelongsHere(state, WHO), false, JSON.stringify(state));
   }
 });
 
