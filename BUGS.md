@@ -475,3 +475,27 @@ are never deleted.
 - **Fix sketch (the review's):** read the home and the access in one statement,
   or lock the person's row `FOR SHARE` and re-check inside one transaction.
 - **Status:** open.
+
+## B-026 — an action argument named like a platform keyword is approved, then the run fails and reads "incomplete"
+
+- **Found:** 2026-10-16, S31 (Claude), the fresh review of the idempotency key
+  (`c0af959`); reproduced by the session before logging. The class is older:
+  `proposal_id` and `workspace_id` collided before S31, and S31 added
+  `idempotency_key` to it.
+- **What happened (reproduced):** a note proposal whose arguments carry an
+  extra key named `idempotency_key` (or `proposal_id`) beside the declared
+  ones dry-runs, files and is approved. The approved run then raises
+  `TypeError: …run() got multiple values for keyword argument
+  'idempotency_key'`, and the row reads `incomplete` with effects `unknown`
+  ("It failed, and cannot tell whether any of it landed") although no note was
+  written. `validate_spec` refuses a DECLARED parameter with such a name (S31);
+  an undeclared argument key is not dropped or refused at propose time, and
+  the note action's dry run accepts it in `**_`. A tool call's arguments come
+  from the model.
+- **Evidence:** docs/probes/2026-10-16-s31-jobs-live.md ("Found here,
+  logged"), script `docs/probes/s31-live/probe_platform_keyword_arg.py`:
+  `[idempotency_key] row: status=incomplete result={"error": "TypeError",
+  "effects": "unknown"} notes=0`, and the same for `proposal_id`.
+- **Fix sketch (the review's):** refuse or strip undeclared argument keys (at
+  least the platform's own keywords) when a proposal is filed.
+- **Status:** open.
