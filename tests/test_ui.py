@@ -476,6 +476,43 @@ def test_any_refusal_re_checks_access_through_me_once(client):
     assert "end(r.detail)" in check and "roleChanged(me, r.body)" in check
 
 
+def test_a_switch_keeps_the_token_its_page_was_built_under_until_the_reload(client):
+    """F4 final review (I2): the page's state was built under the token in
+    memory. The switch stores the new token for the reload and never puts it in
+    memory, so a request still out goes on the old one, answered for the old
+    workspace, until the reload replaces the page."""
+    js = _served(client, "/js/shell.js")
+    switch = js.split("async function switchTo()", 1)[1].split("\n  }\n", 1)[0]
+    assert "store(TOKEN_KEY, r.body.access_token)" in switch
+    assert re.search(r"\btoken\s*=(?!=)", switch) is None
+
+
+def test_every_way_out_of_a_sign_in_drops_the_hash(client):
+    """F4 final review (I2): a lost or expired sign-in (end) and Sign out leave
+    by the page's own path and query, as a switch does, so no chat id of this
+    client survives into the signed-out page or the next sign-in."""
+    js = _served(client, "/js/shell.js")
+    for signature in ("function end(sentence)", "function signOut()"):
+        body = js.split(signature, 1)[1].split("\n  }\n", 1)[0]
+        assert "location.replace(afterSwitchUrl(location))" in body, signature
+        assert "location.reload()" not in body, signature
+
+
+def test_the_shell_holds_the_switcher_and_sign_out_while_a_page_is_busy(client):
+    """F4 final review (I2): a streaming turn holds both controls still, and a
+    switch or Sign out that slips through anyway refuses, so neither reload
+    cuts the turn."""
+    js = _served(client, "/js/shell.js")
+    hold = js.split("function setBusy(on)", 1)[1].split("\n  }\n", 1)[0]
+    assert "picker.disabled = on" in hold and "out.disabled = on" in hold
+    switch = js.split("async function switchTo()", 1)[1].split("\n  }\n", 1)[0]
+    early = re.search(r"if \(busy\b[^\n]*return;", switch)
+    assert early and early.start() < switch.index('"/api/auth/switch"')
+    sign_out = js.split("function signOut()", 1)[1].split("\n  }\n", 1)[0]
+    early = re.search(r"if \(busy\b[^\n]*return;", sign_out)
+    assert early and early.start() < sign_out.index("forget(TOKEN_KEY)")
+
+
 @pytest.mark.parametrize("path", ["/js/shell.js", "/js/dom.js", "/js/api.js", "/js/shell-logic.js"])
 def test_the_shared_modules_build_text_never_markup(client, path):
     js = _served(client, path)
@@ -512,6 +549,8 @@ def test_a_viewer_gets_no_composer_and_no_doors(client):
     ready = js.split("function ready(ctx)", 1)[1].split("\n}\n", 1)[0]
     assert "mayChange(me.workspace.role)" in ready
     assert '$("composer").hidden = true' in ready and "viewerNote(me)" in ready
+    viewer = ready.split("} else {", 1)[1]
+    assert '$("composer").hidden = true' in viewer and '$("new-chat").hidden = true' in viewer
     assert "doorsFor(p, me.workspace.role)" in js
     assert "Deciding needs the analyst or admin role." in js
     html = _served(client, "/")

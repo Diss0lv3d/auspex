@@ -1,5 +1,28 @@
 # Technical debt — logged the moment it's taken
 
+## TD-061 (F4) — the shell's state machine is pinned by its source text, not run by a test
+
+**Where:** `auspex/static/js/shell.js` (`startShell`: `switchTo`, `signOut`,
+`end`, `recheck`, `enter`, `setBusy` and the `pageshow` handler), pinned in
+`tests/test_ui.py` by splitting function bodies on `"\n  }\n"`.
+**Risk:** MEDIUM. D-070's guarantees (no token swap before the reload, every
+way out dropping the hash, a busy page holding the switcher and Sign out, one
+re-check at a time, a page restored by Back reloading) are each pinned by the
+text that implements them; the switch and lost-access paths were also shown
+live (F4 Task 11). A refactor can keep the text and lose the behaviour, or
+reindent a function and fail its pin with the behaviour intact. The pure parts
+(`shell-logic.js`, `api.js`, `dom.js`) are executed under Node; the state
+between them is not.
+**Why taken:** the F4 final review found four of these guarantees unpinned
+(mutants passed every test); source pins closed that in the fix wave, and an
+executed harness was more than the fix wave's scope.
+**Path to fix:** a Node harness with a stub `document` (`$`/`el` targets),
+`location` (`replace`/`reload` recorded), `sessionStorage` (including one that
+throws) and an injected `fetch`, that runs `startShell` and drives a switch,
+a Sign out, a 401, a 403 re-check and a busy turn through it; then retire the
+text pins it covers.
+**Trigger:** the next change to `shell.js` beyond copy.
+
 ## TD-060 (S30) — the suite leaves tenancy rows in the shared dev database
 
 **Where:** the S30 tests that delete a workspace but not its organization
