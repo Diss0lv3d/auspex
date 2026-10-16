@@ -1,93 +1,100 @@
-# NEXT-SESSION-BE — track: backend · session: S31
+# NEXT-SESSION-BE — track: backend · session: S32
 
 _Paste everything below the first line of dashes into a fresh Claude Code
-window opened in /home/burhan/auspex-new. **S31 builds the jobs queue and
-TD-025's first half (D-065, D-066).** **F4 closed 2026-10-16** (one shell for
-every page, D-070), so S31 is next in the order table and **the focus**
-(STATE.md). Promote #37 shipped F4, so the slate is empty. S30 closed
-2026-10-15 (MSSP tenancy)._
+window opened in /home/burhan/auspex-new. **S32 builds the connector contract,
+the SDK and the catalogue (D-060, D-064).** S31 closed 2026-10-16 (the jobs
+queue and TD-025's first half; B-021 fixed; D-069 built), so S32 is next in the
+order table and **the focus** (STATE.md). The promote slate holds all of S31
+(STATE.md)._
 
-_Below the S31 prompt is the **backend plan for the whole phase, S29–S41**.
+_Below the S32 prompt is the **backend plan for the whole phase, S29–S41**.
 **`/session-end` writes the next session's prompt from its entry in the plan,
 keeps the plan section, and ticks the session it closed.** A change to the
 plan's order is Burhan's call._
 
 ---
 
-SESSION S31 of Auspex, **backend track** (D-051). The working dir must be
-/home/burhan/auspex-new. Run `/session-start be S31` first (the full ritual).
+SESSION S32 of Auspex, **backend track** (D-051). The working dir must be
+/home/burhan/auspex-new. Run `/session-start be S32` first (the full ritual).
 It reads `SESSION-RULES.md` (standing rules for every track, including the
-**Tenancy** section S30 added) and STATE.md.
+**Jobs** section S31 added) and STATE.md.
 
 Step 0 (do BEFORE new scope):
 
 1. **One window at a time (D-051, D-059).** `git fetch` and read
    `origin/staging` first. If anything moves that you did not move, check `ps`
    for a second `claude` in this directory and stop.
-2. **If STATE.md says the promote slate is not empty, `/promote` it.** Read
-   the diff, not the list.
-3. **B-021, unless BUGS.md says B3 fixed it** (Burhan, 2026-10-15: "promote
-   now, fix next session"). `rehome-person` records the OLD organization's name
-   in the NEW organization's audit trail, which that organization's admins read
-   (`auspex/tenancy/admin.py:402-404`; the test that pins the leak is
-   `tests/test_tenancy_cli.py:136`). Fix it as BUGS.md sketches: the event keeps
-   only `to`; the old name goes to the operator's CLI output. In the same lines:
-   a second concurrent rehome answers `NotFound` (lock `users` alone, then read
-   the organization's name), and `admin.py`'s docstring overclaims the
-   workspace lock (`provision_dev_user` takes none). Test first; a fresh-agent
-   review (a tenancy change, SESSION-RULES.md); `fixed <commit> (S31)` in
-   BUGS.md.
-4. **D-069's build: ask Burhan where it goes** before anything else of it.
-   Proposed: here, as Step 0 — the deployment declares its storage region (an
-   env var born with it, in `.env.example` and `docs/ENV_VARS.md`), and the CLI's
-   `create-org` / `create-client` refuse a `ksa` workspace unless that region is
-   `ksa`. If he places it elsewhere, write that into STATE.md and the target
-   prompt and move on.
-5. **Read D-065 and D-066, and the spec's sections on them, before any code**
+2. **The promote slate holds all of S31** (STATE.md, follow-up #1). S31 is not
+   a milestone in the order table (the next is S33), but it carries D-069's
+   residency rule and B-021's fix: **ask Burhan whether to `/promote` it
+   now.** If yes, read the diff, not the list.
+3. **Read D-060 and D-064, and the spec's sections on them, before any code**
    (docs/superpowers/specs/2026-10-15-integration-phase-design.md). They are the
    contract; re-debating one is "overturn or drop?" to Burhan.
-6. **Probe reality first (CLAUDE.md rule 4).** Save to
-   `docs/probes/<date>-s31-jobs-baseline.md`:
-   - the live `proposals` schema and its status CHECK block
-     (`auspex/migrations.py`), and every claim/finish path in
-     `auspex/actions/settlement.py` by `file:line` (D-041, D-048: claim tokens,
-     `claimed_at`, the stale doors);
-   - the lifespan's background tasks (`auspex/app.py`) and the `ingest_state`
-     cursor pattern;
-   - what an execution attempt hands `execute` / `undo` / `observe` today.
+4. **S31's open ends S32 builds on** (STATE.md #30). Put them to Burhan with
+   the design, one at a time:
+   - **What a job may store.** `complete` stores only what JSON can carry: a
+     tuple holding NUL, or a NaN, fails it and the job re-runs. A connector's
+     output types (S32) and the core's result validation (S33) are the natural
+     place; say which.
+   - **B-026** (BUGS.md): an undeclared action argument named like a platform
+     keyword is approved, then the run fails into `incomplete`. A manifest
+     action compiles to an `ActionSpec` (S32): propose whether the compiled
+     path refuses undeclared arguments when a proposal is filed.
+   - The worker's `except` around a failing `fail` has no test of its own
+     (`auspex/jobs/worker.py`; monkeypatch `fail` to raise).
+5. **Probe reality first (CLAUDE.md rule 4).** Save to
+   `docs/probes/<date>-s32-connector-baseline.md`:
+   - `ActionSpec`, `validate_spec`, `canonical_spec` and `fingerprint`
+     (`auspex/actions/types.py`, `auspex/actions/proposal.py`) by `file:line`,
+     and exactly what the fingerprint covers;
+   - the action registry (`auspex/actions/registry.py`) and how the agent loop
+     receives its actions today (TD-023: in-process, workspace-blind);
+   - the enrichment provider shape (`auspex/enrich/providers/base.py`), the
+     nearest existing thing to a connector;
+   - S31's `JobKind` and `claim` (`auspex/jobs/queue.py`) as S33's agents will
+     meet them.
 
-Goal: **S31, the plan's entry below, is the contract: its exit criteria are
-the done line.** In short: a workspace-scoped `jobs` table claimed with
-`FOR UPDATE SKIP LOCKED` (lease, bounded retries with backoff, a dead state, an
-idempotency key unique per workspace, claim tokens, a claim that takes a scope),
-a race test, fairness across workspaces, the in-app worker in the lifespan;
-then TD-025's first half: an idempotency key on every execution attempt, and a
-TTL on pending proposals (a new status in the one CHECK block). An adversarial
-review of the approvals state machine.
+Goal: **S32, the plan's entry below, is the contract: its exit criteria are
+the done line.** In short: the manifest v1 types; `validate_manifest` refusing
+with exact reasons; a manifest action compiling to an `ActionSpec` (wire names
+prefixed per integration; the fingerprint includes the connector id and the
+package hash); the SDK, a new package (decorators, a typed context, an HTTP
+client limited to declared hosts with TLS pinning, logs that redact secrets, a
+local harness) whose `auspex-sdk build` turns Python or YAML into the same
+manifest; the catalogue (an admin registers a content-hashed package in a
+workspace); a reference connector passing the harness; the structural tests
+(the app never imports connector code; the core never reads YAML).
 
 **Design first, then a plan.** Brainstorm with Burhan, one question at a time,
-then write `docs/superpowers/plans/<date>-s31-jobs.md` and ask how to execute
-it. Questions D-065/D-066 leave to S31:
-- the TTL's length (a code constant, D-026) and what an expired proposal says
-  on its card and in the approvals list;
-- the retry cap, the backoff curve and the lease length;
-- the claim's scope shape, so S33's Edge Agents reuse it over HTTP;
-- which job kind S31 runs at all (the proposal-expiry sweep is the obvious
-  first), since connectors arrive at S32.
+then write `docs/superpowers/plans/<date>-s32-connectors.md` and ask how to
+execute it. Questions D-064 leaves to S32:
+- where the SDK lives (a package in this repo, its name, how it installs) and
+  whether S33's Edge Agent image carries it;
+- what bytes a package's content hash covers, so S33's pull-by-hash verifies
+  exactly what the catalogue registered;
+- the catalogue's tenancy: **whether and how a provider offers its connectors
+  to its clients' workspaces** (S32 proposes, Burhan decides);
+- how a manifest's `test`, `fetch` and `actions[]` become job kinds on S31's
+  queue (S33 runs them; S32 only types them).
 
-Candidates: none. Ending early with the rituals done beats starting S32's
-work.
+Candidates: S31's open ends in Step 0 item 4. Ending early with the rituals
+done beats starting S33's work.
 
 Constraints: everything in `SESSION-RULES.md`, and the plan's "Standing for
 every session in this phase" below.
-- `jobs` carries `workspace_id` (D-008); it is not an exemption. Every new
-  table and route gets a cross-tenant test (`tests/_tenancy.py`).
-- Any new status goes into the ONE `proposals_status_check` block, edited in
-  place, and `test_startup_survives_every_status_a_proposal_can_be_in` passes.
-- **An approvals-state-machine change gets a fresh-agent adversarial review
-  before the close, and so do the review's fixes** (SESSION-RULES.md).
+- **Nothing a connector ships runs in the app process** (D-062); the core
+  never reads YAML.
+- **Specs over prompts (D-064):** the manifest generates the forms, the action
+  specs, the agent's tool text and the contract tests. Nothing is written
+  twice.
+- A new package → `pyproject.toml` and the Dockerfile skeleton; a new env var
+  → `.env.example` and `docs/ENV_VARS.md` at birth.
+- **A change to an action or the approvals state machine gets a fresh-agent
+  adversarial review before the close, and so do the review's fixes**
+  (SESSION-RULES.md).
 - Run pytest only when no live probe is running.
-- Do not start S32's work in S31 (scope lock).
+- Do not start S33's work in S32 (scope lock).
 
 ---
 
@@ -123,7 +130,7 @@ ticks the closed session._
 | 1 | S29 | be | F3 closed | closed: the S28 review, the spec and D-060…D-067 |
 | 2 | S30 | be | S29 | closed 2026-10-15: MSSP tenancy (D-061, D-068); D-069 decided, built later |
 | 3 | F4 | fe | S30 | closed 2026-10-16: one shell for every page, role-aware, a workspace switcher (D-070) |
-| 4 | S31 | be | S30 | the jobs queue, TD-025's first half |
+| 4 | S31 | be | S30 | closed 2026-10-16: the jobs queue, TD-025's first half; B-021 fixed, D-069 built |
 | 5 | S32 | be | S31 | the connector contract, the SDK (Python and YAML), the catalogue |
 | 6 | S33 | be | S32 | integrations and the Edge Agent, "Test connection" end to end |
 | 7 | S34 | be | S33 | integration actions through approvals and per-client policy |
@@ -146,15 +153,18 @@ ticks the closed session._
   end), S36 (QRadar data in), S38 (the loop closed), and S40 (the phase's
   demo).
 
-### Where the code stands (2026-10-15, after S30; re-verify before relying on it)
+### Where the code stands (2026-10-16, after S31; re-verify before relying on it)
 
 - **Actions** (`auspex/actions/`):
   - `EXECUTABLE_SYSTEMS = frozenset({"auspex"})` (`settlement.py:50`), checked
     only in `check_executable`. Widening it is code plus review (D-024, D-066).
   - One built-in action, `annotate_observable` (`builtin.py`). `ActionSpec` is
     `types.py:164`, `validate_spec` `:239`.
-  - The registry is in-process and workspace-blind (TD-023). No idempotency key
-    and no proposal TTL (TD-025). Both left Deferred at S29 (D-066).
+  - The registry is in-process and workspace-blind (TD-023, S32's catalogue).
+  - **S31:** every handler call carries `idempotency_key=operation_key(...)`
+    (one key per operation; `validate_spec` refuses a handler that cannot take
+    it); pending proposals expire after 24 h (`expired`, refused in `settle`'s
+    own UPDATE; the `proposals.expire` job is the sweep).
 - **Tenancy** (`auspex/tenancy/`, `auspex/auth.py`; built at S30, D-061/D-068):
   - organizations (`direct|provider|client`, `restricted`), memberships with
     `admin|analyst|viewer` and `provider_wide`, `users.home_org_id`,
@@ -167,11 +177,16 @@ ticks the closed session._
     `python -m auspex.tenancy`; the region guard (`ENGINE_REGION`, `region.py`).
   - Every write already needs `Analyst` or `Admin` (pinned by
     `tests/test_tenancy_roles.py`); a new route inherits that check.
+  - **D-069 (built at S31):** `STORAGE_REGION`; the create paths refuse a
+    workspace the deployment's storage may not hold.
 - **Secrets.** Provider keys are env-only and deployment-wide
   (`auspex/config.py`). No per-workspace secret storage.
-- **Background work** is asyncio tasks in the lifespan (`auspex/app.py:41-95`);
-  no jobs table. `ingest_state` (`auspex/migrations.py:173`) is the pattern for
-  a per-source cursor.
+- **Background work.** S31's jobs queue (`auspex/jobs/queue.py`: `enqueue`,
+  a scoped `claim` serving workspaces in turn, leases, backoff, `dead`,
+  token-checked `complete`/`fail`) and its in-app worker (`worker.py`, in the
+  lifespan behind `JOBS_WORKER_ENABLED`; first kind `proposals.expire`). The
+  ingest task is still its own asyncio task. `ingest_state`
+  (`auspex/migrations.py:173`) is the pattern for a per-source cursor.
 - **Schema**: one list, `SCHEMA_V0` (`auspex/migrations.py`). Every table
   carries `workspace_id` (D-008), enforced by `tests/test_schema.py`. D-061
   names its only exemptions: `organizations`, and `users` once identity leaves
@@ -179,12 +194,14 @@ ticks the closed session._
 - **Alerts** arrive only pasted into chat (`normalize`, `score_alert` in
   `auspex/alerts/`). **Enrichment providers** (`auspex/enrich/providers/base.py:24`)
   are the nearest existing shape to a connector.
-- **Compose** runs `app`, `postgres` and `opensearch`. No worker, no agent.
-- **Open bugs that touch this phase** (BUGS.md): B-021 (a rehome names the
-  old organization to the new one's admins; S31's Step 0), B-010 (three classify rules
-  still backtrack on crafted input), B-015/B-020 (what the agent says it
-  recorded), B-017 (a malformed tool name from the endpoint crashes a turn),
-  B-018 (a URL's credentials are kept).
+- **Compose** runs `app` (with the in-app jobs worker), `postgres` and
+  `opensearch`. No agent.
+- **Open bugs that touch this phase** (BUGS.md): B-026 (an undeclared action
+  argument named like a platform keyword is approved, then fails), B-025 (a
+  sign-in racing a rehome names the new organization to the old one's
+  admins), B-010 (three classify rules still backtrack on crafted input),
+  B-015/B-020 (what the agent says it recorded), B-017 (a malformed tool name
+  from the endpoint crashes a turn), B-018 (a URL's credentials are kept).
 
 ### Standing for every session in this phase
 
@@ -265,7 +282,11 @@ ticks the closed session._
       provider-wide.
     - An adversarial review covers tenancy and auth. **Promote.**
 
-- [ ] **S31 — A jobs queue, and TD-025's first half.**
+- [x] **S31 — A jobs queue, and TD-025's first half.** Closed 2026-10-16.
+  Built to the S31 design (docs/superpowers/specs/2026-10-16-s31-jobs-design.md),
+  every exit criterion met and checked live; the final adversarial review's
+  fix wave reviewed in turn; Step 0 fixed B-021 and built D-069; B-025, B-026,
+  TD-063…TD-065 logged; open ends in STATE.md #30.
   - **Depends on:** S30, D-065, D-066.
   - **Goal:** the background machinery every later session stands on.
   - **Exit criteria:**
