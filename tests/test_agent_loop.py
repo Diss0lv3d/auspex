@@ -319,7 +319,7 @@ def _manifest(mode="native_tools"):
         dry_run=would,
         undo=UndoSpec("Release the host", never, restores="network connectivity"),
     )
-    async def isolate_host(host_id: str):
+    async def isolate_host(host_id: str, **_):
         raise AssertionError("the loop must not execute an action in S17")
 
     reg = ActionRegistry()

@@ -844,6 +844,15 @@ S31_JOBS: list[str] = [
         last_served_at timestamptz NOT NULL
     )
     """,
+    # S31 (TD-025): the built-in note action keys its write on the operation's
+    # idempotency key, so a repeat of one execute leaves one note. Older rows
+    # stay NULL and are not de-duplicated.
+    "ALTER TABLE observable_notes ADD COLUMN IF NOT EXISTS idempotency_key text",
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_observable_notes_idempotency
+        ON observable_notes (workspace_id, idempotency_key)
+        WHERE idempotency_key IS NOT NULL
+    """,
 ]
 
 SCHEMA_V0 = [*SCHEMA_V0, *S30_TENANCY, *S31_JOBS]

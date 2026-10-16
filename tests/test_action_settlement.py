@@ -1197,6 +1197,7 @@ async def test_a_run_abandoned_mid_flight_can_be_put_back(
     settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
     # The run's write landed, then the process holding the claim died.
     await spec.execute(workspace_id=workspace_id, proposal_id=str(pid),
+                       idempotency_key=f"proposal:{pid}:execute",
                        observable_id=an_observable, note="landed before the crash")
     await _wedge(pool, settlement, workspace_id, pid,
                  age_seconds=STALE_CLAIM_SECONDS + 60, state="executing")
@@ -1959,6 +1960,7 @@ async def test_a_failure_recorded_before_anyone_looked_can_still_be_put_back(
     about it. Only a failure that LOOKED is refused."""
     settlement, pid = await _approved(pool, registry, spec, workspace_id, an_observable)
     await spec.execute(workspace_id=workspace_id, proposal_id=str(pid),
+                       idempotency_key=f"proposal:{pid}:execute",
                        observable_id=an_observable, note="written before S26")
     await pool.execute(
         "UPDATE proposals SET status = 'failed', result = '{\"error\": \"RuntimeError\"}'"

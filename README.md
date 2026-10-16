@@ -8,7 +8,7 @@ LLM**. You bring an OpenAI-compatible endpoint; the platform adapts to whatever
 it can actually do. We never pay for inference, and neither does a pilot.
 
 > **Status: pre-beta.** Everything described below is built, tested and running
-> — 1666 tests, `docker compose up` green. The [What Auspex does not do
+> — 1677 tests, `docker compose up` green. The [What Auspex does not do
 > yet](#what-auspex-does-not-do-yet) section is not a roadmap wish-list; it is
 > the honest boundary of what you get today, and it is worth reading before the
 > feature list.
@@ -185,8 +185,8 @@ Read this part. A demo that only walks the happy path is a demo that lies.
   declares no way to look is never `failed`, only `incomplete`. One bound
   remains: a handler that is merely *slow* on a run a human abandoned can land
   its write after the put-back. When it does, its answer is recorded on the
-  row, never dropped. There is still no idempotency key, which matters the day
-  an action reaches a network.
+  row, never dropped. Every run and put-back carries an idempotency key, one per operation, so a
+  handler can drop a repeat; the built-in note action does.
 - **Definition ranking is measured on eleven queries, not a benchmark.** The
   definition path fuses over documents and picks the page a question is most
   *about*, by title/question overlap in code (`auspex/kb/canonical.py`) — 7 of 7
@@ -257,7 +257,7 @@ off-corpus question returns an honest miss instead of a confident wrong answer.
 ## Development
 
 ```bash
-./ci.sh          # the gate: ruff + 1666 tests + container build + installed-dist check
+./ci.sh          # the gate: ruff + 1677 tests + container build + installed-dist check
 make check       # same thing
 make up / down   # stack lifecycle
 ```

@@ -76,6 +76,16 @@ UNDOABLE_FROM = frozenset({"executed", "incomplete", "kept", "abandoned"})
 PROPOSAL_TTL_SECONDS = 24 * 3600
 
 
+def operation_key(proposal_id: UUID | str, operation: str) -> str:
+    """The idempotency key of one operation on one proposal (TD-025, D-066;
+    Burhan's call, S31). Stable across every attempt at that operation, so a
+    re-run, a stale approval's run, or (S34) a re-claimed job hands the handler
+    the same key, and the handler can drop the repeat. Derived, not stored."""
+    if operation not in ("execute", "undo"):
+        raise ValueError(f"unknown operation {operation!r}; an attempt executes or undoes")
+    return f"proposal:{proposal_id}:{operation}"
+
+
 class Settlement(StrEnum):
     """Why a settle attempt ended the way it did — distinguishable in code, so a
     caller never has to parse a message to know whether it lost a race."""
@@ -717,7 +727,8 @@ class ActionExecutor:
         args = dict(proposal["tool_input"] or {})
         try:
             outcome = await spec.execute(
-                workspace_id=workspace_id, proposal_id=str(proposal_id), **args
+                workspace_id=workspace_id, proposal_id=str(proposal_id),
+                idempotency_key=operation_key(proposal_id, "execute"), **args
             )
         except Exception as exc:
             # TD-028b: a raise is not "nothing happened". The handler may have
@@ -932,7 +943,8 @@ class ActionExecutor:
         args = dict(proposal["tool_input"] or {})
         try:
             outcome = await spec.undo.handler(
-                workspace_id=workspace_id, proposal_id=str(proposal_id), **args
+                workspace_id=workspace_id, proposal_id=str(proposal_id),
+                idempotency_key=operation_key(proposal_id, "undo"), **args
             )
         except Exception as exc:
             await self._finish_claim(
@@ -961,12 +973,14 @@ async def _effects(
 ) -> str:
     """What of one proposal's effects exist after its handler raised: 'none',
     'present', or 'unknown'. Unknown whenever the action cannot look, or the
-    look itself fails — a failed look is not evidence of absence."""
+    look itself fails — a failed look is not evidence of absence. It looks for the
+    execute's effects, so it carries the execute's key."""
     if spec.observe is None:
         return "unknown"
     try:
         found = await spec.observe(
-            workspace_id=workspace_id, proposal_id=str(proposal_id), **args
+            workspace_id=workspace_id, proposal_id=str(proposal_id),
+            idempotency_key=operation_key(proposal_id, "execute"), **args
         )
     except Exception:
         return "unknown"
@@ -1000,4 +1014,5 @@ __all__ = [
     "SettleResult",
     "Settlement",
     "check_executable",
+    "operation_key",
 ]

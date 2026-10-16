@@ -42,6 +42,7 @@ from auspex.actions.settlement import (
     Settlement,
     SettleResult,
     check_executable,
+    operation_key,
 )
 from auspex.actions.types import (
     ActionOutcome,
@@ -80,6 +81,7 @@ __all__ = [
     "card",
     "check_executable",
     "fingerprint",
+    "operation_key",
     "spec_of",
     "validate_spec",
 ]
