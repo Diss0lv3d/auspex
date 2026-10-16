@@ -294,3 +294,29 @@ async def test_a_claim_skips_a_row_another_claimer_holds_locked(pool, ws):
         await holder.execute("SELECT 1 FROM jobs WHERE id = $1 FOR UPDATE", first.id)
         got = await asyncio.wait_for(claim(pool, _scope(a), claimer="t"), timeout=5)
     assert got is not None and got.id == second.id
+
+
+FAIR = JobKind("t.s31.fair", _noop)
+
+
+async def test_one_busy_client_cannot_starve_another(pool, ws):
+    """A bulk-enqueued 50 jobs first; B's one job, enqueued after, is served
+    within the first two claims, not after A's fifty."""
+    a, b = await ws("busy"), await ws("quiet")
+    for n in range(50):
+        await enqueue(pool, workspace_id=a, kind=FAIR, idempotency_key=f"a{n}")
+    await enqueue(pool, workspace_id=b, kind=FAIR, idempotency_key="b0")
+    scope = _scope(a, b, kinds=("t.s31.fair",))
+    served = [(await claim(pool, scope, claimer="t")).workspace_id for _ in range(2)]
+    assert b in served
+
+
+async def test_claims_alternate_between_workspaces_while_both_have_work(pool, ws):
+    a, b = await ws("first"), await ws("second")
+    for n in range(6):
+        await enqueue(pool, workspace_id=a, kind=FAIR, idempotency_key=f"a{n}")
+    for n in range(6):
+        await enqueue(pool, workspace_id=b, kind=FAIR, idempotency_key=f"b{n}")
+    scope = _scope(a, b, kinds=("t.s31.fair",))
+    served = [(await claim(pool, scope, claimer="t")).workspace_id for _ in range(12)]
+    assert served == [a, b] * 6

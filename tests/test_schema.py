@@ -21,6 +21,7 @@ EXPECTED_TABLES = {
     "llm_endpoint_scorecards",
     "proposals",
     "jobs",
+    "job_turns",
     "observables",
     "verdicts",
     "ingest_state",

@@ -156,7 +156,10 @@ async def claim(pool: asyncpg.Pool, scope: ClaimScope, *, claimer: str) -> Job |
     a lease. Ready means queued and due, or claimed with a lease that expired
     and attempts left. One transaction: first the expired leases with no
     attempts left go `dead`, then one statement picks and claims, skipping rows
-    another claimer holds locked."""
+    another claimer holds locked. Candidates are ordered by whose turn it is: the
+    workspace served longest ago first (never-served first), then by due time. A
+    one-pass "oldest job first" would let a client that bulk-enqueued earlier
+    starve every other until it drained (§1)."""
     kinds, workspaces, integrations = (
         list(scope.kinds), _ids(scope.workspace_ids), _ids(scope.integration_ids))
     async with pool.acquire() as conn, conn.transaction():
@@ -178,6 +181,7 @@ async def claim(pool: asyncpg.Pool, scope: ClaimScope, *, claimer: str) -> Job |
             """
             WITH pick AS (
                 SELECT j.id FROM jobs j
+                  LEFT JOIN job_turns t ON t.workspace_id = j.workspace_id
                  WHERE j.kind = ANY($1::text[])
                    AND ($2::uuid[] IS NULL OR j.workspace_id = ANY($2::uuid[]))
                    AND CASE WHEN $3::uuid[] IS NULL THEN j.integration_id IS NULL
@@ -185,7 +189,7 @@ async def claim(pool: asyncpg.Pool, scope: ClaimScope, *, claimer: str) -> Job |
                    AND ((j.status = 'queued' AND j.run_after <= now())
                         OR (j.status = 'claimed' AND j.lease_expires_at < now()
                             AND j.attempts < j.max_attempts))
-                 ORDER BY j.run_after, j.id
+                 ORDER BY t.last_served_at ASC NULLS FIRST, j.run_after, j.id
                  LIMIT 1
                  FOR UPDATE OF j SKIP LOCKED
             )
@@ -199,6 +203,15 @@ async def claim(pool: asyncpg.Pool, scope: ClaimScope, *, claimer: str) -> Job |
             """,
             kinds, workspaces, integrations, claimer,
         )
+        if row is not None:
+            await conn.execute(
+                """
+                INSERT INTO job_turns (workspace_id, last_served_at)
+                VALUES ($1, clock_timestamp())
+                ON CONFLICT (workspace_id) DO UPDATE SET last_served_at = EXCLUDED.last_served_at
+                """,
+                row["workspace_id"],
+            )
     return Job.from_row(row) if row is not None else None
 
 

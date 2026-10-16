@@ -836,6 +836,14 @@ S31_JOBS: list[str] = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_jobs_ready ON jobs (status, run_after)",
     "CREATE INDEX IF NOT EXISTS idx_jobs_ws_status ON jobs (workspace_id, status)",
+    # Whose turn it was (§1): the claim serves the least-recently-served
+    # workspace first, so one busy client cannot starve the rest.
+    """
+    CREATE TABLE IF NOT EXISTS job_turns (
+        workspace_id   uuid PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+        last_served_at timestamptz NOT NULL
+    )
+    """,
 ]
 
 SCHEMA_V0 = [*SCHEMA_V0, *S30_TENANCY, *S31_JOBS]
