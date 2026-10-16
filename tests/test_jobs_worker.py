@@ -247,3 +247,12 @@ def test_the_lifespan_passes_the_enabled_switch_through(settings):
         while not app.state.jobs_task.done() and time.monotonic() < deadline:
             time.sleep(0.02)
         assert app.state.jobs_task.done()
+
+
+@pytest.mark.parametrize("every", [0, -5])
+def test_a_schedule_refuses_a_non_positive_interval(every):
+    async def due(_pool):
+        return []
+
+    with pytest.raises(ValueError, match="every_seconds"):
+        Schedule(_recording_kind(), every, due)

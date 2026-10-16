@@ -47,6 +47,10 @@ class Schedule:
     every_seconds: int
     due_workspaces: Callable[[asyncpg.Pool], Awaitable[list[UUID]]]
 
+    def __post_init__(self) -> None:
+        if self.every_seconds < 1:
+            raise ValueError(f"{self.kind.name}: every_seconds must be at least 1")
+
 
 @dataclass(frozen=True)
 class TickReport:

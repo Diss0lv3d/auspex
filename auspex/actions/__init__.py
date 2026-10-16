@@ -22,7 +22,7 @@ re-checks both the D-014 gate and that identity before it touches anything
         dry_run=would_isolate,                 # required, and never `execute`
         undo=UndoSpec("Release the host", release, restores="network connectivity"),
     )
-    async def isolate_host(host_id: str) -> ActionOutcome: ...
+    async def isolate_host(host_id: str, **_) -> ActionOutcome: ...
 
     registry = ActionRegistry()
     registry.register(isolate_host)
