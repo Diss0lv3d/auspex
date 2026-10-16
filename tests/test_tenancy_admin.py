@@ -435,6 +435,8 @@ async def test_a_person_is_rehomed_only_with_no_membership_left(world):
     # B-021: the new home's admins read this trail; the old home is another customer.
     assert event["details"] == {"to": f"{PREFIX}-direct"}
     assert "client1" not in str(event)
+    # Nor the reverse: the old home's trail does not learn where they went.
+    assert f"{PREFIX}-direct" not in str(await list_events(pool, m.client1_ws))
 
 
 async def test_rehoming_refuses_the_unknown_the_reserved_and_a_no_op(world):
