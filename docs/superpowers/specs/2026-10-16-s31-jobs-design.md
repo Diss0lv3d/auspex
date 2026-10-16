@@ -252,3 +252,36 @@ heartbeats); no `LISTEN/NOTIFY` (D-065's stated bound).
 **Out of scope (S32 and later):** connectors and their job kinds, the edge
 API and agent claims over HTTP (S33 reuses `claim` as is), the per-workspace
 catalogue (TD-023), grant-checked scope.
+
+## After execution (S31, 2026-10-16)
+
+Built subagent-driven to docs/superpowers/plans/2026-10-16-s31-jobs.md: eight
+tasks (`f5c3479`…`d2dedd0`), each reviewed by a fresh agent, then a whole-branch
+adversarial review and one fix wave (`0cd32df`…`75af29b`), reviewed in turn.
+Live: docs/probes/2026-10-16-s31-jobs-live.md (the real job expired an aged
+proposal in the rebuilt container; 409 in words; the page shows it and does not
+count it).
+
+What the design gained in execution:
+- **The claimer is cleared on every exit from `claimed`** (complete, all three
+  `fail` outcomes, the dead step), so `claimed_by` means "who holds it now",
+  like the token. The plan's SQL had left it set on `complete`; §1 said cleared.
+- **The queue's answer writes are total.** A NUL or a lone surrogate in a job's
+  error or result made `fail`/`complete` raise, which aborted the tick and lost
+  the error; both now store cleaned text, and the worker never lets a failing
+  `fail` abort its tick. (Still open: a tuple or a NaN in a result — S32's
+  output validation is the place.)
+- **`claim` and `enqueue` take the migration's advisory lock shared**
+  (`MIGRATION_LOCK`, `auspex/migrations.py`), so a booting replica's migration
+  waits for them instead of deadlocking with them (reproduced: 1 boot in 30).
+- **An expired card is listed but not counted**: the approvals badge and its
+  empty line count only cards a human can act on (Burhan's call 2's
+  consequence).
+- **`validate_spec` also refuses a parameter named like a platform keyword**
+  (`workspace_id`, `proposal_id`, `idempotency_key`). An UNDECLARED argument
+  with such a name still reaches a run: B-026.
+- No unknown-kind branch: the worker's claim scope names only its own kinds.
+
+Logged: B-025 (found in Step 0's review), B-026; TD-063 (job rows never
+pruned), TD-064 (no lease extension), TD-065 (a polled queue; the claim sorts
+every ready job).
