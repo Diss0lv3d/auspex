@@ -433,3 +433,20 @@ are never deleted.
   `staleness`); `LABEL_CLASSES` in `auspex/static/js/timeline-logic.js` passes
   `lapsed` through unchanged.
 - **Status:** open.
+
+## B-024 — arrow keys on the closed workspace switcher may switch at every step
+
+- **Found:** 2026-10-16, F4 (Claude), the final whole-branch review (reasoned
+  from the code; **not reproduced**).
+- **What happened (expected, unverified):** the switcher is a native `<select>`
+  that switches on `change` (`auspex/static/js/shell.js`, `showSignedIn` /
+  `switchTo`). On Windows and Linux browsers, arrow keys on a closed, focused
+  select change its value and fire `change` at each step, so a keyboard user
+  would be reloaded into each client they pass on the way to the one they want
+  (WCAG 3.2.2). The live checks used pointer selection only.
+- **Evidence:** none observed yet; the review's reasoning is in the F4 session
+  record. Reproduce with a keyboard in Chrome on Windows or Linux before
+  fixing.
+- **Note:** a fix (a Switch button, or handling the keys) changes the
+  switcher's UX, which is Burhan's call.
+- **Status:** open.
