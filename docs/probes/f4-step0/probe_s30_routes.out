@@ -1,0 +1,331 @@
+$ tenancy create-org --kind provider --name f4-probe-mssp --workspace f4-probe-mssp --admin <p-admin>
+created provider organization 'f4-probe-mssp' with workspace 'f4-probe-mssp' (global)
+[exit 0]
+
+$ tenancy create-client --provider f4-probe-mssp --name f4-probe-bank --workspace f4-probe-bank --admin <c-admin>
+created client 'f4-probe-bank' of 'f4-probe-mssp' with workspace 'f4-probe-bank' (global)
+[exit 0]
+
+$ tenancy create-client --provider f4-probe-mssp --name f4-probe-telco --workspace f4-probe-telco --region ksa
+created client 'f4-probe-telco' of 'f4-probe-mssp' with workspace 'f4-probe-telco' (ksa)
+[exit 0]
+
+$ tenancy create-client --provider f4-probe-mssp --name f4-probe-gov --workspace f4-probe-gov --restricted
+created client 'f4-probe-gov' of 'f4-probe-mssp' with workspace 'f4-probe-gov' (global)
+[exit 0]
+
+$ tenancy set-member --workspace f4-probe-mssp --email <m-explicit> --role analyst
+membership in 'f4-probe-mssp' set: analyst
+[exit 0]
+
+$ tenancy set-member --workspace f4-probe-bank --email <m-explicit> --role analyst
+membership in 'f4-probe-bank' set: analyst
+[exit 0]
+
+$ tenancy set-member --workspace f4-probe-gov --email <m-explicit> --role viewer
+membership in 'f4-probe-gov' set: viewer
+[exit 0]
+
+$ tenancy set-member --workspace f4-probe-mssp --email <m-wide> --role analyst --provider-wide
+membership in 'f4-probe-mssp' set: analyst
+[exit 0]
+
+$ tenancy set-member --workspace f4-probe-bank --email <c-analyst> --role analyst
+membership in 'f4-probe-bank' set: analyst
+[exit 0]
+
+$ tenancy set-member --workspace f4-probe-bank --email <c-viewer> --role viewer
+membership in 'f4-probe-bank' set: viewer
+[exit 0]
+
+$ tenancy list
+direct d035-tenant-b:  (no workspace)
+direct d035-userless:  (no workspace)
+direct default:  default (global, 13 members)
+direct dev:  dev (global, 0 members)
+provider f4-probe-mssp:  f4-probe-mssp (global, 3 members)
+client f4-probe-bank of f4-probe-mssp:  f4-probe-bank (global, 4 members)
+client restricted f4-probe-gov of f4-probe-mssp:  f4-probe-gov (global, 1 members)
+client f4-probe-telco of f4-probe-mssp:  f4-probe-telco (ksa, 0 members)
+direct t-chat-history-other:  (no workspace)
+direct t-enrich:  (no workspace)
+direct t-enrich-other:  (no workspace)
+direct t-every-status:  (no workspace)
+direct t-limits:  (no workspace)
+direct t-limits-other:  (no workspace)
+direct t-proposals:  (no workspace)
+direct t-propstore:  (no workspace)
+direct t-retrohunt:  (no workspace)
+direct t-retrohunt-other:  (no workspace)
+direct t-s30-auth-foreign:  (no workspace)
+direct t-s30-auth-key:  (no workspace)
+direct t-s30-auth-removed:  (no workspace)
+direct t-sc-roundtrip:  (no workspace)
+direct t-schema:  (no workspace)
+direct t-scorecard:  (no workspace)
+direct t-settlement:  (no workspace)
+direct t-settlement-other:  (no workspace)
+direct t-timeline:  (no workspace)
+direct t-timeline-other:  (no workspace)
+direct t-verdicts:  (no workspace)
+direct t-watchers:  (no workspace)
+direct t-watchers-other:  (no workspace)
+direct test-ach-store:  (no workspace)
+direct test-tenancy-b:  (no workspace)
+[exit 0]
+
+$ [provider admin] GET /api/auth/me -> 200
+home org f4-probe-mssp (provider); active f4-probe-mssp as admin (org f4-probe-mssp)
+  f4-probe-mssp    global admin    via=membership    org=f4-probe-mssp (provider)
+
+$ [MSSP analyst, explicit memberships] GET /api/auth/me -> 200
+home org f4-probe-mssp (provider); active f4-probe-mssp as analyst (org f4-probe-mssp)
+  f4-probe-mssp    global analyst  via=membership    org=f4-probe-mssp (provider)
+  f4-probe-bank    global analyst  via=membership    org=f4-probe-bank (client)
+  f4-probe-gov     global viewer   via=membership    org=f4-probe-gov (client)
+
+$ [MSSP analyst, provider-wide grant] GET /api/auth/me -> 200
+home org f4-probe-mssp (provider); active f4-probe-mssp as analyst (org f4-probe-mssp)
+  f4-probe-mssp    global analyst  via=membership    org=f4-probe-mssp (provider)
+  f4-probe-bank    global analyst  via=provider_wide org=f4-probe-bank (client)
+  f4-probe-telco   ksa    analyst  via=provider_wide org=f4-probe-telco (client)
+
+$ [client admin (bank)] GET /api/auth/me -> 200
+home org f4-probe-bank (client); active f4-probe-bank as admin (org f4-probe-bank)
+  f4-probe-bank    global admin    via=membership    org=f4-probe-bank (client)
+
+$ [client analyst (bank)] GET /api/auth/me -> 200
+home org f4-probe-bank (client); active f4-probe-bank as analyst (org f4-probe-bank)
+  f4-probe-bank    global analyst  via=membership    org=f4-probe-bank (client)
+
+$ [client viewer (bank)] GET /api/auth/me -> 200
+home org f4-probe-bank (client); active f4-probe-bank as viewer (org f4-probe-bank)
+  f4-probe-bank    global viewer   via=membership    org=f4-probe-bank (client)
+
+$ [MSSP analyst, provider-wide grant] GET /api/auth/me (full body)
+{
+  "user": {
+    "id": "<user>",
+    "email": "<m-wide>",
+    "display_name": ""
+  },
+  "organization": {
+    "id": "<org:f4-probe-mssp>",
+    "name": "f4-probe-mssp",
+    "kind": "provider"
+  },
+  "workspace": {
+    "id": "<ws:f4-probe-mssp>",
+    "name": "f4-probe-mssp",
+    "region": "global",
+    "role": "analyst",
+    "organization": "f4-probe-mssp"
+  },
+  "workspaces": [
+    {
+      "id": "<ws:f4-probe-mssp>",
+      "name": "f4-probe-mssp",
+      "region": "global",
+      "role": "analyst",
+      "via": "membership",
+      "organization": {
+        "id": "<org:f4-probe-mssp>",
+        "name": "f4-probe-mssp",
+        "kind": "provider"
+      }
+    },
+    {
+      "id": "<ws:f4-probe-bank>",
+      "name": "f4-probe-bank",
+      "region": "global",
+      "role": "analyst",
+      "via": "provider_wide",
+      "organization": {
+        "id": "<org:f4-probe-bank>",
+        "name": "f4-probe-bank",
+        "kind": "client"
+      }
+    },
+    {
+      "id": "<ws:f4-probe-telco>",
+      "name": "f4-probe-telco",
+      "region": "ksa",
+      "role": "analyst",
+      "via": "provider_wide",
+      "organization": {
+        "id": "<org:f4-probe-telco>",
+        "name": "f4-probe-telco",
+        "kind": "client"
+      }
+    }
+  ]
+}
+
+$ [MSSP analyst, explicit memberships] POST /api/auth/switch -> f4-probe-bank: 200
+{
+  "token_type": "bearer",
+  "workspace": {
+    "id": "<ws:f4-probe-bank>",
+    "name": "f4-probe-bank",
+    "role": "analyst",
+    "region": "global"
+  }
+}
+
+  new token's /me: active f4-probe-bank as analyst, org f4-probe-bank
+  old token's /me: active f4-probe-mssp (still valid)
+
+$ [MSSP analyst, explicit memberships] POST /api/auth/switch -> f4-probe-gov: 200
+{
+  "token_type": "bearer",
+  "workspace": {
+    "id": "<ws:f4-probe-gov>",
+    "name": "f4-probe-gov",
+    "role": "viewer",
+    "region": "global"
+  }
+}
+
+  new token's /me: active f4-probe-gov as viewer, org f4-probe-gov
+  old token's /me: active f4-probe-mssp (still valid)
+
+$ [MSSP analyst, provider-wide grant] POST /api/auth/switch -> f4-probe-bank: 200
+{
+  "token_type": "bearer",
+  "workspace": {
+    "id": "<ws:f4-probe-bank>",
+    "name": "f4-probe-bank",
+    "role": "analyst",
+    "region": "global"
+  }
+}
+
+  new token's /me: active f4-probe-bank as analyst, org f4-probe-bank
+  old token's /me: active f4-probe-mssp (still valid)
+
+$ [MSSP analyst, provider-wide grant] POST /api/auth/switch -> f4-probe-telco: 200
+{
+  "token_type": "bearer",
+  "workspace": {
+    "id": "<ws:f4-probe-telco>",
+    "name": "f4-probe-telco",
+    "role": "analyst",
+    "region": "ksa"
+  }
+}
+
+  new token's /me: active f4-probe-telco as analyst, org f4-probe-telco
+  old token's /me: active f4-probe-mssp (still valid)
+
+$ [MSSP analyst, provider-wide grant] POST /api/auth/switch -> the restricted client gov: 404
+{
+  "detail": "Unknown workspace"
+}
+
+$ [MSSP analyst, provider-wide grant] POST /api/auth/switch -> a workspace that does not exist: 404
+{
+  "detail": "Unknown workspace"
+}
+
+$ [MSSP analyst, provider-wide grant] POST /api/auth/switch -> a malformed id: 422
+{
+  "detail": [
+    {
+      "type": "uuid_parsing",
+      "loc": [
+        "body",
+        "workspace_id"
+      ],
+      "msg": "Input should be a valid UUID, invalid character: found `n` at 0",
+      "input": "not-a-uuid",
+      "ctx": {
+        "error": "invalid character: found `n` at 0"
+      }
+    }
+  ]
+}
+
+$ [client admin (bank)] POST /api/auth/switch -> the client's provider: 404
+{
+  "detail": "Unknown workspace"
+}
+
+$ [client analyst (bank)] POST /api/auth/switch -> the restricted sibling gov: 404
+{
+  "detail": "Unknown workspace"
+}
+
+$ [client analyst] POST /api/auth/api-keys -> 201 (key not shown)
+
+$ [client analyst, API key] GET /api/auth/me -> 200
+
+$ [client analyst, API key] POST /api/auth/switch -> 403
+{
+  "detail": "Switching requires a login session"
+}
+
+$ [client viewer] POST /api/chat -> 403
+{
+  "detail": "This needs the analyst or admin role in this workspace."
+}
+
+$ [client viewer] POST /api/proposals/<random>/reject -> 403
+{
+  "detail": "This needs the analyst or admin role in this workspace."
+}
+
+$ [client viewer] GET /api/proposals -> 200
+
+$ [client analyst] GET /api/workspace/members -> 403
+{
+  "detail": "This needs the admin role in this workspace."
+}
+
+$ [client admin] GET /api/workspace/members -> 200, 4 members
+
+$ [MSSP analyst, provider-wide] switch -> f4-probe-telco (ksa): 200
+
+$ [provider-wide, in ksa] POST /api/chat (deep turn) -> 403 content-type=application/json
+{"detail":"This workspace's data must stay in region ksa, and the platform's engine here processes in region global, so it cannot run this request. Answers that need no engine still work."}
+
+$ chat sessions stored in f4-probe-telco
+sessions 
+----------
+        0
+(1 row)
+
+$ tenancy remove-member --workspace f4-probe-bank --email <c-analyst>
+membership in 'f4-probe-bank' removed
+[exit 0]
+
+$ [client analyst, removed] GET /api/auth/me -> 403
+{
+  "detail": "You no longer have access to this workspace."
+}
+
+$ [client analyst, removed] GET /api/proposals -> 403
+{
+  "detail": "You no longer have access to this workspace."
+}
+
+$ [client analyst, removed] the open approvals stream
+status 200
+data: {"error": "You no longer have access to this workspace."}
+
+$ [client analyst, removed] POST /api/auth/dev-login -> 403
+{
+  "detail": "There is no workspace you may enter. Ask an administrator to add you."
+}
+
+$ cleanup
+BEGIN
+DELETE 4
+DELETE 6
+DELETE 3
+DELETE 1
+COMMIT
+left_behind 
+-------------
+           0
+           0
+(2 rows)
