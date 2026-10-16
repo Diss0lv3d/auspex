@@ -18,6 +18,7 @@ router = APIRouter(tags=["ui"])
 _STATIC = Path(__file__).resolve().parent.parent / "static"
 _INDEX = _STATIC / "index.html"
 _TIMELINE = _STATIC / "timeline.html"
+_MEMBERS = _STATIC / "members.html"
 # B-003: with only `last-modified`, a browser caches the page on heuristic
 # freshness and keeps running the old one after a deploy. `no-cache` makes every
 # load ask first; TD-047: a matching ETag is answered 304, not the file again.
@@ -52,6 +53,8 @@ _ASSETS = {
     "js/api.js": ("text/javascript", _STATIC / "js" / "api.js"),
     "css/base.css": ("text/css", _STATIC / "css" / "base.css"),
     "js/shell.js": ("text/javascript", _STATIC / "js" / "shell.js"),
+    "css/members.css": ("text/css", _STATIC / "css" / "members.css"),
+    "js/members.js": ("text/javascript", _STATIC / "js" / "members.js"),
 }
 
 # A declared header, not the raw request mapping: the tenancy walk forbids reading
@@ -99,6 +102,13 @@ async def timeline(if_none_match: IfNoneMatch = None) -> Response:
     digest. Reads /api/timeline only; the page holds no decay arithmetic of its
     own, so a band means the same thing on screen as it does in the payload."""
     return _serve(_TIMELINE, "text/html", _PAGE_HEADERS, if_none_match)
+
+
+@router.get("/members", include_in_schema=False)
+async def members(if_none_match: IfNoneMatch = None) -> Response:
+    """F4: who may enter the active workspace, read-only, for its admins. The
+    page holds no rule about who may see it: GET /api/workspace/members does."""
+    return _serve(_MEMBERS, "text/html", _PAGE_HEADERS, if_none_match)
 
 
 @router.get("/css/{name}", include_in_schema=False)

@@ -144,7 +144,7 @@ def test_index_shows_a_proposal_outside_the_folded_thinking_pane(client):
     assert "innerHTML" not in handler
 
 
-@pytest.mark.parametrize("path", ["/", "/timeline"])
+@pytest.mark.parametrize("path", ["/", "/timeline", "/members"])
 def test_a_page_is_revalidated_on_every_load_so_a_deploy_reaches_the_browser(client, path):
     """B-003. Served with only `last-modified`, a page is cached on heuristic
     freshness: after a deploy, an open browser ran the old page (transferSize 0,
@@ -247,6 +247,7 @@ def test_an_overlay_on_a_narrow_screen_has_a_backdrop_that_closes_it(client):
     ("/js/shell-logic.js", "text/javascript"),
     ("/js/dom.js", "text/javascript"),
     ("/js/api.js", "text/javascript"),
+    ("/css/members.css", "text/css"), ("/js/members.js", "text/javascript"),
 ])
 def test_the_pages_files_are_served_fresh_with_their_types(client, path, media):
     """TD-045: the page's CSS and modules are files now. B-003 holds for them
@@ -319,7 +320,7 @@ def test_the_chat_page_is_served_with_a_strict_content_security_policy(client):
     assert "unsafe-inline" not in csp and "unsafe-eval" not in csp
 
 
-@pytest.mark.parametrize("path", ["/", "/timeline"])
+@pytest.mark.parametrize("path", ["/", "/timeline", "/members"])
 def test_each_page_is_served_with_the_same_strict_policy(client, path):
     """D-057 on both pages (TD-051 closed). Both hold the sign-in token, so
     both run only their own scripts and talk only to their own origin."""
@@ -350,7 +351,7 @@ def test_a_throw_while_a_turn_ends_cannot_leave_the_composer_stuck(client):
     assert "try { paint(pacer.flush()); }" in ending
 
 
-@pytest.mark.parametrize("path", ["/", "/timeline", "/css/chat.css", "/js/chat.js"])
+@pytest.mark.parametrize("path", ["/", "/timeline", "/members", "/css/chat.css", "/js/chat.js"])
 def test_a_file_the_browser_already_holds_is_answered_304(client, path):
     """TD-047: `no-cache` makes every load ask (B-003), and FileResponse used
     to answer a matching ETag with the whole file again. It now says "you have
@@ -388,7 +389,7 @@ def test_the_timeline_page_has_no_sign_in_of_its_own(client):
     assert 'page: "timeline"' in js and "startShell(" in js
 
 
-_PAGE_MODULES = ["/js/chat.js", "/js/timeline.js"]
+_PAGE_MODULES = ["/js/chat.js", "/js/timeline.js", "/js/members.js"]
 
 
 @pytest.mark.parametrize("path", _PAGE_MODULES)
@@ -520,3 +521,33 @@ def test_a_reopened_proposal_line_follows_what_the_panel_learns(client):
     assert "node.dataset.proposal = part.id" in js
     refresh = js.split("function refreshProposalLines(p)", 1)[1].split("\n}\n", 1)[0]
     assert ".textContent = proposalLine(p, now)" in refresh
+
+
+def test_the_members_page_holds_no_inline_script_or_style(client):
+    """F4: D-057 on every page, the third included."""
+    html = _served(client, "/members")
+    assert "<style" not in html
+    assert re.search(r"<script(?![^>]*\bsrc=)[^>]*>", html) is None
+    assert re.search(r"\son[a-z]+\s*=", html) is None
+    assert re.search(r"\sstyle\s*=", html) is None
+    assert '<link rel="stylesheet" href="/css/base.css" />' in html
+    assert '<script type="module" src="/js/members.js"></script>' in html
+    assert '<header id="shell">' in html
+
+
+def test_the_members_page_reads_members_as_text_and_refusals_in_the_servers_words(client):
+    """F4: the first admin page. The server is the guard (the members API is
+    admin-only); the page shows its refusal as given, and every member string
+    as text."""
+    js = _served(client, "/js/members.js")
+    assert '"/api/workspace/members"' in js
+    assert "[r.detail]" in js
+    for sink in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write"):
+        assert sink not in js, sink
+    assert 'page: "members"' in js
+
+
+def test_the_members_page_never_names_the_engine(client):
+    body = "\n".join(_served(client, p) for p in ("/members", "/js/members.js", "/css/members.css"))
+    for name in FORBIDDEN_ENGINE_NAMES:
+        assert name not in body.lower(), name

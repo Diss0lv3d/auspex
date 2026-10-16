@@ -1,0 +1,11 @@
+/* The Members page's own rules (F4). The palette, the controls and the header
+   are base.css's; this file comes after it. */
+main { padding: 22px; max-width: 860px; width: 100%; margin: 0 auto; }
+h1 { font-family: var(--display); font-size: 18px; font-weight: 600; margin: 0 0 14px; overflow-wrap: anywhere; }
+.member { border: 1px solid var(--edge); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; background: var(--surface); }
+.member .name { font-weight: 500; overflow-wrap: anywhere; }
+.member .meta { color: var(--slate); font-size: 13px; margin-top: 4px; display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; }
+.member .email { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+.member .wide { color: var(--steel); border: 1px solid currentColor; border-radius: 999px; padding: 0 8px; font-family: var(--mono); font-size: 11.5px; }
+.members-note { color: var(--slate); }
+.members-error { color: var(--ember); }
