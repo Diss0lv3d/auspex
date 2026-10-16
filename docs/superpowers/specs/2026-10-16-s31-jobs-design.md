@@ -102,8 +102,9 @@ re-claimed is accepted: the token still holds the row.
 **Kinds are code.** `JobKind(name, handler, lease_seconds=60,
 max_attempts=5)`, declared beside the handler; `handler(pool, job) -> dict`
 (the result). **A handler must be idempotent on `job.idempotency_key`**: an
-expired lease means it can run again, which is why D-065 has a lease. A
-claimed row whose kind the worker does not know fails permanently.
+expired lease means it can run again, which is why D-065 has a lease. The
+worker's claim scope names only the kinds it holds, so it never claims a job it
+cannot run.
 
 **Schedules are code.** `Schedule(kind, every_seconds,
 due_workspaces(pool) -> list[UUID])`. When a schedule is due, each workspace it
@@ -211,8 +212,7 @@ cleaned):
   `complete` and `fail` are refused; an expired lease with no attempts left
   goes `dead`.
 - **Retry.** The backoff schedule (30, 60, 120 … capped at 900 s); `dead` at
-  the cap; `failed` on a permanent failure; an unknown kind fails
-  permanently.
+  the cap; `failed` on a permanent failure.
 - **Enqueue.** The same key twice is one row; the same key in two workspaces
   is two.
 - **Cross-tenant.** A scope naming workspace A never claims B's job;
