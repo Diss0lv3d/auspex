@@ -111,3 +111,26 @@ console errors were the browser's lines for the expected 403/429 refusals.
   error; Node pins `noAnswerNote`).
 - Cleanup: the observable the walk created (twice) deleted; the one proposal
   ended `undone`.
+
+## After the final review (fix wave `bd5e6af`…`7057ca4`)
+
+The final whole-branch review (fresh agent, most capable model) found that Back
+and Forward undid the switch and sign-out guarantees (C1). Headless Playwright
+disables the back/forward cache, so the checks above could not see it.
+`docs/probes/f4-live/back-forward.cjs` drives Chromium 1208 with the cache ON
+(`ignoreDefaultArgs: ['--disable-back-forward-cache']`); the cast was seeded
+again with `seed.sh` and deleted with `cleanup.sh` (0 left).
+
+| Step (cache ON) | Before the fix (`e73b22a`) | After (`7057ca4`) |
+|---|---|---|
+| bank chat → Timeline → switch to telco there → Back | the chat page **restored from the cache, still labelled f4-live-bank** | a fresh load, labelled f4-live-telco |
+| chat → Timeline → Sign out there → Back | a restored, **signed-in** chat page (Sign out shown, bank label) with **no token in storage** | signed out (Sign in shown) |
+
+With the cache OFF (the MCP browser), after the fix: a bank chat with its hash
+(`history.state` = `{workspace, user}`), a reload in bank reopened it; Timeline →
+switch to telco → Back loaded `/#chat=<bank chat>` fresh, **dropped the hash
+and sent no request naming the bank chat** (telco's four API paths only).
+
+The hostile client's label now reads in order — the U+202E is stripped and the
+name isolated (U+2068…U+2069) — truncated with an ellipsis at 390 px, no
+sideways scroll (shots/f4-fix-hostile-390.png). Zero CSP violations.
