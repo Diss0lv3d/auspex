@@ -34,6 +34,7 @@ from auspex.actions.proposal import canonical_spec, card, fingerprint
 from auspex.actions.registry import ActionManifest, ActionRegistry
 from auspex.actions.settlement import (
     EXECUTABLE_SYSTEMS,
+    PROPOSAL_TTL_SECONDS,
     STALE_CLAIM_SECONDS,
     ActionExecutor,
     ExecutionRefused,
@@ -56,6 +57,7 @@ from auspex.actions.types import (
 
 __all__ = [
     "EXECUTABLE_SYSTEMS",
+    "PROPOSAL_TTL_SECONDS",
     "STALE_CLAIM_SECONDS",
     "SPEC_ATTR",
     "ActionExecutor",

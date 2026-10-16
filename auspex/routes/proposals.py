@@ -46,6 +46,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from auspex.actions.settlement import (
+    PROPOSAL_TTL_SECONDS,
     STALE_CLAIM_SECONDS,
     ActionExecutor,
     ExecutionRefused,
@@ -62,6 +63,11 @@ router = APIRouter(prefix="/api/proposals", tags=["proposals"])
 Auth = AnyRole
 
 MAX_PAGE = 200
+
+# What approve and reject answer for a proposal nobody decided in time (S31).
+EXPIRED_DETAIL = (
+    f"expired: nobody decided within {PROPOSAL_TTL_SECONDS // 3600} h; propose it again"
+)
 DEFAULT_PAGE = 50
 
 # Poll cadence for the card stream. One indexed query per tick; a second is well
@@ -259,6 +265,8 @@ async def reject(request: Request, auth: Analyst, proposal_id: UUID) -> dict:
     )
     if result.outcome is Settlement.NOT_FOUND:
         raise HTTPException(status_code=404, detail="no such proposal")
+    if result.outcome is Settlement.EXPIRED:
+        raise HTTPException(status_code=409, detail=EXPIRED_DETAIL)
     if result.outcome is Settlement.ALREADY_DECIDED:
         raise HTTPException(
             status_code=409,
@@ -332,6 +340,8 @@ async def approve(request: Request, auth: Analyst, proposal_id: UUID) -> dict:
     )
     if result.outcome is Settlement.NOT_FOUND:
         raise HTTPException(status_code=404, detail="no such proposal")
+    if result.outcome is Settlement.EXPIRED:
+        raise HTTPException(status_code=409, detail=EXPIRED_DETAIL)
     if result.outcome is Settlement.ALREADY_DECIDED:
         raise HTTPException(
             status_code=409,

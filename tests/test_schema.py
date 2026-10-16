@@ -245,7 +245,7 @@ async def test_startup_survives_every_status_a_proposal_can_be_in(client, settin
             " WHERE conname = 'proposals_status_check'"
         )
         statuses = re.findall(r"'([a-z_]+)'::text", definition)
-        assert {"incomplete", "abandoned", "pending_approval"} <= set(statuses)
+        assert {"incomplete", "abandoned", "pending_approval", "expired"} <= set(statuses)
         ws = await ensure_workspace(conn, "t-every-status")
         for status in statuses:
             await conn.execute(

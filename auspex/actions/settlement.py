@@ -67,6 +67,14 @@ STALE_CLAIM_SECONDS = 300
 # left behind is unknown. Not `failed` — that one looked and found nothing.
 UNDOABLE_FROM = frozenset({"executed", "incomplete", "kept", "abandoned"})
 
+# How long a proposal waits for a decision (TD-025, D-066; Burhan's call, S31:
+# 24 h). Past it, approve and reject refuse it in the same UPDATE that would
+# have settled it (the guarantee), and the row reads `expired`, moved there by
+# the refusing door itself or by the `proposals.expire` job, whichever comes
+# first (the visibility). An action proposed mid-incident and approved a day
+# later is an approval of a world that has moved on.
+PROPOSAL_TTL_SECONDS = 24 * 3600
+
 
 class Settlement(StrEnum):
     """Why a settle attempt ended the way it did — distinguishable in code, so a
@@ -75,6 +83,7 @@ class Settlement(StrEnum):
     CLAIMED = "claimed"  # this caller won the row
     ALREADY_DECIDED = "already_decided"  # someone else got there first
     NOT_FOUND = "not_found"  # no such proposal in this workspace
+    EXPIRED = "expired"  # nobody decided within PROPOSAL_TTL_SECONDS
 
 
 @dataclass(frozen=True)
@@ -202,6 +211,10 @@ class ProposalSettlement:
         nothing happened, `executed` claims it did. D-014 reserves that
         judgement for the human, so the row is surfaced and `abandon` is theirs
         to call.
+
+        An `expired` row is listed for PROPOSAL_TTL_SECONDS after it expired
+        (Burhan's call, S31): a card that silently left the panel would read as
+        an action that disappeared.
         """
         rows = await self._pool.fetch(
             """
@@ -224,13 +237,16 @@ class ProposalSettlement:
                     OR (p.claimed_at IS NOT NULL
                         AND p.claimed_at < now() - make_interval(secs => $3::double precision))
                     OR (p.status = 'approved' AND p.claimed_at IS NULL
-                        AND p.decided_at < now() - make_interval(secs => $3::double precision)))
+                        AND p.decided_at < now() - make_interval(secs => $3::double precision))
+                    OR (p.status = 'expired'
+                        AND p.resolved_at > now() - make_interval(secs => $4::double precision)))
              ORDER BY p.created_at DESC
              LIMIT $2
             """,
             str(workspace_id),
             limit,
             float(STALE_CLAIM_SECONDS),
+            float(PROPOSAL_TTL_SECONDS),
         )
         return [_as_dict(r) for r in rows]
 
@@ -382,6 +398,9 @@ class ProposalSettlement:
         approver's UPDATE matches zero rows. No advisory lock, no SELECT ... FOR
         UPDATE, no read-then-write — those all work too, and all of them are a
         wider window than this.
+
+        **Only inside the TTL** (S31): the same WHERE refuses a proposal nobody
+        decided within PROPOSAL_TTL_SECONDS, so the refusal never waits on the sweep.
         """
         if decision not in ("approved", "rejected"):
             raise ValueError(f"decision must be 'approved' or 'rejected', got {decision!r}")
@@ -392,23 +411,65 @@ class ProposalSettlement:
              WHERE id = $1::uuid
                AND workspace_id = $2::uuid
                AND status = 'pending_approval'
+               AND created_at > now() - make_interval(secs => $5::double precision)
             RETURNING *
             """,
             str(proposal_id),
             str(workspace_id),
             decision,
             str(decided_by) if decided_by is not None else None,
+            float(PROPOSAL_TTL_SECONDS),
         )
         if row is not None:
             return SettleResult(Settlement.CLAIMED, _as_dict(row))
-        # Lost, or never existed. One more read to say WHICH — after the fact, so
-        # it cannot widen the window that matters.
+        # Lost, never existed, or too late. One more read to say WHICH — after
+        # the fact, so it cannot widen the window that matters.
         current = await self.get(workspace_id=workspace_id, proposal_id=proposal_id)
         if current is None:
             return SettleResult(Settlement.NOT_FOUND)
+        if current["status"] == "pending_approval":
+            # Still pending, so the TTL refused it: the door that noticed records
+            # it, by the sweep's own condition (S31).
+            current = await self._expire_one(workspace_id, proposal_id) or await self.get(
+                workspace_id=workspace_id, proposal_id=proposal_id)
+            if current is None:
+                return SettleResult(Settlement.NOT_FOUND)
+        if current["status"] == "expired":
+            return SettleResult(Settlement.EXPIRED, current, current_status="expired")
         return SettleResult(
             Settlement.ALREADY_DECIDED, current, current_status=current["status"]
         )
+
+    async def _expire_one(self, workspace_id: UUID | str, proposal_id: UUID | str) -> dict | None:
+        """One overdue pending proposal to `expired`: `expire_overdue`'s
+        condition, for the row a decision just found too late."""
+        return _as_dict(await self._pool.fetchrow(
+            """
+            UPDATE proposals SET status = 'expired', resolved_at = now()
+             WHERE id = $1::uuid AND workspace_id = $2::uuid
+               AND status = 'pending_approval'
+               AND created_at <= now() - make_interval(secs => $3::double precision)
+            RETURNING *
+            """,
+            str(proposal_id), str(workspace_id), float(PROPOSAL_TTL_SECONDS),
+        ))
+
+    async def expire_overdue(self, *, workspace_id: UUID | str) -> int:
+        """The sweep (the `proposals.expire` job, S31): every proposal in this
+        workspace nobody decided within the TTL becomes `expired`. The exact
+        complement of `settle`'s TTL clause, so a row is never both decidable and
+        expirable, and a retry changes nothing twice. `resolved_by` stays NULL:
+        nobody decided; time did."""
+        rows = await self._pool.fetch(
+            """
+            UPDATE proposals SET status = 'expired', resolved_at = now()
+             WHERE workspace_id = $1::uuid AND status = 'pending_approval'
+               AND created_at <= now() - make_interval(secs => $2::double precision)
+            RETURNING id
+            """,
+            str(workspace_id), float(PROPOSAL_TTL_SECONDS),
+        )
+        return len(rows)
 
 
 class NothingToPropose(RuntimeError):
@@ -929,6 +990,7 @@ def _outcome_json(outcome: ActionOutcome) -> dict:
 
 __all__ = [
     "EXECUTABLE_SYSTEMS",
+    "PROPOSAL_TTL_SECONDS",
     "STALE_CLAIM_SECONDS",
     "UNDOABLE_FROM",
     "ActionExecutor",

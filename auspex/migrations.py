@@ -494,7 +494,7 @@ SCHEMA_V0: list[str] = [
             CHECK (status IN ('pending_approval', 'approved', 'rejected',
                               'executing', 'executed', 'failed', 'incomplete',
                               'kept', 'undoing', 'undone', 'abandoned',
-                              'withdrawn'));
+                              'withdrawn', 'expired'));
     END $$
     """,
     # S21 (TD-028a): when the claim was taken. Without it "this claim is stale"

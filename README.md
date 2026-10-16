@@ -8,7 +8,7 @@ LLM**. You bring an OpenAI-compatible endpoint; the platform adapts to whatever
 it can actually do. We never pay for inference, and neither does a pilot.
 
 > **Status: pre-beta.** Everything described below is built, tested and running
-> — 1652 tests, `docker compose up` green. The [What Auspex does not do
+> — 1661 tests, `docker compose up` green. The [What Auspex does not do
 > yet](#what-auspex-does-not-do-yet) section is not a roadmap wish-list; it is
 > the honest boundary of what you get today, and it is worth reading before the
 > feature list.
@@ -70,7 +70,7 @@ The agent **proposes**; a human decides. Proposals carry a **fingerprint** of th
 action's full declared contract, so an approver is shown exactly what they are
 approving and a spec that changed between proposal and approval fails the
 re-check. Approval settles exactly once under concurrency (a conditional UPDATE,
-raced and verified). Actions declare their own undo, and `POST
+raced and verified). A proposal nobody decides within 24 hours expires: approve and reject refuse it in the same statement, and it reads `expired`. Actions declare their own undo, and `POST
 /api/proposals/{id}/undo` runs it.
 
 `EXECUTABLE_SYSTEMS` is `{"auspex"}` — see the honesty section.
@@ -257,7 +257,7 @@ off-corpus question returns an honest miss instead of a confident wrong answer.
 ## Development
 
 ```bash
-./ci.sh          # the gate: ruff + 1652 tests + container build + installed-dist check
+./ci.sh          # the gate: ruff + 1661 tests + container build + installed-dist check
 make check       # same thing
 make up / down   # stack lifecycle
 ```
