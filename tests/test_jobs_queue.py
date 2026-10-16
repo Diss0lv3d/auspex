@@ -99,6 +99,10 @@ async def _expire_lease(pool, job_id) -> None:
         "UPDATE jobs SET lease_expires_at = now() - interval '1 second' WHERE id = $1", job_id)
 
 
+async def _claimed_by(pool, job_id):
+    return await pool.fetchval("SELECT claimed_by FROM jobs WHERE id = $1", job_id)
+
+
 async def _make_due(pool, job_id) -> None:
     await pool.execute("UPDATE jobs SET run_after = now() WHERE id = $1", job_id)
 
@@ -156,9 +160,10 @@ async def test_complete_needs_the_claims_token(pool, ws):
     with pytest.raises(JobLost):
         await complete(pool, job.id, uuid.uuid4(), {"ok": True})
     await complete(pool, job.id, job.claim_token, {"ok": True})
-    row = await pool.fetchrow("SELECT status, result, claim_token, finished_at FROM jobs"
-                              " WHERE id = $1", job.id)
+    row = await pool.fetchrow("SELECT status, result, claim_token, claimed_by, finished_at"
+                              " FROM jobs WHERE id = $1", job.id)
     assert row["status"] == "done" and row["claim_token"] is None
+    assert row["claimed_by"] is None
     assert row["finished_at"] is not None and '"ok": true' in row["result"]
     with pytest.raises(JobLost):  # a second answer for a finished job
         await complete(pool, job.id, job.claim_token, {"ok": True})
@@ -195,9 +200,10 @@ async def test_an_expired_lease_with_no_attempts_left_goes_dead(pool, ws):
     job = await claim(pool, _scope(a), claimer="t")
     await _expire_lease(pool, job.id)
     assert await claim(pool, _scope(a), claimer="t") is None
-    row = await pool.fetchrow("SELECT status, last_error, claim_token FROM jobs WHERE id = $1",
-                              job.id)
+    row = await pool.fetchrow("SELECT status, last_error, claim_token, claimed_by FROM jobs"
+                              " WHERE id = $1", job.id)
     assert (row["status"], row["last_error"], row["claim_token"]) == ("dead", "lease expired", None)
+    assert row["claimed_by"] is None
 
 
 async def test_a_failure_backs_off_doubling_to_a_cap_then_dies(pool, ws):
@@ -207,6 +213,7 @@ async def test_a_failure_backs_off_doubling_to_a_cap_then_dies(pool, ws):
     for expected in (30, 60, 120, 240, 480, 900):  # 30·2^5 = 960, capped at 900
         job = await claim(pool, _scope(a), claimer="t")
         assert await fail(pool, job.id, job.claim_token, "boom") == "queued"
+        assert await _claimed_by(pool, job.id) is None
         wait = await pool.fetchval(
             "SELECT EXTRACT(EPOCH FROM run_after - now()) FROM jobs WHERE id = $1", job.id)
         assert expected - 3 <= wait <= expected + 1, (job.attempts, wait)
@@ -214,6 +221,7 @@ async def test_a_failure_backs_off_doubling_to_a_cap_then_dies(pool, ws):
     job = await claim(pool, _scope(a), claimer="t")
     assert job.attempts == 7
     assert await fail(pool, job.id, job.claim_token, "boom") == "dead"
+    assert await _claimed_by(pool, job.id) is None
     assert await claim(pool, _scope(a), claimer="t") is None
 
 
@@ -222,6 +230,7 @@ async def test_a_permanent_failure_is_failed_and_never_retried(pool, ws):
     await enqueue(pool, workspace_id=a, kind=CLAIM, idempotency_key="k")
     job = await claim(pool, _scope(a), claimer="t")
     assert await fail(pool, job.id, job.claim_token, "bad payload", permanent=True) == "failed"
+    assert await _claimed_by(pool, job.id) is None
     await _make_due(pool, job.id)
     assert await claim(pool, _scope(a), claimer="t") is None
 

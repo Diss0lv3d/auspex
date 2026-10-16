@@ -164,7 +164,7 @@ async def claim(pool: asyncpg.Pool, scope: ClaimScope, *, claimer: str) -> Job |
             """
             UPDATE jobs
                SET status = 'dead', last_error = 'lease expired', claim_token = NULL,
-                   lease_expires_at = NULL, finished_at = now()
+                   claimed_by = NULL, lease_expires_at = NULL, finished_at = now()
              WHERE status = 'claimed' AND lease_expires_at < now()
                AND attempts >= max_attempts
                AND kind = ANY($1::text[])
@@ -207,7 +207,7 @@ async def complete(pool: asyncpg.Pool, job_id: UUID, token: UUID, result: dict) 
     done = await pool.fetchval(
         """
         UPDATE jobs
-           SET status = 'done', result = $3::jsonb, claim_token = NULL,
+           SET status = 'done', result = $3::jsonb, claim_token = NULL, claimed_by = NULL,
                lease_expires_at = NULL, finished_at = now()
          WHERE id = $1 AND status = 'claimed' AND claim_token = $2
         RETURNING id
@@ -234,7 +234,8 @@ async def fail(pool: asyncpg.Pool, job_id: UUID, token: UUID, error: str, *,
                                     $5::double precision * power(2, attempts - 1),
                                     $6::double precision)) END,
                finished_at = CASE WHEN $4 OR attempts >= max_attempts THEN now() END,
-               last_error = $3, claim_token = NULL, lease_expires_at = NULL
+               last_error = $3, claim_token = NULL, claimed_by = NULL,
+               lease_expires_at = NULL
          WHERE id = $1 AND status = 'claimed' AND claim_token = $2
         RETURNING status
         """,
