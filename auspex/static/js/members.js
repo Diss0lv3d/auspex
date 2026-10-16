@@ -6,6 +6,9 @@ import { $, el } from "./dom.js";
 import { startShell } from "./shell.js";
 import { isolateName } from "./shell-logic.js";
 
+// A 2xx with no JSON to read is not the server's refusal: it gets our words.
+const UNREADABLE = "Couldn't load this workspace's members.";
+
 function memberCard(m) {
   return el("div", { className: "member" }, [
     el("div", { className: "name" }, [m.display_name || m.email]),
@@ -24,7 +27,10 @@ async function ready({ me, api }) {
   const title = el("h1", {}, ["Members of " + isolateName(me.workspace.name)]);
   show(title, el("p", { className: "members-note" }, ["Loading…"]));
   const r = await api.get("/api/workspace/members");
-  if (!r.ok) { show(title, el("p", { className: "members-error" }, [r.detail])); return; }
+  if (!(r.ok && r.body)) {
+    show(title, el("p", { className: "members-error" }, [r.ok ? UNREADABLE : r.detail]));
+    return;
+  }
   const rows = r.body.members;
   show(title, ...(rows.length ? rows.map(memberCard) : [el("p", { className: "members-note" }, ["No members."])]));
 }

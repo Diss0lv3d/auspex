@@ -633,12 +633,28 @@ def test_the_members_page_reads_members_as_text_and_refusals_in_the_servers_word
     as text."""
     js = _served(client, "/js/members.js")
     assert '"/api/workspace/members"' in js
-    assert "[r.detail]" in js
+    assert "[r.ok ? UNREADABLE : r.detail]" in js
     for sink in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write"):
         assert sink not in js, sink
     assert 'page: "members"' in js
     # F4 final review (I1): the workspace's name cannot reorder its heading.
     assert '"Members of " + isolateName(me.workspace.name)' in js
+
+
+def test_a_success_with_no_body_to_read_falls_back_to_the_failure_copy(client):
+    """F4 final review (M4): a 2xx whose body is not JSON leaves `r.body` null.
+    Reading a list from it threw, and the page stopped with nothing said. Each
+    list read checks for a body first, and the page says it could not load."""
+    js = _served(client, "/js/chat.js")
+    for fn, field in (("async function loadChats()", "r.body.sessions"),
+                      ("async function pollApprovals()", "r.body.proposals")):
+        body = js.split(fn, 1)[1].split("\n}\n", 1)[0]
+        assert body.index("if (r.ok && r.body)") < body.index(field), fn
+        assert "failed = true" in body.split("else", 1)[1], fn
+    members = _served(client, "/js/members.js")
+    ready = members.split("async function ready(", 1)[1].split("\n}\n", 1)[0]
+    assert ready.index("if (!(r.ok && r.body))") < ready.index("r.body.members")
+    assert 'const UNREADABLE = "Couldn\'t load this workspace\'s members.";' in members
 
 
 def test_the_members_page_never_names_the_engine(client):

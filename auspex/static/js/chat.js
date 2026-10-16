@@ -247,7 +247,7 @@ function setHash(id) {
 
 async function loadChats() {
   const r = await api.get("/api/chat/sessions");
-  if (r.ok) { chats.list = r.body.sessions; chats.complete = r.body.complete; chats.failed = false; }
+  if (r.ok && r.body) { chats.list = r.body.sessions; chats.complete = r.body.complete; chats.failed = false; }
   else chats.failed = true;
   renderChats();
 }
@@ -356,7 +356,7 @@ function proposals(path, method = "GET") {
 
 async function pollApprovals() {
   const r = await proposals("");
-  if (r.ok) { approvals.waiting = r.body.proposals; approvals.complete = r.body.complete; approvals.failed = false; }
+  if (r.ok && r.body) { approvals.waiting = r.body.proposals; approvals.complete = r.body.complete; approvals.failed = false; }
   else approvals.failed = true;
   renderApprovals();
 }
