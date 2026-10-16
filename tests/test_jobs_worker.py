@@ -183,3 +183,29 @@ def test_a_worker_refuses_two_kinds_with_one_name_and_an_orphan_schedule():
     with pytest.raises(ValueError, match="does not run"):
         JobWorker(None, [_recording_kind()],
                   [Schedule(_recording_kind("t.s31.elsewhere"), 300, due)])
+
+
+def test_the_suite_runs_with_the_worker_pinned_off(settings):
+    """Hermetic: no background claimer races a test (auspex.devhost)."""
+    assert settings.jobs_worker_enabled is False
+
+
+def test_the_worker_is_on_unless_told_otherwise(monkeypatch):
+    from auspex.config import Settings
+
+    monkeypatch.delenv("JOBS_WORKER_ENABLED", raising=False)
+    assert Settings(_env_file=None).jobs_worker_enabled is True
+
+
+def test_the_lifespan_starts_the_worker_and_shutdown_cancels_it(settings):
+    from fastapi.testclient import TestClient
+
+    from auspex.app import create_app
+    from auspex.config import Settings
+
+    app = create_app(Settings(jobs_worker_enabled=True, secret_key=settings.secret_key))
+    with TestClient(app):
+        task = app.state.jobs_task
+        assert app.state.jobs_worker.enabled is True
+        assert not task.done()
+    assert task.cancelled()

@@ -26,6 +26,9 @@ def pin_host_defaults() -> None:
     # (NVD/KEV/EPSS) from every app start. Scheduler tests drive run_cycle()
     # directly with fake feeds; host-run live checks override INGEST_ENABLED=true.
     os.environ.setdefault("INGEST_ENABLED", "false")
+    # Hermetic tests: the S31 jobs worker would otherwise claim and run jobs in
+    # the background of every app start, racing the tests that drive tick().
+    os.environ.setdefault("JOBS_WORKER_ENABLED", "false")
     # Hermetic tests: app startup would otherwise probe the configured LLM
     # endpoint (D-038) whenever its fingerprint has no deployment scorecard —
     # live inference from a test run. Autoprobe tests inject the probe.

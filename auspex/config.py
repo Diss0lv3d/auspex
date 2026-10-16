@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     ingest_enabled: bool = True
     nvd_api_key: str = ""  # optional; raises NVD quota 5→50 req/30 s (probed)
 
+    # --- Jobs (D-065, S31). The in-app worker claims the queue's in-app kinds
+    # (today: proposals.expire). Tests/host runs pin JOBS_WORKER_ENABLED=false
+    # (hermetic: no background claimer races a test); tests drive tick().
+    jobs_worker_enabled: bool = True
+
     # --- Auth ---
     secret_key: str = ""  # JWT signing key; required in prod, ephemeral fallback in dev
     jwt_ttl_minutes: int = 720

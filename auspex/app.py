@@ -11,11 +11,13 @@ from fastapi import FastAPI
 from auspex import __version__
 from auspex.actions import ActionRegistry
 from auspex.actions.builtin import build_builtin_actions
+from auspex.actions.expiry import EXPIRE, EXPIRE_SCHEDULE
 from auspex.actions.settlement import action_proposer
 from auspex.config import Settings, get_settings
 from auspex.db import create_pool
 from auspex.enrich import EnrichmentService
 from auspex.ingest import IngestScheduler
+from auspex.jobs.worker import JobWorker
 from auspex.kb import KnowledgeService
 from auspex.llm.autoprobe import keep_scorecard_fresh
 from auspex.llm.registry import load_dev_registry
@@ -79,6 +81,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # when INGEST_ENABLED=false or the KB is off.
             app.state.ingest = IngestScheduler.from_settings(settings, app.state.kb, app.state.pool)
             app.state.ingest_task = asyncio.create_task(app.state.ingest.run())
+            # D-065 (S31): the in-app jobs worker, beside the ingest task. Its
+            # only kind today expires proposals nobody decided within 24 h.
+            # Host/test runs pin JOBS_WORKER_ENABLED=false (auspex.devhost).
+            app.state.jobs_worker = JobWorker(
+                app.state.pool, (EXPIRE,), (EXPIRE_SCHEDULE,),
+                enabled=settings.jobs_worker_enabled,
+            )
+            app.state.jobs_task = asyncio.create_task(app.state.jobs_worker.run())
             # D-038: measure the configured endpoint once per fingerprint, in the
             # background — the port binds now and deep turns stay on the safe
             # default ("unknown") until the scorecard lands. D-042: and again
@@ -94,6 +104,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 probing.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await probing
+            jobs = getattr(app.state, "jobs_task", None)
+            if jobs is not None:
+                jobs.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await jobs
             task = getattr(app.state, "ingest_task", None)
             if task is not None:
                 task.cancel()

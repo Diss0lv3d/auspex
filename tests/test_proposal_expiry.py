@@ -2,6 +2,8 @@
 PROPOSAL_TTL_SECONDS expires. The refusal is in settlement's own UPDATE; the
 sweep only makes the status visible. Against live Postgres."""
 
+import uuid
+
 import pytest
 from _tenancy import drop_orgs, ensure_workspace, make_membership_world, token
 
@@ -15,8 +17,10 @@ from auspex.actions import (
     Settlement,
 )
 from auspex.actions.builtin import build_builtin_actions
+from auspex.actions.expiry import EXPIRE, EXPIRE_SCHEDULE, SWEEP_EVERY_SECONDS, overdue_workspaces
 from auspex.classify.observables import ObservableType, observable_id
 from auspex.db import create_pool
+from auspex.jobs.queue import Job
 from auspex.routes.proposals import EXPIRED_DETAIL
 
 PREFIX = "t-s31-ttl"
@@ -176,3 +180,32 @@ async def test_the_routes_answer_409_in_words_for_an_expired_proposal(
         assert EXPIRED_DETAIL == "expired: nobody decided within 24 h; propose it again"
     finally:
         await drop_orgs(pool, prefix)
+
+
+def _job_for(ws) -> Job:
+    """The job the worker would hand the handler. Built, never enqueued: the
+    running app container's worker claims every `proposals.expire` job."""
+    return Job(id=uuid.uuid4(), workspace_id=ws, kind=EXPIRE.name, integration_id=None,
+               payload={}, idempotency_key="t", status="claimed", attempts=1,
+               max_attempts=EXPIRE.max_attempts, lease_seconds=EXPIRE.lease_seconds,
+               claim_token=uuid.uuid4(), claimed_by="t", result=None, last_error=None)
+
+
+async def test_the_expire_job_expires_its_workspaces_overdue_rows(pool, registry, world):
+    ws, obs = await world("job")
+    pid = await _file(pool, registry, ws, obs)
+    await _age(pool, pid, PROPOSAL_TTL_SECONDS + 1)
+    assert await EXPIRE.handler(pool, _job_for(ws)) == {"expired": 1}
+    assert await _status(pool, pid) == "expired"
+
+
+async def test_the_schedule_names_only_workspaces_with_an_overdue_row(pool, registry, world):
+    late_ws, late_obs = await world("due")
+    fresh_ws, fresh_obs = await world("notdue")
+    late = await _file(pool, registry, late_ws, late_obs)
+    await _file(pool, registry, fresh_ws, fresh_obs)
+    await _age(pool, late, PROPOSAL_TTL_SECONDS + 1)
+    due = await overdue_workspaces(pool)
+    assert late_ws in due and fresh_ws not in due
+    assert EXPIRE_SCHEDULE.kind is EXPIRE and EXPIRE_SCHEDULE.every_seconds == SWEEP_EVERY_SECONDS
+    await EXPIRE.handler(pool, _job_for(late_ws))  # leave no overdue row behind
