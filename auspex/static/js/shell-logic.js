@@ -22,12 +22,22 @@ export function navEntries(me, page) {
     .map((p) => ({ href: p.href, label: p.label, current: p.page === page }));
 }
 
+// A name shown inside a longer line (F4 review): its own direction controls
+// are dropped and the rest is isolated, so a client's name cannot reorder the
+// role, kind or words around it (UAX #9). Display only; the name is unchanged
+// everywhere else.
+const BIDI_CONTROLS = /[\u202A-\u202E\u2066-\u2069]/g;
+export function isolateName(name) {
+  return "\u2068" + String(name ?? "").replace(BIDI_CONTROLS, "") + "\u2069";
+}
+
 // One workspace as the header names it. The organization leads: which client
-// you are in is the thing that must never be in doubt. Names are returned as
-// written; the DOM makes them text.
+// you are in is the thing that must never be in doubt. Each name is isolated
+// on its own (isolateName); the DOM makes the line text.
 export function workspaceLabel(ws) {
   const org = ws.organization || {};
-  const name = org.name && org.name !== ws.name ? `${org.name} / ${ws.name}` : ws.name;
+  const name = org.name && org.name !== ws.name
+    ? `${isolateName(org.name)} / ${isolateName(ws.name)}` : isolateName(ws.name);
   const parts = [name, org.kind, ws.role];
   if (ws.region && ws.region !== "global") parts.push(ws.region);
   return parts.filter(Boolean).join(" · ");
@@ -72,7 +82,7 @@ export function errorText(status, body) {
 }
 
 export function viewerNote(me) {
-  return `You are a viewer in ${me.workspace.name}: you can read here; `
+  return `You are a viewer in ${isolateName(me.workspace.name)}: you can read here; `
     + "asking the co-analyst and deciding proposals need the analyst or admin role.";
 }
 

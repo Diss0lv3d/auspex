@@ -576,6 +576,8 @@ def test_the_members_page_reads_members_as_text_and_refusals_in_the_servers_word
     for sink in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write"):
         assert sink not in js, sink
     assert 'page: "members"' in js
+    # F4 final review (I1): the workspace's name cannot reorder its heading.
+    assert '"Members of " + isolateName(me.workspace.name)' in js
 
 
 def test_the_members_page_never_names_the_engine(client):

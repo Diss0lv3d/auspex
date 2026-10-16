@@ -4,6 +4,7 @@
 // words. F5 adds its doors. Every string is text (dom.js's el).
 import { $, el } from "./dom.js";
 import { startShell } from "./shell.js";
+import { isolateName } from "./shell-logic.js";
 
 function memberCard(m) {
   return el("div", { className: "member" }, [
@@ -20,7 +21,7 @@ function memberCard(m) {
 function show(...nodes) { $("main").replaceChildren(...nodes); }
 
 async function ready({ me, api }) {
-  const title = el("h1", {}, ["Members of " + me.workspace.name]);
+  const title = el("h1", {}, ["Members of " + isolateName(me.workspace.name)]);
   show(title, el("p", { className: "members-note" }, ["Loading…"]));
   const r = await api.get("/api/workspace/members");
   if (!r.ok) { show(title, el("p", { className: "members-error" }, [r.detail])); return; }

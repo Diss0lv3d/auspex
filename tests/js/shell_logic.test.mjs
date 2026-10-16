@@ -8,7 +8,12 @@ import { test } from "node:test";
 import {
   navEntries, workspaceLabel, activeWorkspace, switchOptions, mayChange, isAdmin, roleChanged,
   errorText, NETWORK, INVALID, EXPIRED, CONNECTION_LOST, STORAGE_BLOCKED, viewerNote, afterSwitchUrl,
+  isolateName,
 } from "../../auspex/static/js/shell-logic.js";
+
+// A name as a longer line shows it: isolated (U+2068 ... U+2069), so it cannot
+// reorder the words around it (F4 review).
+const iso = (name) => `\u2068${name}\u2069`;
 
 // GET /api/auth/me as probed at F4 Step 0 (docs/probes/2026-10-16-f4-s30-routes.md):
 // the active workspace names its organization as a bare string; the entries
@@ -50,22 +55,49 @@ test("the current page is marked, and only it", () => {
 });
 
 test("a workspace is named by its organization, its kind and the role there", () => {
-  assert.equal(workspaceLabel(entry("bank", "client", "analyst")), "bank · client · analyst");
+  assert.equal(workspaceLabel(entry("bank", "client", "analyst")), `${iso("bank")} · client · analyst`);
 });
 
 test("the region is named only when it is not global", () => {
   assert.equal(workspaceLabel(entry("telco", "client", "viewer", { region: "ksa" })),
-    "telco · client · viewer · ksa");
+    `${iso("telco")} · client · viewer · ksa`);
 });
 
 test("a workspace named apart from its organization shows both", () => {
   const ws = entry("soc", "client", "admin", { organization: { id: "o", name: "Acme Bank", kind: "client" } });
-  assert.equal(workspaceLabel(ws), "Acme Bank / soc · client · admin");
+  assert.equal(workspaceLabel(ws), `${iso("Acme Bank")} / ${iso("soc")} · client · admin`);
 });
 
-test("a name is returned exactly as written: markup and direction marks stay text for the DOM", () => {
-  const hostile = '<img src=x onerror="alert(1)">‮bank';
-  assert.equal(workspaceLabel(entry(hostile, "client", "analyst")), `${hostile} · client · analyst`);
+// F4 live check: a client named with U+202E reversed the role and kind after
+// it ("tsylana · tneilc"). Isolation alone is escaped by a name that closes it
+// (U+2069) first, so a name's own direction controls go before it is isolated.
+const CONTROL = /[\u202A-\u202E\u2066-\u2069]/u;
+const ISOLATED = /^\u2068[^\u202A-\u202E\u2066-\u2069]*\u2069$/u;
+const nameIn = (label, after) => {
+  assert.ok(label.endsWith(after), JSON.stringify(label));
+  const head = label.slice(0, label.length - after.length);
+  assert.match(head, ISOLATED);  // one opening U+2068, one closing U+2069, no control between
+  return head.slice(1, -1);
+};
+
+test("a name carrying a right-to-left override cannot reverse the role and kind after it", () => {
+  const hostile = '<img src=x onerror="alert(1)">\u202Ebank';
+  const name = nameIn(workspaceLabel(entry(hostile, "client", "analyst")), " · client · analyst");
+  assert.equal(name, '<img src=x onerror="alert(1)">bank');  // markup stays characters, for the DOM to make text
+});
+
+test("a name that closes the isolation itself, then overrides, cannot escape it", () => {
+  const hostile = "bank\u2069\u202E\u2066\u202A";
+  const name = nameIn(workspaceLabel(entry(hostile, "client", "analyst")), " · client · analyst");
+  assert.equal(name, "bank");
+  assert.ok(!CONTROL.test(name));
+});
+
+test("an organization and a workspace are isolated one by one, and only the direction controls go", () => {
+  const ws = entry("soc\u202E", "client", "admin", { organization: { id: "o", name: "Acme\u2069 Bank", kind: "client" } });
+  assert.equal(workspaceLabel(ws), `${iso("Acme Bank")} / ${iso("soc")} · client · admin`);
+  assert.equal(isolateName("بنك الرياض"), iso("بنك الرياض"));  // a right-to-left name is kept as written
+  assert.equal(isolateName(undefined), iso(""));
 });
 
 test("the switcher lists exactly what the server returned, in its order, the active one selected", () => {
@@ -73,7 +105,7 @@ test("the switcher lists exactly what the server returned, in its order, the act
   const options = switchOptions(m);
   assert.deepEqual(options.map((o) => o.id), m.workspaces.map((w) => w.id));
   assert.deepEqual(options.filter((o) => o.selected).map((o) => o.id), ["id-bank"]);
-  assert.equal(options[2].text, "telco · client · analyst · ksa");
+  assert.equal(options[2].text, `${iso("telco")} · client · analyst · ksa`);
 });
 
 test("the switcher never filters: a restricted client the server listed is listed", () => {
@@ -92,7 +124,7 @@ test("an active workspace missing from the list still has a name to show", () =>
   m.workspaces = m.workspaces.filter((w) => w.name !== "bank");
   const a = activeWorkspace(m);
   assert.equal(a.name, "bank");
-  assert.equal(workspaceLabel(a), "bank · analyst");
+  assert.equal(workspaceLabel(a), `${iso("bank")} · analyst`);
 });
 
 test("only an analyst or an admin may change anything; only an admin administers", () => {
@@ -141,7 +173,7 @@ test("the page's own messages are sentences, never bracketed codes", () => {
 });
 
 test("a viewer is told what they can and cannot do here", () => {
-  assert.equal(viewerNote(me("viewer")), "You are a viewer in bank: you can read here; "
+  assert.equal(viewerNote(me("viewer")), `You are a viewer in ${iso("bank")}: you can read here; `
     + "asking the co-analyst and deciding proposals need the analyst or admin role.");
 });
 
