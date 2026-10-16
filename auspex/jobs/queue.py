@@ -115,3 +115,132 @@ async def enqueue(
         workspace_id, idempotency_key,
     )
     return Job.from_row(existing), False
+
+
+# Backoff after a failure (Burhan's call, S31): 30 s, doubling, capped at 15 min.
+BACKOFF_BASE_SECONDS = 30
+BACKOFF_CAP_SECONDS = 900
+# A handler's error is stored for a human, not kept whole: a 1 MB message is a
+# row nobody can read and a column nobody should have to page through.
+MAX_ERROR_CHARS = 2000
+
+
+class JobLost(RuntimeError):
+    """The claimer no longer holds the job: its lease was re-claimed, the job
+    went dead, or it was already finished. Its answer is refused."""
+
+
+@dataclass(frozen=True)
+class ClaimScope:
+    """What one claimer may take (§1). `kinds` is what it can run. A
+    `workspace_ids` of None is every workspace (the in-app worker); S33's Edge
+    Agent passes its one. An `integration_ids` of None means jobs bound to NO
+    integration; a set means only those integrations' jobs, so nobody claims an
+    integration's job without naming the integration."""
+
+    kinds: frozenset[str]
+    workspace_ids: frozenset[UUID] | None = None
+    integration_ids: frozenset[UUID] | None = None
+
+    def __post_init__(self) -> None:
+        if not self.kinds:
+            raise ValueError("a claim names the kinds it can run")
+
+
+def _ids(values: frozenset[UUID] | None) -> list[UUID] | None:
+    return None if values is None else list(values)
+
+
+async def claim(pool: asyncpg.Pool, scope: ClaimScope, *, claimer: str) -> Job | None:
+    """The next ready job in `scope`, claimed: a fresh token, one more attempt,
+    a lease. Ready means queued and due, or claimed with a lease that expired
+    and attempts left. One transaction: first the expired leases with no
+    attempts left go `dead`, then one statement picks and claims, skipping rows
+    another claimer holds locked."""
+    kinds, workspaces, integrations = (
+        list(scope.kinds), _ids(scope.workspace_ids), _ids(scope.integration_ids))
+    async with pool.acquire() as conn, conn.transaction():
+        await conn.execute(
+            """
+            UPDATE jobs
+               SET status = 'dead', last_error = 'lease expired', claim_token = NULL,
+                   lease_expires_at = NULL, finished_at = now()
+             WHERE status = 'claimed' AND lease_expires_at < now()
+               AND attempts >= max_attempts
+               AND kind = ANY($1::text[])
+               AND ($2::uuid[] IS NULL OR workspace_id = ANY($2::uuid[]))
+               AND CASE WHEN $3::uuid[] IS NULL THEN integration_id IS NULL
+                        ELSE integration_id = ANY($3::uuid[]) END
+            """,
+            kinds, workspaces, integrations,
+        )
+        row = await conn.fetchrow(
+            """
+            WITH pick AS (
+                SELECT j.id FROM jobs j
+                 WHERE j.kind = ANY($1::text[])
+                   AND ($2::uuid[] IS NULL OR j.workspace_id = ANY($2::uuid[]))
+                   AND CASE WHEN $3::uuid[] IS NULL THEN j.integration_id IS NULL
+                            ELSE j.integration_id = ANY($3::uuid[]) END
+                   AND ((j.status = 'queued' AND j.run_after <= now())
+                        OR (j.status = 'claimed' AND j.lease_expires_at < now()
+                            AND j.attempts < j.max_attempts))
+                 ORDER BY j.run_after, j.id
+                 LIMIT 1
+                 FOR UPDATE OF j SKIP LOCKED
+            )
+            UPDATE jobs
+               SET status = 'claimed', claim_token = gen_random_uuid(), claimed_by = $4,
+                   attempts = jobs.attempts + 1,
+                   lease_expires_at = now() + make_interval(secs => jobs.lease_seconds)
+              FROM pick
+             WHERE jobs.id = pick.id
+            RETURNING jobs.*
+            """,
+            kinds, workspaces, integrations, claimer,
+        )
+    return Job.from_row(row) if row is not None else None
+
+
+async def complete(pool: asyncpg.Pool, job_id: UUID, token: UUID, result: dict) -> None:
+    """Record a job's answer, only for the claim that still holds it."""
+    done = await pool.fetchval(
+        """
+        UPDATE jobs
+           SET status = 'done', result = $3::jsonb, claim_token = NULL,
+               lease_expires_at = NULL, finished_at = now()
+         WHERE id = $1 AND status = 'claimed' AND claim_token = $2
+        RETURNING id
+        """,
+        job_id, token, json.dumps(result),
+    )
+    if done is None:
+        raise JobLost(f"job {job_id} is no longer held by this claim")
+
+
+async def fail(pool: asyncpg.Pool, job_id: UUID, token: UUID, error: str, *,
+               permanent: bool = False) -> str:
+    """A failed attempt, only for the claim that still holds it. With attempts
+    left the job is queued again after the backoff; with none it is `dead`; a
+    permanent failure is `failed` and never retried. Returns the new status."""
+    status = await pool.fetchval(
+        """
+        UPDATE jobs
+           SET status = CASE WHEN $4 THEN 'failed'
+                             WHEN attempts >= max_attempts THEN 'dead'
+                             ELSE 'queued' END,
+               run_after = CASE WHEN $4 OR attempts >= max_attempts THEN run_after
+                                ELSE now() + make_interval(secs => LEAST(
+                                    $5::double precision * power(2, attempts - 1),
+                                    $6::double precision)) END,
+               finished_at = CASE WHEN $4 OR attempts >= max_attempts THEN now() END,
+               last_error = $3, claim_token = NULL, lease_expires_at = NULL
+         WHERE id = $1 AND status = 'claimed' AND claim_token = $2
+        RETURNING status
+        """,
+        job_id, token, error[:MAX_ERROR_CHARS], permanent,
+        float(BACKOFF_BASE_SECONDS), float(BACKOFF_CAP_SECONDS),
+    )
+    if status is None:
+        raise JobLost(f"job {job_id} is no longer held by this claim")
+    return status
