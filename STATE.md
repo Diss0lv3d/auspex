@@ -1,25 +1,25 @@
 # STATE — Auspex
 
-_Last updated: 2026-10-16 — **F4 CLOSED** (session-end ritual run). `./ci.sh`
-green at F4's last code commit (`7057ca4`): **1603 tests, 129 modules**.
-`/api/health/ready` 200. Branch `staging`. **Promote #37** (`6c12f18`,
-back-merge `992b9f4`; `./ci.sh` green fresh, GitHub CI green on push and PR)
-shipped all of F4. **Promote slate: empty** (only this note since)._
+_Last updated: 2026-10-16 — **S31 CLOSED** (session-end ritual run). `./ci.sh`
+green at S31's last code commit (`75af29b`): **1687 tests, 133 modules**.
+`/api/health/ready` 200. Branch `staging`. **Promote slate: all of S31**
+(B-021's fix, D-069's build, the jobs queue and TD-025's first half, their
+reviews' fixes, the records); promote #37 shipped F4._
 
 ## Tracks (D-051) — read this first
 
 | Track | Prompt | Last closed | Next | Status |
 |---|---|---|---|---|
-| backend | `NEXT-SESSION-BE.md` | S30 (2026-10-15) | S31 | **focus** (the order table: F4 closed, S31 next) · Step 0: B-021, then where D-069 is built (Burhan's call) |
+| backend | `NEXT-SESSION-BE.md` | S31 (2026-10-16) | S32 | **focus** (the order table: S31 closed, S32 next) · Step 0: whether to promote S31 (Burhan's call), then S31's open ends S32 builds on |
 | front end | `NEXT-SESSION-FE.md` | F4 (2026-10-16) | F5 | waits for S32, S33 and S34 (the order table); F4 built the shell F5's admin pages stand on |
-| bugs | `NEXT-SESSION-BUGS.md` | B2 (2026-10-13) | B3 | S29 logged B-010…B-020 (B-010 is a stall a single message can cause), S30 B-021 (placed in S31), F4 B-022…B-024; B-005 and B-009 still wait on Burhan's call |
+| bugs | `NEXT-SESSION-BUGS.md` | B2 (2026-10-13) | B3 | S29 logged B-010…B-020 (B-010 is a stall a single message can cause), F4 B-022…B-024, S31 B-025…B-026 (S31 fixed B-021); B-005 and B-009 still wait on Burhan's call |
 
-- **Focus: backend, S31** (the order table: S29, S30, F4, then S31; F4
-  closed). **Burhan's calls to make:** whether B3 takes B-010 (three old
-  classify rules a crafted message can stall for seconds) before S31 — the
-  order table does not place B3; **where D-069 is built** (proposed: S31's
-  Step 0); and **B-024** (the switcher's keyboard behaviour; a fix changes its
-  UX).
+- **Focus: backend, S32** (the order table: S31 closed, S32 next). **Burhan's
+  calls to make:** **whether to promote S31 now** (not a milestone; the next is
+  S33, but it carries D-069's residency rule and B-021's fix); whether B3 takes
+  B-010 (three old classify rules a crafted message can stall for seconds)
+  before S32 — the order table does not place B3; and **B-024** (the
+  switcher's keyboard behaviour; a fix changes its UX).
 - **The 2026-10-12 two-window collision is over.** F1 and B1 ran at once that
   morning, and both ran Step 0's `/promote`. B1 opened PR #30 while F1's
   `ci.sh` ran, and merged it 4 s before F1's merge; the promote is correct
@@ -85,7 +85,81 @@ shipped all of F4. **Promote slate: empty** (only this note since)._
     D-059).
   - **S30 built MSSP tenancy** and closed 2026-10-15 (section below): D-068
     holds its five calls, D-069 overturns D-061's storage bound.
+  - **S31 built the jobs queue and TD-025's first half**, fixed B-021 and
+    built D-069, and closed 2026-10-16 (section below).
 - Standing rules every track obeys: `SESSION-RULES.md`. Bugs: `BUGS.md`.
+
+## S31 — what happened (backend track; the jobs queue and TD-025's first half)
+
+S31 ran 2026-10-16, alone, on Burhan's machine. Burhan's calls, one at a time:
+- **D-069 built here** (Step 0); a `ksa` workspace already on a deployment
+  whose storage may not hold it is **named in a startup WARNING**, not refused;
+- the design's five: **a 24 h TTL**; an expired card **listed 24 h, then
+  gone**; **one idempotency key per operation**, used by the note action;
+  **per-kind lease and attempts** (60 s, 5; backoff 30 s doubling to 15 min,
+  then `dead`); **the expiry sweep as a real job**;
+- the spec, the plan, **subagent-driven execution**.
+
+1. **Step 0.**
+   - **B-021 fixed** (`b1fa61e`): a rehome's event keeps only `to`, the CLI
+     prints the old home, and the rehome locks `users` alone (a second
+     concurrent rehome no longer answers NotFound). Its fresh review found no
+     leak to the new home's admins; its test gap was pinned (`3d5007b`); an
+     older race it found is **B-025**.
+   - **D-069 built** (`6cd68e9`, addendum in DECISIONS.md): `STORAGE_REGION`
+     (born with its docs); `create-org`/`create-client` refuse a workspace the
+     storage may not hold; startup names any already there. Its fresh review
+     found no bypass; two pins hardened (`34d5650`).
+   - Reality probed: docs/probes/2026-10-16-s31-jobs-baseline.md.
+2. **Design** (docs/superpowers/specs/2026-10-16-s31-jobs-design.md, with an
+   "after execution" note); plan docs/superpowers/plans/2026-10-16-s31-jobs.md,
+   eight tasks.
+3. **Built** (`f5c3479`…`d2dedd0`, each task by a fresh agent, each reviewed by
+   another; Task 2 needed one fix round):
+   - `auspex/jobs/`: `queue.py` (`jobs`, `job_turns`; an idempotent `enqueue`;
+     a scoped `FOR UPDATE SKIP LOCKED` claim serving workspaces in turn;
+     leases, backoff, `dead`/`failed`; token-checked `complete`/`fail`; the
+     claimer cleared on every exit from `claimed`) and `worker.py` (kinds and
+     schedules in code, bucketed keys, `tick`/`run`); the worker in the
+     lifespan behind `JOBS_WORKER_ENABLED` (pinned off for host and test runs);
+   - pending proposals expire after 24 h: `settle`'s own UPDATE refuses an
+     overdue one and moves it to `expired` (the new status, in the one CHECK
+     block); the `proposals.expire` job (`auspex/actions/expiry.py`) is the
+     sweep; listed for 24 h; approve and reject answer 409 "expired: nobody
+     decided within 24 h; propose it again";
+   - `operation_key` (`proposal:<id>:execute|undo`) handed to execute, undo
+     and observe; `validate_spec` refuses a handler that cannot take it, and a
+     parameter named `workspace_id`, `proposal_id` or `idempotency_key`; the
+     note action writes once per key;
+   - the page: "Expired: nobody decided in time; propose it again", no doors;
+     the approvals badge counts only cards a human can act on.
+   - Rulings on the per-task reviews: the claimer cleared on every exit (spec
+     §1 over the plan's SQL); a `SKIP LOCKED` pin the brief lacked; two expiry
+     tests made able to fail; the badge count (a consequence of call 2).
+4. **Proof.** Gate green (1603 → 1687). Mutants on every guard. **Live**
+   (docs/probes/2026-10-16-s31-jobs-live.md): the rebuilt container's worker
+   expired an aged proposal through the real job (`done` in 11 ms,
+   `{"expired": 1}`); approve and reject answered 409 in words; in Chromium the
+   expired card reads as designed, the badge counts 1 of 2, and "Nothing is
+   waiting on you." once only the expired card is left; zero CSP violations.
+5. **The final adversarial review** (fresh agent, the most capable model, every
+   finding reproduced): the core held every attack (300 settle-versus-sweep
+   races at the boundary, 0 inconsistent; 16 claimers with leases expiring
+   mid-handler, no double completion; every scope attack). **Important:** a NUL
+   or a lone surrogate in a job's error or result aborted the tick and lost the
+   error. **Minor:** a booting replica's migration could deadlock with a live
+   claim (1 boot in 30). One fix wave (`0cd32df`…`75af29b`): the answer writes
+   are total; `claim` and `enqueue` take `MIGRATION_LOCK` shared; the `enabled`
+   wiring and the dead step's scope pinned; `Schedule` validates its interval;
+   the SDK's example fixed. **Its own fresh review:** all addressed (60/60
+   migrations under load, 0 errors); minors parked (#30).
+6. **B-026** found by the key's review and reproduced live: an undeclared
+   argument named like a platform keyword is approved, then the run fails into
+   `incomplete`.
+
+No engine calls. Two new env vars (`STORAGE_REGION`, `JOBS_WORKER_ENABLED`).
++84 tests (1603 → 1687), +4 modules (129 → 133). Logged: B-025, B-026,
+TD-063…TD-065.
 
 ## F4 — what happened (front-end track; one shell for every page)
 
@@ -695,13 +769,23 @@ Phase 4:
   tested modules; a workspace switcher that reloads and leaves nothing of the
   last client, Back included (D-070); doors by role; a read-only Members page;
   304s (TD-047).**
+- **S31 (backend): a fair, leased, workspace-scoped jobs queue with an in-app
+  worker (D-065); pending proposals expire after 24 h, refused in the settling
+  UPDATE; one idempotency key per operation handed to every handler (TD-025's
+  first half, D-066); a `ksa` workspace only on KSA storage (D-069); B-021
+  fixed.**
 
 The ROADMAP through S20 is complete; S21–S30, F1–F4, B1 and B2 were each
 scoped by a decision or a bug. **The integration phase (S30–S41, F4–F9) builds
-the spec; S30 and F4 are done.**
+the spec; S30, F4 and S31 are done.**
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: empty.** Promote #37 (`6c12f18`, back-merge `992b9f4`;
+1. **Promote slate: all of S31** (`b1fa61e`…`ee8c0b7` and this session-end):
+   B-021's fix and its review's pin; D-069's build, its pins and addendum; the
+   S31 baseline, spec, plan, the eight tasks, the final review's fix wave, the
+   live record; B-025, B-026, TD-063…TD-065. S31 is not a milestone (the next
+   is S33): **whether to promote it now is Burhan's call** (S32's Step 0).
+   Promote #37 (`6c12f18`, back-merge `992b9f4`;
    GitHub CI green on push and PR) shipped all of F4 (the Step 0 probe, the
    spec and plan, nine tasks, the final review's fix wave, the live records,
    B-022…B-024, the session-end docs). Promote #36 (`605f95a`, back-merge `4c83f76`; GitHub CI green on push and
@@ -797,12 +881,16 @@ the spec; S30 and F4 are done.**
    - **B-004 fixed (B2).** A note may name its observable as written, not
      only by its short id. The bound is TD-054: the stored string is
      re-resolved at execute time and not pinned to the card's target.
+   - **B-026 (S31):** an undeclared argument named like a platform keyword
+     (`idempotency_key`, `proposal_id`, `workspace_id`) is filed and approved,
+     then the run raises and the row reads `incomplete`, though nothing ran.
 10. **D-041's bound, and TD-025** (S30 did TD-025's roles step).
     - A merely slow handler on an abandoned run can land after its put-back.
       It is recorded on the row, not prevented.
-    - There is no idempotency key: **both matter the day an action reaches a
-      network.** TD-025 left Deferred at S29 (D-066): S31 adds the key and a
-      proposal TTL, S34 grant-checked scope.
+    - **S31 added the idempotency key** (`operation_key`, one per operation,
+      handed to execute, undo and observe; the note action writes once per
+      key) **and the proposal TTL** (24 h, `expired`). S34 adds grant-checked
+      scope and runs actions as jobs carrying the key (TD-025's second half).
     - TD-042 is closed (D-048). Its own bound: `resolved_by` is the LATEST
       human resolver.
 11. **Brand, partly owned now (D-047).** The identity shortcut catches 18/45
@@ -910,11 +998,6 @@ the spec; S30 and F4 are done.**
     of it the phase may fetch.
 
 28. **S30's open ends** (they die by being done):
-    - **B-021**: a re-homed person's audit event names the old organization to
-      the new one's admins (BUGS.md). Burhan: S31's Step 0, unless B3 first.
-    - **D-069 is decided, not built**: until it is, nothing stops a `ksa`
-      workspace on this (non-KSA) deployment. Where it is built is Burhan's
-      call (proposed: S31's Step 0).
     - **TD-059 is a hard gate beside TD-001**: limit person creation over the
       API before any Google client id is configured.
     - **The deferred minors of S30's reviews** (kept so they are not lost; the
@@ -961,6 +1044,47 @@ the spec; S30 and F4 are done.**
     - **Live checks of anything about history must run with the back/forward
       cache ON** (headless Playwright turns it off):
       `docs/probes/f4-live/back-forward.cjs` (SESSION-RULES.md, The page).
+
+30. **S31's open ends** (they die by being done):
+    - **B-025** (a sign-in racing a rehome names the new organization to the
+      old one's admins) and **B-026** (an undeclared action argument named
+      like a platform keyword is approved, then the run fails into
+      `incomplete`). BUGS.md.
+    - **TD-063** (finished job rows never pruned), **TD-064** (no lease
+      extension; S33's heartbeats), **TD-065** (a polled queue; the claim
+      sorts every ready job).
+    - **Parked by the fix wave's review** (S32 builds on these):
+      `_clean_json` does not descend into tuples, and NaN or Infinity in a
+      result fails `complete` (the job is recorded as a failure and re-run): a
+      connector's output validation (S32's types, S33's core check) is the
+      place; the worker's `except` around a failing `fail`
+      (`auspex/jobs/worker.py`) has no test of its own (monkeypatch `fail`);
+      `_error_text(exc)` sits outside that `try` (an exception whose
+      `__str__` raises still aborts a tick); `claim` and `enqueue` assume READ
+      COMMITTED.
+    - **Deferred by the final review:** a handler raising a non-`Exception`
+      `BaseException` ends the worker silently, and the lifespan's `await`
+      re-raises it past the pool's close (the ingest task has the same shape).
+    - **Before S33:** one turn per workspace is shared across kinds and
+      scopes (a busy agent could starve that workspace's in-app jobs);
+      `job_turns.last_served_at` can move backwards under contention (use
+      `GREATEST`); the lifespan test hangs instead of failing if its cancel
+      block regresses (wrap it in a timeout).
+    - **Before S34:** `operation_key` formats a string id as given (normalise
+      it before a job stores it as its key); a key colliding with another
+      kind's job comes back without a kind check.
+    - **The per-task reviews' deferred minors** (the final review triaged each
+      "can wait"): `enqueue`'s fallback read can find nothing after a cascade;
+      keys are not stripped; `jobs.integration_id` has no FK until S33's table;
+      the schedule's bucket memo is unpinned (the key de-dupes anyway);
+      `failed` is counted on a `JobLost` from `fail`; the stream heartbeat's
+      `waiting` and the list docstring count expired rows; a page holding only
+      expired cards with more beyond it reads "Nothing is waiting on you.";
+      `_takes_keyword`'s explicit-name branch untested; a stale comment on
+      `EffectsProbe`; two long README lines.
+
+**Closed at S31, so they leave this list:** #28's B-021 and D-069 bullets;
+#10's TD-025 line now records the key and the TTL as built. S31 added #30.
 
 **Closed at F4, so they leave this list:** #25 and #26 (kept as one-line
 stubs so the numbers stay put); #20's stale-line bullet; #22's "[connection
@@ -1019,6 +1143,8 @@ records what the split left). F2 added #20–#22.
      the dev database) logged.
    - **F4:** TD-061 (the shell's state machine is not run by a test) and
      TD-062 (a turn or door started mid-switch is cut by the reload) logged.
+   - **S31:** TD-063 (job rows never pruned), TD-064 (no lease extension) and
+     TD-065 (a polled queue; the claim sorts every ready job) logged.
    - **Closed at F4:** TD-047 (304s on every page and file).
    - **Closed at F3:** TD-051.
    - **Closed at F2:** TD-045.
@@ -1222,6 +1348,23 @@ records what the split left). F2 added #20–#22.
   fixes rely on them.
 - **Timing tests:** S29 pinned the two fixed classify rules at < 50 ms on
   inputs sized so a regressed rule fails in seconds (~1000× margin today).
+- **S31 session-end (2026-10-16):** staging, identity `bh3082336888-cell`.
+  `./ci.sh` **green, 1687 tests, 133 modules**, `/api/health/ready` **200**,
+  all three containers healthy.
+- **The app container runs the jobs worker** (`JOBS_WORKER_ENABLED` unset
+  there means `true`): a tick every 5 s; the `proposals.expire` schedule once
+  per 300 s bucket of the wall clock. Host and test runs pin it off
+  (`auspex.devhost`). **Tests use `t.*` job kinds and never enqueue
+  `proposals.expire`** (the container would claim it); they call its handler
+  directly. A live check that ages a proposal waits for the next 300 s bucket.
+- **`STORAGE_REGION` is unset on this deployment, so `global`**: the CLI
+  refuses a `ksa` workspace here (D-069).
+- **S31 ran subagent-driven**: a subagent's commit carries its own model's
+  Co-Authored-By line (Sonnet, Haiku), a ruling recorded in the session; S30's
+  `4c1714c` set the precedent; amending is banned.
+- **A host probe script calls `auspex.devhost.pin_host_defaults()` before
+  importing `auspex.config`**, or it reaches for the compose-internal
+  `postgres` host and fails (S31's live scripts, `docs/probes/s31-live/`).
 
 ## Reference intelligence (from the SARA Open architecture study)
 Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
@@ -1236,12 +1379,13 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 **Pick a track (D-051); the Tracks table at the top has the ids.** Paste the
 prompt file of the track you mean. `/session-start` with no track asks.
 One window at a time (D-051).
-- **S31, backend, the focus** (`NEXT-SESSION-BE.md`): Step 0 fixes B-021 and
-  asks where D-069 is built (the slate is empty: promote #37 shipped F4); then
-  the jobs queue and TD-025's first half.
+- **S32, backend, the focus** (`NEXT-SESSION-BE.md`): Step 0 asks Burhan
+  whether to promote S31 now, and which of S31's open ends (#30) S32 takes;
+  then the connector contract, the SDK and the catalogue (D-060, D-064).
 - **B3, bugs** (`NEXT-SESSION-BUGS.md`), **if Burhan picks it**: B-010 (a
-  crafted message stalls the event loop) heads seventeen open entries; B-005 and
-  B-009 still wait on his call; F4 added B-022…B-024.
+  crafted message stalls the event loop) heads the open entries; B-005 and
+  B-009 still wait on his call; F4 added B-022…B-024, S31 B-025 and B-026
+  (S31 fixed B-021).
 - **F5, front end** (`NEXT-SESSION-FE.md`) starts only after S32, S33 and S34
   close (the order table): connectors, integrations, Edge Agents, memberships
   and approval-policy admin, on F4's shell and Members page.
