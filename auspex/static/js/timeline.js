@@ -2,7 +2,7 @@
 // the header, the sign-in and every request's auth are the shell's
 // (./shell.js, F4). Feed text (observable values, sources, claims, checker
 // names) is always text, never HTML: the page runs under D-057's policy (TD-051).
-import { pct, conf, claimStatusClass, standingClass, digestBanner } from "./timeline-logic.js";
+import { pct, conf, claimStatusClass, standingClass, digestBanner, labelClass } from "./timeline-logic.js";
 import { $, el } from "./dom.js";
 import { startShell } from "./shell.js";
 
@@ -10,7 +10,7 @@ let api = null;  // the shell's client, once /me has accepted this tab's token
 const when = (iso) => new Date(iso).toLocaleString();
 
 const span = (className, text = "") => el("span", { className }, [String(text ?? "")]);
-const pill = (cls, text) => span(`pill ${cls ?? ""}`, text);
+const pill = (cls, text) => span(`pill ${labelClass(cls)}`, text);
 const spacer = () => span("spacer");
 
 // A decay bar: its width through the CSSOM, which the policy allows.

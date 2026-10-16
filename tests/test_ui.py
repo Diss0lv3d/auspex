@@ -81,7 +81,9 @@ def test_timeline_page_holds_no_decay_arithmetic_of_its_own(client):
     about aging, and the two would drift the first time an edge moved."""
     body = _timeline_page(client)
     assert "half_life" not in body.replace("half_life_days", "")  # only the label
-    assert "Math.pow" not in body and "**" not in body
+    # Arithmetic is a script's; the stylesheets are not scanned (F3 review, #25).
+    js = _served(client, "/js/timeline.js") + _served(client, "/js/timeline-logic.js")
+    assert "Math.pow" not in js and "**" not in js
     # It renders the server's answer, never its own.
     assert "v.staleness" in body
 
@@ -551,3 +553,26 @@ def test_the_members_page_never_names_the_engine(client):
     body = "\n".join(_served(client, p) for p in ("/members", "/js/members.js", "/css/members.css"))
     for name in FORBIDDEN_ENGINE_NAMES:
         assert name not in body.lower(), name
+
+
+def test_the_timeline_reads_confidences_only_through_the_null_safe_helpers(client):
+    """F3 review (#25): a verdict with no confidence shows a dash and an empty
+    bar instead of taking the timeline down. Nothing pinned the page to
+    conf/pct; a raw `.toFixed` would have passed."""
+    js = _served(client, "/js/timeline.js")
+    assert ".toFixed(" not in js
+    assert "conf(v.confidence_now)" in js and "pct(v.confidence_now)" in js
+
+
+def test_an_observable_link_opens_its_timeline_through_its_own_listener(client):
+    """F3 review (#25): the click-listener pin was met by the header buttons
+    alone. This one reads obsLink's own body."""
+    js = _served(client, "/js/timeline.js")
+    link = js.split("function obsLink(o)", 1)[1].split("\n}\n", 1)[0]
+    assert 'addEventListener("click"' in link and "open_(o.obs_id)" in link
+
+
+def test_a_feed_label_cannot_add_classes_to_a_pill(client):
+    """F3 review (#25): a label with spaces became several classes on a pill."""
+    js = _served(client, "/js/timeline.js")
+    assert "span(`pill ${labelClass(cls)}`, text)" in js
