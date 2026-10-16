@@ -232,7 +232,7 @@ const proposal = (status, extra = {}) => ({
   created_at: "2026-10-12T02:00:00Z", decided_at: null, claimed_at: null, result: null,
   identical_pending: null, card: { summary: "add a note to 8.8.8.8", undo: UNDO, systems: [] }, ...extra,
 });
-const doors = (p) => doorsFor(p).map((d) => `${d.door}${d.confirm ? "²" : ""}`);
+const doors = (p, role = "analyst") => doorsFor(p, role).map((d) => `${d.door}${d.confirm ? "²" : ""}`);
 
 test("each status gets the server's doors for it, and only those", () => {
   assert.deepEqual(doors(proposal("pending_approval")), ["approve²", "reject"]);
@@ -251,10 +251,19 @@ test("an action that declares no undo is never offered one", () => {
 });
 
 test("a door that runs something says what it will run before it is confirmed", () => {
-  const approve = doorsFor(proposal("pending_approval")).find((d) => d.door === "approve");
+  const approve = doorsFor(proposal("pending_approval"), "analyst").find((d) => d.door === "approve");
   assert.match(approve.consequence, /add a note to 8\.8\.8\.8/);
-  const undo = doorsFor(proposal("executed")).find((d) => d.door === "undo");
+  const undo = doorsFor(proposal("executed"), "analyst").find((d) => d.door === "undo");
   assert.match(undo.consequence, /removes the note/);
+});
+
+test("a viewer gets no door on any card, whatever its status; the server refuses them anyway", () => {
+  const all = ["pending_approval", "approved", "executing", "undoing", "incomplete", "executed",
+    "kept", "abandoned", "rejected", "withdrawn", "undone", "failed"];
+  for (const s of all) assert.deepEqual(doors(proposal(s), "viewer"), [], s);
+  // not doors(): its default role would turn undefined into "analyst"
+  assert.deepEqual(doorsFor(proposal("pending_approval"), undefined), [], "no role is no door");
+  assert.deepEqual(doors(proposal("pending_approval"), "admin"), ["approve²", "reject"]);
 });
 
 test("the status line says what the row is waiting on, in words", () => {

@@ -5,7 +5,10 @@ import re
 import pytest
 from _fakes import FORBIDDEN_ENGINE_NAMES
 
-_ASSET_PATHS = ("/css/chat.css", "/js/page-logic.js", "/js/chat.js")
+_ASSET_PATHS = (
+    "/css/base.css", "/css/chat.css", "/js/dom.js", "/js/api.js", "/js/shell-logic.js",
+    "/js/shell.js", "/js/page-logic.js", "/js/chat.js",
+)
 _TIMELINE_ASSET_PATHS = (
     "/css/base.css", "/css/timeline.css", "/js/dom.js", "/js/api.js", "/js/shell-logic.js",
     "/js/shell.js", "/js/timeline-logic.js", "/js/timeline.js",
@@ -170,21 +173,6 @@ def test_a_proposal_in_the_chat_opens_its_card_in_the_panel(client):
     assert "openApprovals(ev.tool.proposal.id)" in handler
 
 
-def test_the_sign_in_is_kept_for_the_tab_only(client):
-    """D-056: the token survives a reload in sessionStorage (never
-    localStorage), is checked on load, and has a way out. Storage that throws
-    must leave the page working, so the only storage calls are the three
-    guarded helpers."""
-    body = _page(client)
-    assert "localStorage" not in body
-    assert body.count("sessionStorage.") == 3
-    for call in ("sessionStorage.getItem(TOKEN_KEY)", "sessionStorage.setItem(TOKEN_KEY, t)",
-                 "sessionStorage.removeItem(TOKEN_KEY)"):
-        assert f"try {{ {call}" in body or f"try {{ return {call}" in body, call
-    assert "/api/auth/whoami" in body
-    assert 'id="signout"' in body
-
-
 def test_index_lists_and_reopens_chats(client):
     """F2: the sidebar lists your chats and reopens one from its stored turns;
     the open chat's id lives in the hash; a reopened chat says what is not
@@ -221,15 +209,17 @@ def test_the_page_asks_for_dark_scrollbars_and_controls(client):
 
 
 def test_the_header_keeps_its_labels_whole_on_a_phone(client):
-    """F2 narrow pass: at 390 px the header took 132 px in two rows, and "Sign
-    in", "Sign out", "Approvals · 1" and the status broke over two or three
-    lines. Labels never wrap; below 600 px the tagline goes and the bars are
-    tighter."""
-    body = _page(client)
-    assert "header button, #status { white-space: nowrap; }" in body
-    narrow = body.split("@media (max-width: 599px) {", 1)[1].split("\n}", 1)[0]
-    assert ".tag { display: none; }" in narrow
-    assert "header, footer { padding: 10px 12px; }" in narrow
+    """F2 narrow pass, then F4's shared header: at 390 px the header took 132 px
+    in two rows and broke its labels. Labels never wrap; below 600 px the
+    tagline and the "signed in" status go first, and the workspace stays."""
+    base = _served(client, "/css/base.css")
+    assert "header button, header a, #status, .ws-label { white-space: nowrap; }" in base
+    narrow = base.split("@media (max-width: 599px) {", 1)[1].split("\n}", 1)[0]
+    assert ".tag { display: none; }" in narrow and "#status.ok { display: none; }" in narrow
+    assert "header { padding: 10px 12px; gap: 8px; }" in narrow
+    assert "#workspace { max-width: 100%; }" in narrow
+    chat = _served(client, "/css/chat.css")
+    assert "footer { padding: 10px 12px; }" in chat.split("@media (max-width: 599px) {", 1)[1]
 
 
 def test_an_overlay_on_a_narrow_screen_has_a_backdrop_that_closes_it(client):
@@ -284,6 +274,8 @@ def test_the_page_holds_no_inline_script_or_style(client):
     assert re.search(r"\son[a-z]+\s*=", html) is None
     assert '<link rel="stylesheet" href="/css/chat.css" />' in html
     assert '<script type="module" src="/js/chat.js"></script>' in html
+    assert '<link rel="stylesheet" href="/css/base.css" />' in html
+    assert '<header id="shell">' in html
 
 
 def test_the_timeline_page_holds_no_inline_script_or_style(client):
@@ -396,7 +388,7 @@ def test_the_timeline_page_has_no_sign_in_of_its_own(client):
     assert 'page: "timeline"' in js and "startShell(" in js
 
 
-_PAGE_MODULES = ["/js/timeline.js"]
+_PAGE_MODULES = ["/js/chat.js", "/js/timeline.js"]
 
 
 @pytest.mark.parametrize("path", _PAGE_MODULES)
@@ -478,3 +470,41 @@ def test_the_timeline_tools_fit_a_phone(client):
     field = [ln for ln in phone.splitlines() if "input.mono" in ln][0]
     assert "min-width: 0" in tools and "width: 0" in field
     assert "\na { color" not in css
+
+
+def test_a_viewer_gets_no_composer_and_no_doors(client):
+    """F4: a viewer may read but not ask the co-analyst (the server refuses even
+    a shortcut question, probe item 4) nor decide a proposal. The page hides
+    those doors and says why; the server's refusal is the guard."""
+    js = _served(client, "/js/chat.js")
+    ready = js.split("function ready(ctx)", 1)[1].split("\n}\n", 1)[0]
+    assert "mayChange(me.workspace.role)" in ready
+    assert '$("composer").hidden = true' in ready and "viewerNote(me)" in ready
+    assert "doorsFor(p, me.workspace.role)" in js
+    assert "Deciding needs the analyst or admin role." in js
+    html = _served(client, "/")
+    assert 'id="composer"' in html and 'id="role-note"' in html
+
+
+def test_a_dropped_turn_says_so_in_a_sentence(client):
+    """"[connection lost]" was the last bracketed error copy on the chat page."""
+    body = _page(client)
+    assert "[connection lost]" not in body
+    assert "showError(wrap, CONNECTION_LOST)" in body
+
+
+def test_the_switcher_waits_for_a_streaming_turn(client):
+    """D-070: a switch reloads the page; mid-turn that would cut the turn, so
+    the page holds the switcher still while it streams."""
+    js = _served(client, "/js/chat.js")
+    send = js.split("async function send()", 1)[1].split("\n}\n", 1)[0]
+    assert "setBusy(true)" in send.split("try {", 1)[0]
+    assert "setBusy(false)" in send.split("} finally {", 1)[1]
+
+
+def test_a_refused_turn_is_shown_in_the_servers_words(client):
+    """F4: the input rail's 400, residency's 403 and the usage ceiling's 429
+    arrive as JSON before any stream; the page shows the server's sentence."""
+    js = _served(client, "/js/chat.js")
+    assert 'api.stream("/api/chat"' in js
+    assert "showError(wrap, r.detail)" in js

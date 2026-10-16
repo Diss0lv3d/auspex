@@ -2,6 +2,8 @@
 // imports it (js/chat.js) and tests/js/page_logic.test.mjs imports it under
 // Node, so what is tested is the module the browser runs.
 
+import { mayChange } from "./shell-logic.js";
+
 // F1 measured the server at ~1 ms a delta and the page at ~3 ms to paint;
 // the endpoint's bursts and silences are what the analyst feels. Arrived
 // frames are released smoothly, and no text waits longer than this.
@@ -181,7 +183,10 @@ export function markdownNodes(text, h) {
 // in the queue BECAUSE it is stale, so no page clock decides it.
 export const CONFIRM_MS = 5000;
 
-export function doorsFor(p) {
+// `role` is the active workspace's (GET /api/auth/me). A role that may not
+// change anything gets no door at all; the server refuses them anyway (F4).
+export function doorsFor(p, role) {
+  if (!mayChange(role)) return [];
   const card = p.card || {};
   const runs = (door, label, consequence) => ({ door, label, confirm: true, consequence });
   const undo = card.undo
