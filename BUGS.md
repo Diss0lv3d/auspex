@@ -417,3 +417,19 @@ are never deleted.
   turns"); the reopened turn reads "No answer: stopped by the platform's output
   check".
 - **Status:** open.
+
+## B-023 — a `lapsed` staleness pill on the timeline has no colour
+
+- **Found:** 2026-10-16, F4 (Claude), Task 8's code review of the timeline's
+  pill classes (pre-existing; F4 kept the behaviour).
+- **What happened:** for a verdict whose band is `lapsed`, the page builds a
+  pill with class `lapsed`, but `auspex/static/css/timeline.css` colours
+  `.lapsed-band` (the `.malicious, .lapsed-band` rule) and has no `.lapsed`
+  rule, so the pill shows in the default text colour while every other band
+  has its own. Read from the code; not yet seen on screen (no lapsed verdict in
+  the dev database during F4).
+- **Evidence:** `auspex/static/css/timeline.css` (the `.lapsed-band` rule) and
+  `auspex/static/js/timeline.js` (`pill(band, band)` with the server's
+  `staleness`); `LABEL_CLASSES` in `auspex/static/js/timeline-logic.js` passes
+  `lapsed` through unchanged.
+- **Status:** open.
