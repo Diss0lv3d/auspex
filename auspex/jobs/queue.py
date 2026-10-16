@@ -125,6 +125,25 @@ BACKOFF_CAP_SECONDS = 900
 MAX_ERROR_CHARS = 2000
 
 
+def _clean_text(text: str) -> str:
+    """Postgres text and jsonb refuse a NUL and a lone surrogate. The answer
+    writes must never raise on what a handler said, so a NUL becomes U+FFFD and
+    a lone surrogate becomes `?`."""
+    return text.replace("\x00", "\ufffd").encode("utf-8", "replace").decode("utf-8")
+
+
+def _clean_json(value):
+    """`_clean_text` on every string in a JSON value, dict keys included."""
+    if isinstance(value, str):
+        return _clean_text(value)
+    if isinstance(value, dict):
+        return {_clean_text(k) if isinstance(k, str) else k: _clean_json(v)
+                for k, v in value.items()}
+    if isinstance(value, list):
+        return [_clean_json(v) for v in value]
+    return value
+
+
 class JobLost(RuntimeError):
     """The claimer no longer holds the job: its lease was re-claimed, the job
     went dead, or it was already finished. Its answer is refused."""
@@ -225,7 +244,7 @@ async def complete(pool: asyncpg.Pool, job_id: UUID, token: UUID, result: dict) 
          WHERE id = $1 AND status = 'claimed' AND claim_token = $2
         RETURNING id
         """,
-        job_id, token, json.dumps(result),
+        job_id, token, json.dumps(_clean_json(result)),
     )
     if done is None:
         raise JobLost(f"job {job_id} is no longer held by this claim")
@@ -252,7 +271,7 @@ async def fail(pool: asyncpg.Pool, job_id: UUID, token: UUID, error: str, *,
          WHERE id = $1 AND status = 'claimed' AND claim_token = $2
         RETURNING status
         """,
-        job_id, token, error[:MAX_ERROR_CHARS], permanent,
+        job_id, token, _clean_text(error)[:MAX_ERROR_CHARS], permanent,
         float(BACKOFF_BASE_SECONDS), float(BACKOFF_CAP_SECONDS),
     )
     if status is None:

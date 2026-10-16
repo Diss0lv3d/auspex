@@ -129,6 +129,11 @@ class JobWorker:
                     await fail(self._pool, job.id, job.claim_token, _error_text(exc))
                 except JobLost:
                     logger.warning("job %s (%s) failed after losing its claim", job.id, job.kind)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:  # noqa: BLE001 — recording a failure must not stop the tick
+                    logger.exception("job %s (%s): its failure could not be recorded",
+                                     job.id, job.kind)
                 logger.warning("job %s (%s) failed: %s", job.id, job.kind, _error_text(exc))
                 continue
             ran += 1

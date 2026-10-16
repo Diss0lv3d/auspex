@@ -5,6 +5,7 @@ Test kinds are named `t.s31.*`. The app container's worker holds only its own
 kinds, so it never claims a job made here."""
 
 import asyncio
+import json
 import uuid
 
 import pytest
@@ -320,3 +321,28 @@ async def test_claims_alternate_between_workspaces_while_both_have_work(pool, ws
     scope = _scope(a, b, kinds=("t.s31.fair",))
     served = [(await claim(pool, scope, claimer="t")).workspace_id for _ in range(12)]
     assert served == [a, b] * 6
+
+
+# ---- S31 final review: the queue's answer writes are total ----------------
+
+async def test_fail_stores_an_error_whatever_its_characters(pool, ws):
+    a = await ws("a")
+    await enqueue(pool, workspace_id=a, kind=CLAIM, idempotency_key="k")
+    job = await claim(pool, _scope(a), claimer="t")
+    assert await fail(pool, job.id, job.claim_token, "bad\x00byte") == "queued"
+    assert await pool.fetchval("SELECT last_error FROM jobs WHERE id = $1", job.id) == "bad�byte"
+    await _make_due(pool, job.id)
+    job = await claim(pool, _scope(a), claimer="t")
+    await fail(pool, job.id, job.claim_token, "x\ud800y")
+    assert await pool.fetchval("SELECT last_error FROM jobs WHERE id = $1", job.id) == "x?y"
+
+
+async def test_complete_stores_a_result_whatever_its_characters(pool, ws):
+    a = await ws("a")
+    await enqueue(pool, workspace_id=a, kind=CLAIM, idempotency_key="k")
+    job = await claim(pool, _scope(a), claimer="t")
+    await complete(pool, job.id, job.claim_token, {"k\x00": "a\x00b", "n": ["\ud800"]})
+    row = await pool.fetchrow("SELECT status, result::text AS r FROM jobs WHERE id = $1", job.id)
+    assert row["status"] == "done"
+    assert "\x00" not in row["r"] and "\\u0000" not in row["r"]
+    assert json.loads(row["r"]) == {"k�": "a�b", "n": ["?"]}

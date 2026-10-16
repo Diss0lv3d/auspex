@@ -209,3 +209,24 @@ def test_the_lifespan_starts_the_worker_and_shutdown_cancels_it(settings):
         assert app.state.jobs_worker.enabled is True
         assert not task.done()
     assert task.cancelled()
+
+
+async def test_a_failing_fail_never_aborts_the_tick(pool, ws):
+    """A NUL in a handler's error text once made `fail` itself raise; the tick
+    aborted and the job sat `claimed` until it went dead."""
+    a = await ws("a")
+
+    async def handler(pool, job):
+        if job.idempotency_key == "bad":
+            raise RuntimeError("bad\x00byte")
+        return {"ran": job.idempotency_key}
+
+    kind = JobKind("t.s31.worker", handler)
+    bad, _ = await enqueue(pool, workspace_id=a, kind=kind, idempotency_key="bad")
+    good, _ = await enqueue(pool, workspace_id=a, kind=kind, idempotency_key="good")
+    report = await _worker(pool, [kind]).tick()
+    assert report.failed == 1
+    failed = await _status(pool, bad.id)
+    assert failed["status"] == "queued"
+    assert failed["last_error"] == "RuntimeError: bad�byte"
+    assert (await _status(pool, good.id))["status"] == "done"
