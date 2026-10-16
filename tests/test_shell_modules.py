@@ -18,7 +18,11 @@ JS = Path(__file__).parent / "js"
 
 
 # The floor is each file's count today; it only ever goes up.
-@pytest.mark.parametrize("name,floor", [("shell_logic.test.mjs", 20)])
+@pytest.mark.parametrize("name,floor", [
+    ("shell_logic.test.mjs", 20),
+    ("dom.test.mjs", 5),
+    ("api.test.mjs", 11),
+])
 def test_a_shared_modules_node_tests_pass(name, floor):
     node = shutil.which("node")
     assert node, "Node is required to run the page's logic tests (tests/js/)"
