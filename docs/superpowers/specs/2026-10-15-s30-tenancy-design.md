@@ -324,5 +324,6 @@ D-068 and D-069; reviews in STATE.md's S30 section):
   the CLI prints the old home to the operator.
 - **`/api/audit`'s `before` must carry a UTC offset** (an offset-less value is
   a 422).
-- **D-069 overturns §4's bound**: a `ksa` workspace will live only on a
-  deployment that stores data in KSA (built in a later session).
+- **D-069 overturns §4's bound**: a `ksa` workspace lives only on a
+  deployment that stores data in KSA (built at S31, `6cd68e9`:
+  `STORAGE_REGION`; one already elsewhere is named at startup).
