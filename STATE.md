@@ -1,23 +1,25 @@
 # STATE — Auspex
 
-_Last updated: 2026-10-15 — **S30 CLOSED** (session-end ritual run). `./ci.sh`
-green at S30's close: **1554 tests, 129 modules**. `/api/health/ready` 200.
-Branch `staging`. **Promote #36** (`605f95a`, back-merge `4c83f76`; GitHub CI
-green on push and PR) shipped all of S29 and all of S30. **Promote slate:
-empty** (only this note since)._
+_Last updated: 2026-10-16 — **F4 CLOSED** (session-end ritual run). `./ci.sh`
+green at F4's last code commit (`7057ca4`): **1603 tests, 129 modules**.
+`/api/health/ready` 200. Branch `staging`. **Promote slate: all of F4**
+(`d18c165`…the session-end commits; nothing of it is on `main` yet). Promote
+#36 (`605f95a`) shipped S29 and S30._
 
 ## Tracks (D-051) — read this first
 
 | Track | Prompt | Last closed | Next | Status |
 |---|---|---|---|---|
-| backend | `NEXT-SESSION-BE.md` | S30 (2026-10-15) | S31 | after F4 in the order table · Step 0: B-021, then where D-069 is built (Burhan's call) |
-| front end | `NEXT-SESSION-FE.md` | F3 (2026-10-14) | F4 | **focus** · S30 closed: `GET /api/auth/me` and the switch exist; one shell for every page, role-aware, a switcher |
-| bugs | `NEXT-SESSION-BUGS.md` | B2 (2026-10-13) | B3 | S29 logged B-010…B-020 (B-010 is a stall a single message can cause), S30 logged B-021 (placed in S31); B-005 and B-009 still wait on Burhan's call |
+| backend | `NEXT-SESSION-BE.md` | S30 (2026-10-15) | S31 | **focus** (the order table: F4 closed, S31 next) · Step 0: `/promote` F4, B-021, then where D-069 is built (Burhan's call) |
+| front end | `NEXT-SESSION-FE.md` | F4 (2026-10-16) | F5 | waits for S32, S33 and S34 (the order table); F4 built the shell F5's admin pages stand on |
+| bugs | `NEXT-SESSION-BUGS.md` | B2 (2026-10-13) | B3 | S29 logged B-010…B-020 (B-010 is a stall a single message can cause), S30 B-021 (placed in S31), F4 B-022…B-024; B-005 and B-009 still wait on Burhan's call |
 
-- **Focus: front end, F4** (the order table: S29, S30, then F4; S30 closed).
-  **Burhan's calls to make:** whether B3 takes B-010 (three old classify rules
-  a crafted message can stall for seconds) before F4 or S31 — the order table
-  does not place B3; and **where D-069 is built** (proposed: S31's Step 0).
+- **Focus: backend, S31** (the order table: S29, S30, F4, then S31; F4
+  closed). **Burhan's calls to make:** whether B3 takes B-010 (three old
+  classify rules a crafted message can stall for seconds) before S31 — the
+  order table does not place B3; **where D-069 is built** (proposed: S31's
+  Step 0); and **B-024** (the switcher's keyboard behaviour; a fix changes its
+  UX).
 - **The 2026-10-12 two-window collision is over.** F1 and B1 ran at once that
   morning, and both ran Step 0's `/promote`. B1 opened PR #30 while F1's
   `ci.sh` ran, and merged it 4 s before F1's merge; the promote is correct
@@ -84,6 +86,65 @@ empty** (only this note since)._
   - **S30 built MSSP tenancy** and closed 2026-10-15 (section below): D-068
     holds its five calls, D-069 overturns D-061's storage bound.
 - Standing rules every track obeys: `SESSION-RULES.md`. Bugs: `BUGS.md`.
+
+## F4 — what happened (front-end track; one shell for every page)
+
+F4 ran 2026-10-16, alone, on Burhan's machine. Burhan's calls, one at a time:
+- **all four candidates in** ("[connection lost]", TD-047, the stale proposal
+  line #20, F2's page with live turns); analyst notes out;
+- **a switch reloads the page**; **a read-only Members page** is the first admin
+  entry; **a native select**; the spec, the plan, **subagent-driven execution**.
+
+1. **Step 0.** Reality probed before any code
+   (docs/probes/2026-10-16-f4-s30-routes.md): `/me` and the switch as six
+   people across a provider, a ksa client and a restricted client. Every
+   prompt claim held. New: the switch answer names no organization, a 422's
+   `detail` is an array, a viewer cannot send even a shortcut question, an
+   explicit membership reaches a restricted client.
+2. **Design** (docs/superpowers/specs/2026-10-16-f4-shell-design.md, plan
+   docs/superpowers/plans/2026-10-16-f4-shell.md, nine tasks). **D-070:** a
+   switch reloads without the hash; `/me` is the page's only judge of access;
+   the page never computes the switchable set.
+3. **Built** (`4ac7891`…`e73b22a`, each task by a fresh agent, each reviewed by
+   another; Task 4 needed one fix round):
+   - shared modules: `css/base.css`, `js/dom.js` (one `el`), `js/api.js` (the
+     one client; the bearer header lives only here), `js/shell-logic.js`
+     (pure: nav, switcher labels, one error copy), `js/shell.js`
+     (`startShell`: header, sign-in, the switch, the `/me` re-check);
+   - chat and the timeline on the shell (the timeline lost its own sign-in and
+     pre-filled address); a viewer gets no composer, no New chat, no doors;
+     the switcher and Sign out hold still while a turn streams;
+   - `/members` (read-only, admin; the server's 403 for anyone else);
+   - **TD-047 closed** (304s on every page and file); "[connection lost]" →
+     a sentence; **#20 fixed** (a reopened proposal line follows the panel);
+     **F3's deferred minors (#25) fixed**; D-070 written.
+   - Plan defects found by implementers and ruled on: a plan comment that named
+     `request.headers` (the tenancy walk forbids the text); a viewer test that
+     could never pass; sign-in unguarded in flight (could run `ready` twice).
+4. **Proof.** Gate green (1554 → 1603). **Mutants 10/10** caught. Live, two
+   clients and every role (docs/probes/2026-10-16-f4-shell-live.md): after a
+   switch nothing of the first client on screen, in storage or in any request
+   (5/5 requests on the new token); the residency sentence; viewer/analyst/
+   admin as designed with the server refusing anyway; a removed membership
+   signs the tab out in the server's words; zero CSP violations at 1280 and
+   390 px on all three pages.
+5. **F2's page with live turns (#26), 8 engine calls:** Review → Approve → Undo
+   on a reopened proposal, the line following each step; the rail's and the
+   usage ceiling's sentences; narration on its own line. Not reached: the
+   empty-answer note. **B-022** found (the rail cut a note-only request).
+6. **The final adversarial review** (fresh agent, most capable model):
+   **Critical C1** — Back/Forward undid the switch and sign-out guarantees (the
+   back/forward cache restored the previous client's live page; a fresh Back
+   load sent the old chat id under the new token). **Reproduced live before the
+   fix** with the cache on (headless Playwright disables it). Also: the bidi
+   fix could be escaped, four D-070 guarantees were unpinned. One fix wave
+   (`bd5e6af`…`7057ca4`): a `pageshow` reload, `history.state` owning the
+   chat hash, `isolateName`, the pins, TD-061/TD-062, D-070's history bullet.
+   Its own fresh review: all addressed; five minors parked (#29). Live after:
+   Back loads fresh, sends no old chat id; the hostile label reads in order.
+
++49 tests (1554 → 1603); no new modules; no new env vars. Logged: B-022,
+B-023, B-024, TD-061, TD-062.
 
 ## S30 — what happened (backend track; MSSP tenancy)
 
@@ -630,14 +691,21 @@ Phase 4:
 - **S30 (backend): MSSP tenancy — organizations, memberships and roles, one
   workspace per token with an audited switch, access re-checked on every
   request, and residency refused by code (D-068); D-069 decided.**
+- **F4 (front end): one shell for every page — one sign-in, one header, shared
+  tested modules; a workspace switcher that reloads and leaves nothing of the
+  last client, Back included (D-070); doors by role; a read-only Members page;
+  304s (TD-047).**
 
-The ROADMAP through S20 is complete; S21–S30, F1, B1, F2, B2 and F3 were each
+The ROADMAP through S20 is complete; S21–S30, F1–F4, B1 and B2 were each
 scoped by a decision or a bug. **The integration phase (S30–S41, F4–F9) builds
-the spec; S30 is done.**
+the spec; S30 and F4 are done.**
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: empty.** Promote #36 (`605f95a`, back-merge `4c83f76`;
-   GitHub CI green on push and PR) shipped all of S29 and all of S30 (S29's
+1. **Promote slate: all of F4** (`d18c165` onward: the Step 0 probe, the spec
+   and plan, nine tasks, the final review's fix wave, the live records, B-022…
+   B-024, the session-end docs). `./ci.sh` green at `7057ca4`; only docs since.
+   Promote #36 (`605f95a`, back-merge `4c83f76`; GitHub CI green on push and
+   PR) shipped all of S29 and all of S30 (S29's
    review fixes, spec and D-060…D-067; S30's tenancy build, its reviews'
    fixes, D-068, D-069, the records). **The S30 migration cannot be rolled back** (it drops
    `users.workspace_id` and `users.role`; a pre-S30 image cannot boot on a
@@ -767,11 +835,13 @@ the spec; S30 is done.**
     https only, show their real host, and open with `noopener noreferrer`. A
     poisoned answer can still put a clickable link in front of an analyst; the
     host beside it is the mitigation, not a prevention.
-16. **The chat page is markup, a stylesheet and two modules (TD-045 closed,
-    F2), under a strict CSP (D-057).** Its functions are module-scoped now:
-    a probe drives the page through its DOM, not through `busy`/`openChat`
-    from the console. A new page file goes on `auspex/routes/ui.py`'s
-    allow-list and into package-data.
+16. **Every page is markup, `css/base.css` plus its own stylesheet, and its
+    own module on the shared shell (F4: `js/shell.js`, `js/api.js`,
+    `js/dom.js`, `js/shell-logic.js`), under a strict CSP (D-057).** Module
+    functions are module-scoped: a probe drives a page through its DOM. A new
+    page file goes on `auspex/routes/ui.py`'s allow-list and into
+    package-data (the globs already cover `static/*.html`, `css/*.css`,
+    `js/*.js`).
 17. **The spend ledger (D-054) counts what a turn's own ending records.** A turn
     cut by a dropped connection may record nothing (TD-048).
 18. **An address's network now comes from one source (D-055, TD-049).** Only
@@ -788,26 +858,27 @@ the spec; S30 is done.**
 20. **F2's reload work, the bounds.**
     - A reopened chat's turns are paired by time (TD-050); nothing indexes
       `proposals.session_id` (TD-052).
-    - A reopened turn's proposal line keeps its old status after a door is
-      used in the panel, until the chat is reopened.
+    - **Fixed at F4 (`987c81c`):** a reopened turn's proposal line now follows
+      the status the panel learns (live: Waiting → Done → Undone).
     - A proposal summary the rail may have cut can come back in a reopened
       turn (the approvals panel already serves the same stored card).
     - B-008 is fixed (B2): a turn refused at the ceiling leaves nothing
       behind. Other failures between storing the question and the claim still
       leave one (TD-055).
 21. **The sign-in token sits in the tab's sessionStorage (D-056); D-057's CSP
-    is its guard.** A script that did run could still navigate the token out
-    (D-057, as corrected). **/timeline carries the same policy since F3
-    (TD-051 closed)**, and its markup is pinned free of `style=`. No test pins
-    `style=` in the chat page's markup or in `chat.js`'s `innerHTML`
-    templates, which the CSP relies on.
+    is its guard.** Since F4 only `js/shell.js` touches it (three guarded
+    helpers, pinned), and D-070 governs a switch, lost access and Back. A
+    script that did run could still navigate the token out (D-057, as
+    corrected). Every page carries the same policy (chat, the timeline since
+    F3, Members since F4), and the timeline's and Members' markup are pinned
+    free of `style=`. No test pins `style=` in the chat page's markup or in
+    `chat.js`'s two `innerHTML` templates, which the CSP relies on.
 22. **F2's deferred minors** (kept so they are not lost): the 50-chat cut has
     no exact-boundary test; pairing edge cases no write path produces are
     untested; a malformed stored card would 500 the turns route; the busy
     gating and the foreign-hash path are proven live, not by tests; a hash
-    pasted mid-turn is refused silently; a dropped stream still reads
-    "[connection lost]"; `ci.sh`'s installed-dist check covers `*.py` only
-    (TD-053).
+    pasted mid-turn is refused silently; `ci.sh`'s installed-dist check covers
+    `*.py` only (TD-053). ("[connection lost]" became a sentence at F4.)
 
 23. **D-058's bounds (B2).**
     - A recitation of ONLY a section list (or the re-ask) in the Thinking pane
@@ -822,17 +893,15 @@ the spec; S30 is done.**
     defect).** SESSION-RULES.md asks for it on rail, action, tenancy and
     approvals changes, **and since S29 on the agent loop and on a review's own
     fixes** (S29: the review of six fixes found two more defects).
-25. **F3's deferred minors** (the final review; kept so they are not lost):
-    nothing pins `timeline.js` to the null-safe `conf`/`pct` (a raw
-    `.toFixed` would pass); the click-listener assertion is met by the header
-    buttons alone, so `obsLink`'s listener is unpinned; `_timeline_page`
-    checks no status code; `"**" not in body` now scans `timeline.css` too; a
-    feed label with spaces can add CSS classes to a pill (cosmetic, as
-    before). **F4 builds the shared modules: fix these there.**
-26. **F2's page has not been used by hand with a live turn.** F3 walked it in
-    headless Chromium without a turn; Review/Undo on a reopened proposal, the
-    empty-answer note, server errors and narration on its own line were not
-    reached (docs/probes/2026-10-14-f3-timeline-csp.md).
+25. **Closed at F4** (`252aa6f`, `91e5e7a`): F3's deferred minors — the
+    null-safe `conf`/`pct` pinned, `obsLink`'s own listener pinned, every
+    served-page helper checks status 200, the arithmetic scan reads only JS,
+    pill classes come from `labelClass`.
+26. **Closed at F4** (docs/probes/2026-10-16-f4-shell-live.md): F2's page with
+    live turns — Review/Undo on a reopened proposal, server errors in the
+    server's words, narration on its own line. **Still not reached: the
+    empty-answer note** (no live turn ended with neither an answer nor an
+    error; Node pins `noAnswerNote`).
 27. **The QRadar's address is not known yet** (Burhan, S29: "later").
     Reachability, its TLS certificate and its unauthenticated API answer are
     unprobed (docs/probes/2026-10-14-qradar-reachability.md). S33's Step 0
@@ -864,6 +933,38 @@ the spec; S30 is done.**
       the isolation suite probes data by id, not through a list; the docs pin
       covers the README heading, not its body; the suite's residue in the dev
       database (TD-060).
+
+29. **F4's open ends** (they die by being done):
+    - **B-022** (the rail cut a note-only request: the model's thinking quoted
+      the note tool's description; TD-044's action-request case), **B-023**
+      (a `lapsed` pill has no colour), **B-024** (arrow keys on the closed
+      switcher may switch at each step; unverified; a fix changes the UX —
+      Burhan's call). BUGS.md.
+    - **TD-061** (shell.js's state machine is pinned by source text and live
+      checks, not run by a test) and **TD-062** (a turn or door started while
+      a switch is in flight is cut by the reload).
+    - **Parked by the final review's re-review** (kept so they are not lost):
+      `switching` stays set (holding Sign out) if the switch answers a 2xx with
+      no JSON body; three parts of the switch-in-flight code are unpinned; the
+      hash pins accept an inverted condition; a typed hash whose open failed
+      with a non-404 stays ownerless, so Back after a switch would send it
+      (the server refuses it); a refused switch after the set shrank to one
+      workspace throws at `picker.value`.
+    - **The per-task reviews' deferred minors** (the final review triaged each
+      "can wait"): `If-None-Match: *` untested; a deleted shipped file 500s;
+      `el` would accept `innerHTML` as a prop; the select shows another client
+      if `/me`'s list lacked the active one (the server 500s instead today);
+      a 2xx with no JSON body still throws in `openChat`, `useDoor`, the
+      shell's sign-in paths and the timeline; a member with no display name
+      shows the email twice; a viewer still gets the dev endpoint select; the
+      header is 143 px on a phone (F2 had 101; the nav adds a row).
+    - **Live checks of anything about history must run with the back/forward
+      cache ON** (headless Playwright turns it off):
+      `docs/probes/f4-live/back-forward.cjs` (SESSION-RULES.md, The page).
+
+**Closed at F4, so they leave this list:** #25 and #26 (kept as one-line
+stubs so the numbers stay put); #20's stale-line bullet; #22's "[connection
+lost]". F4 added #29.
 
 **Closed at S30, so they leave this list:** none outright; #1 now carries S30
 and #10's roles step is done. S30 added #28.
@@ -906,9 +1007,8 @@ records what the split left). F2 added #20–#22.
      **TD-044 (re-measured at B2, B-002 fixed by D-058; still open for
      action-request turns, conversational thinking and general's 43-word rules
      run)**,
-     F1's TD-046 … TD-048 (the panel polling, a full response per load — now
-     four: the page and its three files — and spend unrecorded on a dropped
-     connection), B1's TD-049 (only AbuseIPDB names an address's network), and
+     F1's TD-046 and TD-048 (the panel polling, and spend unrecorded on a
+     dropped connection), B1's TD-049 (only AbuseIPDB names an address's network), and
      F2's TD-050 (turns paired by time), TD-052 (no index on `proposals.session_id`) and TD-053 (the gate's
      dist check covers `*.py` only), and B2's TD-054 (a note named by value is
      re-resolved at execute time) and TD-055 (only the ceiling refusal discards
@@ -917,6 +1017,9 @@ records what the split left). F2 added #20–#22.
      (D-066) and are worked from S30 on.
    - **S30:** TD-059 (a hard gate beside TD-001) and TD-060 (test residue in
      the dev database) logged.
+   - **F4:** TD-061 (the shell's state machine is not run by a test) and
+     TD-062 (a turn or door started mid-switch is cut by the reload) logged.
+   - **Closed at F4:** TD-047 (304s on every page and file).
    - **Closed at F3:** TD-051.
    - **Closed at F2:** TD-045.
    - **Closed at S28:** TD-042, TD-043.
@@ -1089,6 +1192,20 @@ records what the split left). F2 added #20–#22.
 - **S30 ran subagent-driven**: implementers and reviewers were fresh agents.
   Commit `4c1714c`'s Co-Authored-By names the model that wrote it (Sonnet), not
   this session's line; amending is banned, so it stays.
+- **F4 session-end (2026-10-16):** staging, identity `bh3082336888-cell`.
+  `./ci.sh` **green, 1603 tests, 129 modules** (at `7057ca4`; docs only
+  since), `/api/health/ready` **200**, all three containers healthy.
+- **Headless Playwright disables the back/forward cache**, so a page restored
+  by Back is never seen by the MCP browser. To check anything about history,
+  run `docs/probes/f4-live/back-forward.cjs`:
+  `NODE_PATH=<an npx playwright-core>/node_modules node back-forward.cjs`
+  (F4 used `~/.npm/_npx/9833c18b2d85bc59/node_modules`), with
+  `executablePath` at an installed Chromium (`~/.cache/ms-playwright/chromium-1208/
+  chrome-linux64/chrome`) and `ignoreDefaultArgs: ['--disable-back-forward-cache']`.
+  A cache restore fires no `load`: wait for `commit`.
+- **A tool call batch runs in order, not in parallel**: a browser step that
+  waits for a CLI change made in the same batch waits forever (F4 lost one
+  60 s run this way).
 - **S29 session-end (2026-10-15):** staging, identity `bh3082336888-cell`.
   `./ci.sh` **green, 1412 tests, 121 modules**, `/api/health/ready` **200**,
   all three containers healthy, `./scripts/demo.sh` **exits 0**. Promote #35
@@ -1116,12 +1233,12 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 **Pick a track (D-051); the Tracks table at the top has the ids.** Paste the
 prompt file of the track you mean. `/session-start` with no track asks.
 One window at a time (D-051).
-- **F4, front end, the focus** (`NEXT-SESSION-FE.md`): one shell for every
-  page, role-aware, with a workspace switcher on S30's `GET /api/auth/me` and
-  switch (probe them first). It builds on F3's spec and fixes F3's deferred
-  minors (#25) in the shared modules.
-- **S31, backend, after F4** (`NEXT-SESSION-BE.md`): Step 0 fixes B-021 and
-  asks where D-069 is built; then the jobs queue and TD-025's first half.
+- **S31, backend, the focus** (`NEXT-SESSION-BE.md`): Step 0 runs `/promote`
+  (the slate is all of F4), fixes B-021 and asks where D-069 is built; then
+  the jobs queue and TD-025's first half.
 - **B3, bugs** (`NEXT-SESSION-BUGS.md`), **if Burhan picks it**: B-010 (a
-  crafted message stalls the event loop) heads twelve open entries; B-005 and
-  B-009 still wait on his call.
+  crafted message stalls the event loop) heads seventeen open entries; B-005 and
+  B-009 still wait on his call; F4 added B-022…B-024.
+- **F5, front end** (`NEXT-SESSION-FE.md`) starts only after S32, S33 and S34
+  close (the order table): connectors, integrations, Edge Agents, memberships
+  and approval-policy admin, on F4's shell and Members page.
