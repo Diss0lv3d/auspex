@@ -2,15 +2,15 @@
 
 _Last updated: 2026-10-16 — **F4 CLOSED** (session-end ritual run). `./ci.sh`
 green at F4's last code commit (`7057ca4`): **1603 tests, 129 modules**.
-`/api/health/ready` 200. Branch `staging`. **Promote slate: all of F4**
-(`d18c165`…the session-end commits; nothing of it is on `main` yet). Promote
-#36 (`605f95a`) shipped S29 and S30._
+`/api/health/ready` 200. Branch `staging`. **Promote #37** (`6c12f18`,
+back-merge `992b9f4`; `./ci.sh` green fresh, GitHub CI green on push and PR)
+shipped all of F4. **Promote slate: empty** (only this note since)._
 
 ## Tracks (D-051) — read this first
 
 | Track | Prompt | Last closed | Next | Status |
 |---|---|---|---|---|
-| backend | `NEXT-SESSION-BE.md` | S30 (2026-10-15) | S31 | **focus** (the order table: F4 closed, S31 next) · Step 0: `/promote` F4, B-021, then where D-069 is built (Burhan's call) |
+| backend | `NEXT-SESSION-BE.md` | S30 (2026-10-15) | S31 | **focus** (the order table: F4 closed, S31 next) · Step 0: B-021, then where D-069 is built (Burhan's call) |
 | front end | `NEXT-SESSION-FE.md` | F4 (2026-10-16) | F5 | waits for S32, S33 and S34 (the order table); F4 built the shell F5's admin pages stand on |
 | bugs | `NEXT-SESSION-BUGS.md` | B2 (2026-10-13) | B3 | S29 logged B-010…B-020 (B-010 is a stall a single message can cause), S30 B-021 (placed in S31), F4 B-022…B-024; B-005 and B-009 still wait on Burhan's call |
 
@@ -701,10 +701,10 @@ scoped by a decision or a bug. **The integration phase (S30–S41, F4–F9) buil
 the spec; S30 and F4 are done.**
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: all of F4** (`d18c165` onward: the Step 0 probe, the spec
-   and plan, nine tasks, the final review's fix wave, the live records, B-022…
-   B-024, the session-end docs). `./ci.sh` green at `7057ca4`; only docs since.
-   Promote #36 (`605f95a`, back-merge `4c83f76`; GitHub CI green on push and
+1. **Promote slate: empty.** Promote #37 (`6c12f18`, back-merge `992b9f4`;
+   GitHub CI green on push and PR) shipped all of F4 (the Step 0 probe, the
+   spec and plan, nine tasks, the final review's fix wave, the live records,
+   B-022…B-024, the session-end docs). Promote #36 (`605f95a`, back-merge `4c83f76`; GitHub CI green on push and
    PR) shipped all of S29 and all of S30 (S29's
    review fixes, spec and D-060…D-067; S30's tenancy build, its reviews'
    fixes, D-068, D-069, the records). **The S30 migration cannot be rolled back** (it drops
@@ -1192,6 +1192,9 @@ records what the split left). F2 added #20–#22.
 - **S30 ran subagent-driven**: implementers and reviewers were fresh agents.
   Commit `4c1714c`'s Co-Authored-By names the model that wrote it (Sonnet), not
   this session's line; amending is banned, so it stays.
+- **Promote #37 (2026-10-16):** `6c12f18` on main, back-merge `992b9f4`;
+  `./ci.sh` green fresh before it, GitHub CI green on push and PR, main's tree
+  equals staging's.
 - **F4 session-end (2026-10-16):** staging, identity `bh3082336888-cell`.
   `./ci.sh` **green, 1603 tests, 129 modules** (at `7057ca4`; docs only
   since), `/api/health/ready` **200**, all three containers healthy.
@@ -1233,8 +1236,8 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 **Pick a track (D-051); the Tracks table at the top has the ids.** Paste the
 prompt file of the track you mean. `/session-start` with no track asks.
 One window at a time (D-051).
-- **S31, backend, the focus** (`NEXT-SESSION-BE.md`): Step 0 runs `/promote`
-  (the slate is all of F4), fixes B-021 and asks where D-069 is built; then
+- **S31, backend, the focus** (`NEXT-SESSION-BE.md`): Step 0 fixes B-021 and
+  asks where D-069 is built (the slate is empty: promote #37 shipped F4); then
   the jobs queue and TD-025's first half.
 - **B3, bugs** (`NEXT-SESSION-BUGS.md`), **if Burhan picks it**: B-010 (a
   crafted message stalls the event loop) heads seventeen open entries; B-005 and
