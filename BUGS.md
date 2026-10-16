@@ -450,3 +450,22 @@ are never deleted.
 - **Note:** a fix (a Switch button, or handling the keys) changes the
   switcher's UX, which is Burhan's call.
 - **Status:** open.
+
+## B-025 — a sign-in that races a rehome shows the old organization's admins the NEW organization's name
+
+- **Found:** 2026-10-16, S31 (Claude), the fresh adversarial review of B-021's
+  fix (`b1fa61e`). Older than that fix; not in its lines.
+- **What happened (reproduced, forced order):** `enter()` decides access, then
+  reads the person's home organization in a separate query
+  (`auspex/tenancy/entry.py:24-27`). When the membership is removed and the
+  person rehomed between the two, the `workspace.enter` event lands in the OLD
+  home's workspace stamped with the NEW home as `actor.organization`, and the
+  old organization's admins read that name through `GET /api/audit`: another
+  customer's. The window is milliseconds and needs an admin and the operator to
+  act during one sign-in or switch.
+- **Evidence:** docs/probes/2026-10-16-s31-b025-enter-race.md (script
+  `docs/probes/s31-b025/race_enter.py`; output `client1's trail, newest:
+  workspace.enter actor.organization = t-s31-b021rev-othercustomer`).
+- **Fix sketch (the review's):** read the home and the access in one statement,
+  or lock the person's row `FOR SHARE` and re-check inside one transaction.
+- **Status:** open.
