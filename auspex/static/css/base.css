@@ -1,0 +1,61 @@
+/* The base every page shares (F4, docs/superpowers/specs/2026-10-16-f4-shell-design.md):
+   one palette (D-002), the fonts, the controls, and the header js/shell.js
+   builds. A page's own stylesheet comes after this one and holds only what is
+   that page's. */
+:root {
+  color-scheme: dark;  /* the browser's own scrollbars and controls, dark too */
+  --night: #0A0D12; --surface: #11161F; --text: #E7ECF3;
+  --aurora: #4FF2C0; --signal: #FFB454; --ember: #FF5D5D;
+  --steel: #7AA2F7; --slate: #8B93A7;
+  --line: #1c2431; --edge: #232d3d;
+  --display: "Space Grotesk", system-ui, sans-serif;
+  --body: "Inter", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--night); color: var(--text); font-family: var(--body); line-height: 1.5; }
+/* `hidden` always wins: no page rule may show what the shell or the page hid. */
+[hidden] { display: none !important; }
+a { color: var(--steel); }
+input, button, select {
+  font-family: var(--body); font-size: 14px; border-radius: 8px;
+  border: 1px solid var(--edge); background: var(--surface); color: var(--text);
+  padding: 9px 12px; outline: none;
+}
+input:focus, select:focus { border-color: var(--steel); }
+button { background: var(--aurora); color: #04120c; border: none; font-weight: 600; cursor: pointer; }
+button:disabled, select:disabled { opacity: .45; cursor: not-allowed; }
+button.ghost { background: transparent; color: var(--steel); border: 1px solid var(--edge); }
+/* The shared header (js/shell.js): [page lead] mark tagline nav [page tools],
+   then the workspace, the session and the status. */
+header {
+  padding: 14px 20px; border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+header .page-lead, header .page-tools, header .session { display: flex; gap: 8px; align-items: center; }
+.mark { font-family: var(--display); font-weight: 600; font-size: 18px; letter-spacing: .5px; }
+.mark .dot { color: var(--aurora); }
+.tag { color: var(--slate); font-size: 13px; }
+.spacer { flex: 1; }
+header button, header a, #status, .ws-label { white-space: nowrap; }
+nav.pages { display: flex; gap: 14px; }
+nav.pages a { color: var(--slate); text-decoration: none; font-size: 14px; padding: 2px 0; }
+nav.pages a.current { color: var(--text); border-bottom: 2px solid var(--aurora); }
+.workspace { display: flex; align-items: center; min-width: 0; }
+#workspace { max-width: 24em; overflow: hidden; text-overflow: ellipsis; }
+.ws-label { font-size: 13.5px; border: 1px solid var(--edge); border-radius: 8px; padding: 8px 12px; }
+#status { font-size: 13px; color: var(--slate); }
+#status.ok { color: var(--aurora); }
+/* A refusal or a notice is a sentence: it wraps rather than widen the page. */
+#status.err { color: var(--ember); white-space: normal; }
+/* A phone (F2 narrow pass, F4): the tagline and the "signed in" status give
+   way first; the workspace stays on screen, the whole width if it must. */
+@media (max-width: 599px) {
+  header { padding: 10px 12px; gap: 8px; }
+  .tag { display: none; }
+  #status.ok { display: none; }
+  header button, header select { padding: 7px 10px; }
+  .workspace { flex: 1 1 auto; }
+  #workspace { max-width: 100%; }
+  #email { flex: 1; min-width: 0; width: 9em; }
+}

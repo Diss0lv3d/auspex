@@ -1,22 +1,14 @@
 // The timeline page's DOM wiring (S16). Its pure logic is ./timeline-logic.js;
-// this builds elements from it and talks to the API. Feed text (observable
-// values, sources, claims, checker names) is always text, never HTML: the page
-// runs under D-057's policy (TD-051).
+// the header, the sign-in and every request's auth are the shell's
+// (./shell.js, F4). Feed text (observable values, sources, claims, checker
+// names) is always text, never HTML: the page runs under D-057's policy (TD-051).
 import { pct, conf, claimStatusClass, standingClass, digestBanner } from "./timeline-logic.js";
+import { $, el } from "./dom.js";
+import { startShell } from "./shell.js";
 
-const $ = (id) => document.getElementById(id);
-let TOKEN = null;
+let api = null;  // the shell's client, once /me has accepted this tab's token
 const when = (iso) => new Date(iso).toLocaleString();
 
-// The element factory: props are DOM properties, and a string child is
-// appended as a text node. Nothing here parses HTML. An absent child (null,
-// undefined, false) is skipped, so a card can hold an optional line in place.
-function el(tag, props = {}, children = []) {
-  const e = document.createElement(tag);
-  Object.assign(e, props);
-  e.append(...children.filter((c) => c !== null && c !== undefined && c !== false));
-  return e;
-}
 const span = (className, text = "") => el("span", { className }, [String(text ?? "")]);
 const pill = (cls, text) => span(`pill ${cls ?? ""}`, text);
 const spacer = () => span("spacer");
@@ -38,21 +30,11 @@ function obsLink(o) {
 
 function setStatus(msg, err) { $("status").textContent = msg; $("status").className = err ? "err" : ""; }
 
-async function api(path) {
-  const r = await fetch(path, { headers: { Authorization: `Bearer ${TOKEN}` } });
-  if (!r.ok) throw new Error(`${r.status}`);
-  return r.json();
-}
-
-async function login() {
-  const r = await fetch("/api/auth/dev-login", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: $("email").value }),
-  });
-  if (!r.ok) return setStatus("sign-in failed", true);
-  TOKEN = (await r.json()).access_token;
-  setStatus("signed in");
-  digest();
+// One read through the shell's client; a refusal throws the server's sentence.
+async function load(path) {
+  const r = await api.get(path);
+  if (!r.ok) throw new Error(r.detail);
+  return r.body;
 }
 
 // A verdict card: the label, both confidences, and the gap between them.
@@ -107,7 +89,7 @@ function section(title, items, render, cut) {
 
 async function digest() {
   try {
-    const d = await api("/api/timeline/digest?days=7");
+    const d = await load("/api/timeline/digest?days=7");
     const banner = digestBanner(d);
     const checkers = d.checkers.length
       ? d.checkers.map((c) => pill(c.degraded ? "malicious" : "benign", `${c.name}${c.degraded ? " degraded" : ""}`))
@@ -143,13 +125,13 @@ async function digest() {
       ]), d.truncated.includes("decayed")),
     );
     setStatus(`digest · ${d.quiet ? "quiet" : "activity"}`);
-  } catch (e) { setStatus("digest failed — sign in first", true); }
+  } catch (e) { setStatus(e.message, true); }
 }
 
 async function open_(obsId) {
   $("obs").value = obsId;
   try {
-    const t = await api(`/api/timeline/${encodeURIComponent(obsId)}`);
+    const t = await load(`/api/timeline/${encodeURIComponent(obsId)}`);
     $("main").replaceChildren(
       el("div", { className: "row" }, [span("mono big", t.observable.value), pill("slate", t.observable.type)]),
       el("div", { className: "small muted mt6" }, [t.note]),
@@ -174,10 +156,13 @@ async function open_(obsId) {
       el("div", { className: "trail" }, t.trail.map((v) => verdictCard(v, true))),
     );
     setStatus(`timeline · ${t.trail.length} verdicts`);
-  } catch (e) { setStatus("no timeline for that id", true); }
+  } catch (e) { setStatus(e.message, true); }
 }
 
-$("login").addEventListener("click", login);
-$("go").addEventListener("click", () => open_($("obs").value.trim()));
-$("back").addEventListener("click", digest);
-login();
+$("go").addEventListener("click", () => { if (api) open_($("obs").value.trim()); });
+$("back").addEventListener("click", () => { if (api) digest(); });
+startShell({
+  page: "timeline",
+  ready: (ctx) => { api = ctx.api; digest(); },
+  signedOut: () => $("main").replaceChildren(el("div", { className: "card empty" }, ["Sign in to see the digest."])),
+});

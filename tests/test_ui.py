@@ -6,22 +6,31 @@ import pytest
 from _fakes import FORBIDDEN_ENGINE_NAMES
 
 _ASSET_PATHS = ("/css/chat.css", "/js/page-logic.js", "/js/chat.js")
-_TIMELINE_ASSET_PATHS = ("/css/timeline.css", "/js/timeline-logic.js", "/js/timeline.js")
+_TIMELINE_ASSET_PATHS = (
+    "/css/base.css", "/css/timeline.css", "/js/dom.js", "/js/api.js", "/js/shell-logic.js",
+    "/js/shell.js", "/js/timeline-logic.js", "/js/timeline.js",
+)
+
+
+def _served(client, path: str) -> str:
+    """One file as the browser gets it. A page whose file does not load is
+    broken however its text reads (F3 review, STATE.md follow-up #25)."""
+    resp = client.get(path)
+    assert resp.status_code == 200, (path, resp.status_code)
+    return resp.text
 
 
 def _page(client) -> str:
     """The chat page as a browser gets it: the HTML and the files it loads
     (TD-045). The assertions below read this, so they also prove the files
     are served."""
-    return "\n".join([client.get("/").text] + [client.get(p).text for p in _ASSET_PATHS])
+    return "\n".join(_served(client, p) for p in ("/", *_ASSET_PATHS))
 
 
 def _timeline_page(client) -> str:
     """The timeline page as a browser gets it: the HTML and the files it loads
-    (TD-051). Reading this also proves the files are served."""
-    return "\n".join(
-        [client.get("/timeline").text] + [client.get(p).text for p in _TIMELINE_ASSET_PATHS]
-    )
+    (TD-051, F4). Reading this also proves the files are served."""
+    return "\n".join(_served(client, p) for p in ("/timeline", *_TIMELINE_ASSET_PATHS))
 
 
 def test_index_served_dark_first_and_on_brand(client):
@@ -241,6 +250,7 @@ def test_an_overlay_on_a_narrow_screen_has_a_backdrop_that_closes_it(client):
     ("/css/chat.css", "text/css"),
     ("/js/page-logic.js", "text/javascript"),
     ("/js/chat.js", "text/javascript"),
+    ("/css/base.css", "text/css"), ("/js/shell.js", "text/javascript"),
     ("/css/timeline.css", "text/css"),
     ("/js/timeline-logic.js", "text/javascript"),
     ("/js/timeline.js", "text/javascript"),
@@ -286,6 +296,8 @@ def test_the_timeline_page_holds_no_inline_script_or_style(client):
     assert re.search(r"\son[a-z]+\s*=", html) is None
     assert re.search(r"\sstyle\s*=", html) is None
     assert '<link rel="stylesheet" href="/css/timeline.css" />' in html
+    assert '<link rel="stylesheet" href="/css/base.css" />' in html
+    assert '<header id="shell">' in html
     assert '<script type="module" src="/js/timeline.js"></script>' in html
 
 
@@ -372,3 +384,76 @@ def test_a_stale_or_absent_etag_gets_the_whole_file(client):
 def test_a_weak_or_listed_etag_still_matches(client):
     etag = client.get("/").headers["etag"]
     assert client.get("/", headers={"If-None-Match": f'"x", W/{etag}'}).status_code == 304
+
+
+def test_the_timeline_page_has_no_sign_in_of_its_own(client):
+    """F4: one sign-in per tab (D-056) serves every page. The timeline used to
+    sign in on load as a pre-filled dev address; the shell owns sign-in now."""
+    html = _served(client, "/timeline")
+    js = _served(client, "/js/timeline.js")
+    assert 'id="email"' not in html and "auspexdev.com" not in html
+    assert "/api/auth/dev-login" not in js and "login(" not in js
+    assert 'page: "timeline"' in js and "startShell(" in js
+
+
+_PAGE_MODULES = ["/js/timeline.js"]
+
+
+@pytest.mark.parametrize("path", _PAGE_MODULES)
+def test_no_page_carries_its_own_copy_of_a_shared_module(client, path):
+    """F4's exit criterion: nothing duplicated between pages. The element
+    factory, the sign-in's storage and the bearer header live once, in
+    js/dom.js, js/shell.js and js/api.js, and every page imports them."""
+    js = _served(client, path)
+    assert "function el(" not in js and "const el =" not in js
+    assert "sessionStorage" not in js and "localStorage" not in js
+    assert "Authorization" not in js and "Bearer" not in js
+    assert "fetch(" not in js
+    assert 'from "./dom.js"' in js and 'from "./shell.js"' in js
+
+
+def test_the_shell_keeps_the_sign_in_for_the_tab_only(client):
+    """D-056, now the shell's: the token survives a reload in sessionStorage
+    (never localStorage) and is checked on load against /me. Storage that
+    throws must leave the page working, so the only storage calls are the three
+    guarded helpers."""
+    js = _served(client, "/js/shell.js")
+    assert "localStorage" not in js
+    assert js.count("sessionStorage.") == 3
+    for call in ("sessionStorage.getItem(key)", "sessionStorage.setItem(key, value)",
+                 "sessionStorage.removeItem(key)"):
+        assert f"try {{ {call}" in js or f"try {{ return {call}" in js, call
+    assert 'const TOKEN_KEY = "auspex.token";' in js
+    assert '"/api/auth/me"' in js and 'id: "signout"' in js
+
+
+def test_a_switch_reloads_the_page_without_its_hash(client):
+    """D-070: a switch stores the new token and reloads, so nothing of the
+    previous client survives in page state, and the hash goes, so no chat id of
+    theirs reaches the next client. One switch at a time; storage that would
+    not keep the token stops the reload rather than signing the tab out."""
+    js = _served(client, "/js/shell.js")
+    switch = js.split("async function switchTo()", 1)[1].split("\n  }\n", 1)[0]
+    assert switch.index("picker.disabled = true") < switch.index('"/api/auth/switch"')
+    assert "location.replace(afterSwitchUrl(location))" in switch
+    kept = switch.index("stored(TOKEN_KEY) === r.body.access_token")
+    assert kept < switch.index("location.replace(afterSwitchUrl(location))")
+    assert "STORAGE_BLOCKED" in switch
+
+
+def test_any_refusal_re_checks_access_through_me_once(client):
+    """D-070: /me is the page's only judge of access. Any 403 asks it, one
+    check at a time; a /me that refuses ends this tab's sign-in in the
+    server's words; a role that changed reloads the page."""
+    js = _served(client, "/js/shell.js")
+    assert "onForbidden: recheck" in js
+    check = js.split("function recheck()", 1)[1].split("\n  }\n", 1)[0]
+    assert "if (!checking)" in check and '"/api/auth/me"' in check
+    assert "end(r.detail)" in check and "roleChanged(me, r.body)" in check
+
+
+@pytest.mark.parametrize("path", ["/js/shell.js", "/js/dom.js", "/js/api.js", "/js/shell-logic.js"])
+def test_the_shared_modules_build_text_never_markup(client, path):
+    js = _served(client, path)
+    for sink in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write"):
+        assert sink not in js, sink

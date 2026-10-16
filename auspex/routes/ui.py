@@ -50,6 +50,8 @@ _ASSETS = {
     "js/shell-logic.js": ("text/javascript", _STATIC / "js" / "shell-logic.js"),
     "js/dom.js": ("text/javascript", _STATIC / "js" / "dom.js"),
     "js/api.js": ("text/javascript", _STATIC / "js" / "api.js"),
+    "css/base.css": ("text/css", _STATIC / "css" / "base.css"),
+    "js/shell.js": ("text/javascript", _STATIC / "js" / "shell.js"),
 }
 
 # A declared header, not the raw request mapping: the tenancy walk forbids reading

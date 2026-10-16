@@ -1,37 +1,7 @@
-:root {
-  --night: #0A0D12; --surface: #11161F; --text: #E7ECF3;
-  --aurora: #4FF2C0; --signal: #FFB454; --ember: #FF5D5D;
-  --steel: #7AA2F7; --slate: #8B93A7;
-  --line: #1c2431; --edge: #232d3d;
-  --display: "Space Grotesk", system-ui, sans-serif;
-  --body: "Inter", system-ui, sans-serif;
-  --mono: "JetBrains Mono", ui-monospace, monospace;
-}
-* { box-sizing: border-box; }
-body {
-  margin: 0; background: var(--night); color: var(--text);
-  font-family: var(--body); line-height: 1.5;
-  display: flex; flex-direction: column; min-height: 100vh;
-}
-header {
-  padding: 14px 20px; border-bottom: 1px solid var(--line);
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-}
-.mark { font-family: var(--display); font-weight: 600; font-size: 18px; letter-spacing: .5px; }
-.mark .dot { color: var(--aurora); }
-.tag { color: var(--slate); font-size: 13px; }
-.spacer { flex: 1; }
-input, button {
-  font-family: var(--body); font-size: 14px; border-radius: 8px;
-  border: 1px solid var(--edge); background: var(--surface); color: var(--text);
-  padding: 9px 12px; outline: none;
-}
-input:focus { border-color: var(--steel); }
+/* The timeline page's own rules. The palette, the controls and the header are
+   base.css's (F4); this file comes after it. */
+body { display: flex; flex-direction: column; min-height: 100vh; }
 input.mono { font-family: var(--mono); min-width: 240px; }
-button { background: var(--aurora); color: #04120c; border: none; font-weight: 600; cursor: pointer; }
-button.ghost { background: transparent; color: var(--steel); border: 1px solid var(--edge); }
-#status { font-size: 13px; color: var(--slate); }
-#status.err { color: var(--ember); }
 main { flex: 1; padding: 22px; max-width: 940px; width: 100%; margin: 0 auto; }
 h2 { font-family: var(--display); font-size: 15px; font-weight: 600; letter-spacing: .4px;
      text-transform: uppercase; color: var(--slate); margin: 26px 0 10px; }
@@ -78,3 +48,8 @@ a { color: var(--steel); }
 .mt8 { margin-top: 8px; }
 .mb8 { margin-bottom: 8px; }
 .mono.big { font-size: 16px; }
+/* A phone (F4): the observable input takes the row it needs. */
+@media (max-width: 599px) {
+  header .page-tools { flex: 1 1 100%; }
+  input.mono { min-width: 0; flex: 1; }
+}
