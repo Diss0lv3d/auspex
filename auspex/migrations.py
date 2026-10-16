@@ -14,6 +14,9 @@ import asyncpg
 
 logger = logging.getLogger("auspex.migrations")
 
+# Held by a booting replica while it re-runs the schema; the jobs queue takes it shared.
+MIGRATION_LOCK = 715001
+
 SCHEMA_V0: list[str] = [
     'CREATE EXTENSION IF NOT EXISTS "pgcrypto"',
     """
@@ -862,7 +865,7 @@ async def run_migrations(pool: asyncpg.Pool) -> None:
     async with pool.acquire() as conn:
         # Serialize concurrent app replicas racing the same DDL.
         async with conn.transaction():
-            await conn.execute("SELECT pg_advisory_xact_lock(715001)")
+            await conn.execute("SELECT pg_advisory_xact_lock($1)", MIGRATION_LOCK)
             for statement in SCHEMA_V0:
                 await conn.execute(statement)
     logger.info("Schema v0 migration applied (idempotent, %d statements)", len(SCHEMA_V0))

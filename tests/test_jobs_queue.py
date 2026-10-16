@@ -13,6 +13,7 @@ from _tenancy import drop_orgs, make_org, make_workspace
 
 from auspex.db import create_pool
 from auspex.jobs.queue import ClaimScope, JobKind, JobLost, claim, complete, enqueue, fail
+from auspex.migrations import MIGRATION_LOCK
 
 PREFIX = "t-s31-jobs"
 
@@ -346,3 +347,43 @@ async def test_complete_stores_a_result_whatever_its_characters(pool, ws):
     assert row["status"] == "done"
     assert "\x00" not in row["r"] and "\\u0000" not in row["r"]
     assert json.loads(row["r"]) == {"k�": "a�b", "n": ["?"]}
+
+
+# ---- S31 final review: a claim and an enqueue wait out a running migration ----
+
+async def _waits_for_the_migration_lock(pool, make_call, check):
+    holder = await pool.acquire()
+    tx = holder.transaction()
+    await tx.start()
+    task = None
+    try:
+        await holder.execute("SELECT pg_advisory_xact_lock($1)", MIGRATION_LOCK)
+        task = asyncio.ensure_future(make_call())
+        done, _ = await asyncio.wait({task}, timeout=0.3)
+        assert not done, "it ran while a migration held the lock"
+    finally:
+        await tx.commit()
+        await pool.release(holder)
+    result = await asyncio.wait_for(task, timeout=5)
+    check(result)
+
+
+async def test_a_claim_waits_out_a_running_migration(pool, ws):
+    a = await ws("a")
+    queued, _ = await enqueue(pool, workspace_id=a, kind=CLAIM, idempotency_key="k")
+
+    def check(job):
+        assert job is not None and job.id == queued.id
+
+    await _waits_for_the_migration_lock(
+        pool, lambda: claim(pool, _scope(a), claimer="t"), check)
+
+
+async def test_an_enqueue_waits_out_a_running_migration(pool, ws):
+    a = await ws("a")
+
+    def check(result):
+        assert result[1] is True
+
+    await _waits_for_the_migration_lock(
+        pool, lambda: enqueue(pool, workspace_id=a, kind=CLAIM, idempotency_key="k"), check)

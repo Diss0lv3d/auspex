@@ -22,6 +22,8 @@ from uuid import UUID
 
 import asyncpg
 
+from auspex.migrations import MIGRATION_LOCK
+
 JobHandler = Callable[[asyncpg.Pool, "Job"], Awaitable[dict]]
 
 
@@ -94,26 +96,30 @@ async def enqueue(
 ) -> tuple[Job, bool]:
     """A job, once per (workspace, key). When the key is already taken, by a job
     in any status, `done` and `dead` included, nothing is written and the
-    existing job comes back with `created=False`."""
+    existing job comes back with `created=False`. It takes the migration's
+    advisory lock shared first, so a booting replica's schema DDL (which locks
+    `workspaces`, then `jobs`) is never caught in a lock cycle with this insert."""
     if not idempotency_key.strip():
         raise ValueError("a job needs an idempotency key")
-    row = await pool.fetchrow(
-        """
-        INSERT INTO jobs (workspace_id, kind, integration_id, payload, idempotency_key,
-                          max_attempts, lease_seconds, run_after)
-        VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, COALESCE($8, now()))
-        ON CONFLICT (workspace_id, idempotency_key) DO NOTHING
-        RETURNING *
-        """,
-        workspace_id, kind.name, integration_id, json.dumps(payload or {}),
-        idempotency_key, kind.max_attempts, kind.lease_seconds, run_after,
-    )
-    if row is not None:
-        return Job.from_row(row), True
-    existing = await pool.fetchrow(
-        "SELECT * FROM jobs WHERE workspace_id = $1 AND idempotency_key = $2",
-        workspace_id, idempotency_key,
-    )
+    async with pool.acquire() as conn, conn.transaction():
+        await conn.execute("SELECT pg_advisory_xact_lock_shared($1)", MIGRATION_LOCK)
+        row = await conn.fetchrow(
+            """
+            INSERT INTO jobs (workspace_id, kind, integration_id, payload, idempotency_key,
+                              max_attempts, lease_seconds, run_after)
+            VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, COALESCE($8, now()))
+            ON CONFLICT (workspace_id, idempotency_key) DO NOTHING
+            RETURNING *
+            """,
+            workspace_id, kind.name, integration_id, json.dumps(payload or {}),
+            idempotency_key, kind.max_attempts, kind.lease_seconds, run_after,
+        )
+        if row is not None:
+            return Job.from_row(row), True
+        existing = await conn.fetchrow(
+            "SELECT * FROM jobs WHERE workspace_id = $1 AND idempotency_key = $2",
+            workspace_id, idempotency_key,
+        )
     return Job.from_row(existing), False
 
 
@@ -178,10 +184,13 @@ async def claim(pool: asyncpg.Pool, scope: ClaimScope, *, claimer: str) -> Job |
     another claimer holds locked. Candidates are ordered by whose turn it is: the
     workspace served longest ago first (never-served first), then by due time. A
     one-pass "oldest job first" would let a client that bulk-enqueued earlier
-    starve every other until it drained (§1)."""
+    starve every other until it drained (§1). The transaction takes the
+    migration's advisory lock shared first, so it waits out a booting replica's
+    schema DDL instead of deadlocking with it (jobs rows, then `workspaces`)."""
     kinds, workspaces, integrations = (
         list(scope.kinds), _ids(scope.workspace_ids), _ids(scope.integration_ids))
     async with pool.acquire() as conn, conn.transaction():
+        await conn.execute("SELECT pg_advisory_xact_lock_shared($1)", MIGRATION_LOCK)
         await conn.execute(
             """
             UPDATE jobs
