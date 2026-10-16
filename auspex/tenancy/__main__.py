@@ -86,8 +86,8 @@ async def _run(args: argparse.Namespace) -> str:
             await admin.remove_member_by_email(pool, workspace=args.workspace, email=args.email)
             return f"membership in {args.workspace!r} removed"
         if args.command == "rehome-person":
-            await admin.rehome_person(pool, email=args.email, org=args.org)
-            return f"person rehomed to {args.org!r}"
+            rehomed = await admin.rehome_person(pool, email=args.email, org=args.org)
+            return f"person rehomed to {args.org!r} (was {rehomed.previous_org!r})"
         lines = []
         for row in await admin.overview(pool):
             parent = f" of {row['parent']}" if row["parent"] else ""

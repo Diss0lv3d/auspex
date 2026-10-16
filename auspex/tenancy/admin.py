@@ -4,11 +4,15 @@ The CLI, the membership API and the tests all come through here, so the rules
 live once: a membership's workspace belongs to the person's home organization
 or to a client of it; `provider_wide` only on a provider's own workspace;
 nobody changes their own membership. Each write records its audit event in the
-same transaction as the change, and holds its workspace while it runs: membership
-writes to one workspace go one at a time, and a person acting is re-checked as
-that workspace's admin inside the write, not trusted from the request's start.
+same transaction as the change. Membership writes by a person or the CLI hold
+their workspace while they run, so writes to one workspace go one at a time, and
+a person acting is re-checked as that workspace's admin inside the write, not
+trusted from the request's start. A dev login's first membership
+(`provision_dev_user`) holds no workspace: it adds a brand-new person as an
+analyst, which no admin count depends on.
 """
 
+from typing import NamedTuple
 from uuid import UUID
 
 import asyncpg
@@ -371,7 +375,12 @@ async def set_restricted(pool, *, client: str, restricted: bool, actor: Actor = 
                                actor=actor, details={"restricted": restricted})
 
 
-async def rehome_person(pool, *, email: str, org: str, actor: Actor = CLI) -> UUID:
+class Rehomed(NamedTuple):
+    user_id: UUID
+    previous_org: str  # for the operator's output only, never an audit event
+
+
+async def rehome_person(pool, *, email: str, org: str, actor: Actor = CLI) -> Rehomed:
     """The recovery for a person homed in the wrong organization (an admin
     added an email that belongs to another customer): a new home, only while
     they hold no membership anywhere, so nothing they can reach moves with
@@ -381,28 +390,33 @@ async def rehome_person(pool, *, email: str, org: str, actor: Actor = CLI) -> UU
         target = await _organization_named(conn, org)
         # NO KEY UPDATE: an add of this person in flight (`_add` reads the home
         # FOR SHARE) commits first, and the count below sees its membership.
+        # `users` alone: a lock through a join drops a row a concurrent rehome
+        # moved, which would read as NotFound (B-021).
         found = await conn.fetchrow(
-            "SELECT u.id, o.id AS org_id, o.name AS org_name"
-            "  FROM users u JOIN organizations o ON o.id = u.home_org_id"
-            " WHERE lower(u.email) = lower($1) FOR NO KEY UPDATE OF u",
+            "SELECT id, home_org_id FROM users WHERE lower(email) = lower($1)"
+            " FOR NO KEY UPDATE",
             email,
         )
         if found is None:
             raise NotFound("No person with that email")
-        if found["org_id"] == target["id"]:
+        if found["home_org_id"] == target["id"]:
             raise Invalid("This person is already homed in that organization")
         held = await conn.fetchval(
             "SELECT count(*) FROM memberships WHERE user_id = $1", found["id"])
         if held:
             raise Conflict(f"This person still holds {held} membership(s);"
                            " each must be removed before a new home is set")
+        previous = await conn.fetchval(
+            "SELECT name FROM organizations WHERE id = $1", found["home_org_id"])
         await conn.execute("UPDATE users SET home_org_id = $2 WHERE id = $1",
                            found["id"], target["id"])
         for row in await conn.fetch("SELECT id FROM workspaces WHERE org_id = $1", target["id"]):
+            # Only `to`: the new home's admins read this trail, and the old
+            # home is another customer (B-021). The operator gets it instead.
             await audit.record(conn, workspace_id=row["id"], action="person.rehome",
                                actor=actor, subject_user_id=found["id"],
-                               details={"from": found["org_name"], "to": target["name"]})
-        return found["id"]
+                               details={"to": target["name"]})
+        return Rehomed(found["id"], previous)
 
 
 async def add_member(pool, *, workspace_id: UUID, email: str, role: str, actor: Actor) -> UUID:

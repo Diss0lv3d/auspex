@@ -425,14 +425,16 @@ async def test_a_person_is_rehomed_only_with_no_membership_left(world):
         "SELECT home_org_id FROM users WHERE id = $1", m.c1_user) == m.client1
     await pool.execute("DELETE FROM memberships WHERE user_id = $1", m.c1_user)
     moved = await admin.rehome_person(pool, email=f"  {c1_email.upper()} ", org=direct)
-    assert moved == m.c1_user
+    assert moved == (m.c1_user, f"{PREFIX}-client1")  # the old home goes to the operator
     assert await pool.fetchval(
         "SELECT home_org_id FROM users WHERE id = $1", m.c1_user) == m.direct
     event = (await list_events(pool, m.direct_ws))[0]
     assert event["action"] == "person.rehome"
     assert event["actor"]["kind"] == "cli"
     assert event["subject"]["user_id"] == str(m.c1_user)
-    assert event["details"] == {"from": f"{PREFIX}-client1", "to": f"{PREFIX}-direct"}
+    # B-021: the new home's admins read this trail; the old home is another customer.
+    assert event["details"] == {"to": f"{PREFIX}-direct"}
+    assert "client1" not in str(event)
 
 
 async def test_rehoming_refuses_the_unknown_the_reserved_and_a_no_op(world):
@@ -499,3 +501,28 @@ async def test_a_rehome_that_meets_an_add_in_flight_counts_it(world):
     with pytest.raises(admin.Conflict, match="1 membership"):
         await rehome
     assert await pool.fetchval("SELECT home_org_id FROM users WHERE id = $1", loose) == m.direct
+
+
+async def test_a_second_rehome_waits_for_the_first_and_reads_where_it_put_them(world):
+    """B-021: a rehome of a person another rehome is moving waits for it, then
+    finds the person in their new home (not `NotFound`) and moves them on."""
+    pool, m = world
+    loose = await make_user(pool, f"loose@{DOMAIN}", m.direct)
+    client2 = await _org_name(pool, m.client2)
+    second = None
+    async with pool.acquire() as conn:
+        tx = conn.transaction()
+        await tx.start()
+        try:
+            await conn.execute("UPDATE users SET home_org_id = $2 WHERE id = $1",
+                               loose, m.client1)  # the first rehome, in flight
+            second = asyncio.create_task(admin.rehome_person(
+                pool, email=f"loose@{DOMAIN}", org=client2))
+            done, _ = await asyncio.wait({second}, timeout=0.5)
+            assert not done, "the second rehome did not wait for the first"
+            await tx.commit()
+        except BaseException:
+            await tx.rollback()
+            raise
+    assert await second == (loose, f"{PREFIX}-client1")
+    assert await pool.fetchval("SELECT home_org_id FROM users WHERE id = $1", loose) == m.client2

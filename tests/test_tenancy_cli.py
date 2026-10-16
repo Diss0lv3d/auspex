@@ -124,7 +124,8 @@ def test_a_person_claimed_by_another_organization_is_recovered_by_the_cli(
                          headers=token(settings, a_admin, a_ws)).status_code == 200
     assert main(["rehome-person", "--email", ceo, "--org", b]) == 0
     done = capsys.readouterr()
-    assert b in done.out and "@" not in done.out + done.err
+    assert b in done.out and a in done.out  # the operator, not B's admins, reads the old home
+    assert "@" not in done.out + done.err
 
     added = client.post("/api/workspace/members", json={"email": ceo, "role": "admin"},
                         headers=b_headers)
@@ -133,6 +134,7 @@ def test_a_person_claimed_by_another_organization_is_recovered_by_the_cli(
     events = client.get("/api/audit", headers=b_headers).json()["events"]
     rehomed = [e for e in events if e["action"] == "person.rehome"]
     assert len(rehomed) == 1
-    assert rehomed[0]["details"] == {"from": a, "to": b}
+    assert rehomed[0]["details"] == {"to": b}
+    assert a not in str(events)  # B-021: nothing B's admins read names A
     assert rehomed[0]["subject"]["user_id"] == ceo_id
     assert rehomed[0]["actor"]["kind"] == "cli"
