@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   createPacer, indicatorText, markdownNodes,
-  doorsFor, statusText, undoText, undoLineFor, askedText, mergeQueue, armDoor, confirmable,
+  doorsFor, statusText, undoText, undoLineFor, askedText, mergeQueue, waitingCount, armDoor, confirmable,
   spendText, chatSpendText, chatIdFromHash, hashBelongsHere, relativeTime, chatListLabel, ledgerSpendText, endingText, reopenedTurnPlan,
   noAnswerNote, overlayAfter, proposalLine,
 } from "../../auspex/static/js/page-logic.js";
@@ -533,4 +533,11 @@ test("an expired proposal says so, offers no door and no undo line (S31)", () =>
   assert.deepEqual(doors(expired), []);
   assert.deepEqual(doors(expired, "admin"), []);
   assert.equal(undoLineFor(expired), null);
+});
+
+test("an expired card is listed but not counted as waiting (S31)", () => {
+  assert.equal(waitingCount([proposal("pending_approval"), proposal("expired"),
+    proposal("incomplete")]), 2);
+  assert.equal(waitingCount([proposal("expired")]), 0);
+  assert.equal(waitingCount([]), 0);
 });

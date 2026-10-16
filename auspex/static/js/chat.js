@@ -4,7 +4,7 @@
 // tool text are always text, never HTML (D-053).
 import {
   createPacer, indicatorText, markdownNodes, CONFIRM_MS, doorsFor, statusText, undoLineFor,
-  askedText, mergeQueue, armDoor, confirmable, spendText, chatSpendText, chatIdFromHash,
+  askedText, mergeQueue, waitingCount, armDoor, confirmable, spendText, chatSpendText, chatIdFromHash,
   hashBelongsHere, chatListLabel, reopenedTurnPlan, noAnswerNote, overlayAfter, proposalLine,
 } from "./page-logic.js";
 import { $, el } from "./dom.js";
@@ -468,7 +468,7 @@ function cardFor(p) {
 }
 
 function renderApprovals() {
-  const n = approvals.waiting.length;
+  const n = waitingCount(approvals.waiting);
   $("approvals").textContent = n ? `Approvals · ${n}${approvals.complete ? "" : "+"}` : "Approvals";
   const panel = $("approvals-panel");
   panel.hidden = !approvals.open;

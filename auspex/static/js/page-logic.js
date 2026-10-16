@@ -264,6 +264,12 @@ export function mergeQueue(waiting, decided) {
   return { waiting, decided: decided.filter((p) => !inQueue.has(p.id)) };
 }
 
+// An expired card is listed for a day so the analyst sees what happened to
+// it (S31, Burhan's call), but nobody can act on it: it is not waiting.
+export function waitingCount(list) {
+  return list.filter((p) => p.status !== "expired").length;
+}
+
 export function armDoor(id, door, now) { return { id, door, at: now }; }
 
 export function confirmable(armed, id, door, now) {
