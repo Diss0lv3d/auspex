@@ -34,7 +34,7 @@ async def test_create_org_makes_the_workspace_and_its_first_admin(world):
     pool, _ = world
     org_id, ws_id = await admin.create_org(
         pool, kind="provider", name=f"{PREFIX}-mssp2", workspace=f"{PREFIX}-mssp2",
-        admin_email=f"boss@{DOMAIN}", region="ksa")
+        admin_email=f"boss@{DOMAIN}", region="ksa", storage_region="ksa")
     region = await pool.fetchval("SELECT region FROM workspaces WHERE id = $1", ws_id)
     assert region == "ksa"
     boss = await pool.fetchval("SELECT id FROM users WHERE email = $1", f"boss@{DOMAIN}")
@@ -528,3 +528,46 @@ async def test_a_second_rehome_waits_for_the_first_and_reads_where_it_put_them(w
             raise
     assert await second == (loose, f"{PREFIX}-client1")
     assert await pool.fetchval("SELECT home_org_id FROM users WHERE id = $1", loose) == m.client2
+
+
+# --- D-069 (built at S31): a ksa workspace only where the deployment stores in ksa ---
+
+
+async def test_a_ksa_workspace_is_made_only_where_the_deployment_stores_in_ksa(world):
+    """A caller that names no storage region gets `global`'s answer: refused."""
+    pool, m = world
+    provider = await _org_name(pool, m.provider)
+    with pytest.raises(admin.Refused, match="ksa"):
+        await admin.create_org(pool, kind="direct", name=f"{PREFIX}-k1",
+                               workspace=f"{PREFIX}-k1", admin_email=f"k1@{DOMAIN}",
+                               region="ksa")
+    with pytest.raises(admin.Refused, match="ksa"):
+        await admin.create_client(pool, provider=provider, name=f"{PREFIX}-k2",
+                                  workspace=f"{PREFIX}-k2", region="ksa",
+                                  admin_email=f"k2@{DOMAIN}", storage_region="global")
+    assert await pool.fetchval(
+        "SELECT count(*) FROM organizations WHERE name = ANY($1::text[])",
+        [f"{PREFIX}-k1", f"{PREFIX}-k2"]) == 0
+    assert await pool.fetchval(
+        "SELECT count(*) FROM users WHERE email = ANY($1::text[])",
+        [f"k1@{DOMAIN}", f"k2@{DOMAIN}"]) == 0
+    _, ksa_ws = await admin.create_client(pool, provider=provider, name=f"{PREFIX}-k2",
+                                          workspace=f"{PREFIX}-k2", region="ksa",
+                                          storage_region="ksa")
+    assert await pool.fetchval("SELECT region FROM workspaces WHERE id = $1", ksa_ws) == "ksa"
+    _, global_ws = await admin.create_org(pool, kind="direct", name=f"{PREFIX}-g",
+                                          workspace=f"{PREFIX}-g", admin_email=f"g@{DOMAIN}",
+                                          storage_region="ksa")
+    assert await pool.fetchval(
+        "SELECT region FROM workspaces WHERE id = $1", global_ws) == "global"
+
+
+async def test_the_workspaces_a_deployment_should_not_hold_are_listed(world):
+    """Burhan's call (S31): one made before the build is named, not refused."""
+    pool, m = world
+    await pool.execute("UPDATE workspaces SET region = 'ksa' WHERE id = $1", m.client1_ws)
+    ours = [w for w in await admin.misplaced_workspaces(pool, "global")
+            if w[0].startswith(PREFIX)]
+    assert ours == [(f"{PREFIX}-client1", "ksa")]
+    assert [w for w in await admin.misplaced_workspaces(pool, "ksa")
+            if w[0].startswith(PREFIX)] == []

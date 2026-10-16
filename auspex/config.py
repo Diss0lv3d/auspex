@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     # (auspex/tenancy/region.py). Unset ⇒ global, which fails safe: a global
     # engine serves no ksa workspace.
     engine_region: str = "global"
+    # D-069 (built at S31). Where this deployment stores its data (Postgres,
+    # OpenSearch). A workspace whose region it may not hold is refused at
+    # creation; one already there is named at startup. Unset ⇒ global, which
+    # holds no ksa workspace (fail safe). The operator's declaration: nothing
+    # verifies where the database actually runs.
+    storage_region: str = "global"
 
     # --- Knowledge base (S6). Lives on the OpenSearch container (D-009);
     # embeddings are server-side via the ML plugin (D-018). Tests/host runs pin
@@ -83,10 +89,10 @@ class Settings(BaseSettings):
     def model_post_init(self, __context: object) -> None:
         if self.app_env not in ("dev", "prod"):
             raise RuntimeError(f"APP_ENV must be 'dev' or 'prod', got {self.app_env!r}")
-        if self.engine_region not in REGIONS:
-            raise RuntimeError(
-                f"ENGINE_REGION must be one of {sorted(REGIONS)}, got {self.engine_region!r}"
-            )
+        for var, value in (("ENGINE_REGION", self.engine_region),
+                           ("STORAGE_REGION", self.storage_region)):
+            if value not in REGIONS:
+                raise RuntimeError(f"{var} must be one of {sorted(REGIONS)}, got {value!r}")
         if not self.secret_key:
             if self.app_env == "prod":
                 raise RuntimeError("SECRET_KEY is required when APP_ENV=prod")

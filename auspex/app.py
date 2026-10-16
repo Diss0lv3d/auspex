@@ -32,8 +32,10 @@ from auspex.routes import (
     watchers,
     workspace,
 )
+from auspex.tenancy.admin import misplaced_workspaces
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+log = logging.getLogger(__name__)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -57,6 +59,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # try/finally covers migrations too: a failure there must still close the pool.
         try:
             await run_migrations(app.state.pool)
+            # D-069 (Burhan's call, S31): a workspace this deployment's storage
+            # may not hold (made before the rule, or by SQL) is named, not refused.
+            for name, region in await misplaced_workspaces(app.state.pool,
+                                                           settings.storage_region):
+                log.warning("D-069: workspace %r must keep its data in region %s, and this"
+                            " deployment stores its data in region %s (STORAGE_REGION)",
+                            name, region, settings.storage_region)
             # Actions (S17 contract, S18 execution). Registered after migrations
             # because the only executable action writes to a table they create,
             # and built from a single place so the loop's manifest and the

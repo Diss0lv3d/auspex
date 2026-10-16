@@ -21,7 +21,7 @@ from auspex.llm.scorecard import DEPLOYMENT_WORKSPACE
 from auspex.tenancy import audit
 from auspex.tenancy.access import ROLES, enterable_workspaces
 from auspex.tenancy.audit import CLI, SYSTEM, Actor
-from auspex.tenancy.region import GLOBAL, check_region
+from auspex.tenancy.region import GLOBAL, check_region, storage_refusal
 
 
 class TenancyError(ValueError):
@@ -147,6 +147,16 @@ def _check_region(region: str) -> str:
         return check_region(region)
     except ValueError as err:
         raise Invalid(str(err)) from err
+
+
+def _check_storage(region: str, storage_region: str) -> None:
+    """D-069: a workspace is made only where the deployment's storage may hold it."""
+    try:
+        reason = storage_refusal(region, storage_region)
+    except ValueError as err:
+        raise Invalid(str(err)) from err
+    if reason is not None:
+        raise Refused(reason)
 
 
 _WORKSPACE_SQL = (
@@ -330,13 +340,17 @@ async def _create(conn, *, org_id: UUID, org_name: str, kind: str, workspace: st
 
 
 async def create_org(pool, *, kind: str, name: str, workspace: str, admin_email: str,
-                     region: str = GLOBAL, actor: Actor = CLI) -> tuple[UUID, UUID]:
-    """A direct or provider organization, its own workspace and its first admin."""
+                     region: str = GLOBAL, storage_region: str = GLOBAL,
+                     actor: Actor = CLI) -> tuple[UUID, UUID]:
+    """A direct or provider organization, its own workspace and its first admin.
+    `storage_region` is the deployment's STORAGE_REGION (the CLI passes it);
+    left out it is `global`, which holds no ksa workspace (D-069)."""
     if kind not in ("direct", "provider"):
         raise Invalid("create-org makes a direct or a provider organization;"
                       " a client is made with create-client")
     name, workspace = _check_name(name, "organization"), _check_name(workspace, "workspace")
     region, admin_email = _check_region(region), _clean_email(admin_email)
+    _check_storage(region, storage_region)
     async with pool.acquire() as conn, conn.transaction():
         org_id = await _insert_org(conn, name, kind)
         workspace_id = await _create(conn, org_id=org_id, org_name=name, kind=kind,
@@ -347,10 +361,13 @@ async def create_org(pool, *, kind: str, name: str, workspace: str, admin_email:
 
 async def create_client(pool, *, provider: str, name: str, workspace: str,
                         region: str = GLOBAL, admin_email: str | None = None,
-                        restricted: bool = False, actor: Actor = CLI) -> tuple[UUID, UUID]:
-    """A client organization under `provider`, with its workspace."""
+                        restricted: bool = False, storage_region: str = GLOBAL,
+                        actor: Actor = CLI) -> tuple[UUID, UUID]:
+    """A client organization under `provider`, with its workspace.
+    `storage_region` as for `create_org` (D-069)."""
     name, workspace = _check_name(name, "organization"), _check_name(workspace, "workspace")
     region = _check_region(region)
+    _check_storage(region, storage_region)
     admin_email = _clean_email(admin_email) if admin_email is not None else None
     async with pool.acquire() as conn, conn.transaction():
         parent = await _organization_named(conn, provider)
@@ -494,6 +511,15 @@ async def list_members(db, workspace_id: UUID) -> list[dict]:
         }
         for r in rows
     ]
+
+
+async def misplaced_workspaces(pool, storage_region: str) -> list[tuple[str, str]]:
+    """(name, region) of each workspace this deployment's storage may not hold:
+    made before D-069's build, or by SQL. Startup names them (Burhan's call,
+    S31); nothing is moved or refused."""
+    rows = await pool.fetch("SELECT name, region FROM workspaces ORDER BY name")
+    return [(r["name"], r["region"]) for r in rows
+            if storage_refusal(r["region"], storage_region) is not None]
 
 
 async def overview(db) -> list[dict]:

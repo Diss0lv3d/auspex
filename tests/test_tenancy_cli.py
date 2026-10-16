@@ -8,6 +8,7 @@ from _tenancy import drop_orgs, token
 
 from auspex.config import get_settings
 from auspex.db import create_pool
+from auspex.tenancy import __main__ as cli
 from auspex.tenancy.__main__ import main
 
 PREFIX = "t-s30-cli"
@@ -27,7 +28,15 @@ def clean(client, settings):
     asyncio.run(_drop())
 
 
-def test_the_cli_builds_an_mssp_and_lists_it_without_emails(clean, capsys):
+@pytest.fixture
+def ksa_storage(monkeypatch):
+    """A deployment that stores its data in KSA (D-069), as the CLI sees it.
+    A copy of the suite's settings, so its signing key stays the same."""
+    stored = get_settings().model_copy(update={"storage_region": "ksa"})
+    monkeypatch.setattr(cli, "get_settings", lambda: stored)
+
+
+def test_the_cli_builds_an_mssp_and_lists_it_without_emails(clean, ksa_storage, capsys):
     assert main(["create-org", "--kind", "provider", "--name", f"{PREFIX}-mssp",
                  "--workspace", f"{PREFIX}-mssp", "--admin", f"boss@{PREFIX}.auspex.dev"]) == 0
     assert main(["create-client", "--provider", f"{PREFIX}-mssp", "--name", f"{PREFIX}-bank",
@@ -48,6 +57,21 @@ def test_a_refusal_exits_1_with_the_reason(clean, capsys):
     assert main(["create-client", "--provider", f"{PREFIX}-nope", "--name", f"{PREFIX}-x",
                  "--workspace", f"{PREFIX}-x"]) == 1
     assert "No organization named" in capsys.readouterr().err
+
+
+def test_a_ksa_workspace_is_refused_where_the_deployment_stores_elsewhere(clean, capsys):
+    """D-069: the suite's deployment stores in `global` (STORAGE_REGION unset)."""
+    assert main(["create-org", "--kind", "provider", "--name", f"{PREFIX}-mssp",
+                 "--workspace", f"{PREFIX}-mssp", "--admin", f"boss@{PREFIX}.auspex.dev",
+                 "--region", "ksa"]) == 1
+    assert "ksa" in capsys.readouterr().err
+    assert main(["create-org", "--kind", "provider", "--name", f"{PREFIX}-mssp",
+                 "--workspace", f"{PREFIX}-mssp", "--admin", f"boss@{PREFIX}.auspex.dev"]) == 0
+    assert main(["create-client", "--provider", f"{PREFIX}-mssp", "--name", f"{PREFIX}-bank",
+                 "--workspace", f"{PREFIX}-bank", "--region", "ksa"]) == 1
+    assert "ksa" in capsys.readouterr().err
+    assert main(["list"]) == 0
+    assert f"{PREFIX}-bank" not in capsys.readouterr().out
 
 
 def test_an_unknown_region_is_refused_before_anything_is_written(clean, capsys):

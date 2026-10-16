@@ -9,6 +9,7 @@ from auspex.tenancy.region import (
     lookup_refusal,
     may_process,
     region_skip,
+    storage_refusal,
 )
 
 
@@ -60,3 +61,37 @@ def test_an_unknown_engine_region_stops_startup(monkeypatch):
     monkeypatch.setenv("ENGINE_REGION", "mars")
     with pytest.raises(RuntimeError, match="ENGINE_REGION"):
         Settings(_env_file=None)
+
+
+# --- D-069 (built at S31): a deployment holds only the workspaces its storage may.
+
+
+def test_storage_region_defaults_to_global(monkeypatch):
+    monkeypatch.delenv("STORAGE_REGION", raising=False)
+    assert Settings(_env_file=None).storage_region == "global"
+
+
+def test_an_unknown_storage_region_stops_startup(monkeypatch):
+    monkeypatch.setenv("STORAGE_REGION", "mars")
+    with pytest.raises(RuntimeError, match="STORAGE_REGION"):
+        Settings(_env_file=None)
+
+
+@pytest.mark.parametrize(
+    ("workspace", "storage", "refused"),
+    [
+        ("global", "global", False),
+        ("global", "ksa", False),
+        ("ksa", "ksa", False),
+        ("ksa", "global", True),
+    ],
+)
+def test_a_deployment_holds_global_workspaces_and_its_own_region(workspace, storage, refused):
+    assert (storage_refusal(workspace, storage) is not None) is refused
+
+
+def test_the_storage_refusal_names_both_regions_and_an_unknown_one_is_an_error():
+    text = storage_refusal("ksa", "global")
+    assert "ksa" in text and "global" in text
+    with pytest.raises(ValueError, match="unknown region"):
+        storage_refusal("eu", "global")
