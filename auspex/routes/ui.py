@@ -47,6 +47,7 @@ _ASSETS = {
     "css/timeline.css": ("text/css", _STATIC / "css" / "timeline.css"),
     "js/timeline-logic.js": ("text/javascript", _STATIC / "js" / "timeline-logic.js"),
     "js/timeline.js": ("text/javascript", _STATIC / "js" / "timeline.js"),
+    "js/shell-logic.js": ("text/javascript", _STATIC / "js" / "shell-logic.js"),
 }
 
 # A declared header, not the raw request mapping: the tenancy walk forbids reading

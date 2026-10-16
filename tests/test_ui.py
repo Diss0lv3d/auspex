@@ -244,6 +244,7 @@ def test_an_overlay_on_a_narrow_screen_has_a_backdrop_that_closes_it(client):
     ("/css/timeline.css", "text/css"),
     ("/js/timeline-logic.js", "text/javascript"),
     ("/js/timeline.js", "text/javascript"),
+    ("/js/shell-logic.js", "text/javascript"),
 ])
 def test_the_pages_files_are_served_fresh_with_their_types(client, path, media):
     """TD-045: the page's CSS and modules are files now. B-003 holds for them
