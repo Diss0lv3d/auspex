@@ -396,3 +396,24 @@ are never deleted.
 - **Burhan's call (2026-10-15):** promote S30 now, fix in the next backend
   session (S31's Step 0) unless B3 takes it first.
 - **Status:** open.
+
+## B-022 — the output rail stops a note-only request when the model's thinking quotes the note tool's description
+
+- **Found:** 2026-10-16, F4 (Claude), the live walk of F2's page on `default`
+  (glm-4.5-air, agent path), in headless Chromium.
+- **What happened:** in a chat that had just looked 45.155.205.233 up, "Add a
+  note to 45.155.205.233: reviewed in the F4 live walk." was stopped
+  mid-stream. The page showed the rail's sentence ("This answer was stopped
+  mid-stream: it began reproducing the platform's own instructions…"). The
+  Thinking pane ended quoting `annotate_observable`'s description: "Calling
+  one of these FILES A PROPOSAL for a human to approve. It does not perform
+  the action, and nothing in this turn can: the result you get back is a
+  proposal id, never an outcome. Say that you have proposed it and what it
+  would". No proposal was filed; 1 engine call, tokens not reported. The same
+  intent phrased "check 45.155.205.233 again, and add a note that…" filed the
+  proposal on the next turn. Looks like TD-044's still-unmeasured
+  action-request case (thinking floor, D-040).
+- **Evidence:** docs/probes/2026-10-16-f4-shell-live.md ("F2's page with live
+  turns"); the reopened turn reads "No answer: stopped by the platform's output
+  check".
+- **Status:** open.
