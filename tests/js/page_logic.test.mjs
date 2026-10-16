@@ -525,3 +525,12 @@ test("a proposal with no summary anywhere is named by its action", () => {
   assert.equal(proposalLine({ id: "x", action: "isolate_host", status: "rejected" }, NOON),
     "Proposal: isolate_host · Rejected");
 });
+
+test("an expired proposal says so, offers no door and no undo line (S31)", () => {
+  const now = Date.parse("2026-10-12T02:10:00Z");
+  const expired = proposal("expired", { resolved_at: "2026-10-12T02:00:00Z" });
+  assert.equal(statusText(expired, now), "Expired: nobody decided in time; propose it again");
+  assert.deepEqual(doors(expired), []);
+  assert.deepEqual(doors(expired, "admin"), []);
+  assert.equal(undoLineFor(expired), null);
+});
