@@ -575,6 +575,22 @@ BUGS.md) have their own sections at the end, before "Later".
   - **F2's page by hand**, walked in headless Chromium without a turn; Review
     and Undo not reached (STATE.md follow-up #26).
   - 1392 tests; 121 modules; no new env vars.
+- [x] **F4 — One shell for every page, role-aware, with a workspace
+  switcher** (2026-10-16). No promote at Step 0 (the slate was empty); the
+  slate at the close is all of F4. Burhan added all four candidates.
+  - **The shell** (docs/superpowers/specs/2026-10-16-f4-shell-design.md,
+    **D-070**): `css/base.css`, `js/dom.js`, `js/api.js`, `js/shell-logic.js`,
+    `js/shell.js`; chat and the timeline on it (one sign-in per tab); a
+    read-only **Members** page, the first admin entry; doors by role; the
+    switcher reloads and leaves nothing of the last client, Back included.
+  - **Candidates:** TD-047 closed (304s); "[connection lost]" a sentence;
+    the reopened proposal line follows the panel (#20); F2's page with live
+    turns (#26, all but the empty-answer note). F3's minors (#25) fixed.
+  - **Proven:** 10/10 mutants; live with two clients and every role, zero CSP
+    violations (docs/probes/2026-10-16-f4-shell-live.md); the final review's
+    Critical (Back restored the last client's page) reproduced live and fixed.
+  - B-022…B-024, TD-061, TD-062 logged.
+  - 1603 tests; 129 modules; no new env vars.
 
 ## Track: bugs (D-051)
 
