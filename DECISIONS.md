@@ -2573,6 +2573,11 @@ client's data under the next one's token.
 - **The page never computes the switchable set** and sends a workspace id only
   to `POST /api/auth/switch`. Doors follow the active role (`mayChange`,
   `isAdmin`), and the server refuses them anyway.
+- **Earlier history entries follow the same rule.** A page the browser restores
+  from its back/forward cache reloads when the tab's token has changed since it
+  was built, and a chat hash opens only for the workspace and person that put it
+  in the history entry (`history.state`); one that does not belong is dropped
+  without a request.
 
 **Bounds, stated.**
 - Each tab holds its own token (D-056): two tabs may sit in two clients, and
