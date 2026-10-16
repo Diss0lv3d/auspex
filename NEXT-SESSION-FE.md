@@ -1,93 +1,82 @@
-# NEXT-SESSION-FE — track: front end · session: F4
+# NEXT-SESSION-FE — track: front end · session: F5
 
 _Paste everything below the first line of dashes into a fresh Claude Code
-window opened in the Auspex repo. **S30 closed 2026-10-15** (MSSP tenancy,
-`GET /api/auth/me`, the switch), so **F4 is next in the order table and the
-focus** (STATE.md). F3 closed 2026-10-14 (the collaborator Hunaiza, D-059); its
-spec is the base F4 builds on._
+window opened in the Auspex repo. **F5 starts only after S32, S33 and S34
+close** (the order table in `NEXT-SESSION-BE.md`, row 8); until then the focus
+is the backend (STATE.md). F4 closed 2026-10-16: one shell for every page,
+D-070, a read-only Members page._
 
-_Below the F4 prompt is **Burhan's front-end plan for the whole phase,
+_Below the F5 prompt is **Burhan's front-end plan for the whole phase,
 F4–F9**. `/session-end` writes the next prompt from its entry, keeps the plan
 section, and ticks the session it closed._
 
 ---
 
-SESSION F4 of Auspex, **front-end track** (D-051). The working dir must be the
-Auspex repo. Run `/session-start fe F4` first (the full ritual). It reads
+SESSION F5 of Auspex, **front-end track** (D-051). The working dir must be the
+Auspex repo. Run `/session-start fe F5` first (the full ritual). It reads
 `SESSION-RULES.md` (standing rules for every track) and STATE.md.
 
-**Who decides.** Burhan, unless STATE.md says F4 was handed to a collaborator
+**Who decides.** Burhan, unless STATE.md says F5 was handed to a collaborator
 (D-059); then its calls are theirs, and re-scoping other tracks stays Burhan's.
 
 Step 0 (do BEFORE new scope):
 
-1. **S30 must be closed.** STATE.md's Tracks table must show S30 as the
-   backend's last closed session. If it doesn't, STOP: F4 reads S30's
-   `GET /api/auth/me` and its workspace-switch route.
+1. **S32, S33 and S34 must be closed.** STATE.md's Tracks table and the order
+   table must show them closed. If any is not, STOP: F5 reads their catalogue,
+   integration, Edge Agent and approval-policy routes.
 2. **One window at a time (D-051), across both machines.** `git fetch` and
-   read `origin/staging` first; if anything moves that you did not move,
-   check `ps` for a second `claude` in this directory and stop.
+   read `origin/staging` first; if anything moves that you did not move, check
+   `ps` for a second `claude` in this directory and stop.
 3. **If STATE.md says the promote slate is not empty, `/promote` it.** Read
    the diff, not the list.
-4. **Probe S30's routes before coding against them** (CLAUDE.md rule 4):
-   `GET /api/auth/me` and the workspace switch, as an MSSP analyst (explicit
-   memberships, and a provider-wide grant with a `restricted` client), a client
-   admin, a client analyst and a viewer (D-061). Save it to `docs/probes/`.
-   What S30 shipped, to probe rather than trust (docs/probes/2026-10-15-s30-tenancy-live.md
-   is S30's own run):
-   - **Set the people up with the CLI** (organizations are CLI-only, D-068):
-     `docker compose exec app python -m auspex.tenancy create-org | create-client
-     | set-member | set-restricted | list`. A dev login provisions an unknown
-     email as an analyst in `default` and lands a known one in its home
-     organization's first workspace.
-   - `GET /api/auth/me` → `user`, `organization`, `workspace` (id, name,
-     region, role, organization), `workspaces[]` (id, name, region, role, `via`
-     membership|provider_wide, organization {id, name, kind}), home first.
-   - `POST /api/auth/switch {workspace_id}` → a new `access_token` and the
-     workspace; a login session only (an API key is a 403); a foreign and a
-     missing workspace are the same 404; a malformed id is a 422. The old token
-     stays valid for its own workspace.
-   - A viewer's write is a 403 ("This needs the analyst or admin role in this
-     workspace."); a removed membership is a 403 at the next request ("You no
-     longer have access to this workspace.") and ends the approvals stream with
-     an `error` frame; a residency refusal is a 403 before any stream starts.
+4. **Probe every route F5 codes against before coding** (CLAUDE.md rule 4),
+   as an MSSP admin, a client admin, an analyst and a viewer, and save it to
+   `docs/probes/`: the connector catalogue (S32), integrations and "Test
+   connection" (S33), Edge Agent enrolment, heartbeat and revoke (S33), the
+   approval policy (S34), and S30's memberships API
+   (`GET|POST /api/workspace/members`, `PATCH|DELETE
+   /api/workspace/members/{user_id}`). Read the S32–S34 records in STATE.md for
+   what they shipped; probe rather than trust.
+5. **Two of Burhan's calls before design** (ask; do not decide):
+   - **`restricted` is CLI-only** (D-068 call 1): a page control for it needs a
+     backend route first. Build the route here, leave it to a backend
+     session, or leave restricted as CLI-only?
+   - **B-024** (BUGS.md, unverified): arrow keys on the closed workspace
+     switcher may switch at each step. Reproduce it with a keyboard first; a
+     fix (a Switch button, or handling the keys) changes the switcher's UX.
 
-Goal: **F4 — one shell for every page, role-aware, with a workspace switcher**
-(the plan's F4 entry below is the contract: its exit criteria are the done
-line).
-- Read F3's spec first:
-  docs/superpowers/specs/2026-10-14-timeline-page-csp-design.md. F3 kept the
-  two pages separate on purpose (its decision 2: each page its own `el()` and
-  palette). **F4 is where they are shared**: one `el` builder, one API client
-  that carries auth, one error copy, one stylesheet base, each a pure tested
-  module where it has logic, imported by every page.
-- The timeline page loses its own sign-in (and its pre-filled dev email): one
-  sign-in per tab (D-056) serves every page.
-- **Fix F3's deferred minors in the shared modules** (STATE.md follow-up #25):
-  pin the pages to the null-safe `conf`/`pct`, pin the link listeners, check
-  status codes in the served-page test helpers.
+Goal: **F5 — connectors, integrations, Edge Agents, memberships and approval
+policy (admin)** (the plan's F5 entry below is the contract: its exit criteria
+are the done line).
+- **Build on F4's shell; do not copy it.** Every page is `startShell({ page,
+  ready, signedOut })` with `js/api.js` for every request, `js/dom.js`'s `el`
+  for every element, `js/shell-logic.js` for pure logic (a new nav entry is a
+  `PAGES` row there, admin-only where it must be), and `css/base.css` first.
+  F4's spec: docs/superpowers/specs/2026-10-16-f4-shell-design.md.
+- **The Members page grows its doors here** (it is read-only today,
+  `js/members.js`). A name shown inside a line goes through `isolateName`.
+- **D-070 stands on every new page:** the page never sends a workspace id
+  except to the switch; doors follow the active role and the server refuses
+  them anyway; a switch reloads and leaves nothing behind.
 
-Design first (brainstorming): the shape of the shared modules and the shell,
-and how a switch clears page state, are design questions; ask.
+Design first (brainstorming): the forms generated from a manifest's config
+schema (D-064), where each admin page sits in the nav, and how secrets are
+shown as names (D-063) are design questions; ask.
 
 Candidates. **Ask at the start ritual. Do NOT start any of these unasked:**
-- **F2's page with live turns** (STATE.md follow-up #26): Review/Undo on a
-  reopened proposal, the empty-answer note, server errors, narration on its
-  own line. F3 walked the rest without a turn.
-- **TD-047:** every page load is a full response per file (no 304s); the
-  shell adds files.
-- **The stale proposal line** in a reopened turn after a door is used in the
-  panel (STATE.md follow-up #20).
-- **"[connection lost]"**, the last bracketed error copy on the chat page.
-- **Analyst notes shown** (IDEAS, F2): a read route scoped to the workspace —
-  a design question; handing them to the agent is rail-sensitive.
+- **TD-061:** run the shell's state machine in a Node harness (stub
+  `document`, `location`, `sessionStorage`, `fetch`). Its trigger is the next
+  change to `js/shell.js` beyond copy — if F5 changes the shell, this is due.
+- **TD-062** and the parked switch-in-flight minors (STATE.md follow-up #29).
+- **The empty-answer note, live** (STATE.md follow-up #26: still not reached).
+- **The phone header** is 143 px since F4's nav (F2 had 101).
 
-Constraints: everything in `SESSION-RULES.md`, especially **The page**, and
-the plan's "Standing for every page in this phase" below.
-- The page never sends a workspace id the server would trust; the active
-  workspace lives in the token.
-- Live with two clients in a real browser against the rebuilt container:
-  zero CSP violations, at desktop and phone width.
+Constraints: everything in `SESSION-RULES.md`, especially **The page** and
+**Tenancy**, and the plan's "Standing for every page in this phase" below.
+- Live with an MSSP admin, a client admin, an analyst and a viewer in a real
+  browser against the rebuilt container: zero CSP violations, at desktop and
+  phone width; anything touching history checked with the back/forward cache
+  ON (`docs/probes/f4-live/back-forward.cjs`).
 - Live probes and pytest never run at the same time. A probe that seeds rows
   deletes only what it created, in the same command.
 
@@ -159,8 +148,9 @@ session starts only after the backend sessions it depends on have closed.**
 
 ### Sessions
 
-- [ ] **F4 — One shell for every page, role-aware, with a workspace
-  switcher.**
+- [x] **F4 — One shell for every page, role-aware, with a workspace
+  switcher.** _Closed 2026-10-16: every exit criterion held live (STATE.md, F4;
+  docs/probes/2026-10-16-f4-shell-live.md); D-070; a read-only Members page._
   - **Depends on:** S30, and F3's design for the timeline page. Read F3's spec
     first, and build on its call about shared helpers.
   - **Goal:** chat, the timeline and the pages to come share one sign-in per
