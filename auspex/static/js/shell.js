@@ -28,6 +28,7 @@ export function startShell({ page, ready, signedOut }) {
   let me = null;
   let busy = false;
   let checking = null;
+  let signingIn = false;  // one sign-in at a time
   let picker = null;  // the workspace <select>, when there is more than one
   let out = null;     // Sign out
 
@@ -100,13 +101,22 @@ export function startShell({ page, ready, signedOut }) {
   }
 
   async function signIn(email) {
+    if (signingIn) return;
     if (!email) { setStatus("enter an email", "err"); return; }
-    setStatus("signing in…");
-    const r = await bare.post("/api/auth/dev-login", { email });
-    if (!r.ok) { setStatus(r.detail, "err"); return; }
-    token = r.body.access_token;
-    store(TOKEN_KEY, token);
-    await enter();
+    signingIn = true;
+    const fields = [$("email"), $("signin")].filter(Boolean);
+    fields.forEach((f) => { f.disabled = true; });
+    try {
+      setStatus("signing in…");
+      const r = await bare.post("/api/auth/dev-login", { email });
+      if (!r.ok) { setStatus(r.detail, "err"); return; }
+      token = r.body.access_token;
+      store(TOKEN_KEY, token);
+      await enter();
+    } finally {
+      signingIn = false;
+      fields.forEach((f) => { f.disabled = false; });
+    }
   }
 
   async function switchTo() {

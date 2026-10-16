@@ -41,7 +41,6 @@ h2 { font-family: var(--display); font-size: 15px; font-weight: 600; letter-spac
 .banner.ok { border-color: #1f3a31; color: var(--aurora); background: #0c1a15; }
 .banner.warn { border-color: #4a3a1c; color: var(--signal); background: #1a1409; }
 .empty { color: var(--slate); font-style: italic; }
-a { color: var(--steel); }
 /* What the inline style="…" attributes gave, as classes (TD-051: the policy
    blocks inline styles). Bar widths are set through the CSSOM instead. */
 .mt6 { margin-top: 6px; }
@@ -50,6 +49,6 @@ a { color: var(--steel); }
 .mono.big { font-size: 16px; }
 /* A phone (F4): the observable input takes the row it needs. */
 @media (max-width: 599px) {
-  header .page-tools { flex: 1 1 100%; }
-  input.mono { min-width: 0; flex: 1; }
+  header .page-tools { flex: 1 1 100%; min-width: 0; }
+  input.mono { min-width: 0; width: 0; flex: 1; }
 }

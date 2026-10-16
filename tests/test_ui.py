@@ -457,3 +457,24 @@ def test_the_shared_modules_build_text_never_markup(client, path):
     js = _served(client, path)
     for sink in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write"):
         assert sink not in js, sink
+
+
+def test_a_sign_in_in_flight_is_not_started_twice(client):
+    """F4 review: a double-click or Enter-then-click must not send two logins,
+    run `ready` twice (two polls in chat) or let /me answers cross."""
+    js = _served(client, "/js/shell.js")
+    body = js.split("async function signIn(email)", 1)[1].split("\n  }\n", 1)[0]
+    assert "if (signingIn) return;" in body
+    assert body.index("if (signingIn) return;") < body.index('"/api/auth/dev-login"')
+    assert "finally {" in body
+    assert "signingIn = false" in body.split("finally {", 1)[1]
+
+
+def test_the_timeline_tools_fit_a_phone(client):
+    """F4 browser check at 390 px: the tools row overflowed the header by 25 px."""
+    css = _served(client, "/css/timeline.css")
+    phone = css.split("@media (max-width: 599px) {", 1)[1].split("\n}", 1)[0]
+    tools = [ln for ln in phone.splitlines() if ".page-tools" in ln][0]
+    field = [ln for ln in phone.splitlines() if "input.mono" in ln][0]
+    assert "min-width: 0" in tools and "width: 0" in field
+    assert "\na { color" not in css
