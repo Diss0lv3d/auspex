@@ -159,6 +159,16 @@ change to those modes keeps `contract_repair` honest.
   `resolved_by`/`resolved_at`.
 - A door that can race an in-flight approve must be stale-only
   (STALE_CLAIM_SECONDS), like abandon and D-048's two.
+- **A pending proposal expires after `PROPOSAL_TTL_SECONDS` (24 h, S31).** The
+  refusal lives in `settle`'s own WHERE; `expire_overdue` (the
+  `proposals.expire` job) is its exact complement, so a row is never both
+  decidable and expirable. `expired` is terminal; a new door's WHERE names
+  the statuses it moves from, so it never moves one.
+- **Every handler call carries `idempotency_key=operation_key(proposal_id,
+  op)`** (S31): execute and undo their own, observe the execute's. A new
+  action's handlers take it (a named parameter or `**_`), and must be safe to
+  repeat under it; `validate_spec` refuses a handler that cannot take it and a
+  parameter named `workspace_id`, `proposal_id` or `idempotency_key`.
 
 ## The page (front end)
 
@@ -226,6 +236,31 @@ change to those modes keeps `contract_repair` honest.
   with `drop_orgs`.
 - A dev login provisions an unknown email as an analyst in `default`. An
   admin or viewer for a live probe comes from the CLI's `set-member`.
+- **Storage residency is code too (D-069, built at S31).** `STORAGE_REGION`
+  declares where the deployment stores data; `admin.create_org` and
+  `create_client` refuse a workspace its storage may not hold (their
+  `storage_region`, default `global`; the CLI passes the setting), and startup
+  names any already there. A new path that creates a workspace or changes its
+  region goes through the same check.
+
+## Jobs (D-065, built at S31)
+
+- **Every job belongs to one workspace; kinds and schedules are code**
+  (`auspex/jobs/`). A handler must be safe to run twice under one
+  `job.idempotency_key`: a lease that expires re-runs it.
+- **Settlement's style.** Every transition is one conditional UPDATE; answers
+  are token-checked (`JobLost`); every exit from `claimed` clears the token
+  and the claimer; a new job status goes into the ONE `jobs_status_check`
+  block.
+- **The claim takes a scope.** `integration_ids=None` means jobs bound to no
+  integration; nobody claims an integration's job without naming it. S33's
+  agents call the same `claim`, with a scope built from their credential.
+- **The queue never deadlocks a boot and never loses an answer**: `claim` and
+  `enqueue` take `MIGRATION_LOCK` shared; `complete` and `fail` store cleaned
+  text, whatever a handler said.
+- **Tests:** `t.*` job kinds; never enqueue `proposals.expire` (the app
+  container's worker claims it: call its handler directly); host and test
+  runs pin `JOBS_WORKER_ENABLED=false`.
 
 ## Code conventions
 
@@ -272,8 +307,8 @@ That is recorded, not owned; do not fix it unasked.
 - KB-doc citability / ioc_check→KB-CVE-context (parked 20×);
 - TD-014; TD-015; TD-016; TD-017; TD-019; TD-020; TD-021; TD-022; TD-024;
   (TD-023 and TD-025 left this list for the integration phase, D-066, worked
-  in TD-025's own order: S30 roles, S31 TTL and idempotency key, S32 the
-  per-workspace catalogue, S34 grant-checked scope. TD-023(d), array params,
+  in TD-025's own order: S30 roles (done), S31 TTL and idempotency key
+  (done), S32 the per-workspace catalogue, S34 grant-checked scope. TD-023(d), array params,
   stays deferred until a real action needs one);
 - **TD-027 (HARD GATE)**; TD-029; TD-030; TD-031/032/033;
 - the card stream emitting status changes;
