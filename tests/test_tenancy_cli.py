@@ -28,12 +28,22 @@ def clean(client, settings):
     asyncio.run(_drop())
 
 
+def _storage(monkeypatch, region: str) -> None:
+    """A deployment that stores its data in `region` (D-069), as the CLI sees
+    it, whatever this machine's STORAGE_REGION says. A copy of the suite's
+    settings, so its signing key stays the same."""
+    stored = get_settings().model_copy(update={"storage_region": region})
+    monkeypatch.setattr(cli, "get_settings", lambda: stored)
+
+
 @pytest.fixture
 def ksa_storage(monkeypatch):
-    """A deployment that stores its data in KSA (D-069), as the CLI sees it.
-    A copy of the suite's settings, so its signing key stays the same."""
-    stored = get_settings().model_copy(update={"storage_region": "ksa"})
-    monkeypatch.setattr(cli, "get_settings", lambda: stored)
+    _storage(monkeypatch, "ksa")
+
+
+@pytest.fixture
+def global_storage(monkeypatch):
+    _storage(monkeypatch, "global")
 
 
 def test_the_cli_builds_an_mssp_and_lists_it_without_emails(clean, ksa_storage, capsys):
@@ -59,8 +69,9 @@ def test_a_refusal_exits_1_with_the_reason(clean, capsys):
     assert "No organization named" in capsys.readouterr().err
 
 
-def test_a_ksa_workspace_is_refused_where_the_deployment_stores_elsewhere(clean, capsys):
-    """D-069: the suite's deployment stores in `global` (STORAGE_REGION unset)."""
+def test_a_ksa_workspace_is_refused_where_the_deployment_stores_elsewhere(
+        clean, global_storage, capsys):
+    """D-069: on a deployment that stores in `global`."""
     assert main(["create-org", "--kind", "provider", "--name", f"{PREFIX}-mssp",
                  "--workspace", f"{PREFIX}-mssp", "--admin", f"boss@{PREFIX}.auspex.dev",
                  "--region", "ksa"]) == 1

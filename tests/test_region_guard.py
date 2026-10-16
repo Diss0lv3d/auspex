@@ -293,12 +293,20 @@ async def test_startup_names_each_workspace_the_storage_may_not_hold(settings, c
     await drop_orgs(pool, prefix)
     try:
         await make_membership_world(pool, prefix, region="ksa")
-        app = create_app(Settings(storage_region="global", secret_key=settings.secret_key))
-        with caplog.at_level("WARNING"), TestClient(app) as stored_client:
-            assert stored_client.get("/api/health").status_code == 200
-        named = [r.getMessage() for r in caplog.records
-                 if r.levelname == "WARNING" and f"{prefix}-ws" in r.getMessage()]
+
+        def warned(**regions) -> list[str]:
+            # The two regions differ in each run, so reading the engine's in
+            # place of the storage's fails one of them (S31 review of D-069).
+            caplog.clear()
+            app = create_app(Settings(secret_key=settings.secret_key, **regions))
+            with caplog.at_level("WARNING"), TestClient(app) as stored_client:
+                assert stored_client.get("/api/health").status_code == 200
+            return [r.getMessage() for r in caplog.records
+                    if r.levelname == "WARNING" and f"{prefix}-ws" in r.getMessage()]
+
+        named = warned(engine_region="ksa", storage_region="global")
         assert len(named) == 1 and "ksa" in named[0] and "global" in named[0]
+        assert warned(engine_region="global", storage_region="ksa") == []
     finally:
         await drop_orgs(pool, prefix)
         await pool.close()
