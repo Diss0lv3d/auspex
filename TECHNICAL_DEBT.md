@@ -246,6 +246,11 @@ budgeted on.
 
 ## TD-047 (F1) — no-cache pages are re-sent in full on every load
 
+**Closed (F4, 4ac7891):** `auspex/routes/ui.py` reads the file's
+stat first and answers a matching `If-None-Match` (weak or listed tags, `*`)
+with a 304 carrying the ETag, `no-cache` and a page's CSP; pinned in
+`tests/test_ui.py`.
+
 **Where:** `auspex/routes/ui.py` (B-003's fix).
 **Risk:** LOW. `FileResponse` answers a matching `If-None-Match` with a full
 200, not a 304 (measured in F1), so every load costs the page (~23 KB).
