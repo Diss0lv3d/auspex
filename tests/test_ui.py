@@ -513,6 +513,28 @@ def test_the_shell_holds_the_switcher_and_sign_out_while_a_page_is_busy(client):
     assert early and early.start() < sign_out.index("forget(TOKEN_KEY)")
 
 
+def test_a_sign_out_waits_for_a_switch_in_flight(client):
+    """F4 final review (M2): a Sign out clicked while the switch request was out
+    was overridden by its answer, which stored the new token and reloaded into
+    the target. While a switch is out Sign out is held, however the header is
+    rebuilt meanwhile, and refuses; a switch that was not made gives it back."""
+    js = _served(client, "/js/shell.js")
+    switch = js.split("async function switchTo()", 1)[1].split("\n  }\n", 1)[0]
+    request = switch.index('"/api/auth/switch"')
+    assert switch.index("switching = true") < request
+    assert switch.index("if (out) out.disabled = true") < request
+    after = switch[request:]
+    assert after.index("STORAGE_BLOCKED") < after.index("switching = false")
+    assert after.index("setStatus(r.detail") < after.index("switching = false")
+    sign_out = js.split("function signOut()", 1)[1].split("\n  }\n", 1)[0]
+    early = re.search(r"if \([^)\n]*\bswitching\b[^\n]*return;", sign_out)
+    assert early and early.start() < sign_out.index("forget(TOKEN_KEY)")
+    hold = js.split("function setBusy(on)", 1)[1].split("\n  }\n", 1)[0]
+    assert "out.disabled = on || switching" in hold
+    built = js.split("function showSignedIn()", 1)[1].split("\n  }\n", 1)[0]
+    assert 'id: "signout", className: "ghost", disabled: busy || switching' in built
+
+
 @pytest.mark.parametrize("path", ["/js/shell.js", "/js/dom.js", "/js/api.js", "/js/shell-logic.js"])
 def test_the_shared_modules_build_text_never_markup(client, path):
     js = _served(client, path)

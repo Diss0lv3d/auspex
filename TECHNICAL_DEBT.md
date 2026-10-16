@@ -1,5 +1,24 @@
 # Technical debt — logged the moment it's taken
 
+## TD-062 (F4) — a turn or a door started while a switch is out is cut or abandoned by the reload
+
+**Where:** `auspex/static/js/shell.js` (`switchTo`: `switching`, held until
+the answer) and `auspex/static/js/chat.js` (`send`, `useDoor`), which do not
+wait for it.
+**Risk:** LOW. Reasoned, not executed: the switch holds the switcher and Sign
+out from its request to its answer (one round trip), but not the composer or
+the approvals panel. A turn sent, or a door used, in that window goes on the
+old token and is cut, or its answer never shown, when the switch's reload
+lands. What the server ran stands, in the old workspace; rare, since the
+window is one round trip.
+**Why taken:** the F4 final review (M2) asked only that Sign out not be
+overridden by the switch's answer; holding every door for one round trip was
+judged more than the window is worth.
+**Path to fix:** the shell tells the page a switch is out (a `switching`
+callback beside `setBusy`), and chat.js holds Send and the doors until the
+answer, as it does for its own streaming turn.
+**Trigger:** a cut turn or a lost door answer reported around a switch.
+
 ## TD-061 (F4) — the shell's state machine is pinned by its source text, not run by a test
 
 **Where:** `auspex/static/js/shell.js` (`startShell`: `switchTo`, `signOut`,

@@ -27,6 +27,7 @@ export function startShell({ page, ready, signedOut }) {
   let token = stored(TOKEN_KEY);
   let me = null;
   let busy = false;
+  let switching = false;  // a switch request is out: Sign out waits for its answer
   let checking = null;
   let signingIn = false;  // one sign-in at a time
   let picker = null;  // the workspace <select>, when there is more than one
@@ -122,7 +123,9 @@ export function startShell({ page, ready, signedOut }) {
   async function switchTo() {
     const target = picker.value;
     if (busy || target === me.workspace.id) { picker.value = me.workspace.id; return; }
+    switching = true;
     picker.disabled = true;  // one switch at a time
+    if (out) out.disabled = true;  // its answer would override a Sign out
     setStatus("switching…");
     const r = await bare.post("/api/auth/switch", { workspace_id: target });
     if (r.ok) {
@@ -138,13 +141,15 @@ export function startShell({ page, ready, signedOut }) {
     } else {
       setStatus(r.detail, "err");
     }
+    switching = false;  // the switch was not made: the controls come back
     picker.value = me.workspace.id;
     picker.disabled = busy;
+    if (out) out.disabled = busy;
     recheck();  // the set may have changed since it was read
   }
 
   function signOut() {
-    if (busy) return;
+    if (busy || switching) return;
     forget(TOKEN_KEY);
     location.replace(afterSwitchUrl(location));
   }
@@ -162,7 +167,7 @@ export function startShell({ page, ready, signedOut }) {
     const options = switchOptions(me);
     const label = workspaceLabel(activeWorkspace(me));
     if (options.length > 1) {
-      picker = el("select", { id: "workspace", disabled: busy, title: label },
+      picker = el("select", { id: "workspace", disabled: busy || switching, title: label },
         options.map((o) => el("option", { value: o.id, selected: o.selected }, [o.text])));
       picker.setAttribute("aria-label", "Workspace");
       picker.addEventListener("change", switchTo);
@@ -171,7 +176,7 @@ export function startShell({ page, ready, signedOut }) {
       picker = null;
       workspace.replaceChildren(el("span", { id: "workspace", className: "ws-label", title: label }, [label]));
     }
-    out = el("button", { id: "signout", className: "ghost", disabled: busy }, ["Sign out"]);
+    out = el("button", { id: "signout", className: "ghost", disabled: busy || switching }, ["Sign out"]);
     out.addEventListener("click", signOut);
     session.replaceChildren(out);
   }
@@ -192,11 +197,12 @@ export function startShell({ page, ready, signedOut }) {
   }
 
   // A page in the middle of something (chat's streaming turn) holds the
-  // switcher and Sign out still: a reload would cut it.
+  // switcher and Sign out still: a reload would cut it. A switch still out
+  // keeps holding them when the turn ends.
   function setBusy(on) {
     busy = on;
-    if (picker) picker.disabled = on;
-    if (out) out.disabled = on;
+    if (picker) picker.disabled = on || switching;
+    if (out) out.disabled = on || switching;
   }
 
   // D-070, and Back: a page the browser restores from its back/forward cache
