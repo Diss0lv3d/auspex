@@ -395,7 +395,13 @@ are never deleted.
   (`provision_dev_user` does not).
 - **Burhan's call (2026-10-15):** promote S30 now, fix in the next backend
   session (S31's Step 0) unless B3 takes it first.
-- **Status:** open.
+- **Status:** fixed `b1fa61e` (S31). The event keeps only `to`; the CLI
+  prints the old home (`Rehomed.previous_org`); the rehome locks `users` alone,
+  so a second one waits and moves the person on (test-pinned, 4/4 mutants).
+  The docstring names `provision_dev_user` as the write that holds no
+  workspace. The fresh review found nothing the new home's admins can read
+  that names the old one; its test gap was pinned (`3d5007b`), and the older
+  race it found in `entry.py` is B-025.
 
 ## B-022 — the output rail stops a note-only request when the model's thinking quotes the note tool's description
 
