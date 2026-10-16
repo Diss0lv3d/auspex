@@ -387,3 +387,26 @@ async def test_an_enqueue_waits_out_a_running_migration(pool, ws):
 
     await _waits_for_the_migration_lock(
         pool, lambda: enqueue(pool, workspace_id=a, kind=CLAIM, idempotency_key="k"), check)
+
+
+# ---- S31 final review: the dead step stays inside the claimer's scope ----
+
+async def test_a_claim_never_kills_another_workspaces_expired_job(pool, ws):
+    a, b = await ws("a"), await ws("b")
+    once = JobKind("t.s31.claim", _noop, max_attempts=1)
+    await enqueue(pool, workspace_id=b, kind=once, idempotency_key="k")
+    job = await claim(pool, _scope(b), claimer="t")
+    await _expire_lease(pool, job.id)
+    assert await claim(pool, _scope(a), claimer="t") is None
+    assert await pool.fetchval("SELECT status FROM jobs WHERE id = $1", job.id) == "claimed"
+
+
+async def test_a_claim_never_kills_an_integrations_expired_job_unnamed(pool, ws):
+    a = await ws("a")
+    mine = uuid.uuid4()
+    once = JobKind("t.s31.claim", _noop, max_attempts=1)
+    await enqueue(pool, workspace_id=a, kind=once, idempotency_key="k", integration_id=mine)
+    job = await claim(pool, _scope(a, integrations=frozenset({mine})), claimer="t")
+    await _expire_lease(pool, job.id)
+    assert await claim(pool, _scope(a), claimer="t") is None  # integrations=None
+    assert await pool.fetchval("SELECT status FROM jobs WHERE id = $1", job.id) == "claimed"

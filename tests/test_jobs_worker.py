@@ -230,3 +230,20 @@ async def test_a_failing_fail_never_aborts_the_tick(pool, ws):
     assert failed["status"] == "queued"
     assert failed["last_error"] == "RuntimeError: bad�byte"
     assert (await _status(pool, good.id))["status"] == "done"
+
+
+def test_the_lifespan_passes_the_enabled_switch_through(settings):
+    import time
+
+    from fastapi.testclient import TestClient
+
+    from auspex.app import create_app
+    from auspex.config import Settings
+
+    app = create_app(Settings(jobs_worker_enabled=False, secret_key=settings.secret_key))
+    with TestClient(app):
+        assert app.state.jobs_worker.enabled is False
+        deadline = time.monotonic() + 1
+        while not app.state.jobs_task.done() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert app.state.jobs_task.done()
