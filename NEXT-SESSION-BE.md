@@ -4,7 +4,8 @@ _Paste everything below the first line of dashes into a fresh Claude Code
 window opened in /home/burhan/auspex-new. **S31 builds the jobs queue and
 TD-025's first half (D-065, D-066).** **F4 closed 2026-10-16** (one shell for
 every page, D-070), so S31 is next in the order table and **the focus**
-(STATE.md); its Step 0 promotes F4. S30 closed 2026-10-15 (MSSP tenancy)._
+(STATE.md). Promote #37 shipped F4, so the slate is empty. S30 closed
+2026-10-15 (MSSP tenancy)._
 
 _Below the S31 prompt is the **backend plan for the whole phase, S29–S41**.
 **`/session-end` writes the next session's prompt from its entry in the plan,
