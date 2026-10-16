@@ -111,10 +111,10 @@ async def test_an_expired_row_is_closed_to_every_door(pool, registry, world):
         out = await settlement.settle(workspace_id=ws, proposal_id=pid, decision=decision,
                                       decided_by=None)
         assert out.outcome is Settlement.EXPIRED
-    for door in (settlement.withdraw, settlement.keep, settlement.abandon):
-        assert not (await door(workspace_id=ws, proposal_id=pid, decided_by=None)).won
     await pool.execute("UPDATE proposals SET decided_at = now() - make_interval(secs => $2)"
                        " WHERE id = $1", pid, float(STALE_CLAIM_SECONDS + 60))
+    for door in (settlement.withdraw, settlement.keep, settlement.abandon):
+        assert not (await door(workspace_id=ws, proposal_id=pid, decided_by=None)).won
     with pytest.raises(ExecutionRefused) as ran:
         await executor.execute(workspace_id=ws, proposal_id=pid)
     assert ran.value.reason == "not_approved"
@@ -137,6 +137,7 @@ async def test_the_sweep_expires_only_its_own_workspaces_overdue_rows(pool, regi
     theirs = await _file(pool, registry, other_ws, other_obs)
     await _age(pool, overdue, PROPOSAL_TTL_SECONDS + 1)
     await _age(pool, theirs, PROPOSAL_TTL_SECONDS + 1)
+    await _age(pool, fresh, PROPOSAL_TTL_SECONDS - 5)
     assert await ProposalSettlement(pool).expire_overdue(workspace_id=ws) == 1
     assert await _status(pool, overdue) == "expired"
     assert await _status(pool, fresh) == "pending_approval"
