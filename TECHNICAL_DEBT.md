@@ -17,6 +17,10 @@ judged more than the window is worth.
 **Path to fix:** the shell tells the page a switch is out (a `switching`
 callback beside `setBusy`), and chat.js holds Send and the doors until the
 answer, as it does for its own streaming turn.
+**Also, parked by the fix wave's re-review:** a switch answered with a 2xx
+that has no JSON body throws at `r.body.access_token` after `switching` is
+set, so the switcher and Sign out stay held until a reload (a mangled answer
+from our own origin); the same fix should treat a body-less 2xx as a refusal.
 **Trigger:** a cut turn or a lost door answer reported around a switch.
 
 ## TD-061 (F4) — the shell's state machine is pinned by its source text, not run by a test
