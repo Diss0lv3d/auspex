@@ -5,7 +5,7 @@
 import {
   createPacer, indicatorText, markdownNodes, CONFIRM_MS, doorsFor, statusText, undoLineFor,
   askedText, mergeQueue, armDoor, confirmable, spendText, chatSpendText, chatIdFromHash,
-  chatListLabel, reopenedTurnPlan, noAnswerNote, overlayAfter,
+  chatListLabel, reopenedTurnPlan, noAnswerNote, overlayAfter, proposalLine,
 } from "./page-logic.js";
 import { $, el } from "./dom.js";
 import { startShell } from "./shell.js";
@@ -320,7 +320,9 @@ function renderReopenedTurn(parts) {
     } else if (part.kind === "proposal") {
       const review = el("button", { className: "ghost review" }, ["Review"]);
       review.addEventListener("click", () => reviewProposal(part.id));
-      wrap.appendChild(el("div", { className: "proposal" }, [part.text, review]));
+      const node = el("div", { className: "proposal" }, [el("span", { className: "line" }, [part.text]), review]);
+      node.dataset.proposal = part.id;
+      wrap.appendChild(node);
     }
   }
 }
@@ -381,6 +383,16 @@ function setOverlays(action) {
 
 function recordDecided(p) {
   approvals.decided = [p, ...approvals.decided.filter((d) => d.id !== p.id)];
+  refreshProposalLines(p);
+}
+
+// STATE.md #20: a reopened turn's line for this proposal follows what the
+// panel learned, so it never says "Waiting" after a door was used.
+function refreshProposalLines(p) {
+  const now = Date.now();
+  for (const node of $("transcript").querySelectorAll(".proposal[data-proposal]")) {
+    if (node.dataset.proposal === p.id) node.querySelector(".line").textContent = proposalLine(p, now);
+  }
 }
 
 async function useDoor(id, door) {

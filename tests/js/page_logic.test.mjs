@@ -10,7 +10,7 @@ import {
   createPacer, indicatorText, markdownNodes,
   doorsFor, statusText, undoText, undoLineFor, askedText, mergeQueue, armDoor, confirmable,
   spendText, chatSpendText, chatIdFromHash, relativeTime, chatListLabel, ledgerSpendText, endingText, reopenedTurnPlan,
-  noAnswerNote, overlayAfter,
+  noAnswerNote, overlayAfter, proposalLine,
 } from "../../auspex/static/js/page-logic.js";
 
 const FRAME_MS = 1000 / 60;
@@ -482,4 +482,18 @@ test("the backdrop and Esc close whatever is open; a close button closes only it
   assert.deepEqual(overlayAfter({ chats: false, approvals: true }, "close-chats"), { chats: false, approvals: true });
   assert.deepEqual(overlayAfter({ chats: true, approvals: false }, "close-approvals"), { chats: true, approvals: false });
   assert.deepEqual(overlayAfter({ chats: true, approvals: false }, "nonsense"), { chats: true, approvals: false });
+});
+
+test("a proposal line reads the same from a reopened turn's row and from the panel's full row", () => {
+  const fromTurn = filed("33333333-0000-0000-0000-000000000000", "pending_approval");
+  const fromPanel = { id: fromTurn.id, action: "annotate_observable", status: "executed",
+    decided_at: "2026-10-12T11:00:00Z", claimed_at: null, result: { effects: null },
+    card: { summary: "add a note to 8.8.8.8" } };
+  assert.equal(proposalLine(fromTurn, NOON), "Proposal: add a note to 8.8.8.8 · Waiting for your approval");
+  assert.equal(proposalLine(fromPanel, NOON), "Proposal: add a note to 8.8.8.8 · Done");
+});
+
+test("a proposal with no summary anywhere is named by its action", () => {
+  assert.equal(proposalLine({ id: "x", action: "isolate_host", status: "rejected" }, NOON),
+    "Proposal: isolate_host · Rejected");
 });

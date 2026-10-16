@@ -338,6 +338,15 @@ export function endingText(ending) {
   return Object.hasOwn(ENDING_COPY, ending ?? "") ? ENDING_COPY[ending] : "No answer was stored";
 }
 
+// A filed proposal's line in a reopened turn, in the panel's words for its
+// status now. The panel calls this again whenever it learns a newer row, so a
+// line never goes on saying what a door has since changed (STATE.md #20). A
+// turn's row carries `summary`; the panel's full row carries `card.summary`.
+export function proposalLine(p, now) {
+  const summary = p.summary || (p.card && p.card.summary) || p.action;
+  return `Proposal: ${summary} · ${statusText(p, now)}`;
+}
+
 // What a reopened turn renders, in order. Reasoning and tool lines were
 // never stored (the chat says so once, above its turns); proposals come
 // back with their CURRENT status, in the panel's own words.
@@ -349,7 +358,7 @@ export function reopenedTurnPlan(turn, now) {
   const spend = ledgerSpendText(turn.spend);
   if (spend) parts.push({ kind: "spend", text: spend });
   for (const p of turn.proposals || []) {
-    parts.push({ kind: "proposal", id: String(p.id), text: `Proposal: ${p.summary || p.action} · ${statusText(p, now)}` });
+    parts.push({ kind: "proposal", id: String(p.id), text: proposalLine(p, now) });
   }
   return parts;
 }

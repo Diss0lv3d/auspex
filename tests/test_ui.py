@@ -508,3 +508,15 @@ def test_a_refused_turn_is_shown_in_the_servers_words(client):
     js = _served(client, "/js/chat.js")
     assert 'api.stream("/api/chat"' in js
     assert "showError(wrap, r.detail)" in js
+
+
+def test_a_reopened_proposal_line_follows_what_the_panel_learns(client):
+    """STATE.md #20: after a door was used in the panel, a reopened turn's line
+    kept its old status until the chat was reopened. Every fresh row the panel
+    records rewrites the lines for its proposal, as text."""
+    js = _served(client, "/js/chat.js")
+    record = js.split("function recordDecided(p)", 1)[1].split("\n}\n", 1)[0]
+    assert "refreshProposalLines(p)" in record
+    assert "node.dataset.proposal = part.id" in js
+    refresh = js.split("function refreshProposalLines(p)", 1)[1].split("\n}\n", 1)[0]
+    assert ".textContent = proposalLine(p, now)" in refresh
