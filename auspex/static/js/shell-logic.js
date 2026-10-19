@@ -57,6 +57,15 @@ export function switchOptions(me) {
   }));
 }
 
+// B-024 (B3): choosing in the switcher only selects. Arrow keys on a closed
+// <select> fire `change` at every step on Windows and Linux, so switching on
+// `change` reloaded a keyboard user into each client they passed. The Switch
+// button switches, and is ready only for a workspace other than the active
+// one, once /me has answered, while nothing holds the page.
+export function switchReady(selectedId, me, held) {
+  return Boolean(selectedId) && Boolean(me) && !held && selectedId !== me.workspace.id;
+}
+
 // A /me read later says this tab is somewhere else, or something else, than
 // the page was built for: every door must re-derive, so the page reloads.
 export function roleChanged(before, after) {

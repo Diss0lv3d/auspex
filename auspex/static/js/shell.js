@@ -7,7 +7,7 @@ import { $, el } from "./dom.js";
 import { createApi } from "./api.js";
 import {
   navEntries, switchOptions, activeWorkspace, workspaceLabel, roleChanged, afterSwitchUrl,
-  EXPIRED, STORAGE_BLOCKED,
+  switchReady, EXPIRED, STORAGE_BLOCKED,
 } from "./shell-logic.js";
 
 // D-056: the sign-in survives a reload in this tab, and dies with the tab. The
@@ -31,6 +31,7 @@ export function startShell({ page, ready, signedOut }) {
   let checking = null;
   let signingIn = false;  // one sign-in at a time
   let picker = null;  // the workspace <select>, when there is more than one
+  let switchButton = null;  // its Switch button (B-024): choosing only selects
   let out = null;     // Sign out
 
   const header = $("shell");
@@ -120,11 +121,19 @@ export function startShell({ page, ready, signedOut }) {
     }
   }
 
+  // The Switch button follows the choice: ready only for another workspace,
+  // and never while the page or a switch holds the controls.
+  function syncSwitch() {
+    if (!switchButton) return;
+    switchButton.disabled = !switchReady(picker && picker.value, me, busy || switching);
+  }
+
   async function switchTo() {
     const target = picker.value;
-    if (busy || target === me.workspace.id) { picker.value = me.workspace.id; return; }
+    if (busy || switching || target === me.workspace.id) { syncSwitch(); return; }
     switching = true;
     picker.disabled = true;  // one switch at a time
+    switchButton.disabled = true;
     if (out) out.disabled = true;  // its answer would override a Sign out
     setStatus("switching…");
     const r = await bare.post("/api/auth/switch", { workspace_id: target });
@@ -144,6 +153,7 @@ export function startShell({ page, ready, signedOut }) {
     switching = false;  // the switch was not made: the controls come back
     picker.value = me.workspace.id;
     picker.disabled = busy;
+    syncSwitch();
     if (out) out.disabled = busy;
     recheck();  // the set may have changed since it was read
   }
@@ -170,10 +180,15 @@ export function startShell({ page, ready, signedOut }) {
       picker = el("select", { id: "workspace", disabled: busy || switching, title: label },
         options.map((o) => el("option", { value: o.id, selected: o.selected }, [o.text])));
       picker.setAttribute("aria-label", "Workspace");
-      picker.addEventListener("change", switchTo);
-      workspace.replaceChildren(picker);
+      picker.addEventListener("change", syncSwitch);
+      switchButton = el("button", { id: "switch", className: "ghost" }, ["Switch"]);
+      switchButton.setAttribute("aria-label", "Switch workspace");
+      switchButton.addEventListener("click", switchTo);
+      workspace.replaceChildren(picker, switchButton);
+      syncSwitch();  // the select may show another workspace (no active entry)
     } else {
       picker = null;
+      switchButton = null;
       workspace.replaceChildren(el("span", { id: "workspace", className: "ws-label", title: label }, [label]));
     }
     out = el("button", { id: "signout", className: "ghost", disabled: busy || switching }, ["Sign out"]);
@@ -184,6 +199,7 @@ export function startShell({ page, ready, signedOut }) {
   function showSignedOut(notice) {
     me = null;
     picker = null;
+    switchButton = null;
     out = null;
     showNav();
     workspace.replaceChildren();
@@ -202,6 +218,7 @@ export function startShell({ page, ready, signedOut }) {
   function setBusy(on) {
     busy = on;
     if (picker) picker.disabled = on || switching;
+    syncSwitch();
     if (out) out.disabled = on || switching;
   }
 

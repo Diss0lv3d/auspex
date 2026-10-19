@@ -436,6 +436,28 @@ def test_a_switch_reloads_the_page_without_its_hash(client):
     assert "STORAGE_BLOCKED" in switch
 
 
+def test_choosing_a_workspace_only_selects_it_and_the_switch_button_switches(client):
+    """B-024 (B3): arrow keys on a closed <select> fire `change` at each step in
+    Chrome on Linux and Windows, and the switcher switched on `change`, so a
+    keyboard user was reloaded into every client on the way to theirs
+    (docs/probes/b3-b024/before-run.txt). `change` now only readies the
+    Switch button; the button's click is the only way into switchTo."""
+    js = _served(client, "/js/shell.js")
+    assert 'addEventListener("change", switchTo)' not in js
+    assert 'id: "switch"' in js
+    assert 'switchButton.addEventListener("click", switchTo)' in js
+    assert 'picker.addEventListener("change", syncSwitch)' in js
+    assert js.count("switchTo") == 2  # its definition and the button's listener
+    switch = js.split("async function switchTo()", 1)[1].split("\n  }\n", 1)[0]
+    assert switch.index("switchButton.disabled = true") < switch.index('"/api/auth/switch"')
+    # a switch that was not made puts the choice back, and the button with it
+    assert switch.index("switching = false") < switch.rindex("syncSwitch()")
+    shown = js.split("function showSignedIn()", 1)[1].split("\n  }\n", 1)[0]
+    assert "syncSwitch()" in shown and 'id: "switch", className: "ghost", disabled' not in shown
+    held = js.split("function setBusy(on)", 1)[1].split("\n  }\n", 1)[0]
+    assert "syncSwitch()" in held
+
+
 def test_a_page_restored_by_back_reloads_when_the_tabs_sign_in_moved_on(client):
     """F4 final review (C1): chat -> Timeline -> switch -> Back restored the
     frozen chat page from the back/forward cache, with the previous client's
