@@ -223,7 +223,7 @@ are never deleted.
   matching "evil.com." at the end of a sentence; candidates must start only at
   the beginning of a dotted run.
 - **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 8; docs/probes/s29-review/classify/redos.py.
-- **Status:** open.
+- **Status:** open. Assigned to Hunaiza for B3 (Burhan, 2026-10-19): GitHub #38.
 
 ## B-011 — a request to analyse or draft that leads with "Note" or "write a note" resolves to `action_request`
 
@@ -455,7 +455,7 @@ are never deleted.
   fixing.
 - **Note:** a fix (a Switch button, or handling the keys) changes the
   switcher's UX, which is Burhan's call.
-- **Status:** open.
+- **Status:** open. Assigned to Hunaiza for B3 (Burhan, 2026-10-19), with the UX call: GitHub #39.
 
 ## B-025 — a sign-in that races a rehome shows the old organization's admins the NEW organization's name
 
