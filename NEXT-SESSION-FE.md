@@ -3,7 +3,7 @@
 _Paste everything below the first line of dashes into a fresh Claude Code
 window opened in the Auspex repo. **F5 starts only after S32, S33 and S34
 close** (the order table in `NEXT-SESSION-BE.md`, row 8); until then the focus
-is B3, then the backend (STATE.md). F4 closed 2026-10-16: one shell for every page,
+is the backend (STATE.md). F4 closed 2026-10-16: one shell for every page,
 D-070, a read-only Members page._
 
 _Below the F5 prompt is **Burhan's front-end plan for the whole phase,
@@ -41,9 +41,9 @@ Step 0 (do BEFORE new scope):
    - **`restricted` is CLI-only** (D-068 call 1): a page control for it needs a
      backend route first. Build the route here, leave it to a backend
      session, or leave restricted as CLI-only?
-   - **B-024** (BUGS.md, unverified): arrow keys on the closed workspace
-     switcher may switch at each step. Reproduce it with a keyboard first; a
-     fix (a Switch button, or handling the keys) changes the switcher's UX.
+   - (B-024 is fixed at B3: the switcher now has a Switch button, and
+     choosing only selects. F5's admin pages stand on that shell. B-028, a
+     failed switch after a re-check, is open.)
 
 Goal: **F5 — connectors, integrations, Edge Agents, memberships and approval
 policy (admin)** (the plan's F5 entry below is the contract: its exit criteria

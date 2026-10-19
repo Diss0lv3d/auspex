@@ -4,9 +4,9 @@ _Paste everything below the first line of dashes into a fresh Claude Code
 window opened in /home/burhan/auspex-new. **S32 builds the connector contract,
 the SDK and the catalogue (D-060, D-064).** S31 closed 2026-10-16 (the jobs
 queue and TD-025's first half; B-021 fixed; D-069 built), and promote #40
-shipped it. **S32 waits for B3** (Burhan, 2026-10-19: Hunaiza fixes B-010 and
-B-024 first, row 4b of the order table); start it once B3 has closed and
-pushed. Then the promote slate is B3's fixes (STATE.md)._
+shipped it. **B3 closed 2026-10-19** (Hunaiza: B-010 and B-024 fixed). Its
+work is the PR from `b3-b010-b024` into `staging`: merge it first. Then the
+promote slate is B3's fixes (STATE.md)._
 
 _Below the S32 prompt is the **backend plan for the whole phase, S29–S41**.
 **`/session-end` writes the next session's prompt from its entry in the plan,
@@ -22,10 +22,10 @@ It reads `SESSION-RULES.md` (standing rules for every track, including the
 
 Step 0 (do BEFORE new scope):
 
-1. **One window at a time (D-051, D-059).** B3 ran on Hunaiza's machine:
-   `git fetch`, confirm STATE.md says B3 closed, then
-   `git pull --ff-only origin staging`. If B3 has not closed, stop: wrong
-   window. If anything else moves that you did not move, check `ps` for a
+1. **One window at a time (D-051, D-059).** B3 ran on Hunaiza's machine and
+   closed as a PR: review and merge `b3-b010-b024` → `staging` on GitHub,
+   then `git fetch` and `git pull --ff-only origin staging`, and confirm
+   STATE.md says B3 closed. If it does not, stop: wrong window. If anything else moves that you did not move, check `ps` for a
    second `claude` in this directory and stop.
 2. **The promote slate holds B3's fixes** (STATE.md, follow-up #1; B3 did not
    promote, by the handoff). B-010 closes a message-driven stall, so
@@ -134,7 +134,7 @@ ticks the closed session._
 | 2 | S30 | be | S29 | closed 2026-10-15: MSSP tenancy (D-061, D-068); D-069 decided, built later |
 | 3 | F4 | fe | S30 | closed 2026-10-16: one shell for every page, role-aware, a workspace switcher (D-070) |
 | 4 | S31 | be | S30 | closed 2026-10-16: the jobs queue, TD-025's first half; B-021 fixed, D-069 built; promote #40 |
-| 4b | B3 | bugs | S31 | Hunaiza (Burhan, 2026-10-19; D-059): B-010, then B-024 (GitHub #38, #39) |
+| 4b | B3 | bugs | S31 | closed 2026-10-19 by Hunaiza (D-059): B-010 and B-024 fixed; PR `b3-b010-b024` → `staging` |
 | 5 | S32 | be | S31, B3 | the connector contract, the SDK (Python and YAML), the catalogue |
 | 6 | S33 | be | S32 | integrations and the Edge Agent, "Test connection" end to end |
 | 7 | S34 | be | S33 | integration actions through approvals and per-client policy |
@@ -203,7 +203,7 @@ ticks the closed session._
 - **Open bugs that touch this phase** (BUGS.md): B-026 (an undeclared action
   argument named like a platform keyword is approved, then fails), B-025 (a
   sign-in racing a rehome names the new organization to the old one's
-  admins), B-010 (three classify rules still backtrack on crafted input),
+  admins), B-027 (`extract()` is O(matches × spans) on many observables),
   B-015/B-020 (what the agent says it recorded), B-017 (a malformed tool name
   from the endpoint crashes a turn), B-018 (a URL's credentials are kept).
 
