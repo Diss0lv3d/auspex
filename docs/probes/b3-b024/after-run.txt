@@ -1,0 +1,16 @@
+options: ["⁨b3-live-mssp⁩ · provider · analyst","⁨b3-live-alpha⁩ · client · analyst","⁨b3-live-bravo⁩ · client · analyst","⁨b3-live-charlie⁩ · client · analyst"]
+active at start: ⁨b3-live-mssp⁩ · provider · analyst
+ArrowDown: switch requests +0, reloads +0, active now: ⁨b3-live-alpha⁩ · client · analyst
+ArrowDown: switch requests +0, reloads +0, active now: ⁨b3-live-bravo⁩ · client · analyst
+ArrowUp: switch requests +0, reloads +0, active now: ⁨b3-live-alpha⁩ · client · analyst
+Switch button disabled while ANOTHER workspace is selected: false
+chosen with two arrows: ⁨b3-live-charlie⁩ · client · analyst | button disabled: false
+focus after Tab: switch
+Tab + Enter: switch requests +1, reloads +1, active now: ⁨b3-live-charlie⁩ · client · analyst
+pointer choose + click: switch requests +1, active now: ⁨b3-live-mssp⁩ · provider · analyst
+switch request bodies: ["{\"workspace_id\":\"e7ad4e6c-2732-447d-8ed6-1494f5a68b32\"}","{\"workspace_id\":\"06b84ca8-23f3-4d34-8438-b2d4eb3858b1\"}"]
+CSP violations: []
+timeline page, fresh: Switch disabled = true
+after choosing another: disabled = false
+after choosing the current one again: disabled = true
+phone width: wider than screen = false

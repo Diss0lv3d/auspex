@@ -1,0 +1,1 @@
+inputs: 200000 generated, 501 real (tests/fixtures); rules: 6; differences: 0

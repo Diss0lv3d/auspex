@@ -1,0 +1,13 @@
+refang [.] rule            2000:       0.3 ms    8000:       0.4 ms   16000:       0.8 ms   32000:       1.7 ms
+refang [@] rule            2000:       0.1 ms    8000:       0.4 ms   16000:       0.8 ms   32000:       1.6 ms
+greeting rule              2000:       0.0 ms    8000:       0.1 ms   16000:       0.1 ms   32000:       0.2 ms
+analytical rule            2000:       0.1 ms    8000:       0.2 ms   16000:       0.4 ms   32000:       0.9 ms
+domain rule                2000:      33.3 ms    8000:     493.8 ms   16000:    1972.9 ms   32000:    7757.1 ms
+email rule                 2000:       2.8 ms    8000:      42.1 ms   16000:     165.9 ms   32000:     653.0 ms
+domain scan (B3)           2000:       0.3 ms    8000:       0.9 ms   16000:       1.9 ms   32000:       4.0 ms
+email scan (B3)            2000:       0.0 ms    8000:       0.0 ms   16000:       0.0 ms   32000:       0.1 ms
+extract(), spaces          2000:       0.7 ms    8000:       2.8 ms   16000:       5.2 ms   32000:      10.4 ms
+extract(), a.a.a.          2000:       0.9 ms    8000:       3.7 ms   16000:       7.4 ms   32000:      16.2 ms
+classify(), hi+spaces      2000:       0.7 ms    8000:       2.8 ms   16000:       5.8 ms   32000:      11.9 ms
+classify(), a.a.a.         2000:       1.4 ms    8000:       5.6 ms   16000:      11.2 ms   32000:      22.1 ms
+classify(), .+spaces       2000:       0.7 ms    8000:       2.8 ms   16000:       5.9 ms   32000:      11.6 ms
