@@ -2,9 +2,9 @@
 
 _Paste everything below the line into a fresh Claude Code window opened in
 /home/burhan/auspex-new. The bugs track works from BUGS.md (D-051). The
-backend is the current focus (S31, STATE.md); start B3 only when Burhan picks
-it. S29's review of S28's code logged B-010…B-020, S30 logged B-021 and F4
-logged B-022…B-024, so B3 has work now._
+backend is the current focus (S32, STATE.md); start B3 only when Burhan picks
+it. S29's review of S28's code logged B-010…B-020, F4 logged B-022…B-024 and
+S31 logged B-025…B-026 (S31 fixed S30's B-021), so B3 has work now._
 
 ---
 
@@ -26,9 +26,12 @@ Step 0 (do BEFORE new scope):
    loop for seconds (the refang rules, `_GREETING_RE`, `_DOMAIN_CAND_RE`; S29
    fixed the two S28 rules with possessive quantifiers, `8187925`). **B-005
    and B-009 still sit next to the deferred fabricated-specifics item**
-   (SESSION-RULES.md, Deferred). **S30 logged B-021** (a re-homed person's
-   audit event names the old organization to the new one's admins); Burhan
-   placed it in S31's Step 0, so take it here only if he says so. **F4 logged
+   (SESSION-RULES.md, Deferred). **S31 fixed B-021** (`b1fa61e`) and logged
+   **B-025** (a sign-in racing a rehome names the new organization to the old
+   one's admins; tenancy, so a fix gets a fresh-agent review) and **B-026** (an
+   undeclared action argument named like a platform keyword is approved, then
+   the run fails into `incomplete`; S32's Step 0 may take it, so ask Burhan
+   first). **F4 logged
    B-022** (the rail cut a note-only request whose thinking quoted the note
    tool's description: TD-044's action-request case), **B-023** (a `lapsed`
    pill has no colour) and **B-024** (the switcher's keyboard behaviour,

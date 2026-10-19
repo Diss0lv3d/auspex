@@ -280,3 +280,33 @@ def test_every_enrich_call_passes_the_region():
                 calls += 1
                 assert any(k.arg == "region" for k in node.keywords), path
     assert calls >= 3
+
+
+async def test_startup_names_each_workspace_the_storage_may_not_hold(settings, caplog):
+    """D-069, Burhan's call (S31): a ksa workspace made before the build, on a
+    deployment storing in `global`, is named in a startup WARNING; the app still
+    serves."""
+    from fastapi.testclient import TestClient
+
+    prefix = f"{PREFIX}-stored"
+    pool = await create_pool(settings.database_url, retries=2, delay=0.5)
+    await drop_orgs(pool, prefix)
+    try:
+        await make_membership_world(pool, prefix, region="ksa")
+
+        def warned(**regions) -> list[str]:
+            # The two regions differ in each run, so reading the engine's in
+            # place of the storage's fails one of them (S31 review of D-069).
+            caplog.clear()
+            app = create_app(Settings(secret_key=settings.secret_key, **regions))
+            with caplog.at_level("WARNING"), TestClient(app) as stored_client:
+                assert stored_client.get("/api/health").status_code == 200
+            return [r.getMessage() for r in caplog.records
+                    if r.levelname == "WARNING" and f"{prefix}-ws" in r.getMessage()]
+
+        named = warned(engine_region="ksa", storage_region="global")
+        assert len(named) == 1 and "ksa" in named[0] and "global" in named[0]
+        assert warned(engine_region="global", storage_region="ksa") == []
+    finally:
+        await drop_orgs(pool, prefix)
+        await pool.close()

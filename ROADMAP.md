@@ -532,6 +532,31 @@ BUGS.md) have their own sections at the end, before "Later".
     (Burhan overturned D-061's bound; built later).
   - 1554 tests; 129 modules; `ENGINE_REGION` born; no engine calls.
 
+- [x] **S31 — A jobs queue, and TD-025's first half.** (2026-10-16) Not a
+  promote milestone; the slate carries S31 (Burhan's call at S32's Step 0).
+  - **Step 0:** B-021 fixed (`b1fa61e`); D-069 built (`6cd68e9`:
+    `STORAGE_REGION`; Burhan: an existing misplaced workspace is named at
+    startup); each reviewed by a fresh agent.
+  - **Design:** Burhan's five calls (docs/superpowers/specs/2026-10-16-s31-jobs-design.md):
+    a 24 h TTL; expired cards listed a day; one key per operation; per-kind
+    lease and attempts; the expiry sweep as a real job. Baseline:
+    docs/probes/2026-10-16-s31-jobs-baseline.md.
+  - **Built** (plan docs/superpowers/plans/2026-10-16-s31-jobs.md, eight tasks,
+    subagent-driven, each reviewed): `auspex/jobs/` (a scoped SKIP LOCKED claim
+    serving workspaces in turn, leases, backoff, dead, token-checked answers;
+    the in-app worker, `JOBS_WORKER_ENABLED`); `expired` refused in `settle`'s
+    own UPDATE and swept by the `proposals.expire` job; `operation_key` handed
+    to every handler and used by the note action; the page's expired card.
+  - **Live:** the container's worker expired an aged proposal through the real
+    job; 409 in words; the page (docs/probes/2026-10-16-s31-jobs-live.md).
+  - **Final adversarial review** (the core held every race and scope attack):
+    a NUL in a job's error or result aborted the tick (fixed: total answer
+    writes); a booting replica's migration could deadlock a claim (fixed:
+    `MIGRATION_LOCK` shared). Fixes reviewed in turn.
+  - B-025, B-026, TD-063…TD-065 logged.
+  - 1687 tests; 133 modules; `STORAGE_REGION`, `JOBS_WORKER_ENABLED` born; no
+    engine calls.
+
 ## Track: front end (D-051)
 
 - [x] **F1 — Where a deep turn's reasoning loses its speed, measured first.**
@@ -623,8 +648,8 @@ BUGS.md) have their own sections at the end, before "Later".
   - TD-054, TD-055 logged; TD-044 updated; B-009 logged; D-044 addendum.
   - 1385 tests; 121 modules; no new env vars.
 - [ ] **B3 — Burhan's call first:** S29 logged B-010…B-020 (B-010, a
-  message-driven event-loop stall, is the most severe); S30 logged B-021 (S31's
-  Step 0 takes it unless B3 does first). B-005 and B-009 still
+  message-driven event-loop stall, is the most severe); S31 fixed B-021 and
+  logged B-025 and B-026; F4 logged B-022…B-024. B-005 and B-009 still
   wait on the deferred fabricated-specifics item coming out of Deferred (a
   D-entry).
 

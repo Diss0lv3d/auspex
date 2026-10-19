@@ -236,6 +236,7 @@ export function statusText(p, now) {
     case "withdrawn": return "Withdrawn";
     case "undone": return "Undone";
     case "failed": return "Failed; nothing of it landed";
+    case "expired": return "Expired: nobody decided in time; propose it again";
     default: return p.status;
   }
 }
@@ -249,7 +250,7 @@ export function undoText(card) {
 // The undo line matters while the action may run or has run; on a card that
 // never ran, or is finished, it is noise that reads like an offer.
 export function undoLineFor(p) {
-  return ["rejected", "withdrawn", "undone", "failed"].includes(p.status) ? null : undoText(p.card);
+  return ["rejected", "withdrawn", "undone", "failed", "expired"].includes(p.status) ? null : undoText(p.card);
 }
 
 // `identical_pending` is null where nobody looked, which is not "no twins".
@@ -261,6 +262,12 @@ export function askedText(p) {
 export function mergeQueue(waiting, decided) {
   const inQueue = new Set(waiting.map((p) => p.id));
   return { waiting, decided: decided.filter((p) => !inQueue.has(p.id)) };
+}
+
+// An expired card is listed for a day so the analyst sees what happened to
+// it (S31, Burhan's call), but nobody can act on it: it is not waiting.
+export function waitingCount(list) {
+  return list.filter((p) => p.status !== "expired").length;
 }
 
 export function armDoor(id, door, now) { return { id, door, at: now }; }

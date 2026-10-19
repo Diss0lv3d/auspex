@@ -61,18 +61,20 @@ def _parser() -> argparse.ArgumentParser:
 
 
 async def _run(args: argparse.Namespace) -> str:
-    pool = await create_pool(get_settings().database_url, retries=3, delay=1.0)
+    settings = get_settings()
+    pool = await create_pool(settings.database_url, retries=3, delay=1.0)
     try:
         if args.command == "create-org":
             await admin.create_org(pool, kind=args.kind, name=args.name,
                                    workspace=args.workspace, admin_email=args.admin,
-                                   region=args.region)
+                                   region=args.region, storage_region=settings.storage_region)
             return (f"created {args.kind} organization {args.name!r}"
                     f" with workspace {args.workspace!r} ({args.region})")
         if args.command == "create-client":
             await admin.create_client(pool, provider=args.provider, name=args.name,
                                       workspace=args.workspace, region=args.region,
-                                      admin_email=args.admin, restricted=args.restricted)
+                                      admin_email=args.admin, restricted=args.restricted,
+                                      storage_region=settings.storage_region)
             return (f"created client {args.name!r} of {args.provider!r}"
                     f" with workspace {args.workspace!r} ({args.region})")
         if args.command == "set-restricted":
@@ -86,8 +88,8 @@ async def _run(args: argparse.Namespace) -> str:
             await admin.remove_member_by_email(pool, workspace=args.workspace, email=args.email)
             return f"membership in {args.workspace!r} removed"
         if args.command == "rehome-person":
-            await admin.rehome_person(pool, email=args.email, org=args.org)
-            return f"person rehomed to {args.org!r}"
+            rehomed = await admin.rehome_person(pool, email=args.email, org=args.org)
+            return f"person rehomed to {args.org!r} (was {rehomed.previous_org!r})"
         lines = []
         for row in await admin.overview(pool):
             parent = f" of {row['parent']}" if row["parent"] else ""

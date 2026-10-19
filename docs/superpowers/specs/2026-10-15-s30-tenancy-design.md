@@ -319,9 +319,11 @@ D-068 and D-069; reviews in STATE.md's S30 section):
   homed in the wrong organization (only while they hold no membership), audited
   as a ninth action, `person.rehome`. An admin can still create a person with
   any email over the API; limiting that is TD-059, a hard gate before Google
-  sign-in. B-021: the event shows the old organization's name to the new one's
-  admins (open).
+  sign-in. B-021 (fixed at S31, `b1fa61e`): the event showed the old
+  organization's name to the new one's admins; it now records only `to`, and
+  the CLI prints the old home to the operator.
 - **`/api/audit`'s `before` must carry a UTC offset** (an offset-less value is
   a 422).
-- **D-069 overturns §4's bound**: a `ksa` workspace will live only on a
-  deployment that stores data in KSA (built in a later session).
+- **D-069 overturns §4's bound**: a `ksa` workspace lives only on a
+  deployment that stores data in KSA (built at S31, `6cd68e9`:
+  `STORAGE_REGION`; one already elsewhere is named at startup).

@@ -88,7 +88,7 @@ def test_an_action_declares_itself_and_stays_an_ordinary_function():
         params=[ActionParam("ticket_id", ParamType.STRING, "Ticket id")],
         dry_run=_would,
     )
-    async def close_ticket(ticket_id: str) -> ActionOutcome:
+    async def close_ticket(ticket_id: str, **_) -> ActionOutcome:
         return ActionOutcome(would="closed")
 
     spec = spec_of(close_ticket)

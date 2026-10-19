@@ -8,7 +8,7 @@ LLM**. You bring an OpenAI-compatible endpoint; the platform adapts to whatever
 it can actually do. We never pay for inference, and neither does a pilot.
 
 > **Status: pre-beta.** Everything described below is built, tested and running
-> — 1603 tests, `docker compose up` green. The [What Auspex does not do
+> — 1687 tests, `docker compose up` green. The [What Auspex does not do
 > yet](#what-auspex-does-not-do-yet) section is not a roadmap wish-list; it is
 > the honest boundary of what you get today, and it is worth reading before the
 > feature list.
@@ -70,7 +70,7 @@ The agent **proposes**; a human decides. Proposals carry a **fingerprint** of th
 action's full declared contract, so an approver is shown exactly what they are
 approving and a spec that changed between proposal and approval fails the
 re-check. Approval settles exactly once under concurrency (a conditional UPDATE,
-raced and verified). Actions declare their own undo, and `POST
+raced and verified). A proposal nobody decides within 24 hours expires: approve and reject refuse it in the same statement, and it reads `expired`. Actions declare their own undo, and `POST
 /api/proposals/{id}/undo` runs it.
 
 `EXECUTABLE_SYSTEMS` is `{"auspex"}` — see the honesty section.
@@ -185,8 +185,8 @@ Read this part. A demo that only walks the happy path is a demo that lies.
   declares no way to look is never `failed`, only `incomplete`. One bound
   remains: a handler that is merely *slow* on a run a human abandoned can land
   its write after the put-back. When it does, its answer is recorded on the
-  row, never dropped. There is still no idempotency key, which matters the day
-  an action reaches a network.
+  row, never dropped. Every run and put-back carries an idempotency key, one per operation, so a
+  handler can drop a repeat; the built-in note action does.
 - **Definition ranking is measured on eleven queries, not a benchmark.** The
   definition path fuses over documents and picks the page a question is most
   *about*, by title/question overlap in code (`auspex/kb/canonical.py`) — 7 of 7
@@ -201,9 +201,13 @@ Read this part. A demo that only walks the happy path is a demo that lies.
   A workspace the engine may not serve gets no co-analyst turn, and one whose
   region no connected source may serve gets no third-party lookup — refused by
   code, with the reason. There are no per-workspace engines: a KSA client on a
-  global deployment has the LLM-free answers only. A workspace's own records
-  (chats, indicators, investigations, its audit trail) are stored on this
-  deployment's own database and search index, wherever the deployment runs.
+  deployment whose engine is global has the LLM-free answers only. A workspace's
+  own records (chats, indicators, investigations, its audit trail) are stored on
+  this deployment's own database and search index, wherever the deployment runs.
+  A `ksa` workspace can be created only on a deployment that declares it stores
+  its data in `ksa` (`STORAGE_REGION`). One made before that rule is named in a
+  startup warning, not moved. The declaration is the operator's: nothing
+  verifies where the database actually runs.
 
 ---
 
@@ -253,7 +257,7 @@ off-corpus question returns an honest miss instead of a confident wrong answer.
 ## Development
 
 ```bash
-./ci.sh          # the gate: ruff + 1603 tests + container build + installed-dist check
+./ci.sh          # the gate: ruff + 1687 tests + container build + installed-dist check
 make check       # same thing
 make up / down   # stack lifecycle
 ```

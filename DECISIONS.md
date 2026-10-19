@@ -2550,6 +2550,16 @@ itself), stand.
 - The declaration is the operator's; nothing verifies where the database
   actually runs.
 
+**D-069 addendum (2026-10-16, S31 — built).** Burhan placed the build in
+S31's Step 0 (`6cd68e9`, tests hardened `34d5650` after a fresh review that
+found no bypass). `STORAGE_REGION` (default `global`; an unknown value stops
+startup) declares where the deployment stores data; `create-org` and
+`create-client` refuse a workspace whose region it may not hold (the
+`may_process` rule: `global` anywhere, a region only on itself), before
+anything is written. **The bound left to the build, Burhan's call:** a
+workspace already on a deployment whose storage may not hold it is named in a
+startup WARNING and keeps being served; nothing moves or refuses it.
+
 ## D-070 — The page's tenancy rules: a switch reloads, /me judges access (2026-10-16, F4)
 
 **Context.** S30 made a token one workspace and gave people several (D-061,

@@ -22,7 +22,7 @@ re-checks both the D-014 gate and that identity before it touches anything
         dry_run=would_isolate,                 # required, and never `execute`
         undo=UndoSpec("Release the host", release, restores="network connectivity"),
     )
-    async def isolate_host(host_id: str) -> ActionOutcome: ...
+    async def isolate_host(host_id: str, **_) -> ActionOutcome: ...
 
     registry = ActionRegistry()
     registry.register(isolate_host)
@@ -34,6 +34,7 @@ from auspex.actions.proposal import canonical_spec, card, fingerprint
 from auspex.actions.registry import ActionManifest, ActionRegistry
 from auspex.actions.settlement import (
     EXECUTABLE_SYSTEMS,
+    PROPOSAL_TTL_SECONDS,
     STALE_CLAIM_SECONDS,
     ActionExecutor,
     ExecutionRefused,
@@ -41,6 +42,7 @@ from auspex.actions.settlement import (
     Settlement,
     SettleResult,
     check_executable,
+    operation_key,
 )
 from auspex.actions.types import (
     ActionOutcome,
@@ -56,6 +58,7 @@ from auspex.actions.types import (
 
 __all__ = [
     "EXECUTABLE_SYSTEMS",
+    "PROPOSAL_TTL_SECONDS",
     "STALE_CLAIM_SECONDS",
     "SPEC_ATTR",
     "ActionExecutor",
@@ -78,6 +81,7 @@ __all__ = [
     "card",
     "check_executable",
     "fingerprint",
+    "operation_key",
     "spec_of",
     "validate_spec",
 ]

@@ -8,6 +8,7 @@ from _tenancy import drop_orgs, token
 
 from auspex.config import get_settings
 from auspex.db import create_pool
+from auspex.tenancy import __main__ as cli
 from auspex.tenancy.__main__ import main
 
 PREFIX = "t-s30-cli"
@@ -27,7 +28,25 @@ def clean(client, settings):
     asyncio.run(_drop())
 
 
-def test_the_cli_builds_an_mssp_and_lists_it_without_emails(clean, capsys):
+def _storage(monkeypatch, region: str) -> None:
+    """A deployment that stores its data in `region` (D-069), as the CLI sees
+    it, whatever this machine's STORAGE_REGION says. A copy of the suite's
+    settings, so its signing key stays the same."""
+    stored = get_settings().model_copy(update={"storage_region": region})
+    monkeypatch.setattr(cli, "get_settings", lambda: stored)
+
+
+@pytest.fixture
+def ksa_storage(monkeypatch):
+    _storage(monkeypatch, "ksa")
+
+
+@pytest.fixture
+def global_storage(monkeypatch):
+    _storage(monkeypatch, "global")
+
+
+def test_the_cli_builds_an_mssp_and_lists_it_without_emails(clean, ksa_storage, capsys):
     assert main(["create-org", "--kind", "provider", "--name", f"{PREFIX}-mssp",
                  "--workspace", f"{PREFIX}-mssp", "--admin", f"boss@{PREFIX}.auspex.dev"]) == 0
     assert main(["create-client", "--provider", f"{PREFIX}-mssp", "--name", f"{PREFIX}-bank",
@@ -48,6 +67,22 @@ def test_a_refusal_exits_1_with_the_reason(clean, capsys):
     assert main(["create-client", "--provider", f"{PREFIX}-nope", "--name", f"{PREFIX}-x",
                  "--workspace", f"{PREFIX}-x"]) == 1
     assert "No organization named" in capsys.readouterr().err
+
+
+def test_a_ksa_workspace_is_refused_where_the_deployment_stores_elsewhere(
+        clean, global_storage, capsys):
+    """D-069: on a deployment that stores in `global`."""
+    assert main(["create-org", "--kind", "provider", "--name", f"{PREFIX}-mssp",
+                 "--workspace", f"{PREFIX}-mssp", "--admin", f"boss@{PREFIX}.auspex.dev",
+                 "--region", "ksa"]) == 1
+    assert "ksa" in capsys.readouterr().err
+    assert main(["create-org", "--kind", "provider", "--name", f"{PREFIX}-mssp",
+                 "--workspace", f"{PREFIX}-mssp", "--admin", f"boss@{PREFIX}.auspex.dev"]) == 0
+    assert main(["create-client", "--provider", f"{PREFIX}-mssp", "--name", f"{PREFIX}-bank",
+                 "--workspace", f"{PREFIX}-bank", "--region", "ksa"]) == 1
+    assert "ksa" in capsys.readouterr().err
+    assert main(["list"]) == 0
+    assert f"{PREFIX}-bank" not in capsys.readouterr().out
 
 
 def test_an_unknown_region_is_refused_before_anything_is_written(clean, capsys):
@@ -124,7 +159,8 @@ def test_a_person_claimed_by_another_organization_is_recovered_by_the_cli(
                          headers=token(settings, a_admin, a_ws)).status_code == 200
     assert main(["rehome-person", "--email", ceo, "--org", b]) == 0
     done = capsys.readouterr()
-    assert b in done.out and "@" not in done.out + done.err
+    assert b in done.out and a in done.out  # the operator, not B's admins, reads the old home
+    assert "@" not in done.out + done.err
 
     added = client.post("/api/workspace/members", json={"email": ceo, "role": "admin"},
                         headers=b_headers)
@@ -133,6 +169,7 @@ def test_a_person_claimed_by_another_organization_is_recovered_by_the_cli(
     events = client.get("/api/audit", headers=b_headers).json()["events"]
     rehomed = [e for e in events if e["action"] == "person.rehome"]
     assert len(rehomed) == 1
-    assert rehomed[0]["details"] == {"from": a, "to": b}
+    assert rehomed[0]["details"] == {"to": b}
+    assert a not in str(events)  # B-021: nothing B's admins read names A
     assert rehomed[0]["subject"]["user_id"] == ceo_id
     assert rehomed[0]["actor"]["kind"] == "cli"

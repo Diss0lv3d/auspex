@@ -1,7 +1,8 @@
 """Residency as a refusal (D-061; S30 design §4).
 
 Each workspace carries a region; the deployment's engine processes in one
-(`ENGINE_REGION`), and each enrichment provider declares its own in code. A
+(`ENGINE_REGION`), it stores its data in one (`STORAGE_REGION`, D-069), and each
+enrichment provider declares its own in code. A
 `global` workspace carries no residency constraint, so anything may serve it;
 any other region is served only from inside itself. Stdlib only: `auspex.config`
 imports this module.
@@ -36,6 +37,18 @@ def engine_refusal(workspace_region: str, engine_region: str) -> str | None:
         f"This workspace's data must stay in region {workspace_region}, and the "
         f"platform's engine here processes in region {engine_region}, so it cannot "
         "run this request. Answers that need no engine still work."
+    )
+
+
+def storage_refusal(workspace_region: str, storage_region: str) -> str | None:
+    """The reason a workspace cannot be made on this deployment (D-069), or None.
+    Storing is processing at rest: the same rule as `may_process`."""
+    if may_process(workspace_region, storage_region):
+        return None
+    return (
+        f"A workspace whose data must stay in region {workspace_region} cannot be "
+        f"created here: this deployment stores its data in region {storage_region} "
+        "(STORAGE_REGION)."
     )
 
 

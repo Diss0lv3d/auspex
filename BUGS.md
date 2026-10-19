@@ -395,7 +395,13 @@ are never deleted.
   (`provision_dev_user` does not).
 - **Burhan's call (2026-10-15):** promote S30 now, fix in the next backend
   session (S31's Step 0) unless B3 takes it first.
-- **Status:** open.
+- **Status:** fixed `b1fa61e` (S31). The event keeps only `to`; the CLI
+  prints the old home (`Rehomed.previous_org`); the rehome locks `users` alone,
+  so a second one waits and moves the person on (test-pinned, 4/4 mutants).
+  The docstring names `provision_dev_user` as the write that holds no
+  workspace. The fresh review found nothing the new home's admins can read
+  that names the old one; its test gap was pinned (`3d5007b`), and the older
+  race it found in `entry.py` is B-025.
 
 ## B-022 — the output rail stops a note-only request when the model's thinking quotes the note tool's description
 
@@ -449,4 +455,47 @@ are never deleted.
   fixing.
 - **Note:** a fix (a Switch button, or handling the keys) changes the
   switcher's UX, which is Burhan's call.
+- **Status:** open.
+
+## B-025 — a sign-in that races a rehome shows the old organization's admins the NEW organization's name
+
+- **Found:** 2026-10-16, S31 (Claude), the fresh adversarial review of B-021's
+  fix (`b1fa61e`). Older than that fix; not in its lines.
+- **What happened (reproduced, forced order):** `enter()` decides access, then
+  reads the person's home organization in a separate query
+  (`auspex/tenancy/entry.py:24-27`). When the membership is removed and the
+  person rehomed between the two, the `workspace.enter` event lands in the OLD
+  home's workspace stamped with the NEW home as `actor.organization`, and the
+  old organization's admins read that name through `GET /api/audit`: another
+  customer's. The window is milliseconds and needs an admin and the operator to
+  act during one sign-in or switch.
+- **Evidence:** docs/probes/2026-10-16-s31-b025-enter-race.md (script
+  `docs/probes/s31-b025/race_enter.py`; output `client1's trail, newest:
+  workspace.enter actor.organization = t-s31-b021rev-othercustomer`).
+- **Fix sketch (the review's):** read the home and the access in one statement,
+  or lock the person's row `FOR SHARE` and re-check inside one transaction.
+- **Status:** open.
+
+## B-026 — an action argument named like a platform keyword is approved, then the run fails and reads "incomplete"
+
+- **Found:** 2026-10-16, S31 (Claude), the fresh review of the idempotency key
+  (`c0af959`); reproduced by the session before logging. The class is older:
+  `proposal_id` and `workspace_id` collided before S31, and S31 added
+  `idempotency_key` to it.
+- **What happened (reproduced):** a note proposal whose arguments carry an
+  extra key named `idempotency_key` (or `proposal_id`) beside the declared
+  ones dry-runs, files and is approved. The approved run then raises
+  `TypeError: …run() got multiple values for keyword argument
+  'idempotency_key'`, and the row reads `incomplete` with effects `unknown`
+  ("It failed, and cannot tell whether any of it landed") although no note was
+  written. `validate_spec` refuses a DECLARED parameter with such a name (S31);
+  an undeclared argument key is not dropped or refused at propose time, and
+  the note action's dry run accepts it in `**_`. A tool call's arguments come
+  from the model.
+- **Evidence:** docs/probes/2026-10-16-s31-jobs-live.md ("Found here,
+  logged"), script `docs/probes/s31-live/probe_platform_keyword_arg.py`:
+  `[idempotency_key] row: status=incomplete result={"error": "TypeError",
+  "effects": "unknown"} notes=0`, and the same for `proposal_id`.
+- **Fix sketch (the review's):** refuse or strip undeclared argument keys (at
+  least the platform's own keywords) when a proposal is filed.
 - **Status:** open.

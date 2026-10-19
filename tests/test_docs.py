@@ -119,6 +119,11 @@ def test_the_readme_does_not_promise_what_the_code_does_not_do():
             " wherever the deployment runs.") in " ".join(readme.split())
     assert 'REGIONS: frozenset[str] = frozenset({GLOBAL, "ksa"})' in region
     assert "return workspace_region == GLOBAL or workspace_region == processor_region" in region
+    # D-069 (built at S31): and where that may be is the deployment's declaration.
+    admin = (ROOT / "auspex" / "tenancy" / "admin.py").read_text()
+    assert ("A `ksa` workspace can be created only on a deployment that declares it"
+            " stores its data in `ksa` (`STORAGE_REGION`).") in " ".join(readme.split())
+    assert admin.count("_check_storage(region, storage_region)") == 2  # both create paths
 
 
 def test_the_demo_only_calls_routes_that_exist():

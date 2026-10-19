@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   createPacer, indicatorText, markdownNodes,
-  doorsFor, statusText, undoText, undoLineFor, askedText, mergeQueue, armDoor, confirmable,
+  doorsFor, statusText, undoText, undoLineFor, askedText, mergeQueue, waitingCount, armDoor, confirmable,
   spendText, chatSpendText, chatIdFromHash, hashBelongsHere, relativeTime, chatListLabel, ledgerSpendText, endingText, reopenedTurnPlan,
   noAnswerNote, overlayAfter, proposalLine,
 } from "../../auspex/static/js/page-logic.js";
@@ -524,4 +524,20 @@ test("a proposal line reads the same from a reopened turn's row and from the pan
 test("a proposal with no summary anywhere is named by its action", () => {
   assert.equal(proposalLine({ id: "x", action: "isolate_host", status: "rejected" }, NOON),
     "Proposal: isolate_host · Rejected");
+});
+
+test("an expired proposal says so, offers no door and no undo line (S31)", () => {
+  const now = Date.parse("2026-10-12T02:10:00Z");
+  const expired = proposal("expired", { resolved_at: "2026-10-12T02:00:00Z" });
+  assert.equal(statusText(expired, now), "Expired: nobody decided in time; propose it again");
+  assert.deepEqual(doors(expired), []);
+  assert.deepEqual(doors(expired, "admin"), []);
+  assert.equal(undoLineFor(expired), null);
+});
+
+test("an expired card is listed but not counted as waiting (S31)", () => {
+  assert.equal(waitingCount([proposal("pending_approval"), proposal("expired"),
+    proposal("incomplete")]), 2);
+  assert.equal(waitingCount([proposal("expired")]), 0);
+  assert.equal(waitingCount([]), 0);
 });

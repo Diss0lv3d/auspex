@@ -121,28 +121,37 @@ def annotate_observable_spec(pool: asyncpg.Pool) -> ActionSpec:
             detail={"resolved": True, "value": target["value"], "note": text},
         )
 
-    async def run(*, workspace_id, proposal_id: str, observable_id: str, note: str, **_):
+    async def run(*, workspace_id, proposal_id: str, idempotency_key: str,
+                  observable_id: str, note: str, **_):
         target = await _resolve(pool, workspace_id, observable_id)
         if target is None:
             raise ValueError(f"no observable {observable_id!r} in this workspace")
         text = _clean(note)
-        await pool.execute(
+        # One note per key (TD-025, S31): a repeat of this execute writes nothing
+        # and says so, instead of a second note.
+        inserted = await pool.fetchval(
             """
             INSERT INTO observable_notes
-                (workspace_id, observable_id, note, source, proposal_id)
-            VALUES ($1::uuid, $2::uuid, $3, $4, $5::uuid)
+                (workspace_id, observable_id, note, source, proposal_id, idempotency_key)
+            VALUES ($1::uuid, $2::uuid, $3, $4, $5::uuid, $6)
+            ON CONFLICT (workspace_id, idempotency_key) WHERE idempotency_key IS NOT NULL
+            DO NOTHING
+            RETURNING id
             """,
             str(workspace_id),
             str(target["id"]),
             text,
             NOTE_SOURCE,
             str(proposal_id),
+            idempotency_key,
         )
+        did = ("Attached an analyst note to" if inserted is not None
+               else "The note this approval adds was already on")
         return ActionOutcome(
-            would=f"Attached an analyst note to {target['type']} {target['value']}.",
+            would=f"{did} {target['type']} {target['value']}.",
             affects=(target["obs_id"],),
             reversible=True,
-            detail={"value": target["value"], "note": text},
+            detail={"value": target["value"], "note": text, "repeat": inserted is None},
         )
 
     async def put_back(*, workspace_id, proposal_id: str, observable_id: str, **_):

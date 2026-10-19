@@ -38,6 +38,7 @@ drift S16's staleness module exists to prevent for aging.
 
 from __future__ import annotations
 
+import inspect
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -62,6 +63,22 @@ ActionHandler = Callable[..., Awaitable["ActionOutcome"]]
 # same keyword arguments as `execute` (workspace_id, proposal_id, the action's
 # params). 0 means "looked, and nothing of this proposal's is there".
 EffectsProbe = Callable[..., Awaitable[int]]
+
+# The keywords the platform passes every handler (S31): an action parameter of
+# the same name would collide with them on the call.
+PLATFORM_KEYWORDS = frozenset({"workspace_id", "proposal_id", "idempotency_key"})
+
+
+def _takes_keyword(fn: Callable, name: str) -> bool:
+    try:
+        params = inspect.signature(fn).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(
+        p.kind is p.VAR_KEYWORD
+        or (p.name == name and p.kind in (p.KEYWORD_ONLY, p.POSITIONAL_OR_KEYWORD))
+        for p in params
+    )
 
 
 class ParamType(StrEnum):
@@ -316,6 +333,18 @@ def validate_spec(spec: ActionSpec) -> None:
                 "a look that runs, previews or reverts is not a look"
             )
 
+    # TD-025 (S31): every attempt hands its handlers the operation's idempotency
+    # key. A handler that cannot take it would fail at run time, after a human
+    # approved; refuse it at registration instead.
+    undo_fn = spec.undo.handler if spec.undo is not None else None
+    for role, fn in (("execute", spec.execute), ("undo.handler", undo_fn),
+                     ("observe", spec.observe)):
+        if fn is not None and not _takes_keyword(fn, "idempotency_key"):
+            raise ActionSpecError(
+                f"{spec.name}: {role} must accept an idempotency_key keyword — every "
+                "attempt hands it one (TD-025)"
+            )
+
     if not spec.scope:
         raise ActionSpecError(
             f"{spec.name}: declare at least one scope — an approver is consenting to "
@@ -346,6 +375,11 @@ def validate_spec(spec: ActionSpec) -> None:
                 "ASCII letters, digits and underscore, not starting with a digit "
                 "(it is a JSON-schema property the model has to name)"
             )
+        if p.name in PLATFORM_KEYWORDS:
+            raise ActionSpecError(
+                f"{spec.name}: parameter {p.name!r} is a name the platform passes every "
+                "handler itself"
+            )
         if p.name in seen:
             raise ActionSpecError(f"{spec.name}: duplicate parameter {p.name!r}")
         seen.add(p.name)
@@ -358,6 +392,7 @@ def validate_spec(spec: ActionSpec) -> None:
 
 
 __all__ = [
+    "PLATFORM_KEYWORDS",
     "ActionHandler",
     "ActionOutcome",
     "ActionParam",

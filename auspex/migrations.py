@@ -14,6 +14,9 @@ import asyncpg
 
 logger = logging.getLogger("auspex.migrations")
 
+# Held by a booting replica while it re-runs the schema; the jobs queue takes it shared.
+MIGRATION_LOCK = 715001
+
 SCHEMA_V0: list[str] = [
     'CREATE EXTENSION IF NOT EXISTS "pgcrypto"',
     """
@@ -494,7 +497,7 @@ SCHEMA_V0: list[str] = [
             CHECK (status IN ('pending_approval', 'approved', 'rejected',
                               'executing', 'executed', 'failed', 'incomplete',
                               'kept', 'undoing', 'undone', 'abandoned',
-                              'withdrawn'));
+                              'withdrawn', 'expired'));
     END $$
     """,
     # S21 (TD-028a): when the claim was taken. Without it "this claim is stale"
@@ -796,14 +799,73 @@ S30_TENANCY: list[str] = [
     """,
 ]
 
-SCHEMA_V0 = [*SCHEMA_V0, *S30_TENANCY]
+# S31 (D-065; docs/superpowers/specs/2026-10-16-s31-jobs-design.md §1): the jobs
+# queue. Every job belongs to one workspace (D-008); a provider's shared
+# integration's jobs belong to the provider's workspace. `max_attempts` and
+# `lease_seconds` are copied from the kind at enqueue, so a claim needs no code.
+S31_JOBS: list[str] = [
+    """
+    CREATE TABLE IF NOT EXISTS jobs (
+        id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id     uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        kind             text NOT NULL,
+        integration_id   uuid,
+        payload          jsonb NOT NULL DEFAULT '{}',
+        idempotency_key  text NOT NULL,
+        status           text NOT NULL DEFAULT 'queued',
+        attempts         integer NOT NULL DEFAULT 0,
+        max_attempts     integer NOT NULL CHECK (max_attempts >= 1),
+        lease_seconds    integer NOT NULL CHECK (lease_seconds >= 1),
+        run_after        timestamptz NOT NULL DEFAULT now(),
+        lease_expires_at timestamptz,
+        claim_token      uuid,
+        claimed_by       text,
+        result           jsonb,
+        last_error       text,
+        created_at       timestamptz NOT NULL DEFAULT now(),
+        finished_at      timestamptz,
+        UNIQUE (workspace_id, idempotency_key)
+    )
+    """,
+    # THE ONLY BLOCK THAT MAY DEFINE THIS CONSTRAINT (the proposals rule, S26):
+    # a new job status is added HERE, in place.
+    """
+    DO $$
+    BEGIN
+        ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_status_check;
+        ALTER TABLE jobs ADD CONSTRAINT jobs_status_check
+            CHECK (status IN ('queued', 'claimed', 'done', 'failed', 'dead'));
+    END $$
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_jobs_ready ON jobs (status, run_after)",
+    "CREATE INDEX IF NOT EXISTS idx_jobs_ws_status ON jobs (workspace_id, status)",
+    # Whose turn it was (§1): the claim serves the least-recently-served
+    # workspace first, so one busy client cannot starve the rest.
+    """
+    CREATE TABLE IF NOT EXISTS job_turns (
+        workspace_id   uuid PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+        last_served_at timestamptz NOT NULL
+    )
+    """,
+    # S31 (TD-025): the built-in note action keys its write on the operation's
+    # idempotency key, so a repeat of one execute leaves one note. Older rows
+    # stay NULL and are not de-duplicated.
+    "ALTER TABLE observable_notes ADD COLUMN IF NOT EXISTS idempotency_key text",
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_observable_notes_idempotency
+        ON observable_notes (workspace_id, idempotency_key)
+        WHERE idempotency_key IS NOT NULL
+    """,
+]
+
+SCHEMA_V0 = [*SCHEMA_V0, *S30_TENANCY, *S31_JOBS]
 
 
 async def run_migrations(pool: asyncpg.Pool) -> None:
     async with pool.acquire() as conn:
         # Serialize concurrent app replicas racing the same DDL.
         async with conn.transaction():
-            await conn.execute("SELECT pg_advisory_xact_lock(715001)")
+            await conn.execute("SELECT pg_advisory_xact_lock($1)", MIGRATION_LOCK)
             for statement in SCHEMA_V0:
                 await conn.execute(statement)
     logger.info("Schema v0 migration applied (idempotent, %d statements)", len(SCHEMA_V0))

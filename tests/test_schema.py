@@ -20,6 +20,8 @@ EXPECTED_TABLES = {
     "messages",
     "llm_endpoint_scorecards",
     "proposals",
+    "jobs",
+    "job_turns",
     "observables",
     "verdicts",
     "ingest_state",
@@ -243,7 +245,7 @@ async def test_startup_survives_every_status_a_proposal_can_be_in(client, settin
             " WHERE conname = 'proposals_status_check'"
         )
         statuses = re.findall(r"'([a-z_]+)'::text", definition)
-        assert {"incomplete", "abandoned", "pending_approval"} <= set(statuses)
+        assert {"incomplete", "abandoned", "pending_approval", "expired"} <= set(statuses)
         ws = await ensure_workspace(conn, "t-every-status")
         for status in statuses:
             await conn.execute(
@@ -305,4 +307,17 @@ async def test_the_region_check_is_the_codes_vocabulary(client, settings):
         )
         assert set(re.findall(r"'(\w+)'", definition)) == REGIONS
     finally:
+        await conn.close()
+
+
+async def test_a_job_status_outside_the_list_is_refused(client, settings):
+    conn = await _connect(settings)
+    try:
+        ws = await ensure_workspace(conn, "t-s31-job-status")
+        with pytest.raises(asyncpg.CheckViolationError):
+            await conn.execute(
+                "INSERT INTO jobs (workspace_id, kind, idempotency_key, max_attempts,"
+                " lease_seconds, status) VALUES ($1, 't.s31.x', 'k', 1, 1, 'running')", ws)
+    finally:
+        await conn.execute("DELETE FROM workspaces WHERE name = 't-s31-job-status'")
         await conn.close()

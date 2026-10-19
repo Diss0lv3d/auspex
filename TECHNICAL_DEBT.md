@@ -1,5 +1,54 @@
 # Technical debt — logged the moment it's taken
 
+## TD-065 (S31) — the jobs queue is polled, and its claim sorts every ready job
+
+**Where:** `auspex/jobs/worker.py` (`POLL_SECONDS = 5`) and
+`auspex/jobs/queue.py` (`claim`: `ORDER BY t.last_served_at NULLS FIRST,
+j.run_after, j.id` over a LEFT JOIN on `job_turns`).
+**Risk:** LOW today. A job waits up to one poll (5 s) before a worker sees it:
+no `LISTEN/NOTIFY` (D-065's stated bound). The fairness order is on a joined
+column, so `idx_jobs_ready` cannot hand back an ordered `LIMIT 1`: each claim
+sorts every ready job in its scope, which costs as much as the backlog.
+**Why taken:** D-065 chose a polled queue for v1. Round-robin across workspaces
+is the exit criterion; S31's queues hold a handful of rows per workspace.
+**Path to fix:** wake the worker on `NOTIFY` (probe the delivery guarantees
+first, as TD-025 asked for the card stream); pick the workspace first from
+`job_turns` (or a small per-workspace ready count) and then the oldest ready
+job in it, so each step can use an index.
+**Trigger:** a backlog of thousands of ready jobs, or a fetch schedule (S35)
+whose latency the 5 s poll shows.
+
+## TD-064 (S31) — a job cannot extend its lease
+
+**Where:** `auspex/jobs/queue.py` (the lease is set once by `claim`, from the
+kind's `lease_seconds`).
+**Risk:** MEDIUM from S33. A job that runs longer than its lease is re-claimed
+while it still runs, so it runs twice. The second run's key is the same, so a
+handler idempotent on it (D-065's contract) does no harm, but the work is done
+twice and the first run's answer is refused (`JobLost`, logged). In-app kinds
+today (`proposals.expire`) take milliseconds against a 60 s lease.
+**Why taken:** S31's design (Burhan's call 4): S33's Edge Agent heartbeats are
+where a lease gets extended.
+**Path to fix:** `extend(pool, job_id, token, seconds)`, token-checked like
+`complete`, called by an agent's heartbeat and by a long in-app handler.
+**Trigger:** S33 (the Edge Agent), or any kind whose run approaches its lease.
+
+## TD-063 (S31) — finished job rows are never pruned, and their keys stay taken
+
+**Where:** `jobs` (`auspex/migrations.py`, `S31_JOBS`).
+**Risk:** LOW. `done`, `failed` and `dead` rows stay forever. A key stays taken
+for the life of its row (spec §1), so a re-enqueue of a finished key is a no-op
+forever, which is the point; but the table grows by one row per job: the
+expiry schedule adds at most one per workspace per 5 minutes, and only when a
+workspace has an overdue proposal.
+**Why taken:** retention is a policy (how long an operator needs a dead job's
+error) nobody has set; S31 had none to apply.
+**Path to fix:** a retention per status (e.g. `done` 7 days, `dead` 30) as a
+code constant, swept by an in-app job kind; a kind whose key must stay taken
+longer says so.
+**Trigger:** the jobs table past ~100k rows, or the first fetch schedule (S35),
+which enqueues per integration per interval.
+
 ## TD-062 (F4) — a turn or a door started while a switch is out is cut or abandoned by the reload
 
 **Where:** `auspex/static/js/shell.js` (`switchTo`: `switching`, held until
