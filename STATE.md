@@ -1,25 +1,33 @@
 # STATE — Auspex
 
-_Last updated: 2026-10-16 — **S31 CLOSED** (session-end ritual run). `./ci.sh`
-green at S31's last code commit (`75af29b`): **1687 tests, 133 modules**.
-`/api/health/ready` 200. Branch `staging`. **Promote slate: all of S31**
-(B-021's fix, D-069's build, the jobs queue and TD-025's first half, their
-reviews' fixes, the records); promote #37 shipped F4._
+_Last updated: 2026-10-19 — **B3 handed to Hunaiza, before S32** (Burhan's
+call, planning window). **Promote #40 shipped all of S31** (`09af821`,
+back-merge `6007efb`): `./ci.sh` green fresh on staging `46b73ce`, **1687
+tests, 133 modules**; GitHub CI green on push and PR; `/api/health/ready` 200.
+Branch `staging`. **Promote slate: empty.**_
 
 ## Tracks (D-051) — read this first
 
 | Track | Prompt | Last closed | Next | Status |
 |---|---|---|---|---|
-| backend | `NEXT-SESSION-BE.md` | S31 (2026-10-16) | S32 | **focus** (the order table: S31 closed, S32 next) · Step 0: whether to promote S31 (Burhan's call), then S31's open ends S32 builds on |
+| backend | `NEXT-SESSION-BE.md` | S31 (2026-10-16) | S32 | **waits for B3** (order table row 4b) · Step 0: pull B3, promote its fixes, then S31's open ends S32 builds on |
 | front end | `NEXT-SESSION-FE.md` | F4 (2026-10-16) | F5 | waits for S32, S33 and S34 (the order table); F4 built the shell F5's admin pages stand on |
-| bugs | `NEXT-SESSION-BUGS.md` | B2 (2026-10-13) | B3 | S29 logged B-010…B-020 (B-010 is a stall a single message can cause), F4 B-022…B-024, S31 B-025…B-026 (S31 fixed B-021); B-005 and B-009 still wait on Burhan's call |
+| bugs | `NEXT-SESSION-BUGS.md` | B2 (2026-10-13) | B3 | **focus** · **Hunaiza's** (Burhan, 2026-10-19; D-059): B-010, then B-024 (GitHub #38, #39, assigned to her); she owns both bugs' calls, B-024's UX included; no promote |
 
-- **Focus: backend, S32** (the order table: S31 closed, S32 next). **Burhan's
-  calls to make:** **whether to promote S31 now** (not a milestone; the next is
-  S33, but it carries D-069's residency rule and B-021's fix); whether B3 takes
-  B-010 (three old classify rules a crafted message can stall for seconds)
-  before S32 — the order table does not place B3; and **B-024** (the
-  switcher's keyboard behaviour; a fix changes its UX).
+- **Focus: bugs, B3, run by Hunaiza; then backend, S32** (Burhan,
+  2026-10-19). Burhan's calls, made in the planning window:
+  - **S31 promoted now** (promote #40); the slate is empty.
+  - **B3 runs before S32**, scoped to **B-010** (three old classify rules a
+    crafted message can stall for seconds) **then B-024** (the switcher's
+    keyboard behaviour, unverified). Order table row 4b in
+    `NEXT-SESSION-BE.md`.
+  - **B3 is handed to Hunaiza (D-059)**, on her machine under her own
+    identity; GitHub #38 (B-010) and #39 (B-024) are assigned to her, and
+    Burhan tells her himself. **B-024's UX call goes with the handoff**
+    (Claude's default under D-059; Burhan left the question unanswered, so
+    he may take it back). Re-scoping stays his.
+  - **B3 does not promote**; S32's Step 0 promotes B3's fixes from Burhan's
+    window (Claude's default; his to change).
 - **The 2026-10-12 two-window collision is over.** F1 and B1 ran at once that
   morning, and both ran Step 0's `/promote`. B1 opened PR #30 while F1's
   `ci.sh` ran, and merged it 4 s before F1's merge; the promote is correct
@@ -780,11 +788,13 @@ scoped by a decision or a bug. **The integration phase (S30–S41, F4–F9) buil
 the spec; S30, F4 and S31 are done.**
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: all of S31** (`b1fa61e`…`ee8c0b7` and this session-end):
-   B-021's fix and its review's pin; D-069's build, its pins and addendum; the
-   S31 baseline, spec, plan, the eight tasks, the final review's fix wave, the
-   live record; B-025, B-026, TD-063…TD-065. S31 is not a milestone (the next
-   is S33): **whether to promote it now is Burhan's call** (S32's Step 0).
+1. **Promote slate: empty.** B3 adds to it and does not promote; S32's Step 0
+   ships B3's fixes. Promote #40 (`09af821`, back-merge `6007efb`; `./ci.sh`
+   green fresh, 1687 tests; GitHub CI green on push and PR; Burhan's call,
+   2026-10-19) shipped all of S31 (B-021's fix and its review's pin; D-069's
+   build, its pins and addendum; the S31 baseline, spec, plan, the eight
+   tasks, the final review's fix wave, the live record; B-025, B-026,
+   TD-063…TD-065; the session-end docs).
    Promote #37 (`6c12f18`, back-merge `992b9f4`;
    GitHub CI green on push and PR) shipped all of F4 (the Step 0 probe, the
    spec and plan, nine tasks, the final review's fix wave, the live records,
@@ -1379,13 +1389,13 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 **Pick a track (D-051); the Tracks table at the top has the ids.** Paste the
 prompt file of the track you mean. `/session-start` with no track asks.
 One window at a time (D-051).
-- **S32, backend, the focus** (`NEXT-SESSION-BE.md`): Step 0 asks Burhan
-  whether to promote S31 now, and which of S31's open ends (#30) S32 takes;
+- **B3, bugs, the focus — Hunaiza's** (`NEXT-SESSION-BUGS.md`, on her
+  machine): B-010 (a crafted message stalls the event loop), then B-024 (the
+  switcher's keyboard behaviour); GitHub #38, #39. She pushes staging at the
+  end and does not promote.
+- **S32, backend, after B3** (`NEXT-SESSION-BE.md`): Step 0 pulls B3 and
+  promotes its fixes, then asks which of S31's open ends (#30) S32 takes;
   then the connector contract, the SDK and the catalogue (D-060, D-064).
-- **B3, bugs** (`NEXT-SESSION-BUGS.md`), **if Burhan picks it**: B-010 (a
-  crafted message stalls the event loop) heads the open entries; B-005 and
-  B-009 still wait on his call; F4 added B-022…B-024, S31 B-025 and B-026
-  (S31 fixed B-021).
 - **F5, front end** (`NEXT-SESSION-FE.md`) starts only after S32, S33 and S34
   close (the order table): connectors, integrations, Edge Agents, memberships
   and approval-policy admin, on F4's shell and Members page.
