@@ -223,7 +223,15 @@ are never deleted.
   matching "evil.com." at the end of a sentence; candidates must start only at
   the beginning of a dotted run.
 - **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 8; docs/probes/s29-review/classify/redos.py.
-- **Status:** open. Assigned to Hunaiza for B3 (Burhan, 2026-10-19): GitHub #38.
+- **A fourth, found by B3's review of the fix:** `_ANALYTICAL_INITIAL_RE`
+  (`auspex/classify/classifier.py`) took 64.3 s on `"." + " " * 31998 + "x"`.
+  Fixed inside B-010 (Hunaiza's call).
+- **Status:** fixed `0207b4a` (B3). The refang rules take whitespace only from
+  where its run begins; the greeting and analytical rules are possessive; the
+  domain and e-mail rules are searched by linear scans that skip only the
+  positions proven to fail. The worst message at the cap went from 101 s to
+  12 ms, and what every rule matches is unchanged (0 differences on 200,501
+  inputs). Record: docs/probes/2026-10-19-b3-b010-b024.md. GitHub #38.
 
 ## B-011 — a request to analyse or draft that leads with "Note" or "write a note" resolves to `action_request`
 
@@ -455,7 +463,13 @@ are never deleted.
   fixing.
 - **Note:** a fix (a Switch button, or handling the keys) changes the
   switcher's UX, which is Burhan's call.
-- **Status:** open. Assigned to Hunaiza for B3 (Burhan, 2026-10-19), with the UX call: GitHub #39.
+- **Reproduced at B3:** in headless Chromium on Linux, three arrow presses on
+  the closed switcher made three switches and three reloads.
+- **Status:** fixed `2bc5eec` (B3). Hunaiza's call (the UX went with the
+  handoff): a Switch button. Choosing only selects; the button switches, and
+  is disabled for the active workspace and while the page is held. Live: three
+  arrows made no switch; Tab and Enter, or a click, made exactly one. Record:
+  docs/probes/2026-10-19-b3-b010-b024.md. GitHub #39.
 
 ## B-025 — a sign-in that races a rehome shows the old organization's admins the NEW organization's name
 
@@ -499,3 +513,27 @@ are never deleted.
 - **Fix sketch (the review's):** refuse or strip undeclared argument keys (at
   least the platform's own keywords) when a proposal is filed.
 - **Status:** open.
+
+## B-027 — `extract()` checks every match against every earlier span, so many observables take most of a second
+
+- **Found:** 2026-10-19, B3 (Claude), the fresh review of B-010's fix.
+  Outside B-010: this is not backtracking.
+- **What happened (measured by the review, not by B3):** `_spans_overlap`
+  (`auspex/classify/observables.py`) walks a list of spans for each match, so
+  the pass is O(matches × spans). `extract("a@b.co " * 4571)` took 234–835 ms
+  (load-dependent); `"http://a 1.2.3.4 " * 1882` 377 ms; `"http://a b.co " *
+  2285` 489 ms. All run on the chat route's event loop.
+- **Fix sketch (the review's):** walk the spans in sorted order, or bisect.
+- **Status:** open, not placed. Burhan's.
+
+## B-028 — a failed switch, after a re-check rebuilt the header with one workspace, throws on a null picker
+
+- **Found:** 2026-10-19, B3 (Claude), the fresh review of B-024's fix
+  (reasoned from the code; not reproduced). It predates B3.
+- **What happened (expected):** while a switch request is out, a `recheck()`
+  can re-render the header through `showSignedIn`. If `/me` then lists only
+  one workspace, `picker` becomes null; when the switch then fails,
+  `switchTo`'s recovery sets `picker.value` and throws
+  (`auspex/static/js/shell.js`, the lines after `switching = false`), leaving
+  the status at "switching…".
+- **Status:** open, not placed. Burhan's.
