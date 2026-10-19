@@ -259,7 +259,7 @@ def test_a_question_about_notes_keeps_its_shortcut():
 # per extra "hi"; the 80-character cap allowed ~13 min), and ~1 min for a
 # 32,000-character note request, run twice a turn. The inputs below are sized
 # so a regressed rule fails in seconds, not hangs the gate. Three older rules
-# in the same pass still backtrack (B-010).
+# in the same pass backtracked too, until B3 (B-010, below).
 _BOUNDED_MS = 50
 
 
@@ -294,3 +294,106 @@ def test_the_bounded_rules_still_read_their_lead_ins():
     for q in ("hey, add a note to 203.0.113.9: pentest box", "ok   add a note on it",
               "btw: annotate 203.0.113.9 as our scanner"):
         assert is_note_request(q), q
+
+
+# -- B-010: the greeting rule, and the pinned inputs through the whole pass ----
+
+
+def test_b010_the_greeting_rule_does_not_backtrack():
+    """`\\s*[!.,\\s]*$` split a run of spaces every way before failing at the
+    last character: 4.5 s at 8,000 characters, 102 s at the 32,000 cap (B3)."""
+    from auspex.classify.classifier import _GREETING_RE
+
+    for q in ("hi" + " " * 7997 + "x", "hey there" + " " * 7990 + "x",
+              "good morning" + "\t" * 7987 + "x"):
+        assert _elapsed_ms(_GREETING_RE.match, q) < _BOUNDED_MS, repr(q[:12])
+
+
+def test_b010_the_greeting_rule_still_reads_greetings():
+    from auspex.classify.classifier import _GREETING_RE
+
+    for q in ("hi", "Hello there!", "hey , team", "good   morning everyone...", "  yo ,auspex !! ",
+              "hiya", "morning", "hey,\tthere"):
+        assert _GREETING_RE.match(q), q
+    for q in ("hi there x", "hello world", "hey team, check 8.8.8.8", "hi" + " " * 50 + "x"):
+        assert not _GREETING_RE.match(q), q
+
+
+def test_b010_the_greeting_rule_matches_exactly_what_it_matched_before():
+    """A seeded differential fuzz against the rule as it stood before B-010."""
+    import random
+    import re
+
+    from auspex.classify.classifier import _GREETING_RE
+
+    before = re.compile(
+        r"""^\s*(?:hi|hiya|hello|hey|heya|howdy|yo|greetings|hola|salam|
+           good\s+(?:morning|afternoon|evening|day)|morning|evening)
+        (?:\s*,?\s*(?:there|again|all|team|everyone|folks|auspex))?
+    \s*[!.,\s]*$""",
+        re.IGNORECASE | re.VERBOSE,
+    )
+    words = ["hi", "hiya", "hello", "hey", "good", "morning", "evening", "there", "team",
+             "auspex", "x", " ", "  ", "\t", "\n", ",", "!", ".", "ya", "day", "all"]
+    rng = random.Random(1010)  # noqa: S311 -- a seeded fuzz, not a secret
+    for _ in range(4000):
+        q = "".join(rng.choice(words) for _ in range(rng.randint(0, 8)))
+        b, a = before.match(q), _GREETING_RE.match(q)
+        assert (b and b.span()) == (a and a.span()), repr(q)
+
+
+def test_b010_the_analytical_rule_does_not_backtrack():
+    """`(?:^|[.!?]\\s+)\\s*` split a run of spaces after a full stop every way
+    before failing: 64 s at the 32,000 cap. B3's review of the fix found it."""
+    from auspex.classify.classifier import _ANALYTICAL_INITIAL_RE
+
+    for q in ("." + " " * 7998 + "x", "x!" + "\t" * 7997 + "x", "?" + " \n" * 3999 + "x"):
+        assert _elapsed_ms(_ANALYTICAL_INITIAL_RE.search, q) < _BOUNDED_MS, repr(q[:3])
+
+
+def test_b010_the_analytical_rule_matches_exactly_what_it_matched_before():
+    import random
+    import re
+
+    from auspex.classify.classifier import _ANALYTICAL_INITIAL_RE
+
+    before = re.compile(
+        r"""(?:^|[.!?]\s+)\s*(?:
+        analy[sz]e | assess | evaluate | investigate | explain | triage\s+this\b |
+        break\s+down | walk\s+me\s+through | diagnose |
+        why\b | what\s+happened | how\s+did | how\s+was | compare | correlate
+    )""",
+        re.IGNORECASE | re.VERBOSE,
+    )
+    words = ["analyze", "assess", "why", "what happened", "how did", "triage this", "x", ".",
+             "!", "?", " ", "  ", "\t", "\n", "Explain", "whyx", "break down", "e.g."]
+    rng = random.Random(1010)  # noqa: S311 -- a seeded fuzz, not a secret
+    for _ in range(4000):
+        q = "".join(rng.choice(words) for _ in range(rng.randint(0, 8)))
+        b, a = before.search(q), _ANALYTICAL_INITIAL_RE.search(q)
+        assert (b and b.span()) == (a and a.span()), repr(q)
+
+
+def test_b010_the_pinned_inputs_clear_the_classify_pass_in_time():
+    """The exact inputs from the bug, at the 32,000-character cap
+    (tests/fixtures/classify/b010_redos.json), through extract() and classify()
+    in a child process: a regressed rule fails at the timeout instead of
+    holding the gate for minutes."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    fixture = Path(__file__).parent / "fixtures" / "classify" / "b010_redos.json"
+    code = (
+        "import json, sys, time\n"
+        "from auspex.classify import classify, extract\n"
+        "for c in json.load(open(sys.argv[1]))['inputs']:\n"
+        "    t = c['head'] + c['unit'] * c['repeat'] + c['tail']\n"
+        "    assert len(t) == 32000, (c['id'], len(t))\n"
+        "    s = time.perf_counter(); extract(t); classify(t)\n"
+        "    print(c['id'], round((time.perf_counter() - s) * 1000, 1), 'ms')\n"
+    )
+    run = subprocess.run(  # noqa: S603 -- our own interpreter, code and fixture
+        [sys.executable, "-c", code, str(fixture)], capture_output=True, text=True, timeout=10,
+    )
+    assert run.returncode == 0, run.stdout + run.stderr
