@@ -1,98 +1,105 @@
 # NEXT-SESSION-BUGS — track: bugs · session: B3
 
 _Paste everything below the line into a fresh Claude Code window opened in
-/home/burhan/auspex-new. The bugs track works from BUGS.md (D-051). The
-backend is the current focus (S32, STATE.md); start B3 only when Burhan picks
-it. S29's review of S28's code logged B-010…B-020, F4 logged B-022…B-024 and
-S31 logged B-025…B-026 (S31 fixed S30's B-021), so B3 has work now._
+your clone of the Auspex repo. **B3 is handed to Hunaiza (Burhan, 2026-10-19;
+D-059) and is the focus: it runs before S32.** Its scope is set: **B-010, then
+B-024** (GitHub #38 and #39, both assigned to her). Promote #40 shipped all of
+S31, so the slate is empty._
 
 ---
 
-SESSION B3 of Auspex, **bugs track** (D-051). The working dir must be
-/home/burhan/auspex-new. Run `/session-start bugs B3` first (the full ritual).
-It reads `SESSION-RULES.md` (standing rules for every track) and STATE.md.
+SESSION B3 of Auspex, **bugs track** (D-051). The working dir is your clone of
+the Auspex repo. Run `/session-start bugs B3` first (the full ritual). It reads
+`SESSION-RULES.md` (standing rules for every track) and STATE.md.
+
+**The handoff (D-059).** Burhan handed B3 to Hunaiza (`HunaizaK`, on
+SESSION-RULES.md's "Who works here" table). She works on her own machine, in
+her own clone, under her own personal identity. **Every call inside B3's scope
+is hers, B-024's UX call included**: wherever a rule says "Burhan's call" or
+"ask Burhan" about B-010 or B-024, ask her. Re-scoping (another bug, a
+Deferred item, a D-entry beyond these two bugs) stays Burhan's: say so, and
+she passes it on.
 
 Step 0 (do BEFORE new scope):
 
-1. **One window at a time (D-051).** If anything moves that you did not move,
-   check `ps` for a second `claude` in this directory and stop.
-2. **If STATE.md says the promote slate is not empty, `/promote` it.** Read
-   the diff, not the list.
-3. **Read BUGS.md, then put the scope question to Burhan before any bug.**
-   B2 fixed B-002, B-004, B-006 and B-008. S29's review of S28's code logged
-   **B-010…B-020** (record: docs/probes/2026-10-14-s29-s28-code-review.md,
-   scripts in docs/probes/s29-review/). **B-010 is the most severe:** three
-   older classify rules let one crafted message stall the chat route's event
-   loop for seconds (the refang rules, `_GREETING_RE`, `_DOMAIN_CAND_RE`; S29
-   fixed the two S28 rules with possessive quantifiers, `8187925`). **B-005
-   and B-009 still sit next to the deferred fabricated-specifics item**
-   (SESSION-RULES.md, Deferred). **S31 fixed B-021** (`b1fa61e`) and logged
-   **B-025** (a sign-in racing a rehome names the new organization to the old
-   one's admins; tenancy, so a fix gets a fresh-agent review) and **B-026** (an
-   undeclared action argument named like a platform keyword is approved, then
-   the run fails into `incomplete`; S32's Step 0 may take it, so ask Burhan
-   first). **F4 logged
-   B-022** (the rail cut a note-only request whose thinking quoted the note
-   tool's description: TD-044's action-request case), **B-023** (a `lapsed`
-   pill has no colour) and **B-024** (the switcher's keyboard behaviour,
-   unverified; a fix changes its UX, so Burhan's call). Ask him, with the
-   evidence:
-   - **Which open bug first?** The track's default is the top open entry;
-     B-010's severity argues for it.
-   - **Does the fabricated-specifics item come out of Deferred** (for B-005 and
-     B-009)? That is a scope decision and a new D-entry.
-   - Has he **seen anything broken using the platform?** Log each with `/bug`.
-   - **B-011 and B-012 change classifier rules**, so they are judged on blind
-     batteries (SESSION-RULES.md) against pinned operating points. **B-012 is
-     partly Burhan's call:** D-047 counts "bot / chat / platform" as the
-     assistant.
+1. **Start from GitHub.** `git checkout staging && git pull --ff-only origin
+   staging`. One session at a time holds across machines (D-051, D-059): if
+   `origin/staging` moves while B3 runs and you did not move it, stop and tell
+   Burhan. Never force-push.
+2. **The promote slate is empty** (promote #40 shipped S31, STATE.md), so B3
+   does not promote at its start. **B3 does not promote at its end either**:
+   S32's Step 0 ships B3's fixes from Burhan's window.
+3. **The scope is set; do not ask it again.** Read BUGS.md's B-010 and B-024
+   entries and GitHub #38 and #39. The rest of BUGS.md is not B3's.
 
-Goal (one bug at a time, Burhan's order; the S29 entries are in BUGS.md with
-their evidence and the reviewer's repro sketch):
-- **B-010: the classify pass can still be stalled by crafted whitespace or
-  dotted input.** A plain possessive would stop `_DOMAIN_CAND_RE` matching
-  "evil.com." at the end of a sentence, so candidates must start only at the
-  beginning of a dotted run. Pin each rule with a timing test like
-  `tests/test_classifier.py`'s, and prove by differential fuzz that what it
-  matches did not change.
-- **The S29 entries B-011…B-020**, as Burhan picks.
+Goal, in this order, one bug at a time:
 
-- **B-009: the agent calls a no-signal IP "legitimate"**, inferred from its
-  operator and from the absence of signals.
-  - B-006's fix handed the model `"reputation": "unknown"`, and it says
-    unknown 3/3 now, but it still writes "legitimate Google infrastructure"
-    3/3.
-  - Evidence: docs/probes/2026-10-13-b2-b006-reproduce.md and
-    docs/probes/b2-b006/raw-repro-after.jsonl. The probe that reproduces it
-    is `docs/probes/b2-b006/probe_repro.py`.
-- **B-005: on the conversational path glm forges the `⟦DATA⟧` fence** and
-  writes invented "platform data" inside it.
-  - Evidence: docs/probes/b1-b001/raw-replay-glm*.log.
-  - Replay with docs/probes/b1-b001/probe_replay_conversational.py, which
-    uses the route's own composition.
+**1. B-010: the classify pass can be stalled by crafted whitespace or dotted
+input** (GitHub #38). Three older rules backtrack quadratically and run
+synchronously on the chat route's event loop, so one message stalls every
+request on the worker:
+- the refang rules in `extract()` (`auspex/classify/observables.py:120-121`):
+  `extract("x" + " " * 31998 + "x")` took 3.65 s;
+- `_GREETING_RE` (`auspex/classify/classifier.py:158`): 1.1 s at 8,000
+  characters, ~18 s at the 32,000-character cap;
+- `_DOMAIN_CAND_RE` (`auspex/classify/observables.py:181`) on `"a." * n`:
+  `classify("a." * 16000)` took 5.7 s; `_EMAIL_RE` (`:153`) is slow on the
+  same input.
 
-For whichever is picked:
+S29 fixed two S28 rules of the same class with possessive quantifiers
+(`8187925`); follow that. **But a plain possessive would stop
+`_DOMAIN_CAND_RE` matching "evil.com." at the end of a sentence**: candidates
+must start only at the beginning of a dotted run.
+- Reproduce first with `docs/probes/s29-review/classify/redos.py` (record:
+  docs/probes/2026-10-14-s29-s28-code-review.md, finding 8). Save the before
+  timings to `docs/probes/<date>-b3-b010-redos.md`.
+- Pin each rule with a timing test like `tests/test_classifier.py`'s
+  (`time.perf_counter`, around `:267`).
+- **Prove by differential fuzz that what each rule matches did not change**
+  (the old pattern against the new one, on generated and on real inputs).
+
+**2. B-024: arrow keys on the closed workspace switcher may switch at every
+step** (GitHub #39). **Unverified**: F4's review reasoned it from the code.
+- The switcher is a native `<select>` that switches on `change`
+  (`auspex/static/js/shell.js:173`; `switchTo` at `:123`, `showSignedIn` at
+  `:165`). On Windows and Linux browsers, arrow keys on a closed, focused
+  select fire `change` at each step, so a keyboard user would be reloaded into
+  every client they pass (WCAG 3.2.2).
+- Reproduce with a keyboard in Chrome on Windows or Linux. The switcher shows
+  from two workspaces (`shell.js:169`); give the user three, so one arrow step
+  can be seen passing through a client. Save what happens to
+  `docs/probes/<date>-b3-b024-keyboard.md`. **If it does not reproduce, record
+  that in BUGS.md, close #39 with the evidence, and fix nothing.**
+- If it does: the fix (a Switch button, or handling the keys) changes the
+  switcher's UX. **The call is hers.** Put the options and her pick in the
+  session record. **D-070 stays intact**: a switch reloads, leaves nothing of
+  the last client, Back and Forward included.
+- Pin it in the shell's tests (`tests/js/shell_logic.test.mjs`, or a new test
+  beside it), and check it live with a keyboard.
+
+For each bug:
 - **Reproduce before fixing.**
 - **Fix the cause**, with a test that fails before the fix and the exact
-  offending text pinned as a fixture (org rule).
+  offending input pinned as a fixture (org rule).
 - **Check it live.**
 - **Have a fresh agent review the fix** (SESSION-RULES.md). At B2, two of the
   four reviews found a real defect.
-- A check on what the model WRITES is a new kind of rail. Put its design to
-  Burhan with the numbers, as a D-entry. It must not loosen the output rail
-  (D-030, D-040, D-058).
+- When BUGS.md says `fixed <commit> (B3)`, close its GitHub issue with that
+  commit in the comment (`gh` as her own account).
 
-Candidates from B2's reviews. These are debt, not bugs, so take one only if
-Burhan picks it:
-- **TD-055:** claim before writing. Only the ceiling refusal discards a
-  stored question; other failures before the claim still leave one.
-- **TD-054:** pin a note's target when it is filed. A note named by its
-  indicator is re-resolved at execute time.
+Not B3's scope (Burhan places them later): the other open entries (B-011…
+B-020, B-022, B-023, B-025, B-026); B-005 and B-009, which still wait on his
+call about the Deferred fabricated-specifics item; TD-054 and TD-055. Ending
+with both bugs done and the rituals run beats starting a third.
 
 Constraints: everything in `SESSION-RULES.md`. Bugs-only, this session:
 - **One bug per fix commit.** Each one names its B-id, and BUGS.md gets
   `fixed <commit> (B3)` in the same session.
 - A new bug found while fixing one → `/bug`, not this session's scope, unless
-  it blocks the fix. In that case say so and let Burhan decide.
+  it blocks the fix. In that case say so: that is a scope call, Burhan's.
 - **Save evidence before any pytest run**, and take a live "before" run before
   the gate: `./ci.sh` redeploys the running container (STATE.md, Host notes).
+
+Session end: `/session-end` (the focus then moves to S32, backend), then
+`git push origin staging`. No `/promote` (Step 0 item 2). Send Burhan the
+summary, or `/briefing` for a plain-language one.
