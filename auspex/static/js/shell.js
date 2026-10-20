@@ -7,7 +7,7 @@ import { $, el } from "./dom.js";
 import { createApi } from "./api.js";
 import {
   navEntries, switchOptions, activeWorkspace, workspaceLabel, roleChanged, afterSwitchUrl,
-  switchReady, switchPending, pendingNote, EXPIRED, STORAGE_BLOCKED,
+  switchReady, switchPending, pendingNote, mayAct, EXPIRED, STORAGE_BLOCKED,
 } from "./shell-logic.js";
 
 // D-056: the sign-in survives a reload in this tab, and dies with the tab. The
@@ -21,7 +21,7 @@ function forget(key) { try { sessionStorage.removeItem(key); } catch (e) { /* no
 
 const browserFetch = (...args) => window.fetch(...args);
 
-// `page` names the page for the navigation. `ready({ me, api, setBusy })` runs
+// `page` names the page for the navigation. `ready({ me, api, setBusy, pending })` runs
 // once /me accepts this tab's token; `signedOut()` when the tab holds none.
 export function startShell({ page, ready, signedOut }) {
   let token = stored(TOKEN_KEY);
@@ -91,7 +91,7 @@ export function startShell({ page, ready, signedOut }) {
       me = r.body;
       showSignedIn();
       setStatus("signed in", "ok");
-      ready({ me, api, setBusy });
+      ready({ me, api, setBusy, pending: heldByChoice });
       return;
     }
     if (r.status === 401 || r.status === 403) {
@@ -231,12 +231,18 @@ export function startShell({ page, ready, signedOut }) {
   // keeps holding them when the turn ends.
   function setBusy(on) {
     busy = on;
-    // A turn runs in the active workspace: a pending choice snaps back, so the
-    // header never names another client while it runs (PR #41 review).
-    if (on && picker && !switching) picker.value = me.workspace.id;
     if (picker) picker.disabled = on || switching;
     syncSwitch();
     if (out) out.disabled = on || switching;
+  }
+
+  // A page asks before it acts (chat's Send): a pending choice blocks it and
+  // says why, so nothing goes to a client the header does not name (PR #41
+  // re-review; it replaced snapping the choice back when a turn began).
+  function heldByChoice() {
+    if (mayAct(picker && picker.value, me)) return false;
+    setStatus(pendingNote(me), "pending");
+    return true;
   }
 
   // D-070, and Back: a page the browser restores from its back/forward cache

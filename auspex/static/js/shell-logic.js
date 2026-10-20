@@ -36,11 +36,17 @@ export function isolateName(name) {
 // on its own (isolateName); the DOM makes the line text.
 export function workspaceLabel(ws) {
   const org = ws.organization || {};
-  const name = org.name && org.name !== ws.name
-    ? `${isolateName(org.name)} / ${isolateName(ws.name)}` : isolateName(ws.name);
-  const parts = [name, org.kind, ws.role];
+  const parts = [workspaceName(ws), org.kind, ws.role];
   if (ws.region && ws.region !== "global") parts.push(ws.region);
   return parts.filter(Boolean).join(" · ");
+}
+
+// A workspace's name as the header shows it, organization first when the two
+// differ ("acme / SOC"): two clients may each have a workspace called "SOC".
+export function workspaceName(ws) {
+  const org = ws.organization || {};
+  return org.name && org.name !== ws.name
+    ? `${isolateName(org.name)} / ${isolateName(ws.name)}` : isolateName(ws.name);
 }
 
 // The active workspace's own entry (its organization carries a kind there).
@@ -74,7 +80,14 @@ export function switchPending(selectedId, me) {
 }
 
 export function pendingNote(me) {
-  return `still in ${isolateName(activeWorkspace(me).name)} — Switch to move`;
+  return `still in ${workspaceName(activeWorkspace(me))} — Switch to move`;
+}
+
+// PR #41 re-review: nothing may be sent while a choice is pending. A turn sent
+// then would go to the active workspace (and its engine, D-069), not to the
+// client the select names. No picker (one workspace) is never pending.
+export function mayAct(selectedId, me) {
+  return !switchPending(selectedId, me);
 }
 
 // A /me read later says this tab is somewhere else, or something else, than

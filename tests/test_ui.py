@@ -466,13 +466,22 @@ def test_a_choice_not_yet_switched_to_is_shown_as_pending(client):
     """PR #41 review, item 4: picking another client without pressing Switch
     left the select naming it while every request still went to the active
     one. The pending state is the shell-logic rule, styled in Signal and said
-    in the status; a turn that starts snaps the picker back first."""
+    in the status, and it blocks Send (the re-review replaced snapping the
+    choice back when a turn began)."""
     js = _served(client, "/js/shell.js")
     sync = js.split("function syncSwitch()", 1)[1].split("\n  }\n", 1)[0]
     assert "switchPending(" in sync and "pendingNote(me)" in sync
     assert 'classList.toggle("pending"' in sync
-    hold = js.split("function setBusy(on)", 1)[1].split("\n  }\n", 1)[0]
-    assert hold.index("picker.value = me.workspace.id") < hold.index("syncSwitch()")
+    # A pending choice blocks Send (PR #41 re-review, A), which replaces the
+    # snap-back on send: a turn must never go to a client the header does not
+    # name. The page asks the shell before it marks itself busy or posts.
+    assert "pending: heldByChoice" in js
+    held = js.split("function heldByChoice()", 1)[1].split("\n  }\n", 1)[0]
+    assert "mayAct(" in held and "pendingNote(me)" in held
+    chat = _served(client, "/js/chat.js")
+    send = chat.split("async function send()", 1)[1].split("\n}\n", 1)[0]
+    assert send.index("if (pending()) return;") < send.index("setBusy(true)")
+    assert send.index("if (pending()) return;") < send.index('"/api/chat"')
     css = _served(client, "/css/base.css")
     assert "#workspace.pending" in css and "var(--signal)" in css.split("#workspace.pending", 1)[1]
 

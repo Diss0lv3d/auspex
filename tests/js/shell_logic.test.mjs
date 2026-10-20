@@ -8,7 +8,7 @@ import { test } from "node:test";
 import {
   navEntries, workspaceLabel, activeWorkspace, switchOptions, mayChange, isAdmin, roleChanged,
   errorText, NETWORK, INVALID, EXPIRED, CONNECTION_LOST, STORAGE_BLOCKED, viewerNote, afterSwitchUrl,
-  isolateName, switchReady, switchPending, pendingNote,
+  isolateName, switchReady, switchPending, pendingNote, mayAct, workspaceName,
 } from "../../auspex/static/js/shell-logic.js";
 
 // A name as a longer line shows it: isolated (U+2068 ... U+2069), so it cannot
@@ -210,4 +210,26 @@ test("a choice other than the active workspace is pending; the active one is not
 
 test("a pending choice names the workspace the page is still in", () => {
   assert.equal(pendingNote(me()), `still in ${iso("bank")} — Switch to move`);
+});
+
+// PR #41 re-review, A: a pending choice blocks acting. A message sent while
+// the select names another client would go to the active one (and its engine,
+// D-069), not to the client the analyst believes they are in.
+test("nothing may be sent while a choice is pending", () => {
+  const m = me();
+  assert.equal(mayAct("id-telco", m), false);
+  assert.equal(mayAct("id-bank", m), true);
+  assert.equal(mayAct(null, m), true);  // one workspace: no picker, nothing pending
+});
+
+// PR #41 re-review, B: the note names the client the way the header does,
+// organization first, so two clients' "SOC" workspaces cannot be confused.
+test("the pending note leads with the organization when it differs from the workspace", () => {
+  const list = [
+    entry("mssp", "provider", "analyst"),
+    entry("soc", "client", "analyst", { organization: { id: "org-acme", name: "acme", kind: "client" } }),
+  ];
+  const m = me("analyst", "soc", list);
+  assert.equal(workspaceName(activeWorkspace(m)), `${iso("acme")} / ${iso("soc")}`);
+  assert.equal(pendingNote(m), `still in ${iso("acme")} / ${iso("soc")} — Switch to move`);
 });
