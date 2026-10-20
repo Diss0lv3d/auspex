@@ -183,15 +183,22 @@ export function startShell({ page, ready, signedOut }) {
     showNav();
     const options = switchOptions(me);
     const label = workspaceLabel(activeWorkspace(me));
+    // A re-check rebuilds the header: the new picker keeps the old one's choice
+    // (if still listed) and its focus, so a pending choice and a keyboard
+    // user's place survive it (PR #41 review).
+    const kept = picker && picker.value;
+    const focused = Boolean(picker) && document.activeElement === picker;
     if (options.length > 1) {
       picker = el("select", { id: "workspace", disabled: busy || switching, title: label },
         options.map((o) => el("option", { value: o.id, selected: o.selected }, [o.text])));
       picker.setAttribute("aria-label", "Workspace");
       picker.addEventListener("change", syncSwitch);
+      if (kept && options.some((o) => o.id === kept)) picker.value = kept;
       switchButton = el("button", { id: "switch", className: "ghost" }, ["Switch"]);
       switchButton.setAttribute("aria-label", "Switch workspace");
       switchButton.addEventListener("click", switchTo);
       workspace.replaceChildren(picker, switchButton);
+      if (focused) picker.focus();
       syncSwitch();  // the select may show another workspace (no active entry)
     } else {
       picker = null;

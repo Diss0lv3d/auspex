@@ -486,6 +486,13 @@ def test_a_failed_switch_tells_a_screen_reader_and_gives_the_keyboard_back(clien
     switch = js.split("async function switchTo()", 1)[1].split("\n  }\n", 1)[0]
     failed = switch.split("switching = false", 1)[1]
     assert "picker.focus()" in failed
+    # The re-check after it rebuilds the header (showSignedIn): the new picker
+    # keeps the choice and the focus the old one had, or the keyboard user
+    # lands on <body> after all (seen live, B3) and a pending choice is lost.
+    shown = js.split("function showSignedIn()", 1)[1].split("\n  }\n", 1)[0]
+    assert "document.activeElement === picker" in shown
+    kept = shown.index("const kept")
+    assert kept < shown.index('picker = el("select"') < shown.index("picker.focus()")
 
 
 def test_a_page_restored_by_back_reloads_when_the_tabs_sign_in_moved_on(client):
