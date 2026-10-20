@@ -1,8 +1,9 @@
 # STATE — Auspex
 
-_Last updated: 2026-10-19 — **B3 CLOSED** (session-end ritual run), by the
-collaborator Hunaiza (D-059), on her machine: **B-010 and B-024 fixed**.
-`./ci.sh` green at B3's close: **1698 tests, 133 modules**;
+_Last updated: 2026-10-20 — **B3 CLOSED, and its PR's review answered**: by
+the collaborator Hunaiza (D-059), on her machine: **B-010, B-024 and B-029
+fixed** (B-029 from Burhan's review of PR #41, with the review's other six
+items). `./ci.sh` green after the review fixes: **1706 tests, 133 modules**;
 `/api/health/ready` 200. **B3 goes to `staging` as a PR from the branch
 `b3-b010-b024`** (Hunaiza's call; the prompt said push `staging`): **Burhan
 merges it before S32.** **Promote slate: B3's fixes, once merged** (S32's
@@ -142,6 +143,34 @@ Record: docs/probes/2026-10-19-b3-b010-b024.md. Her calls:
 
 +11 tests (1687 → 1698). No engine calls, no new env vars. GitHub #38 and
 #39 have the commits in a comment; they close when the PR is merged.
+
+**Burhan's review of PR #41 (2026-10-20), answered on the same branch.**
+Items 1–7 became B3's scope by his call.
+1. **B-029 fixed (`8c51cb4`).** The input guard runs before classify, and two
+   of its rules had the same shape: `inspect("\n" * 31999 + "x")` took
+   130.7 s. They are now searched by a run-aware scan, and persona_override's
+   prefix is possessive. Result: 11–15 ms at the cap. Every verdict and span
+   is unchanged: 0 differences on 200,501 inputs against the old guard.
+   SESSION-RULES.md records his speed-only exception to "do not re-open the
+   guard regex" (`e3665d9`).
+2. **The pinned inputs run through the route's whole text pass** (guard,
+   extract, classify), with B-029's newline inputs, each under 1 s
+   (`f63d6ed`).
+3. **The Back/Forward live check** switches with the Switch button. Re-run with
+   the cache ON, it gives F4's after-fix result (`b325432`).
+4. **A choice not yet switched to is pending.** The select turns Signal and the
+   status reads "still in <active> — Switch to move". A turn snaps it back
+   (`a045881`). Live: the header names the active client while a turn runs.
+5. **`switchTo` asks `switchReady`** (`e069bd9`). It went in with an F4 pin
+   failing; `af26499` fixed that pin. Commits now wait for green tests.
+6. **A failed switch is announced and gives focus back.** `#status` is
+   `role=status` (`1720719`). The live check showed focus still falling to
+   `<body>` after the re-check rebuilt the header. A rebuilt picker now keeps
+   the old one's choice and focus (`1db360a`), which also covers the review's
+   optional "pending choice lost on re-check".
+7. These records. The review's idea is parked in IDEAS.md (`d1137d8`). Two
+   optional items were not taken: one C call for `_domain_candidates`' label
+   chain, and moving the timing helpers to `conftest.py`.
 
 ## S31 — what happened (backend track; the jobs queue and TD-025's first half)
 
@@ -834,8 +863,8 @@ scoped by a decision or a bug. **The integration phase (S30–S41, F4–F9) buil
 the spec; S30, F4 and S31 are done.**
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: B3's fixes** (`0207b4a`, `2bc5eec`, their records, B-027
-   and B-028, the session-end docs), from the PR `b3-b010-b024` → `staging`
+1. **Promote slate: B3's fixes** (`0207b4a`, `2bc5eec`, `8c51cb4` and the PR
+   review's fixes, their records, B-027…B-029, the session-end docs), from the PR `b3-b010-b024` → `staging`
    once Burhan merges it. B3 did not promote, by the handoff; S32's Step 0
    ships it. Promote #40 (`09af821`, back-merge `6007efb`; `./ci.sh`
    green fresh, 1687 tests; GitHub CI green on push and PR; Burhan's call,
@@ -1222,10 +1251,13 @@ records what the split left). F2 added #20–#22.
 6. **An intermittent, unattributed test failure was observed once in S22.** Not
    reproduced in any later full run, including about ten at S28. Still recorded
    rather than dismissed.
-7. **The chat route's event loop and crafted messages.** B3 closed B-010:
-   the classify pass's four backtracking rules run in milliseconds at the
-   cap. Still open in the same pass: B-027 (`extract()` checks every match
-   against every earlier span, 0.2–0.8 s on thousands of observables).
+7. **The chat route's event loop and crafted messages.** B3 closed B-010
+   (the classify pass's four backtracking rules) and B-029 (the input guard's
+   two). The route's whole text pass (guard, extract, classify) runs in
+   milliseconds on every pinned input at the cap, each under a 1 s test
+   budget. Still open in the same pass: B-027 (`extract()` checks every match
+   against every earlier span, 0.2–0.8 s on thousands of observables). The
+   resolver has not been swept (IDEAS: one stall test for the whole pass).
 
 ## Host notes (reality snapshot)
 - Postgres 55432; app 8000; OpenSearch 9200. Host runs pin via `auspex.devhost`.

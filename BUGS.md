@@ -232,6 +232,10 @@ are never deleted.
   positions proven to fail. The worst message at the cap went from 101 s to
   12 ms, and what every rule matches is unchanged (0 differences on 200,501
   inputs). Record: docs/probes/2026-10-19-b3-b010-b024.md. GitHub #38.
+  **This closes the classify pass only.** The chat route runs the input guard
+  first, and two of its rules had the same shape: B-029, fixed in B3 after
+  Burhan's review of PR #41. The pinned inputs now run through the route's
+  whole text pass (guard, extract, classify), each under 1 s.
 
 ## B-011 — a request to analyse or draft that leads with "Note" or "write a note" resolves to `action_request`
 
@@ -555,4 +559,10 @@ are never deleted.
   what the guard flags. A speed-only fix is allowed if every verdict and every
   span stays identical. SESSION-RULES.md records the exception.
 - **Evidence:** docs/probes/b3-b029/before.txt (`guard_timings.py`).
-- **Status:** open, in B3's scope (Burhan, 2026-10-20).
+- **Status:** fixed `8c51cb4` (B3). The two rules are searched by a scan that
+  tries them where `finditer` would and skips only the later starts of a run
+  whose first start failed; persona_override's prefix is possessive.
+  `inspect()` at the cap went from 130.7 s to 11–15 ms. Every verdict and span
+  is unchanged: 0 differences on 200,501 inputs against the guard at
+  `9475752` (docs/probes/b3-b029/diff_fuzz.py). SESSION-RULES.md records the
+  speed-only exception (`e3665d9`).

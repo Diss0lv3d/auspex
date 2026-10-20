@@ -656,7 +656,13 @@ BUGS.md) have their own sections at the end, before "Later".
   - **B-024 fixed** (`2bc5eec`): choosing a workspace only selects it; a
     Switch button switches (her UX call). Live: arrows switch nothing.
   - B-027 and B-028 logged from the reviews.
-  - 1698 tests; 133 modules; no new env vars.
+  - **Burhan's review of PR #41**, answered on the branch: **B-029 fixed**
+    (`8c51cb4`, the input guard's two backtracking rules; the guard took
+    130.7 s, now 11–15 ms, with every verdict unchanged); the pinned inputs run
+    through the route's whole text pass; the Back/Forward check works again; a
+    pending choice is shown and a turn snaps it back; a failed switch is
+    announced and keeps the keyboard's place.
+  - 1706 tests; 133 modules; no new env vars.
 - [ ] **B4 — Burhan's call first:** the open entries (B-005, B-009, B-011…
   B-020, B-022, B-023, B-025…B-028).
 
