@@ -566,3 +566,34 @@ are never deleted.
   is unchanged: 0 differences on 200,501 inputs against the guard at
   `9475752` (docs/probes/b3-b029/diff_fuzz.py). SESSION-RULES.md records the
   speed-only exception (`e3665d9`).
+
+## B-030 — the guard's quote-line carve-out is quadratic on a newline run
+
+- **Found:** 2026-10-20, Burhan's re-review of PR #41 (B3), by Claude in his
+  window. It predates B3. Same tier as B-027.
+- **What happened (the review's measurement):** `_QUOTE_LINE_RE`
+  (`^\s*>.*$`, MULTILINE, `auspex/guard.py`) backtracks on a run of newlines.
+  It runs only after a rule hits (the carve-outs), so
+  `"you are now x" + "\n" * 31985 + "x"` holds the event loop about 0.4 s.
+- **Note:** the pinned stall inputs (`tests/fixtures/classify/b010_redos.json`)
+  never hit a rule, so the carve-out half of `inspect()` is never timed. Add a
+  rule-hit input when B-030 is fixed.
+- **Status:** open, not placed. Burhan's.
+
+## B-031 — the workspace switcher's small edges
+
+- **Found:** 2026-10-20, Burhan's re-review of PR #41 (B3), by Claude in his
+  window. All minor; logged, not fixed, by his call.
+- **What happened (from the code):**
+  - The timeline page writes `#status` itself, which erases the pending note
+    (`auspex/static/js/timeline.js`).
+  - A re-check keeps focus only when it was on the picker, not on Switch or
+    Sign out (`showSignedIn`, `auspex/static/js/shell.js`).
+  - When the active workspace is missing from `me.workspaces`, `enter()`
+    overwrites the pending note with "signed in", and the select shows
+    another workspace.
+  - The live region re-announces identical text on every arrow step; it
+    should write only when the text changes.
+  - The CSS test would pass if `#workspace.pending` lost its colour
+    (`tests/test_ui.py`).
+- **Status:** open, not placed. Burhan's.
