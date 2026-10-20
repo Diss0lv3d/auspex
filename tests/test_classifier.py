@@ -5,7 +5,6 @@ routing decision. Bias rule under test: errors must fall toward DEEP (wrong
 deep = wasted tokens; wrong shortcut = wrong answer).
 """
 
-import time
 
 from auspex.classify import Category, ObservableType, classify
 
@@ -260,13 +259,8 @@ def test_a_question_about_notes_keeps_its_shortcut():
 # 32,000-character note request, run twice a turn. The inputs below are sized
 # so a regressed rule fails in seconds, not hangs the gate. Three older rules
 # in the same pass backtracked too, until B3 (B-010, below).
-_BOUNDED_MS = 50
-
-
-def _elapsed_ms(fn, arg) -> float:
-    start = time.perf_counter()
-    fn(arg)
-    return (time.perf_counter() - start) * 1000
+from _timing import BOUNDED_MS as _BOUNDED_MS  # noqa: E402
+from _timing import elapsed_ms as _elapsed_ms  # noqa: E402
 
 
 def test_the_identity_lead_in_does_not_backtrack():

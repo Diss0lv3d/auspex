@@ -522,17 +522,11 @@ def test_an_apostrophe_is_not_a_quotation_mark():
 
 import random  # noqa: E402
 import re  # noqa: E402
-import time  # noqa: E402
+
+from _timing import BOUNDED_MS as _BOUNDED_MS  # noqa: E402
+from _timing import elapsed_ms as _elapsed_ms  # noqa: E402
 
 from auspex import guard as _G  # noqa: E402
-
-_BOUNDED_MS = 50
-
-
-def _elapsed_ms(fn, arg) -> float:
-    start = time.perf_counter()
-    fn(arg)
-    return (time.perf_counter() - start) * 1000
 
 
 @pytest.mark.parametrize("q", [

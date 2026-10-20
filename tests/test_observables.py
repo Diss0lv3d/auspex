@@ -384,11 +384,11 @@ def test_our_canonical_ipv6_agrees_with_the_stdlib():
 
 import random  # noqa: E402
 import re  # noqa: E402
-import time  # noqa: E402
+
+from _timing import BOUNDED_MS as _BOUNDED_MS  # noqa: E402
+from _timing import elapsed_ms as _elapsed_ms  # noqa: E402
 
 from auspex.classify import observables as _O  # noqa: E402
-
-_BOUNDED_MS = 50
 
 # The rules exactly as they stood before B-010, kept to prove the fix changed
 # how they match, never what.
@@ -412,10 +412,6 @@ def _after_b010(name: str, text: str) -> list[tuple[int, int]]:
     return [m.span() for m in _O._email_candidates(text)]
 
 
-def _elapsed_ms(fn, arg) -> float:
-    start = time.perf_counter()
-    fn(arg)
-    return (time.perf_counter() - start) * 1000
 
 
 def test_b010_refang_does_not_backtrack_on_a_whitespace_run():
