@@ -662,7 +662,8 @@ BUGS.md) have their own sections at the end, before "Later".
     through the route's whole text pass; the Back/Forward check works again; a
     pending choice is shown and a turn snaps it back; a failed switch is
     announced and keeps the keyboard's place.
-  - 1706 tests; 133 modules; no new env vars.
+  - Re-review: a pending choice blocks Send; the guard scan pinned to the live rules; B-030, B-031 logged.
+  - 1707 tests; 133 modules; no new env vars.
 - [ ] **B4 — Burhan's call first:** the open entries (B-005, B-009, B-011…
   B-020, B-022, B-023, B-025…B-028).
 

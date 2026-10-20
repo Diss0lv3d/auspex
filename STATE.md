@@ -3,7 +3,7 @@
 _Last updated: 2026-10-20 — **B3 CLOSED, and its PR's review answered**: by
 the collaborator Hunaiza (D-059), on her machine: **B-010, B-024 and B-029
 fixed** (B-029 from Burhan's review of PR #41, with the review's other six
-items). `./ci.sh` green after the review fixes: **1706 tests, 133 modules**;
+items). `./ci.sh` green after the re-review fixes: **1707 tests, 133 modules**;
 `/api/health/ready` 200. **B3 goes to `staging` as a PR from the branch
 `b3-b010-b024`** (Hunaiza's call; the prompt said push `staging`): **Burhan
 merges it before S32.** **Promote slate: B3's fixes, once merged** (S32's
@@ -171,6 +171,19 @@ Items 1–7 became B3's scope by his call.
 7. These records. The review's idea is parked in IDEAS.md (`d1137d8`). Two
    optional items were not taken: one C call for `_domain_candidates`' label
    chain, and moving the timing helpers to `conftest.py`.
+
+**GitHub's run, then the re-review (2026-10-20).** GitHub's CI failed one
+timing bound on runner noise: a single 84 ms sample of a call that takes 4 ms
+locally. `tests/_timing.py` now times each input three times and keeps the
+fastest, from one shared helper (`65c101f`). The re-review then asked for
+three things:
+- **A.** A pending choice blocks Send (`464503e`). This replaces the
+  snap-back. Live: 0 `POST /api/chat`.
+- **B.** The pending note is organization-first.
+- **C.** A test pins the guard's scan to the live rules (`bb80411`).
+
+It also logged B-030 and B-031 (`a2f7d47`). Commits use `feat|fix|chore`
+only (CLAUDE.md rule 10).
 
 ## S31 — what happened (backend track; the jobs queue and TD-025's first half)
 
