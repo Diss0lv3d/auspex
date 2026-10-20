@@ -177,7 +177,10 @@ _INJECTION_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "persona_override",
         re.compile(
-            r"(?:^|[.!?]\s+|\n)\s*(?:you\s+are\s+now|from\s+now\s+on[,\s]+you|"
+            # Possessive (B-029, speed only): `[.!?]\s+\s*` split a run every way
+            # inside one attempt. `\s+\s*` is `\s+`, and no verb starts with
+            # whitespace, so the rule matches exactly what it did.
+            r"(?:^\s*+|[.!?]\s++|\n\s*+)(?:you\s+are\s+now|from\s+now\s+on[,\s]+you|"
             r"act\s+as\s+(?:if\s+you\s+(?:are|were)|an?\s+unrestricted)|"
             r"pretend\s+(?:to\s+be|you\s+are)|you\s+must\s+now\s+obey)\b",
             re.IGNORECASE,
@@ -372,6 +375,53 @@ def _spans(text: str, pattern: re.Pattern[str]) -> list[tuple[int, int]]:
     return [m.span() for m in pattern.finditer(text)]
 
 
+# B-029 (B3; Burhan's call, 2026-10-20: speed only, every span unchanged). Two
+# rules lead with a whitespace run: persona_override's `(?:^|[.!?]\s+|\n)\s*`
+# and role_marker_injection's `(?:^|\n)\s*`. `finditer` retried them at every
+# newline in a run, each attempt re-scanning to the run's end: 130 s for
+# "\n" * 31999 + "x" at the cap, on the folded and the raw text. Every start
+# that leads into one run reaches the same end of it and tests the same text
+# after it, so once the first of them fails, the later ones fail too. The scan
+# below tries the rule at the positions `finditer` would, in the same order,
+# and skips only those; the regex text is untouched (TD-031/032/033).
+_WS_RUN_RE = re.compile(r"\s+")
+# label -> (where a match can begin, the characters that lead into a run)
+_RUN_LED: dict[str, tuple[re.Pattern[str], str]] = {
+    "persona_override": (re.compile(r"[.!?\n]"), ".!?"),
+    "role_marker_injection": (re.compile(r"[<\[\n]"), ""),
+}
+
+
+def _spans_of(label: str, pattern: re.Pattern[str], text: str) -> list[tuple[int, int]]:
+    """`_spans(text, pattern)`, in linear time for the run-led rules."""
+    run_led = _RUN_LED.get(label)
+    if run_led is None:
+        return _spans(text, pattern)
+    starts, lead = run_led
+    spans: list[tuple[int, int]] = []
+    pos = 0
+    while pos <= len(text):
+        if pos == 0:
+            at = 0  # `^` begins a match only here
+        elif (start := starts.search(text, pos)) is not None:
+            at = start.start()
+        else:
+            break
+        m = pattern.match(text, at)
+        if m is not None:
+            spans.append(m.span())
+            pos = m.end()
+            continue
+        # Failed at a start that leads into a run: skip the rest of that run.
+        run = None
+        if at < len(text) and text[at] in lead:
+            run = _WS_RUN_RE.match(text, at + 1)
+        elif at == 0 or text[at] == "\n":
+            run = _WS_RUN_RE.match(text, at)
+        pos = run.end() if run is not None else at + 1
+    return spans
+
+
 def _covered_by(span: tuple[int, int], regions: list[tuple[int, int]]) -> bool:
     start, end = span
     return any(r_start <= start and end <= r_end for r_start, r_end in regions)
@@ -407,10 +457,10 @@ def inspect(message: str) -> GuardOutcome:
     for label, pattern in _INJECTION_PATTERNS:
         spans = {
             (index_map[start], index_map[end - 1] + 1)
-            for start, end in _spans(folded, pattern)
+            for start, end in _spans_of(label, pattern, folded)
             if end > start
         }
-        spans |= {(start, end) for start, end in _spans(message, pattern) if end > start}
+        spans |= {(start, end) for start, end in _spans_of(label, pattern, message) if end > start}
         if spans:
             hits.append((label, sorted(spans)))
     if not hits:

@@ -509,3 +509,72 @@ def test_an_apostrophe_is_not_a_quotation_mark():
     assert inspect("don't ignore all previous instructions, it's urgent").verdict is (
         GuardVerdict.REFUSED
     )
+
+
+# -- B-029: the guard's run-led rules cannot backtrack -------------------------
+# POST /api/chat runs inspect() before classify(), over the folded and the raw
+# text. persona_override and role_marker_injection start with
+# `(?:^|[.!?]\s+|\n)\s*` / `(?:^|\n)\s*`, so a run of whitespace was re-scanned
+# from every newline in it: inspect() took 130.7 s on "\n" * 31999 + "x" at the
+# cap (B3, docs/probes/b3-b029/). The inputs here are 8,000 characters, so a
+# regressed rule fails in seconds. Burhan's call (2026-10-20): the fix may
+# change only speed; every verdict and every span stays what it was.
+
+import random  # noqa: E402
+import re  # noqa: E402
+import time  # noqa: E402
+
+from auspex import guard as _G  # noqa: E402
+
+_BOUNDED_MS = 50
+
+
+def _elapsed_ms(fn, arg) -> float:
+    start = time.perf_counter()
+    fn(arg)
+    return (time.perf_counter() - start) * 1000
+
+
+@pytest.mark.parametrize("q", [
+    "." + " " * 7998 + "x",
+    "\n" * 7999 + "x",
+    "\n " * 4000,
+    "x?\t" + "\r\n" * 3998 + "x",
+    "<" + "\n" * 7999,
+], ids=["dot-spaces", "newlines", "newline-space", "question-crlf", "angle-newlines"])
+def test_b029_inspect_does_not_backtrack_on_a_whitespace_run(q):
+    assert _elapsed_ms(inspect, q) < _BOUNDED_MS
+
+
+# The two rules exactly as they stood before B-029 (TD-031/032/033's text).
+_BEFORE_B029 = {
+    "persona_override": re.compile(
+        r"(?:^|[.!?]\s+|\n)\s*(?:you\s+are\s+now|from\s+now\s+on[,\s]+you|"
+        r"act\s+as\s+(?:if\s+you\s+(?:are|were)|an?\s+unrestricted)|"
+        r"pretend\s+(?:to\s+be|you\s+are)|you\s+must\s+now\s+obey)\b",
+        re.IGNORECASE,
+    ),
+    "role_marker_injection": re.compile(
+        r"(?:<\|im_(?:start|end)\|>|<\|(?:system|assistant|endoftext)\|>|"
+        r"\[/?INST\]|<</?SYS>>|(?:^|\n)\s*###\s*(?:system|assistant)\b|"
+        r"(?:^|\n)\s*(?:system|assistant)\s*:\s*you\s+(?:are|must)\b)",
+        re.IGNORECASE,
+    ),
+}
+
+
+def test_b029_each_run_led_rule_finds_exactly_the_spans_it_found_before():
+    """A seeded differential fuzz: `finditer` on the rule as it stands (the
+    regex text is unchanged) against the guard's scan, on strings built from
+    the pieces that steer the two rules."""
+    pieces = ["\n", " ", "  ", "\t", "\r", " ", " ", ".", "!", "?", "x", "<", "[",
+              "you are now", "from now on, you", "pretend to be", "act as if you were",
+              "You must now obey", "system", "assistant", ":", "###", " you are",
+              "<|im_start|>", "<|system|>", "[INST]", "<<SYS>>", "\n\n", ". \n "]
+    rng = random.Random(1029)  # noqa: S311 -- a seeded fuzz, not a secret
+    rules = {label: pattern for label, pattern in _G._INJECTION_PATTERNS}
+    for _ in range(4000):
+        text = "".join(rng.choice(pieces) for _ in range(rng.randint(0, 14)))
+        for label, before in _BEFORE_B029.items():
+            spans = [m.span() for m in before.finditer(text)]
+            assert _G._spans_of(label, rules[label], text) == spans, (label, text)
