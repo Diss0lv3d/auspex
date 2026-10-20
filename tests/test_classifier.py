@@ -374,26 +374,37 @@ def test_b010_the_analytical_rule_matches_exactly_what_it_matched_before():
         assert (b and b.span()) == (a and a.span()), repr(q)
 
 
-def test_b010_the_pinned_inputs_clear_the_classify_pass_in_time():
-    """The exact inputs from the bug, at the 32,000-character cap
-    (tests/fixtures/classify/b010_redos.json), through extract() and classify()
-    in a child process: a regressed rule fails at the timeout instead of
-    holding the gate for minutes."""
+def test_b010_the_pinned_inputs_clear_the_chat_routes_text_pass_in_time():
+    """The exact inputs from B-010 and B-029, at the 32,000-character cap
+    (tests/fixtures/classify/b010_redos.json), through what POST /api/chat runs
+    on them, in its order: guard.inspect(), then extract() and classify()
+    (auspex/routes/chat.py). In a child process, each input within its own
+    budget: a single rule regressing to seconds fails on its input by name,
+    and a hang fails at the timeout instead of holding the gate (PR #41 review)."""
+    import json
     import subprocess
     import sys
     from pathlib import Path
 
+    budget_ms = 1000
     fixture = Path(__file__).parent / "fixtures" / "classify" / "b010_redos.json"
+    inputs = json.loads(fixture.read_text())["inputs"]
     code = (
         "import json, sys, time\n"
+        "from auspex import guard\n"
         "from auspex.classify import classify, extract\n"
         "for c in json.load(open(sys.argv[1]))['inputs']:\n"
         "    t = c['head'] + c['unit'] * c['repeat'] + c['tail']\n"
-        "    assert len(t) == 32000, (c['id'], len(t))\n"
-        "    s = time.perf_counter(); extract(t); classify(t)\n"
-        "    print(c['id'], round((time.perf_counter() - s) * 1000, 1), 'ms')\n"
+        "    s = time.perf_counter(); guard.inspect(t); extract(t); classify(t)\n"
+        "    print(json.dumps([c['id'], len(t), (time.perf_counter() - s) * 1000]), flush=True)\n"
     )
     run = subprocess.run(  # noqa: S603 -- our own interpreter, code and fixture
-        [sys.executable, "-c", code, str(fixture)], capture_output=True, text=True, timeout=10,
+        [sys.executable, "-c", code, str(fixture)], capture_output=True, text=True,
+        timeout=len(inputs) * budget_ms / 1000 + 10,
     )
     assert run.returncode == 0, run.stdout + run.stderr
+    timed = [json.loads(line) for line in run.stdout.splitlines()]
+    assert [i for i, _, _ in timed] == [c["id"] for c in inputs]
+    for input_id, length, ms in timed:
+        assert length == 32000, (input_id, length)
+        assert ms < budget_ms, f"{input_id}: {ms:.0f} ms"
