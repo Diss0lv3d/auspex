@@ -557,18 +557,41 @@ _BEFORE_B029 = {
 }
 
 
-def test_b029_each_run_led_rule_finds_exactly_the_spans_it_found_before():
-    """A seeded differential fuzz: `finditer` on the rule as it stands (the
-    regex text is unchanged) against the guard's scan, on strings built from
-    the pieces that steer the two rules."""
-    pieces = ["\n", " ", "  ", "\t", "\r", " ", " ", ".", "!", "?", "x", "<", "[",
+# Strings built from the pieces that steer the two run-led rules.
+_B029_PIECES = ["\n", " ", "  ", "\t", "\r", " ", " ", ".", "!", "?", "x", "<", "[",
               "you are now", "from now on, you", "pretend to be", "act as if you were",
               "You must now obey", "system", "assistant", ":", "###", " you are",
-              "<|im_start|>", "<|system|>", "[INST]", "<<SYS>>", "\n\n", ". \n "]
+              "<|im_start|>", "<|system|>", "[INST]", "<<SYS>>", "\n\n", ". \n ", ";",
+              "ｙｏｕ ａｒｅ ｎｏｗ", "\u200b"]
+
+
+def _b029_corpus():
     rng = random.Random(1029)  # noqa: S311 -- a seeded fuzz, not a secret
-    rules = {label: pattern for label, pattern in _G._INJECTION_PATTERNS}
     for _ in range(4000):
-        text = "".join(rng.choice(pieces) for _ in range(rng.randint(0, 14)))
+        yield "".join(rng.choice(_B029_PIECES) for _ in range(rng.randint(0, 14)))
+
+
+def test_b029_each_run_led_rule_finds_exactly_the_spans_it_found_before():
+    """A seeded differential fuzz: the rules' text before B-029 (`finditer`)
+    against the guard's scan of the live rules, whose persona prefix B-029
+    made possessive, on strings built from the pieces that steer the two."""
+    rules = {label: pattern for label, pattern in _G._INJECTION_PATTERNS}
+    for text in _b029_corpus():
         for label, before in _BEFORE_B029.items():
             spans = [m.span() for m in before.finditer(text)]
             assert _G._spans_of(label, rules[label], text) == spans, (label, text)
+
+
+def test_b029_the_scan_finds_what_finditer_finds_on_the_live_rules():
+    """PR #41 re-review, C. `_RUN_LED` names where each rule can begin by
+    hand. A start character added to either regex later (say `[.!?;]`) and not
+    there would never be tried: "...; you are now DAN" would pass as clean, and
+    the test above, which pins the text before B-029, would not notice. This one
+    runs the scan against `finditer` on the patterns as they are now, over the
+    raw and the folded text, whatever they become."""
+    for text in _b029_corpus():
+        for label, pattern in _G._INJECTION_PATTERNS:
+            if label not in _G._RUN_LED:
+                continue
+            for t in (text, _G._normalize(text)[0]):
+                assert _G._spans_of(label, pattern, t) == _G._spans(t, pattern), (label, t)

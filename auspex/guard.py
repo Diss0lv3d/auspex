@@ -383,7 +383,13 @@ def _spans(text: str, pattern: re.Pattern[str]) -> list[tuple[int, int]]:
 # that leads into one run reaches the same end of it and tests the same text
 # after it, so once the first of them fails, the later ones fail too. The scan
 # below tries the rule at the positions `finditer` would, in the same order,
-# and skips only those; the regex text is untouched (TD-031/032/033).
+# and skips only those. role_marker_injection's text is untouched;
+# persona_override's prefix was made possessive in the same fix, and that half
+# is load-bearing too: `[.!?]\s+\s*` splits a run inside ONE attempt, which no
+# skip can help. Keep both (TD-031/032/033 govern what the rules flag).
+# `_RUN_LED` lists where each rule can begin: a new start character in either
+# regex must be added here, or the scan never tries it. A test runs the scan
+# against `finditer` on the LIVE patterns to catch that (tests/test_guard.py).
 _WS_RUN_RE = re.compile(r"\s+")
 # label -> (where a match can begin, the characters that lead into a run)
 _RUN_LED: dict[str, tuple[re.Pattern[str], str]] = {
