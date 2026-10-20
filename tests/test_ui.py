@@ -532,7 +532,8 @@ def test_the_shell_holds_the_switcher_and_sign_out_while_a_page_is_busy(client):
     hold = js.split("function setBusy(on)", 1)[1].split("\n  }\n", 1)[0]
     assert "picker.disabled = on" in hold and "out.disabled = on" in hold
     switch = js.split("async function switchTo()", 1)[1].split("\n  }\n", 1)[0]
-    early = re.search(r"if \(busy\b[^\n]*return;", switch)
+    # since PR #41's review the early return asks switchReady, holding on busy
+    early = re.search(r"if \(!switchReady\([^)]*\bbusy\b[^\n]*return;", switch)
     assert early and early.start() < switch.index('"/api/auth/switch"')
     sign_out = js.split("function signOut()", 1)[1].split("\n  }\n", 1)[0]
     early = re.search(r"if \(busy\b[^\n]*return;", sign_out)
