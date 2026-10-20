@@ -450,6 +450,10 @@ def test_choosing_a_workspace_only_selects_it_and_the_switch_button_switches(cli
     assert js.count("switchTo") == 2  # its definition and the button's listener
     switch = js.split("async function switchTo()", 1)[1].split("\n  }\n", 1)[0]
     assert switch.index("switchButton.disabled = true") < switch.index('"/api/auth/switch"')
+    # the rule that sends the switch is switchReady itself, which the Node tests
+    # cover, never a hand copy of its condition (PR #41 review, item 5)
+    assert "if (!switchReady(picker.value, me, busy || switching))" in switch
+    assert "target === me.workspace.id" not in switch
     # a switch that was not made puts the choice back, and the button with it
     assert switch.index("switching = false") < switch.rindex("syncSwitch()")
     shown = js.split("function showSignedIn()", 1)[1].split("\n  }\n", 1)[0]

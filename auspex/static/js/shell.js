@@ -130,7 +130,7 @@ export function startShell({ page, ready, signedOut }) {
 
   async function switchTo() {
     const target = picker.value;
-    if (busy || switching || target === me.workspace.id) { syncSwitch(); return; }
+    if (!switchReady(picker.value, me, busy || switching)) { syncSwitch(); return; }
     switching = true;
     picker.disabled = true;  // one switch at a time
     switchButton.disabled = true;
