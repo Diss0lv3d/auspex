@@ -40,6 +40,7 @@ export function startShell({ page, ready, signedOut }) {
   const workspace = el("div", { className: "workspace" });
   const session = el("div", { className: "session" });
   const status = el("span", { id: "status" });
+  status.setAttribute("role", "status");  // a polite live region: read aloud
   header.replaceChildren(...[
     header.querySelector(".page-lead"),
     el("span", { className: "mark" }, ["Auspex", el("span", { className: "dot" }, ["."])]),
@@ -155,6 +156,7 @@ export function startShell({ page, ready, signedOut }) {
     picker.disabled = busy;
     syncSwitch();
     if (out) out.disabled = busy;
+    if (!busy) picker.focus();  // the keyboard user's place, not <body>
     recheck();  // the set may have changed since it was read
   }
 

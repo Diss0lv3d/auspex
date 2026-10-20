@@ -462,6 +462,17 @@ def test_choosing_a_workspace_only_selects_it_and_the_switch_button_switches(cli
     assert "syncSwitch()" in held
 
 
+def test_a_failed_switch_tells_a_screen_reader_and_gives_the_keyboard_back(client):
+    """PR #41 review, item 6 (B-024 was a keyboard bug): after a switch that was
+    not made, focus returns to the picker instead of falling to <body>, and the
+    status line is a polite live region, so the server's words are announced."""
+    js = _served(client, "/js/shell.js")
+    assert 'status.setAttribute("role", "status")' in js
+    switch = js.split("async function switchTo()", 1)[1].split("\n  }\n", 1)[0]
+    failed = switch.split("switching = false", 1)[1]
+    assert "picker.focus()" in failed
+
+
 def test_a_page_restored_by_back_reloads_when_the_tabs_sign_in_moved_on(client):
     """F4 final review (C1): chat -> Timeline -> switch -> Back restored the
     frozen chat page from the back/forward cache, with the previous client's
