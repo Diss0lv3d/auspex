@@ -537,3 +537,22 @@ are never deleted.
   (`auspex/static/js/shell.js`, the lines after `switching = false`), leaving
   the status at "switching…".
 - **Status:** open, not placed. Burhan's.
+
+## B-029 — the input guard still stalls the chat route on a crafted whitespace or newline run
+
+- **Found:** 2026-10-20, Burhan's review of PR #41 (B3), written by Claude in
+  his window; reproduced in B3 before fixing.
+- **What happened (reproduced):** `POST /api/chat` runs `guard.inspect()`
+  before `classify()` (`auspex/routes/chat.py`). Two guard rules
+  (`auspex/guard.py`) start with `(?:^|[.!?]\s+|\n)\s*` (`persona_override`)
+  and `(?:^|\n)\s*` (`role_marker_injection`), so a run of whitespace is
+  re-scanned from every newline in it, and split every way after a full stop.
+  `inspect()` runs each rule over the folded and the raw text. At the
+  32,000-character cap: `inspect("\n" * 31999 + "x")` took 130.7 s,
+  `inspect("." + spaces + "x")` 67.4 s, `inspect("\n " * 16000)` 59.0 s.
+  It predates B3; B-010's goal is not met until it is fixed.
+- **Burhan's call (2026-10-20):** "Do NOT re-open the guard regex" protects
+  what the guard flags. A speed-only fix is allowed if every verdict and every
+  span stays identical. SESSION-RULES.md records the exception.
+- **Evidence:** docs/probes/b3-b029/before.txt (`guard_timings.py`).
+- **Status:** open, in B3's scope (Burhan, 2026-10-20).
