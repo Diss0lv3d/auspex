@@ -462,6 +462,21 @@ def test_choosing_a_workspace_only_selects_it_and_the_switch_button_switches(cli
     assert "syncSwitch()" in held
 
 
+def test_a_choice_not_yet_switched_to_is_shown_as_pending(client):
+    """PR #41 review, item 4: picking another client without pressing Switch
+    left the select naming it while every request still went to the active
+    one. The pending state is the shell-logic rule, styled in Signal and said
+    in the status; a turn that starts snaps the picker back first."""
+    js = _served(client, "/js/shell.js")
+    sync = js.split("function syncSwitch()", 1)[1].split("\n  }\n", 1)[0]
+    assert "switchPending(" in sync and "pendingNote(me)" in sync
+    assert 'classList.toggle("pending"' in sync
+    hold = js.split("function setBusy(on)", 1)[1].split("\n  }\n", 1)[0]
+    assert hold.index("picker.value = me.workspace.id") < hold.index("syncSwitch()")
+    css = _served(client, "/css/base.css")
+    assert "#workspace.pending" in css and "var(--signal)" in css.split("#workspace.pending", 1)[1]
+
+
 def test_a_failed_switch_tells_a_screen_reader_and_gives_the_keyboard_back(client):
     """PR #41 review, item 6 (B-024 was a keyboard bug): after a switch that was
     not made, focus returns to the picker instead of falling to <body>, and the

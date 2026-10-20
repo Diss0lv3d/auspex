@@ -48,6 +48,9 @@ nav.pages a.current { color: var(--text); border-bottom: 2px solid var(--aurora)
 #status.ok { color: var(--aurora); }
 /* A refusal or a notice is a sentence: it wraps rather than widen the page. */
 #status.err { color: var(--ember); white-space: normal; }
+/* A choice not yet switched to (PR #41 review): the page is still elsewhere. */
+#workspace.pending { border-color: var(--signal); color: var(--signal); }
+#status.pending { color: var(--signal); white-space: normal; }
 /* A phone (F2 narrow pass, F4): the tagline and the "signed in" status give
    way first; the workspace stays on screen, the whole width if it must. */
 @media (max-width: 599px) {

@@ -8,7 +8,7 @@ import { test } from "node:test";
 import {
   navEntries, workspaceLabel, activeWorkspace, switchOptions, mayChange, isAdmin, roleChanged,
   errorText, NETWORK, INVALID, EXPIRED, CONNECTION_LOST, STORAGE_BLOCKED, viewerNote, afterSwitchUrl,
-  isolateName, switchReady,
+  isolateName, switchReady, switchPending, pendingNote,
 } from "../../auspex/static/js/shell-logic.js";
 
 // A name as a longer line shows it: isolated (U+2068 ... U+2069), so it cannot
@@ -196,4 +196,18 @@ test("the Switch button waits while the page is held, or before /me has answered
   assert.equal(switchReady("id-telco", me(), true), false);
   assert.equal(switchReady("id-telco", null, false), false);
   assert.equal(switchReady("", me(), false), false);
+});
+
+// PR #41 review, item 4: the header must never show a client the page is not
+// in without saying so. A choice not yet switched to is pending, and says
+// where the page still is.
+test("a choice other than the active workspace is pending; the active one is not", () => {
+  const m = me();
+  assert.equal(switchPending("id-telco", m), true);
+  assert.equal(switchPending("id-bank", m), false);
+  assert.equal(switchPending("id-telco", null), false);
+});
+
+test("a pending choice names the workspace the page is still in", () => {
+  assert.equal(pendingNote(me()), `still in ${iso("bank")} — Switch to move`);
 });

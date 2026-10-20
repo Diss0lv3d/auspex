@@ -63,7 +63,18 @@ export function switchOptions(me) {
 // button switches, and is ready only for a workspace other than the active
 // one, once /me has answered, while nothing holds the page.
 export function switchReady(selectedId, me, held) {
-  return Boolean(selectedId) && Boolean(me) && !held && selectedId !== me.workspace.id;
+  return switchPending(selectedId, me) && !held;
+}
+
+// PR #41 review: a choice not yet switched to is PENDING. The page, its chat
+// and every request are still in the active workspace, so the header says so
+// instead of naming the choice as if the page were there.
+export function switchPending(selectedId, me) {
+  return Boolean(selectedId) && Boolean(me) && selectedId !== me.workspace.id;
+}
+
+export function pendingNote(me) {
+  return `still in ${isolateName(activeWorkspace(me).name)} — Switch to move`;
 }
 
 // A /me read later says this tab is somewhere else, or something else, than

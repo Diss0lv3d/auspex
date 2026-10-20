@@ -7,7 +7,7 @@ import { $, el } from "./dom.js";
 import { createApi } from "./api.js";
 import {
   navEntries, switchOptions, activeWorkspace, workspaceLabel, roleChanged, afterSwitchUrl,
-  switchReady, EXPIRED, STORAGE_BLOCKED,
+  switchReady, switchPending, pendingNote, EXPIRED, STORAGE_BLOCKED,
 } from "./shell-logic.js";
 
 // D-056: the sign-in survives a reload in this tab, and dies with the tab. The
@@ -123,10 +123,15 @@ export function startShell({ page, ready, signedOut }) {
   }
 
   // The Switch button follows the choice: ready only for another workspace,
-  // and never while the page or a switch holds the controls.
+  // and never while the page or a switch holds the controls. A choice not yet
+  // switched to is pending, and the header says where the page still is.
   function syncSwitch() {
     if (!switchButton) return;
-    switchButton.disabled = !switchReady(picker && picker.value, me, busy || switching);
+    const pending = switchPending(picker.value, me);
+    picker.classList.toggle("pending", pending);
+    if (pending && !switching) setStatus(pendingNote(me), "pending");
+    else if (status.className === "pending") setStatus("signed in", "ok");
+    switchButton.disabled = !switchReady(picker.value, me, busy || switching);
   }
 
   async function switchTo() {
@@ -219,6 +224,9 @@ export function startShell({ page, ready, signedOut }) {
   // keeps holding them when the turn ends.
   function setBusy(on) {
     busy = on;
+    // A turn runs in the active workspace: a pending choice snaps back, so the
+    // header never names another client while it runs (PR #41 review).
+    if (on && picker && !switching) picker.value = me.workspace.id;
     if (picker) picker.disabled = on || switching;
     syncSwitch();
     if (out) out.disabled = on || switching;
