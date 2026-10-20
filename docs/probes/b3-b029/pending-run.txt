@@ -1,0 +1,6 @@
+1 signed in: {"selected":"⁨b3-live-mssp⁩ · provider · analyst","pending":false,"color":"rgb(231, 236, 243)","status":"signed in","statusClass":"ok","statusRole":"status","switchDisabled":true,"focus":"prompt"}
+2 picked another, not switched: {"selected":"⁨b3-live-bravo⁩ · client · analyst","pending":true,"color":"rgb(255, 180, 84)","status":"still in ⁨b3-live-mssp⁩ — Switch to move","statusClass":"pending","statusRole":"status","switchDisabled":false,"focus":"prompt"}
+3 right after Send (turn running): {"selected":"⁨b3-live-mssp⁩ · provider · analyst","pending":false,"color":"rgb(231, 236, 243)","status":"signed in","statusClass":"ok","statusRole":"status","switchDisabled":true,"focus":""}
+4 after the turn: {"selected":"⁨b3-live-mssp⁩ · provider · analyst","pending":false,"color":"rgb(231, 236, 243)","status":"signed in","statusClass":"ok","statusRole":"status","switchDisabled":true,"focus":"prompt"}
+5 after a refused switch: {"selected":"⁨b3-live-mssp⁩ · provider · analyst","pending":false,"color":"rgb(231, 236, 243)","status":"The switch is unavailable right now.","statusClass":"err","statusRole":"status","switchDisabled":true,"focus":"workspace"}
+CSP violations / page errors: []
