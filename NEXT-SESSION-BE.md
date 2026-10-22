@@ -5,8 +5,8 @@ window opened in /home/burhan/auspex-new. **S32 builds the connector contract,
 the SDK and the catalogue (D-060, D-064).** S31 closed 2026-10-16 (the jobs
 queue and TD-025's first half; B-021 fixed; D-069 built), and promote #40
 shipped it. **B3 closed 2026-10-19** (Hunaiza: B-010 and B-024 fixed). Its
-work is the PR from `b3-b010-b024` into `staging`: merge it first. Then the
-promote slate is B3's fixes (STATE.md)._
+PR #41 was merged into `staging` on 2026-10-22, so the promote slate is B3's
+fixes (STATE.md)._
 
 _Below the S32 prompt is the **backend plan for the whole phase, S29–S41**.
 **`/session-end` writes the next session's prompt from its entry in the plan,
@@ -23,9 +23,9 @@ It reads `SESSION-RULES.md` (standing rules for every track, including the
 Step 0 (do BEFORE new scope):
 
 1. **One window at a time (D-051, D-059).** B3 ran on Hunaiza's machine and
-   closed as a PR: review and merge `b3-b010-b024` → `staging` on GitHub,
-   then `git fetch` and `git pull --ff-only origin staging`, and confirm
-   STATE.md says B3 closed. If it does not, stop: wrong window. If anything else moves that you did not move, check `ps` for a
+   closed as PR #41, which Burhan merged into `staging` on 2026-10-22: `git
+   fetch` and `git pull --ff-only origin staging`, and confirm STATE.md says
+   PR #41 is merged. If it does not, stop: wrong window. If anything else moves that you did not move, check `ps` for a
    second `claude` in this directory and stop.
 2. **The promote slate holds B3's fixes** (STATE.md, follow-up #1; B3 did not
    promote, by the handoff). B-010 closes a message-driven stall, so

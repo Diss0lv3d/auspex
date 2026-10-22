@@ -1,21 +1,26 @@
 # STATE — Auspex
 
-_Last updated: 2026-10-20 — **B3 CLOSED, and its PR's review answered**: by
+_Last updated: 2026-10-22 — **PR #41 merged into `staging`** (Burhan, after
+Claude's review of the A–C answers in his window): a fast-forward to
+`45ac519`, so every commit B3's records cite is on `staging`. That review
+logged **B-032** (a test gap in the guard's live-rule test, no bypass today).
+**Promote slate: B3's fixes** (S32's Step 0 promotes them).
+
+2026-10-20 — **B3 CLOSED, and its PR's review answered**: by
 the collaborator Hunaiza (D-059), on her machine: **B-010, B-024 and B-029
 fixed** (B-029 from Burhan's review of PR #41, with the review's other six
 items). `./ci.sh` green after the re-review fixes: **1707 tests, 133 modules**;
 `/api/health/ready` 200. **B3 goes to `staging` as a PR from the branch
-`b3-b010-b024`** (Hunaiza's call; the prompt said push `staging`): **Burhan
-merges it before S32.** **Promote slate: B3's fixes, once merged** (S32's
-Step 0 promotes it). Promote #40 (`09af821`) is the last one._
+`b3-b010-b024`** (Hunaiza's call; the prompt said push `staging`).
+Promote #40 (`09af821`) is the last one._
 
 ## Tracks (D-051) — read this first
 
 | Track | Prompt | Last closed | Next | Status |
 |---|---|---|---|---|
-| backend | `NEXT-SESSION-BE.md` | S31 (2026-10-16) | S32 | **focus** · Step 0: merge B3's PR (`b3-b010-b024` → `staging`), pull, promote B3's fixes, then S31's open ends S32 builds on |
+| backend | `NEXT-SESSION-BE.md` | S31 (2026-10-16) | S32 | **focus** · Step 0: B3's PR #41 is merged (2026-10-22); pull, promote B3's fixes, then S31's open ends S32 builds on |
 | front end | `NEXT-SESSION-FE.md` | F4 (2026-10-16) | F5 | waits for S32, S33 and S34 (the order table); F4 built the shell F5's admin pages stand on |
-| bugs | `NEXT-SESSION-BUGS.md` | B3 (2026-10-19) | B4 | waits for Burhan to scope it: the open entries (B-005, B-009, B-011…B-020, B-022, B-023, B-025…B-028) |
+| bugs | `NEXT-SESSION-BUGS.md` | B3 (2026-10-19) | B4 | waits for Burhan to scope it: the open entries (B-005, B-009, B-011…B-020, B-022, B-023, B-025…B-028, B-030…B-032) |
 
 - **Focus: backend, S32** (B3's session-end, by the order table: row 4b B3
   closed, row 5 S32 next). B3 ran on Burhan's calls from the planning window:

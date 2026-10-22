@@ -665,7 +665,7 @@ BUGS.md) have their own sections at the end, before "Later".
   - Re-review: a pending choice blocks Send; the guard scan pinned to the live rules; B-030, B-031 logged.
   - 1707 tests; 133 modules; no new env vars.
 - [ ] **B4 — Burhan's call first:** the open entries (B-005, B-009, B-011…
-  B-020, B-022, B-023, B-025…B-028).
+  B-020, B-022, B-023, B-025…B-028, B-030…B-032).
 
 ## Later / explicitly deferred
 Herd Immunity federation (needs k≥3 workspaces + privacy review) · billing ·
