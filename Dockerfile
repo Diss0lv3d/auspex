@@ -2,6 +2,13 @@ FROM python:3.12-slim
 
 WORKDIR /srv/auspex
 
+# The SDK first (S32, R1): the core does not declare `auspex-sdk` as a dependency (the name
+# is unowned on PyPI), so it is installed explicitly, from this repo, before the core.
+# Only what installing it needs is copied, so editing core code never invalidates this layer.
+COPY sdk/pyproject.toml sdk/pyproject.toml
+COPY sdk/auspex_sdk sdk/auspex_sdk
+RUN pip install --no-cache-dir ./sdk && rm -rf sdk/build sdk/*.egg-info
+
 # Dependency layer: install deps from pyproject against an empty package skeleton so
 # this layer is cached and only re-runs when pyproject changes — not on every code edit.
 # Deps still come solely from pyproject (no hand-maintained requirements to drift).

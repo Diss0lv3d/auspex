@@ -49,7 +49,7 @@ auspex = ["static/*.html", "static/css/*.css", "static/js/*.js"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["tests", "sdk/tests"]
 
 [tool.ruff]
 line-length = 100

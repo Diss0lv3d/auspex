@@ -8,10 +8,13 @@ VENV=.venv
 if [ ! -d "$VENV" ]; then python3 -m venv "$VENV"; fi
 # shellcheck disable=SC1091
 source "$VENV/bin/activate"
+# The SDK first (R1): the core does not declare it as a dependency, because the name is
+# unowned on PyPI and a declared dependency could resolve to someone else's package.
+pip install -q -e ./sdk
 pip install -q -e ".[dev]"
 
 echo "== ruff =="
-ruff check auspex tests scripts server.py
+ruff check auspex tests scripts server.py sdk $([ -d examples ] && echo examples)
 
 echo "== deps up (postgres + opensearch) =="
 # --wait blocks until healthchecks pass; no hardcoded container names to drift.
