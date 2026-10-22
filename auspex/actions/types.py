@@ -155,6 +155,22 @@ class ActionScope:
     detail: str = ""
 
 
+@dataclass(frozen=True)
+class ConnectorOrigin:
+    """Which connector, and which exact package of it, an action was compiled from
+    (S32, D-064). Built-in actions have none.
+
+    Part of the declaration an approver relies on, so it is in the fingerprint
+    (proposal.canonical_spec, v2): a human who approved "close this alert" against
+    one build of a connector did not approve whatever a later upload of the same
+    id does. The content hash is what the agent must run (D-062), so naming it here
+    makes a re-upload a changed action rather than the same one.
+    """
+
+    connector_id: str
+    content_hash: str
+
+
 class ActionSpecError(ValueError):
     """A spec that cannot be honoured as written. Raised at DECLARATION time
     (the decorator) and again at registration, because the two entry points must
@@ -196,6 +212,9 @@ class ActionSpec:
     # honest default for an action that cannot look. A handler, so it is not
     # part of the declaration's fingerprint (proposal.canonical_spec).
     observe: EffectsProbe | None = None
+    # S32: the connector package this spec was compiled from (auspex.connectors),
+    # or None for a built-in. Declared, so it IS part of the fingerprint (v2).
+    origin: ConnectorOrigin | None = None
 
     def __post_init__(self) -> None:
         validate_spec(self)
@@ -400,6 +419,7 @@ __all__ = [
     "ActionScope",
     "ActionSpec",
     "ActionSpecError",
+    "ConnectorOrigin",
     "ParamType",
     "UndoSpec",
     "validate_spec",

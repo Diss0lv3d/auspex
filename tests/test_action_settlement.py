@@ -34,6 +34,7 @@ from auspex.actions import (
     ActionScope,
     ActionSpec,
     ActionSpecError,
+    ConnectorOrigin,
     ExecutionRefused,
     ParamType,
     ProposalSettlement,
@@ -352,10 +353,19 @@ def test_canonical_spec_covers_every_declared_field(spec):
     assert {f.name for f in dataclasses.fields(ActionParam)} == set(canon["params"][0])
     assert {f.name for f in dataclasses.fields(ActionScope)} == set(canon["scope"][0])
     assert {f.name for f in dataclasses.fields(UndoSpec)} - {"handler"} == set(canon["undo"])
+    # `origin` (S32, v2) names the connector and package a spec was compiled from. A
+    # built-in has none, so its sub-keys are checked on a spec that carries one.
+    assert canon["origin"] is None
+    carried = canonical_spec(
+        dataclasses.replace(spec, origin=ConnectorOrigin("example.mock_siem", "a" * 64))
+    )
+    assert {f.name for f in dataclasses.fields(ConnectorOrigin)} == set(carried["origin"])
+    # And v1 stays the shape it was, so a stored v1 fingerprint still hashes the same.
+    assert "origin" not in canonical_spec(spec, version=1)
 
 
 def test_a_version_bump_is_reported_as_a_version_bump_not_a_changed_action(spec):
-    """`FINGERPRINT_VERSION` has never been bumped, and S19 established what
+    """`FINGERPRINT_VERSION` had never been bumped (S32 bumped it to 2), and S19 established what
     happens when it is: every approved-but-unexecuted proposal refuses, and the
     copy told the analyst the ACTION had changed when only our hashing had.
 

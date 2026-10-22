@@ -31,6 +31,7 @@ packages = [
     "auspex.phishing",
     "auspex.llm",
     "auspex.classify",
+    "auspex.connectors",
     "auspex.enrich",
     "auspex.enrich.providers",
     "auspex.ingest",

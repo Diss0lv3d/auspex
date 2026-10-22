@@ -46,6 +46,12 @@ installed = Path(auspex.__file__).parent
 assert 'site-packages' in str(installed), f'shadowed, not testing the install: {installed}'
 # The whole app, imported from a directory that cannot shadow site-packages.
 import_module('auspex.app')
+# S32: the core imports the SDK (auspex.connectors), and the SDK is installed into the
+# image on its own (R1), so prove it is the installed copy, not one shadowed by sdk/.
+import auspex_sdk
+sdk_installed = Path(auspex_sdk.__file__).parent
+assert 'site-packages' in str(sdk_installed), f'auspex_sdk shadowed: {sdk_installed}'
+import_module('auspex.connectors.compile')
 
 source = Path('/srv/auspex/auspex')
 missing, differing = [], []
