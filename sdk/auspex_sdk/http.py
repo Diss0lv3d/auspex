@@ -3,8 +3,10 @@
 `ConnectorHttp` is the client a handler gets as `ctx.http`. It wraps an `httpx.Client` and:
 
 - sends only to the manifest's declared hosts, resolved from the integration's config
-  (`resolve_hosts`). Each request is BUILT first and its parsed URL checked, so the host
-  checked is the host httpx connects to (no parser disagreement). Hosts compare lowercased,
+  (`resolve_hosts`). The check runs on the parsed `httpx.URL` (the host httpx connects to, no
+  parser disagreement) in a wrapping transport, so every request reaching the network passes
+  it, including requests an `auth` callable or `httpx.Auth` flow makes up; it also runs once
+  early, on the request the connector built. Hosts compare lowercased,
   host and port together, the port defaulting to 443 (Task 2's review carry).
 - refuses plain http, and never follows a redirect: `follow_redirects` is off and cannot be
   turned on, so a declared host cannot bounce a request (and its headers) to another one.
@@ -187,6 +189,36 @@ def ssl_context_for(tls: Tls) -> ssl.SSLContext:
 # --- the client -----------------------------------------------------------------------------
 
 
+def _check_url(url: httpx.URL, allowed: frozenset[tuple[str, int]]) -> None:
+    if url.scheme == "http":
+        raise PlainHttpRefused(f"plain http is refused: {url.host}")
+    if url.scheme != "https" or not url.host:
+        raise HostNotDeclared("expected an absolute https:// URL")
+    key = (url.host.lower(), url.port or 443)
+    if key not in allowed:
+        raise HostNotDeclared(f"{key[0]}:{key[1]} is not a declared host")
+
+
+class _HostBoundTransport(httpx.BaseTransport):
+    """Checks every request's URL at the transport, the last step before the network.
+
+    httpx lets an `auth` callable or `httpx.Auth` flow send requests of its own making (to any
+    URL), so a check on the request the connector built is not enough. Every send path, auth
+    flows and the harness's mock transport included, ends here (S32, Task 4 review).
+    """
+
+    def __init__(self, inner: httpx.BaseTransport, allowed: frozenset[tuple[str, int]]) -> None:
+        self._inner = inner
+        self._allowed = allowed
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        _check_url(request.url, self._allowed)
+        return self._inner.handle_request(request)
+
+    def close(self) -> None:
+        self._inner.close()
+
+
 class ConnectorHttp:
     """An https client bound to the declared hosts and one TLS form.
 
@@ -213,17 +245,11 @@ class ConnectorHttp:
         if transport is None:
             transport = httpx.HTTPTransport(verify=ssl_context_for(tls), trust_env=False)
         self._client = httpx.Client(
-            transport=transport, follow_redirects=False, trust_env=False, timeout=timeout
+            transport=_HostBoundTransport(transport, self.allowed_hosts),
+            follow_redirects=False,
+            trust_env=False,
+            timeout=timeout,
         )
-
-    def _check(self, url: httpx.URL) -> None:
-        if url.scheme == "http":
-            raise PlainHttpRefused(f"plain http is refused: {url.host}")
-        if url.scheme != "https" or not url.host:
-            raise HostNotDeclared("expected an absolute https:// URL")
-        key = (url.host.lower(), url.port or 443)
-        if key not in self.allowed_hosts:
-            raise HostNotDeclared(f"{key[0]}:{key[1]} is not a declared host")
 
     def request(self, method: str, url: str | httpx.URL, **kwargs: Any) -> httpx.Response:
         for refused in ("follow_redirects", "extensions"):
@@ -231,7 +257,7 @@ class ConnectorHttp:
                 raise ValueError(f"{refused} is not available to connectors")
         auth = kwargs.pop("auth", httpx.USE_CLIENT_DEFAULT)
         request = self._client.build_request(method, url, **kwargs)
-        self._check(request.url)
+        _check_url(request.url, self.allowed_hosts)  # early, before any auth flow runs
         return self._client.send(request, auth=auth, follow_redirects=False)
 
     def get(self, url: str | httpx.URL, **kwargs: Any) -> httpx.Response:
