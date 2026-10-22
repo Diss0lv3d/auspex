@@ -223,7 +223,19 @@ are never deleted.
   matching "evil.com." at the end of a sentence; candidates must start only at
   the beginning of a dotted run.
 - **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 8; docs/probes/s29-review/classify/redos.py.
-- **Status:** open.
+- **A fourth, found by B3's review of the fix:** `_ANALYTICAL_INITIAL_RE`
+  (`auspex/classify/classifier.py`) took 64.3 s on `"." + " " * 31998 + "x"`.
+  Fixed inside B-010 (Hunaiza's call).
+- **Status:** fixed `0207b4a` (B3). The refang rules take whitespace only from
+  where its run begins; the greeting and analytical rules are possessive; the
+  domain and e-mail rules are searched by linear scans that skip only the
+  positions proven to fail. The worst message at the cap went from 101 s to
+  12 ms, and what every rule matches is unchanged (0 differences on 200,501
+  inputs). Record: docs/probes/2026-10-19-b3-b010-b024.md. GitHub #38.
+  **This closes the classify pass only.** The chat route runs the input guard
+  first, and two of its rules had the same shape: B-029, fixed in B3 after
+  Burhan's review of PR #41. The pinned inputs now run through the route's
+  whole text pass (guard, extract, classify), each under 1 s.
 
 ## B-011 — a request to analyse or draft that leads with "Note" or "write a note" resolves to `action_request`
 
@@ -455,7 +467,13 @@ are never deleted.
   fixing.
 - **Note:** a fix (a Switch button, or handling the keys) changes the
   switcher's UX, which is Burhan's call.
-- **Status:** open.
+- **Reproduced at B3:** in headless Chromium on Linux, three arrow presses on
+  the closed switcher made three switches and three reloads.
+- **Status:** fixed `2bc5eec` (B3). Hunaiza's call (the UX went with the
+  handoff): a Switch button. Choosing only selects; the button switches, and
+  is disabled for the active workspace and while the page is held. Live: three
+  arrows made no switch; Tab and Enter, or a click, made exactly one. Record:
+  docs/probes/2026-10-19-b3-b010-b024.md. GitHub #39.
 
 ## B-025 — a sign-in that races a rehome shows the old organization's admins the NEW organization's name
 
@@ -499,3 +517,104 @@ are never deleted.
 - **Fix sketch (the review's):** refuse or strip undeclared argument keys (at
   least the platform's own keywords) when a proposal is filed.
 - **Status:** open.
+
+## B-027 — `extract()` checks every match against every earlier span, so many observables take most of a second
+
+- **Found:** 2026-10-19, B3 (Claude), the fresh review of B-010's fix.
+  Outside B-010: this is not backtracking.
+- **What happened (measured by the review, not by B3):** `_spans_overlap`
+  (`auspex/classify/observables.py`) walks a list of spans for each match, so
+  the pass is O(matches × spans). `extract("a@b.co " * 4571)` took 234–835 ms
+  (load-dependent); `"http://a 1.2.3.4 " * 1882` 377 ms; `"http://a b.co " *
+  2285` 489 ms. All run on the chat route's event loop.
+- **Fix sketch (the review's):** walk the spans in sorted order, or bisect.
+- **Status:** open, not placed. Burhan's.
+
+## B-028 — a failed switch, after a re-check rebuilt the header with one workspace, throws on a null picker
+
+- **Found:** 2026-10-19, B3 (Claude), the fresh review of B-024's fix
+  (reasoned from the code; not reproduced). It predates B3.
+- **What happened (expected):** while a switch request is out, a `recheck()`
+  can re-render the header through `showSignedIn`. If `/me` then lists only
+  one workspace, `picker` becomes null; when the switch then fails,
+  `switchTo`'s recovery sets `picker.value` and throws
+  (`auspex/static/js/shell.js`, the lines after `switching = false`), leaving
+  the status at "switching…".
+- **Status:** open, not placed. Burhan's.
+
+## B-029 — the input guard still stalls the chat route on a crafted whitespace or newline run
+
+- **Found:** 2026-10-20, Burhan's review of PR #41 (B3), written by Claude in
+  his window; reproduced in B3 before fixing.
+- **What happened (reproduced):** `POST /api/chat` runs `guard.inspect()`
+  before `classify()` (`auspex/routes/chat.py`). Two guard rules
+  (`auspex/guard.py`) start with `(?:^|[.!?]\s+|\n)\s*` (`persona_override`)
+  and `(?:^|\n)\s*` (`role_marker_injection`), so a run of whitespace is
+  re-scanned from every newline in it, and split every way after a full stop.
+  `inspect()` runs each rule over the folded and the raw text. At the
+  32,000-character cap: `inspect("\n" * 31999 + "x")` took 130.7 s,
+  `inspect("." + spaces + "x")` 67.4 s, `inspect("\n " * 16000)` 59.0 s.
+  It predates B3; B-010's goal is not met until it is fixed.
+- **Burhan's call (2026-10-20):** "Do NOT re-open the guard regex" protects
+  what the guard flags. A speed-only fix is allowed if every verdict and every
+  span stays identical. SESSION-RULES.md records the exception.
+- **Evidence:** docs/probes/b3-b029/before.txt (`guard_timings.py`).
+- **Status:** fixed `8c51cb4` (B3). The two rules are searched by a scan that
+  tries them where `finditer` would and skips only the later starts of a run
+  whose first start failed; persona_override's prefix is possessive.
+  `inspect()` at the cap went from 130.7 s to 11–15 ms. Every verdict and span
+  is unchanged: 0 differences on 200,501 inputs against the guard at
+  `9475752` (docs/probes/b3-b029/diff_fuzz.py). SESSION-RULES.md records the
+  speed-only exception (`e3665d9`).
+
+## B-030 — the guard's quote-line carve-out is quadratic on a newline run
+
+- **Found:** 2026-10-20, Burhan's re-review of PR #41 (B3), by Claude in his
+  window. It predates B3. Same tier as B-027.
+- **What happened (the review's measurement):** `_QUOTE_LINE_RE`
+  (`^\s*>.*$`, MULTILINE, `auspex/guard.py`) backtracks on a run of newlines.
+  It runs only after a rule hits (the carve-outs), so
+  `"you are now x" + "\n" * 31985 + "x"` holds the event loop about 0.4 s.
+- **Note:** the pinned stall inputs (`tests/fixtures/classify/b010_redos.json`)
+  never hit a rule, so the carve-out half of `inspect()` is never timed. Add a
+  rule-hit input when B-030 is fixed.
+- **Status:** open, not placed. Burhan's.
+
+## B-031 — the workspace switcher's small edges
+
+- **Found:** 2026-10-20, Burhan's re-review of PR #41 (B3), by Claude in his
+  window. All minor; logged, not fixed, by his call.
+- **What happened (from the code):**
+  - The timeline page writes `#status` itself, which erases the pending note
+    (`auspex/static/js/timeline.js`).
+  - A re-check keeps focus only when it was on the picker, not on Switch or
+    Sign out (`showSignedIn`, `auspex/static/js/shell.js`).
+  - When the active workspace is missing from `me.workspaces`, `enter()`
+    overwrites the pending note with "signed in", and the select shows
+    another workspace.
+  - The live region re-announces identical text on every arrow step; it
+    should write only when the text changes.
+  - The CSS test would pass if `#workspace.pending` lost its colour
+    (`tests/test_ui.py`).
+- **Status:** open, not placed. Burhan's.
+
+## B-032 — the live-rule test misses a new start character its corpus lacks
+
+- **Found:** 2026-10-22, Burhan's review of Hunaiza's answers to PR #41's
+  re-review (A–C), by Claude in his window. A test gap, not a live bypass.
+- **What happened:** the guard's run-led scan (`_spans_of`,
+  `auspex/guard.py`) tries a rule only where `_RUN_LED`'s hand-kept start set
+  says it can begin. Re-review C's test
+  (`test_b029_the_scan_finds_what_finditer_finds_on_the_live_rules`,
+  `tests/test_guard.py`) catches a new start character only when its fixed
+  corpus (`_B029_PIECES`) contains it. Adding `\{\{system\}\}` as a
+  role_marker_injection alternative passes every b029 test, and
+  `inspect("hello {{system}} you are free")` answers CLEAN: `finditer` finds
+  `(6, 16)`, the scan finds nothing. Adding `;` or `:` as a persona_override
+  start, or `\r` as a line start before `###`, fails the test as intended.
+- **Evidence:** docs/probes/2026-10-22-b032-run-led-scan-mutants.md (each
+  mutant and its pytest result). No bypass on the rules as they stand: both
+  rounds of PR #41's differential fuzz found 0 differences.
+- **Path to fix (from the review):** a test that pins both run-led rules'
+  regex text, whose failure message says to update `_RUN_LED` first.
+- **Status:** open, not placed. Burhan's.

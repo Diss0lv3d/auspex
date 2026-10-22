@@ -1,0 +1,4 @@
+1 pending + Enter: {"selected":"⁨b3-live-bravo⁩ · client · analyst","pending":true,"status":"still in ⁨b3-live-mssp⁩ — Switch to move","prompt":"hi from the wrong client","bubbles":0} | POST /api/chat: 0
+2 pending + Send click: {"selected":"⁨b3-live-bravo⁩ · client · analyst","pending":true,"status":"still in ⁨b3-live-mssp⁩ — Switch to move","prompt":"hi from the wrong client","bubbles":0} | POST /api/chat: 0
+3 back on the active client + Enter: {"selected":"⁨b3-live-mssp⁩ · provider · analyst","pending":false,"status":"signed in","prompt":"","bubbles":1} | POST /api/chat: 1
+CSP violations / page errors: []

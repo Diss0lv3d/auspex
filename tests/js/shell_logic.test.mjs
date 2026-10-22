@@ -8,7 +8,7 @@ import { test } from "node:test";
 import {
   navEntries, workspaceLabel, activeWorkspace, switchOptions, mayChange, isAdmin, roleChanged,
   errorText, NETWORK, INVALID, EXPIRED, CONNECTION_LOST, STORAGE_BLOCKED, viewerNote, afterSwitchUrl,
-  isolateName,
+  isolateName, switchReady, switchPending, pendingNote, mayAct, workspaceName,
 } from "../../auspex/static/js/shell-logic.js";
 
 // A name as a longer line shows it: isolated (U+2068 ... U+2069), so it cannot
@@ -180,4 +180,56 @@ test("a viewer is told what they can and cannot do here", () => {
 test("after a switch the page reloads without its hash: no chat id travels to the next client", () => {
   assert.equal(afterSwitchUrl({ pathname: "/", search: "", hash: "#chat=4f0c2a9e-0000-0000-0000-000000000000" }), "/");
   assert.equal(afterSwitchUrl({ pathname: "/timeline", search: "?x=1", hash: "#a" }), "/timeline?x=1");
+});
+
+// B-024 (B3): arrow keys on a closed <select> fire `change` at every step on
+// Windows and Linux, so the switcher switched into each client a keyboard user
+// passed. Choosing only selects now; the Switch button switches, and only when
+// the choice is somewhere else and nothing holds the page.
+test("the Switch button is ready only for a workspace other than the active one", () => {
+  const m = me();
+  assert.equal(switchReady("id-telco", m, false), true);
+  assert.equal(switchReady("id-bank", m, false), false);
+});
+
+test("the Switch button waits while the page is held, or before /me has answered", () => {
+  assert.equal(switchReady("id-telco", me(), true), false);
+  assert.equal(switchReady("id-telco", null, false), false);
+  assert.equal(switchReady("", me(), false), false);
+});
+
+// PR #41 review, item 4: the header must never show a client the page is not
+// in without saying so. A choice not yet switched to is pending, and says
+// where the page still is.
+test("a choice other than the active workspace is pending; the active one is not", () => {
+  const m = me();
+  assert.equal(switchPending("id-telco", m), true);
+  assert.equal(switchPending("id-bank", m), false);
+  assert.equal(switchPending("id-telco", null), false);
+});
+
+test("a pending choice names the workspace the page is still in", () => {
+  assert.equal(pendingNote(me()), `still in ${iso("bank")} — Switch to move`);
+});
+
+// PR #41 re-review, A: a pending choice blocks acting. A message sent while
+// the select names another client would go to the active one (and its engine,
+// D-069), not to the client the analyst believes they are in.
+test("nothing may be sent while a choice is pending", () => {
+  const m = me();
+  assert.equal(mayAct("id-telco", m), false);
+  assert.equal(mayAct("id-bank", m), true);
+  assert.equal(mayAct(null, m), true);  // one workspace: no picker, nothing pending
+});
+
+// PR #41 re-review, B: the note names the client the way the header does,
+// organization first, so two clients' "SOC" workspaces cannot be confused.
+test("the pending note leads with the organization when it differs from the workspace", () => {
+  const list = [
+    entry("mssp", "provider", "analyst"),
+    entry("soc", "client", "analyst", { organization: { id: "org-acme", name: "acme", kind: "client" } }),
+  ];
+  const m = me("analyst", "soc", list);
+  assert.equal(workspaceName(activeWorkspace(m)), `${iso("acme")} / ${iso("soc")}`);
+  assert.equal(pendingNote(m), `still in ${iso("acme")} / ${iso("soc")} — Switch to move`);
 });

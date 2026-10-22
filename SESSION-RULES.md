@@ -136,7 +136,12 @@ the other once, after the rule is frozen. Three operating points are pinned
 - **Assume the rail has a fourth defect** (S23, S24 and S26 each found one). Any
   new text the agent is told in the system message or the descriptions goes
   into the index. Tool-result text is unindexed by D-031's design.
-- **Do NOT re-open the guard regex.** TD-031/032/033 are ratified.
+- **Do NOT re-open the guard regex.** TD-031/032/033 are ratified. **One
+  exception (Burhan, 2026-10-20, PR #41's review; B-029):** a change that alters
+  only SPEED is allowed, if every verdict and every span the guard uses stays
+  identical to the rule as it stood. It is proven by a differential fuzz
+  against the old rule text, newline and whitespace runs included
+  (docs/probes/b3-b029/diff_fuzz.py).
 - **The stream is scanned as it goes.** Anything that buffers, batches,
   re-chunks or re-orders what reaches the page (server or client) must keep
   the rail's carry (`OutputScanner.feed`), D-031's ordering guarantee and the

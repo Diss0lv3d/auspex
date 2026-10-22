@@ -436,6 +436,74 @@ def test_a_switch_reloads_the_page_without_its_hash(client):
     assert "STORAGE_BLOCKED" in switch
 
 
+def test_choosing_a_workspace_only_selects_it_and_the_switch_button_switches(client):
+    """B-024 (B3): arrow keys on a closed <select> fire `change` at each step in
+    Chrome on Linux and Windows, and the switcher switched on `change`, so a
+    keyboard user was reloaded into every client on the way to theirs
+    (docs/probes/b3-b024/before-run.txt). `change` now only readies the
+    Switch button; the button's click is the only way into switchTo."""
+    js = _served(client, "/js/shell.js")
+    assert 'addEventListener("change", switchTo)' not in js
+    assert 'id: "switch"' in js
+    assert 'switchButton.addEventListener("click", switchTo)' in js
+    assert 'picker.addEventListener("change", syncSwitch)' in js
+    assert js.count("switchTo") == 2  # its definition and the button's listener
+    switch = js.split("async function switchTo()", 1)[1].split("\n  }\n", 1)[0]
+    assert switch.index("switchButton.disabled = true") < switch.index('"/api/auth/switch"')
+    # the rule that sends the switch is switchReady itself, which the Node tests
+    # cover, never a hand copy of its condition (PR #41 review, item 5)
+    assert "if (!switchReady(picker.value, me, busy || switching))" in switch
+    assert "target === me.workspace.id" not in switch
+    # a switch that was not made puts the choice back, and the button with it
+    assert switch.index("switching = false") < switch.rindex("syncSwitch()")
+    shown = js.split("function showSignedIn()", 1)[1].split("\n  }\n", 1)[0]
+    assert "syncSwitch()" in shown and 'id: "switch", className: "ghost", disabled' not in shown
+    held = js.split("function setBusy(on)", 1)[1].split("\n  }\n", 1)[0]
+    assert "syncSwitch()" in held
+
+
+def test_a_choice_not_yet_switched_to_is_shown_as_pending(client):
+    """PR #41 review, item 4: picking another client without pressing Switch
+    left the select naming it while every request still went to the active
+    one. The pending state is the shell-logic rule, styled in Signal and said
+    in the status, and it blocks Send (the re-review replaced snapping the
+    choice back when a turn began)."""
+    js = _served(client, "/js/shell.js")
+    sync = js.split("function syncSwitch()", 1)[1].split("\n  }\n", 1)[0]
+    assert "switchPending(" in sync and "pendingNote(me)" in sync
+    assert 'classList.toggle("pending"' in sync
+    # A pending choice blocks Send (PR #41 re-review, A), which replaces the
+    # snap-back on send: a turn must never go to a client the header does not
+    # name. The page asks the shell before it marks itself busy or posts.
+    assert "pending: heldByChoice" in js
+    held = js.split("function heldByChoice()", 1)[1].split("\n  }\n", 1)[0]
+    assert "mayAct(" in held and "pendingNote(me)" in held
+    chat = _served(client, "/js/chat.js")
+    send = chat.split("async function send()", 1)[1].split("\n}\n", 1)[0]
+    assert send.index("if (pending()) return;") < send.index("setBusy(true)")
+    assert send.index("if (pending()) return;") < send.index('"/api/chat"')
+    css = _served(client, "/css/base.css")
+    assert "#workspace.pending" in css and "var(--signal)" in css.split("#workspace.pending", 1)[1]
+
+
+def test_a_failed_switch_tells_a_screen_reader_and_gives_the_keyboard_back(client):
+    """PR #41 review, item 6 (B-024 was a keyboard bug): after a switch that was
+    not made, focus returns to the picker instead of falling to <body>, and the
+    status line is a polite live region, so the server's words are announced."""
+    js = _served(client, "/js/shell.js")
+    assert 'status.setAttribute("role", "status")' in js
+    switch = js.split("async function switchTo()", 1)[1].split("\n  }\n", 1)[0]
+    failed = switch.split("switching = false", 1)[1]
+    assert "picker.focus()" in failed
+    # The re-check after it rebuilds the header (showSignedIn): the new picker
+    # keeps the choice and the focus the old one had, or the keyboard user
+    # lands on <body> after all (seen live, B3) and a pending choice is lost.
+    shown = js.split("function showSignedIn()", 1)[1].split("\n  }\n", 1)[0]
+    assert "document.activeElement === picker" in shown
+    kept = shown.index("const kept")
+    assert kept < shown.index('picker = el("select"') < shown.index("picker.focus()")
+
+
 def test_a_page_restored_by_back_reloads_when_the_tabs_sign_in_moved_on(client):
     """F4 final review (C1): chat -> Timeline -> switch -> Back restored the
     frozen chat page from the back/forward cache, with the previous client's
@@ -506,7 +574,8 @@ def test_the_shell_holds_the_switcher_and_sign_out_while_a_page_is_busy(client):
     hold = js.split("function setBusy(on)", 1)[1].split("\n  }\n", 1)[0]
     assert "picker.disabled = on" in hold and "out.disabled = on" in hold
     switch = js.split("async function switchTo()", 1)[1].split("\n  }\n", 1)[0]
-    early = re.search(r"if \(busy\b[^\n]*return;", switch)
+    # since PR #41's review the early return asks switchReady, holding on busy
+    early = re.search(r"if \(!switchReady\([^)]*\bbusy\b[^\n]*return;", switch)
     assert early and early.start() < switch.index('"/api/auth/switch"')
     sign_out = js.split("function signOut()", 1)[1].split("\n  }\n", 1)[0]
     early = re.search(r"if \(busy\b[^\n]*return;", sign_out)

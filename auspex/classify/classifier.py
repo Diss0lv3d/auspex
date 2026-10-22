@@ -155,18 +155,28 @@ _IDENTITY_RE = re.compile(
 # True salutations only. Bare acknowledgements ("ok", "thanks", "cool") and
 # farewells deliberately go DEEP: mid-investigation they are context ("ok" may
 # answer the model's question) and must reach the model, not a canned greeting.
+# Possessive throughout (B-010): `\s*[!.,\s]*$` split a run of spaces every way
+# between its two parts before failing at the last character, 102 s at the
+# 32,000-character cap (B3). Each possessive part is followed by something it
+# cannot match, or by a class that takes all it could, so how a run is split
+# never decides a match and the rule matches exactly what it did;
+# tests/test_classifier.py pins it with a differential fuzz.
 _GREETING_RE = re.compile(
-    r"""^\s*(?:hi|hiya|hello|hey|heya|howdy|yo|greetings|hola|salam|
-           good\s+(?:morning|afternoon|evening|day)|morning|evening)
-        (?:\s*,?\s*(?:there|again|all|team|everyone|folks|auspex))?
-    \s*[!.,\s]*$""",
+    r"""^\s*+(?:hi|hiya|hello|hey|heya|howdy|yo|greetings|hola|salam|
+           good\s++(?:morning|afternoon|evening|day)|morning|evening)
+        (?:\s*+,?+\s*+(?:there|again|all|team|everyone|folks|auspex))?
+    \s*+[!.,\s]*+$""",
     re.IGNORECASE | re.VERBOSE,
 )
 
 # Sentence-initial analytical verbs (SARA classify.py:344-352 pattern) plus a
 # few anywhere-markers that are unambiguous asks for analysis.
+# `[.!?]\s+\s*` split a run of spaces after a full stop every way before
+# failing: 64 s at the 32,000-character cap (B-010, found by B3's review).
+# `\s+\s*` is `\s+`, and a verb never starts with whitespace, so the possessive
+# form matches exactly what the rule did.
 _ANALYTICAL_INITIAL_RE = re.compile(
-    r"""(?:^|[.!?]\s+)\s*(?:
+    r"""(?:^\s*+|[.!?]\s++)(?:
         analy[sz]e | assess | evaluate | investigate | explain | triage\s+this\b |
         break\s+down | walk\s+me\s+through | diagnose |
         why\b | what\s+happened | how\s+did | how\s+was | compare | correlate

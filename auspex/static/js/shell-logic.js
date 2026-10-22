@@ -36,11 +36,17 @@ export function isolateName(name) {
 // on its own (isolateName); the DOM makes the line text.
 export function workspaceLabel(ws) {
   const org = ws.organization || {};
-  const name = org.name && org.name !== ws.name
-    ? `${isolateName(org.name)} / ${isolateName(ws.name)}` : isolateName(ws.name);
-  const parts = [name, org.kind, ws.role];
+  const parts = [workspaceName(ws), org.kind, ws.role];
   if (ws.region && ws.region !== "global") parts.push(ws.region);
   return parts.filter(Boolean).join(" · ");
+}
+
+// A workspace's name as the header shows it, organization first when the two
+// differ ("acme / SOC"): two clients may each have a workspace called "SOC".
+export function workspaceName(ws) {
+  const org = ws.organization || {};
+  return org.name && org.name !== ws.name
+    ? `${isolateName(org.name)} / ${isolateName(ws.name)}` : isolateName(ws.name);
 }
 
 // The active workspace's own entry (its organization carries a kind there).
@@ -55,6 +61,33 @@ export function switchOptions(me) {
   return (me.workspaces || []).map((w) => ({
     id: w.id, text: workspaceLabel(w), selected: w.id === me.workspace.id,
   }));
+}
+
+// B-024 (B3): choosing in the switcher only selects. Arrow keys on a closed
+// <select> fire `change` at every step on Windows and Linux, so switching on
+// `change` reloaded a keyboard user into each client they passed. The Switch
+// button switches, and is ready only for a workspace other than the active
+// one, once /me has answered, while nothing holds the page.
+export function switchReady(selectedId, me, held) {
+  return switchPending(selectedId, me) && !held;
+}
+
+// PR #41 review: a choice not yet switched to is PENDING. The page, its chat
+// and every request are still in the active workspace, so the header says so
+// instead of naming the choice as if the page were there.
+export function switchPending(selectedId, me) {
+  return Boolean(selectedId) && Boolean(me) && selectedId !== me.workspace.id;
+}
+
+export function pendingNote(me) {
+  return `still in ${workspaceName(activeWorkspace(me))} — Switch to move`;
+}
+
+// PR #41 re-review: nothing may be sent while a choice is pending. A turn sent
+// then would go to the active workspace (and its engine, D-069), not to the
+// client the select names. No picker (one workspace) is never pending.
+export function mayAct(selectedId, me) {
+  return !switchPending(selectedId, me);
 }
 
 // A /me read later says this tab is somewhere else, or something else, than

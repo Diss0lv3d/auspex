@@ -1,0 +1,7 @@
+options: ["⁨b3-live-mssp⁩ · provider · analyst","⁨b3-live-alpha⁩ · client · analyst","⁨b3-live-bravo⁩ · client · analyst","⁨b3-live-charlie⁩ · client · analyst"]
+active at start: ⁨b3-live-mssp⁩ · provider · analyst
+ArrowDown: switch requests +1, reloads +1, active now: ⁨b3-live-alpha⁩ · client · analyst
+ArrowDown: switch requests +1, reloads +1, active now: ⁨b3-live-bravo⁩ · client · analyst
+ArrowUp: switch requests +1, reloads +1, active now: ⁨b3-live-alpha⁩ · client · analyst
+switch request bodies: ["{\"workspace_id\":\"a97d04a5-9a8e-47d3-a5b9-ee86095c392f\"}","{\"workspace_id\":\"1249ea38-61aa-48b2-904e-689175b0543c\"}","{\"workspace_id\":\"a97d04a5-9a8e-47d3-a5b9-ee86095c392f\"}"]
+CSP violations: []

@@ -26,6 +26,7 @@ Design notes:
 import hashlib
 import ipaddress
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import StrEnum
 from urllib.parse import urlsplit, urlunsplit
@@ -114,11 +115,19 @@ def _canonical_ipv6(ip: ipaddress.IPv6Address) -> str:
 
 # One pattern per replacement, any bracket pair ([.], (.), {.}, and mixed pairs —
 # a harmless superset in defang context; nobody writes a literal "[.)" in prose).
+#
+# B-010: a leading `\s*` let every position inside a run of spaces start a new
+# attempt that scanned to the run's end and failed: 16 s at the 32,000-character
+# cap (B3). The leading whitespace is now taken only from where its run begins
+# (`(?<!\s)`), or not at all; a match never starts mid-run, which the leftmost
+# match never did, since a run is consumed whole by the match before it. The
+# rest is possessive, each part followed by something it cannot match.
+_REFANG_LEAD = r"(?:(?<!\s)\s++)?"
 _REFANG_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bhxxps\b", re.IGNORECASE), "https"),
     (re.compile(r"\bhxxp\b", re.IGNORECASE), "http"),
-    (re.compile(r"\s*[\[({]\s*(?:\.|dot)\s*[\])}]\s*", re.IGNORECASE), "."),
-    (re.compile(r"\s*[\[({]\s*(?:@|at)\s*[\])}]\s*", re.IGNORECASE), "@"),
+    (re.compile(_REFANG_LEAD + r"[\[({]\s*+(?:\.|dot)\s*+[\])}]\s*+", re.IGNORECASE), "."),
+    (re.compile(_REFANG_LEAD + r"[\[({]\s*+(?:@|at)\s*+[\])}]\s*+", re.IGNORECASE), "@"),
     (re.compile(r"\[\s*:\s*\]"), ":"),
 )
 
@@ -151,6 +160,8 @@ _URL_RE = re.compile(r"\bhttps?://[^\s<>\"']+", re.IGNORECASE)
 _URL_TRAILING_JUNK = ".,;:!?)\"'>]"
 
 _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,24}\b")
+_EMAIL_LOCAL_RUN_RE = re.compile(r"[A-Za-z0-9._%+-]+")
+_EMAIL_START_RE = re.compile(r"\b[A-Za-z0-9._%+-]")
 
 _CVE_RE = re.compile(r"\bCVE-\d{4}-\d{4,7}\b", re.IGNORECASE)
 
@@ -178,9 +189,10 @@ _IPV6_CAND_RE = re.compile(r"[0-9A-Fa-f]{0,4}(?::[0-9A-Fa-f]{0,4}){2,7}")
 _IPV6_V4_TAIL_RE = re.compile(r"^(?:\.\d{1,3}){3}")
 _IPV6_BOUNDARY_JUNK = ":_%-"
 
-_DOMAIN_CAND_RE = re.compile(
-    r"\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}\b", re.IGNORECASE
-)
+_DOMAIN_LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\."
+_DOMAIN_CAND_RE = re.compile(r"\b(?:" + _DOMAIN_LABEL + r")+[a-z]{2,24}\b", re.IGNORECASE)
+_DOMAIN_LABEL_RE = re.compile(_DOMAIN_LABEL, re.IGNORECASE)
+_DOMAIN_START_RE = re.compile(r"\b[a-z0-9]", re.IGNORECASE)
 # Allowlist strategy (SARA pattern): open-ended TLD matching turns filenames and
 # version strings into domains. Common gTLD/ccTLD + abuse-heavy TLDs; extend freely.
 _TLDS = frozenset(
@@ -194,6 +206,58 @@ _TLDS = frozenset(
     monster quest lol fun shop store vip bond cfd sbs
     """.split()
 )
+
+
+# -- linear scans for the domain and email rules (B-010) -----------------------
+# `finditer` retries a failed rule at every later position. On "a." repeated, a
+# failed domain attempt had walked every label to the end of the run and back,
+# and so did the attempt at each following label: 49 s at the 32,000-character
+# cap, and 4 s for the email rule (B3). These scans try the same rule at the
+# same positions, in the same order, but skip the positions that are proven to
+# fail after a failure, so what they find is exactly what `finditer` found
+# (tests/test_observables.py fuzzes the two against each other).
+
+
+def _domain_candidates(text: str) -> Iterator[re.Match[str]]:
+    """`_DOMAIN_CAND_RE.finditer(text)`, in linear time.
+
+    When the rule fails at a label that is followed by its dot, it also fails at
+    the next label: whatever could follow the next label could follow this one
+    too, one label longer. The same holds at a start just after a hyphen inside
+    a label. So the scan skips to the first point the chain of labels cannot
+    reach, and tries again there.
+    """
+    pos = 0
+    while (start := _DOMAIN_START_RE.search(text, pos)) is not None:
+        at = start.start()
+        m = _DOMAIN_CAND_RE.match(text, at)
+        if m is not None:
+            yield m
+            pos = m.end()
+            continue
+        reach = at
+        while (label := _DOMAIN_LABEL_RE.match(text, reach)) is not None:
+            reach = label.end()
+        pos = max(reach, at + 1)
+
+
+def _email_candidates(text: str) -> Iterator[re.Match[str]]:
+    """`_EMAIL_RE.finditer(text)`, in linear time.
+
+    The local part is the whole run of its characters up to the "@", so every
+    start inside one run needs the same "@" and the same domain after it: when
+    one fails, they all do, and the scan skips the rest of the run.
+    """
+    pos = 0
+    while (start := _EMAIL_START_RE.search(text, pos)) is not None:
+        at = start.start()
+        m = _EMAIL_RE.match(text, at)
+        if m is not None:
+            yield m
+            pos = m.end()
+            continue
+        # `at` holds a local-part character, so the run is at least that one
+        pos = _EMAIL_LOCAL_RUN_RE.match(text, at).end()
 
 
 # -- extraction ---------------------------------------------------------------
@@ -249,7 +313,7 @@ def extract(text: str) -> Extraction:
         url_spans.append(span)
         found.append((ObservableType.URL, _normalize_url(raw), raw, span))
 
-    for m in _EMAIL_RE.finditer(refanged):
+    for m in _email_candidates(refanged):
         if _spans_overlap(m.start(), m.end(), url_spans):
             continue
         email_spans.append(m.span())
@@ -316,7 +380,7 @@ def extract(text: str) -> Extraction:
             found.append((hash_type, m.group().lower(), m.group(), m.span()))
 
     nonhost_spans = url_spans + email_spans  # loop-invariant
-    for m in _DOMAIN_CAND_RE.finditer(refanged):
+    for m in _domain_candidates(refanged):
         if _spans_overlap(m.start(), m.end(), nonhost_spans):
             continue
         domain = _domain_backtrack(m.group())

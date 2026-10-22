@@ -3,7 +3,9 @@
 const { chromium } = require('playwright-core');
 const BASE = 'http://localhost:8000';
 (async () => {
-  const browser = await chromium.launch({ executablePath: '/home/burhan/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome', ignoreDefaultArgs: ['--disable-back-forward-cache'] });
+  // CHROMIUM overrides the browser on another machine (B3 ran it on Hunaiza's).
+  const executablePath = process.env.CHROMIUM || '/home/burhan/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome';
+  const browser = await chromium.launch({ executablePath, ignoreDefaultArgs: ['--disable-back-forward-cache'] });
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   const out = {};
   await page.addInitScript(() => { window.__born = Math.random(); });
@@ -15,7 +17,9 @@ const BASE = 'http://localhost:8000';
   };
   const switchTo = async (match) => {
     const v = await page.evaluate((m) => [...document.querySelectorAll('#workspace option')].find((o) => o.textContent.includes(m)).value, match);
-    await Promise.all([page.waitForNavigation(), page.selectOption('#workspace', v)]);
+    // B-024 (B3): choosing only selects; the Switch button switches.
+    await page.selectOption('#workspace', v);
+    await Promise.all([page.waitForNavigation(), page.click('#switch')]);
     await page.waitForSelector('#signout', { timeout: 10000 }); await page.waitForTimeout(600);
   };
   // 1. Back after a switch made on another page.

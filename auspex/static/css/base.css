@@ -41,13 +41,16 @@ header button, header a, #status, .ws-label { white-space: nowrap; }
 nav.pages { display: flex; gap: 14px; }
 nav.pages a { color: var(--slate); text-decoration: none; font-size: 14px; padding: 2px 0; }
 nav.pages a.current { color: var(--text); border-bottom: 2px solid var(--aurora); }
-.workspace { display: flex; align-items: center; min-width: 0; }
+.workspace { display: flex; gap: 8px; align-items: center; min-width: 0; }
 #workspace { max-width: 24em; overflow: hidden; text-overflow: ellipsis; }
 .ws-label { font-size: 13.5px; border: 1px solid var(--edge); border-radius: 8px; padding: 8px 12px; }
 #status { font-size: 13px; color: var(--slate); }
 #status.ok { color: var(--aurora); }
 /* A refusal or a notice is a sentence: it wraps rather than widen the page. */
 #status.err { color: var(--ember); white-space: normal; }
+/* A choice not yet switched to (PR #41 review): the page is still elsewhere. */
+#workspace.pending { border-color: var(--signal); color: var(--signal); }
+#status.pending { color: var(--signal); white-space: normal; }
 /* A phone (F2 narrow pass, F4): the tagline and the "signed in" status give
    way first; the workspace stays on screen, the whole width if it must. */
 @media (max-width: 599px) {

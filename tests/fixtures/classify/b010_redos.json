@@ -1,0 +1,75 @@
+{
+  "bug": "B-010 (GitHub #38) and B-029: crafted whitespace or dotted input stalls the chat route's text pass (guard.inspect, then extract and classify) on its event loop",
+  "how_to_build": "text = head + unit * repeat + tail; every input is at the chat route's 32,000-character message cap",
+  "found": "S29's review of S28's code (docs/probes/2026-10-14-s29-s28-code-review.md, finding 8); re-measured at B3 (docs/probes/2026-10-19-b3-b010-b024.md)",
+  "inputs": [
+    {
+      "id": "refang-spaces",
+      "rules": "the refang [.] and [@] rules",
+      "head": "x",
+      "unit": " ",
+      "repeat": 31998,
+      "tail": "x",
+      "before_ms": {
+        "extract": 25610
+      }
+    },
+    {
+      "id": "greeting-spaces",
+      "rules": "_GREETING_RE",
+      "head": "hi",
+      "unit": " ",
+      "repeat": 31997,
+      "tail": "x",
+      "before_ms": {
+        "classify": 101488
+      }
+    },
+    {
+      "id": "dotted-run",
+      "rules": "_DOMAIN_CAND_RE and _EMAIL_RE",
+      "head": "",
+      "unit": "a.",
+      "repeat": 16000,
+      "tail": "",
+      "before_ms": {
+        "extract": 51092,
+        "classify": 22996
+      }
+    },
+    {
+      "id": "analytical-dot-spaces",
+      "rules": "_ANALYTICAL_INITIAL_RE (found by B3's review of the fix); the guard's persona_override (B-029)",
+      "head": ".",
+      "unit": " ",
+      "repeat": 31998,
+      "tail": "x",
+      "before_ms": {
+        "classify": 64300,
+        "guard_inspect": 67356
+      }
+    },
+    {
+      "id": "guard-newlines",
+      "rules": "the guard's persona_override and role_marker_injection (B-029)",
+      "head": "",
+      "unit": "\n",
+      "repeat": 31999,
+      "tail": "x",
+      "before_ms": {
+        "guard_inspect": 130670
+      }
+    },
+    {
+      "id": "guard-newline-space",
+      "rules": "the guard's persona_override and role_marker_injection (B-029)",
+      "head": "",
+      "unit": "\n ",
+      "repeat": 16000,
+      "tail": "",
+      "before_ms": {
+        "guard_inspect": 59023
+      }
+    }
+  ]
+}

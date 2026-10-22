@@ -14,13 +14,14 @@ import { mayChange, viewerNote, CONNECTION_LOST } from "./shell-logic.js";
 let api = null;  // the shell's client, once /me has accepted this tab's token
 let me = null;   // GET /api/auth/me: who, where, and as what
 let setBusy = () => {};
+let pending = () => false;  // the shell: a workspace choice not yet switched to
 let sessionId = null;
 let busy = false;  // a turn is streaming: the chat cannot be switched under it
 
 // Everything the page does once the shell holds a token /me accepted. A
 // viewer gets no door that changes anything; the server refuses them anyway.
 function ready(ctx) {
-  ({ me, api, setBusy } = ctx);
+  ({ me, api, setBusy, pending } = ctx);
   if (mayChange(me.workspace.role)) {
     $("prompt").disabled = false; $("send").disabled = false; $("prompt").focus();
   } else {
@@ -150,6 +151,7 @@ function handleEvent(ev, wrap) {
 async function send() {
   const text = $("prompt").value.trim();
   if (!text || !api || busy) return;
+  if (pending()) return;  // the shell says where the page still is (PR #41 re-review)
   busy = true;
   setBusy(true);  // the switcher and Sign out wait for the turn (D-070)
   $("prompt").value = ""; $("send").disabled = true; $("prompt").disabled = true;

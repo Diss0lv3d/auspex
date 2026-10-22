@@ -1,11 +1,13 @@
 # NEXT-SESSION-BE — track: backend · session: S32
 
 _Paste everything below the first line of dashes into a fresh Claude Code
-window opened in /home/burhan/auspex-new. **S32 builds the connector contract,
+window opened in your clone of the Auspex repo. **S32 is handed to Hunaiza
+(Burhan, 2026-10-22; D-059): she owns it fully.** **S32 builds the connector contract,
 the SDK and the catalogue (D-060, D-064).** S31 closed 2026-10-16 (the jobs
-queue and TD-025's first half; B-021 fixed; D-069 built), so S32 is next in the
-order table and **the focus** (STATE.md). The promote slate holds all of S31
-(STATE.md)._
+queue and TD-025's first half; B-021 fixed; D-069 built), and promote #40
+shipped it. **B3 closed 2026-10-19** (Hunaiza: B-010 and B-024 fixed). Its
+PR #41 was merged into `staging` on 2026-10-22, so the promote slate is B3's
+fixes (STATE.md)._
 
 _Below the S32 prompt is the **backend plan for the whole phase, S29–S41**.
 **`/session-end` writes the next session's prompt from its entry in the plan,
@@ -14,20 +16,31 @@ plan's order is Burhan's call._
 
 ---
 
-SESSION S32 of Auspex, **backend track** (D-051). The working dir must be
-/home/burhan/auspex-new. Run `/session-start be S32` first (the full ritual).
+SESSION S32 of Auspex, **backend track** (D-051). The working dir is your
+clone of the Auspex repo. Run `/session-start be S32` first (the full ritual).
 It reads `SESSION-RULES.md` (standing rules for every track, including the
 **Jobs** section S31 added) and STATE.md.
 
+**The handoff (D-059).** Burhan handed S32 to Hunaiza (`HunaizaK`, on
+SESSION-RULES.md's "Who works here" table). She works on her own machine, in
+her own clone, under her own personal identity. **She owns S32 fully: every
+call, new D-entries and `/promote` included** (Burhan, 2026-10-22). Wherever
+this prompt, a rule or a command says "Burhan's call", "ask Burhan" or
+"brainstorm with Burhan", ask her. Re-scoping another track, or the plan's
+order, stays Burhan's: say so, and she passes it on. One session at a time
+spans both machines: Burhan runs no session while S32 runs.
+
 Step 0 (do BEFORE new scope):
 
-1. **One window at a time (D-051, D-059).** `git fetch` and read
-   `origin/staging` first. If anything moves that you did not move, check `ps`
-   for a second `claude` in this directory and stop.
-2. **The promote slate holds all of S31** (STATE.md, follow-up #1). S31 is not
-   a milestone in the order table (the next is S33), but it carries D-069's
-   residency rule and B-021's fix: **ask Burhan whether to `/promote` it
-   now.** If yes, read the diff, not the list.
+1. **One window at a time (D-051, D-059).** B3 ran on Hunaiza's machine and
+   closed as PR #41, which Burhan merged into `staging` on 2026-10-22: `git
+   fetch` and `git pull --ff-only origin staging`, and confirm STATE.md says
+   PR #41 is merged. If it does not, stop: wrong window. If anything else moves that you did not move, check `ps` for a
+   second `claude` in this directory and stop.
+2. **The promote slate holds B3's fixes** (STATE.md, follow-up #1; B3 did not
+   promote, by the handoff). B-010 closes a message-driven stall, so
+   **`/promote` it** (the first session after a track runs its Step 0
+   promote). Read the diff, not the list.
 3. **Read D-060 and D-064, and the spec's sections on them, before any code**
    (docs/superpowers/specs/2026-10-15-integration-phase-design.md). They are the
    contract; re-debating one is "overturn or drop?" to Burhan.
@@ -130,8 +143,9 @@ ticks the closed session._
 | 1 | S29 | be | F3 closed | closed: the S28 review, the spec and D-060…D-067 |
 | 2 | S30 | be | S29 | closed 2026-10-15: MSSP tenancy (D-061, D-068); D-069 decided, built later |
 | 3 | F4 | fe | S30 | closed 2026-10-16: one shell for every page, role-aware, a workspace switcher (D-070) |
-| 4 | S31 | be | S30 | closed 2026-10-16: the jobs queue, TD-025's first half; B-021 fixed, D-069 built |
-| 5 | S32 | be | S31 | the connector contract, the SDK (Python and YAML), the catalogue |
+| 4 | S31 | be | S30 | closed 2026-10-16: the jobs queue, TD-025's first half; B-021 fixed, D-069 built; promote #40 |
+| 4b | B3 | bugs | S31 | closed 2026-10-19 by Hunaiza (D-059): B-010 and B-024 fixed; PR #41 merged 2026-10-22 |
+| 5 | S32 | be | S31, B3 | Hunaiza's, fully (D-059, 2026-10-22): the connector contract, the SDK (Python and YAML), the catalogue |
 | 6 | S33 | be | S32 | integrations and the Edge Agent, "Test connection" end to end |
 | 7 | S34 | be | S33 | integration actions through approvals and per-client policy |
 | 8 | F5 | fe | S34 | connectors, integrations, Edge Agents, memberships and approval policy admin |
@@ -199,7 +213,7 @@ ticks the closed session._
 - **Open bugs that touch this phase** (BUGS.md): B-026 (an undeclared action
   argument named like a platform keyword is approved, then fails), B-025 (a
   sign-in racing a rehome names the new organization to the old one's
-  admins), B-010 (three classify rules still backtrack on crafted input),
+  admins), B-027 (`extract()` is O(matches × spans) on many observables),
   B-015/B-020 (what the agent says it recorded), B-017 (a malformed tool name
   from the endpoint crashes a turn), B-018 (a URL's credentials are kept).
 

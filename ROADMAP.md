@@ -647,11 +647,25 @@ BUGS.md) have their own sections at the end, before "Later".
     and a fresh-agent review (2 of 4 found a real defect, both fixed).
   - TD-054, TD-055 logged; TD-044 updated; B-009 logged; D-044 addendum.
   - 1385 tests; 121 modules; no new env vars.
-- [ ] **B3 — Burhan's call first:** S29 logged B-010…B-020 (B-010, a
-  message-driven event-loop stall, is the most severe); S31 fixed B-021 and
-  logged B-025 and B-026; F4 logged B-022…B-024. B-005 and B-009 still
-  wait on the deferred fabricated-specifics item coming out of Deferred (a
-  D-entry).
+- [x] **B3 — B-010, then B-024** (2026-10-19). Burhan's scope, run by the
+  collaborator Hunaiza (D-059). No promote; a PR from `b3-b010-b024` into
+  `staging` (her call). Record: docs/probes/2026-10-19-b3-b010-b024.md.
+  - **B-010 fixed** (`0207b4a`): four classify rules no longer backtrack (the
+    fourth found by the review). The worst message at the cap went from 101 s
+    to about 12 ms, with the same matches (0 differences on 200,501 inputs).
+  - **B-024 fixed** (`2bc5eec`): choosing a workspace only selects it; a
+    Switch button switches (her UX call). Live: arrows switch nothing.
+  - B-027 and B-028 logged from the reviews.
+  - **Burhan's review of PR #41**, answered on the branch: **B-029 fixed**
+    (`8c51cb4`, the input guard's two backtracking rules; the guard took
+    130.7 s, now 11–15 ms, with every verdict unchanged); the pinned inputs run
+    through the route's whole text pass; the Back/Forward check works again; a
+    pending choice is shown and a turn snaps it back; a failed switch is
+    announced and keeps the keyboard's place.
+  - Re-review: a pending choice blocks Send; the guard scan pinned to the live rules; B-030, B-031 logged.
+  - 1707 tests; 133 modules; no new env vars.
+- [ ] **B4 — Burhan's call first:** the open entries (B-005, B-009, B-011…
+  B-020, B-022, B-023, B-025…B-028, B-030…B-032).
 
 ## Later / explicitly deferred
 Herd Immunity federation (needs k≥3 workspaces + privacy review) · billing ·

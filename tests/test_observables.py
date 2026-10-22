@@ -372,3 +372,85 @@ def test_our_canonical_ipv6_agrees_with_the_stdlib():
 
     assert not not_roundtrip, f"canonical form lost the address: {not_roundtrip[:5]}"
     assert not differs, f"disagrees with the stdlib on unmapped addresses: {differs[:5]}"
+
+
+# -- B-010: the refang, domain and email scans cannot backtrack ----------------
+# extract() runs on the chat route's event loop, so a rule that backtracks on
+# crafted input stalls every request on the worker. Measured at B3 at the
+# 32,000-character cap: 16 s for the refang [.] rule on a run of spaces, 49 s
+# for the domain rule and 4 s for the email rule on "a." repeated
+# (docs/probes/b3-b010/). The timed inputs are 8,000
+# characters, so a regressed rule fails in seconds instead of hanging the gate.
+
+import random  # noqa: E402
+import re  # noqa: E402
+
+from _timing import BOUNDED_MS as _BOUNDED_MS  # noqa: E402
+from _timing import elapsed_ms as _elapsed_ms  # noqa: E402
+
+from auspex.classify import observables as _O  # noqa: E402
+
+# The rules exactly as they stood before B-010, kept to prove the fix changed
+# how they match, never what.
+_BEFORE_B010 = {
+    "refang_dot": re.compile(r"\s*[\[({]\s*(?:\.|dot)\s*[\])}]\s*", re.IGNORECASE),
+    "refang_at": re.compile(r"\s*[\[({]\s*(?:@|at)\s*[\])}]\s*", re.IGNORECASE),
+    "domain": re.compile(
+        r"\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}\b", re.IGNORECASE
+    ),
+    "email": re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,24}\b"),
+}
+
+
+def _after_b010(name: str, text: str) -> list[tuple[int, int]]:
+    if name == "refang_dot":
+        return [m.span() for m in _O._REFANG_RULES[2][0].finditer(text)]
+    if name == "refang_at":
+        return [m.span() for m in _O._REFANG_RULES[3][0].finditer(text)]
+    if name == "domain":
+        return [m.span() for m in _O._domain_candidates(text)]
+    return [m.span() for m in _O._email_candidates(text)]
+
+
+
+
+def test_b010_refang_does_not_backtrack_on_a_whitespace_run():
+    for q in ("x" + " " * 7998 + "x", "x" + "\t \n" * 2666 + "x"):
+        assert _elapsed_ms(refang, q) < _BOUNDED_MS, repr(q[:8])
+
+
+def test_b010_extract_does_not_backtrack_on_a_dotted_run():
+    for unit in ("a.", "a-b."):
+        q = unit * (8000 // len(unit))
+        assert _elapsed_ms(extract, q) < _BOUNDED_MS, unit
+
+
+def test_b010_the_rules_still_find_what_they_found():
+    """The fix changes how the rules match, not what. The S29 review's caution
+    is pinned first: a candidate starting mid-run must still be found when the
+    run's earlier labels cannot carry it."""
+    assert _values("Block evil.com.", ObservableType.DOMAIN) == ["evil.com"]
+    assert _values("seen at my_host.evil.com today", ObservableType.DOMAIN) == ["evil.com"]
+    assert _values("a-.evil.com", ObservableType.DOMAIN) == ["evil.com"]
+    assert _values("x" * 70 + ".evil.com", ObservableType.DOMAIN) == ["evil.com"]
+    assert _values("mail bob.smith@evil.com now", ObservableType.EMAIL) == ["bob.smith@evil.com"]
+    assert _values("..bob@evil.com", ObservableType.EMAIL) == ["bob@evil.com"]
+    assert refang("evil   [ . ]   com and bob [at] evil [dot] com") == "evil.com and bob@evil.com"
+    assert refang("[.]   [.]") == ".."
+
+
+def test_b010_each_rule_matches_exactly_what_it_matched_before():
+    """A seeded differential fuzz: the rules before B-010 against the rules
+    after it, on short strings built from the characters that steer them
+    (brackets, dots, hyphens, '@', whitespace, '_', a non-ASCII letter, the
+    Kelvin sign that IGNORECASE folds to 'k'). Its strings stay under 41
+    characters, so the 63-character label limit is left to the pinned case
+    above and to the probe's larger fuzz (docs/probes/b3-b010/diff_fuzz.py)."""
+    alphabet = "ab1-._@ \t\n[](){}dotDOTatcom%+éK,"
+    rng = random.Random(1010)  # noqa: S311 -- a seeded fuzz, not a secret
+    for _ in range(4000):
+        text = "".join(rng.choice(alphabet) for _ in range(rng.randint(0, 40)))
+        for name, before in _BEFORE_B010.items():
+            assert _after_b010(name, text) == [m.span() for m in before.finditer(text)], (
+                name, text,
+            )

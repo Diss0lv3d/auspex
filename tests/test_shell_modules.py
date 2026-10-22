@@ -19,7 +19,7 @@ JS = Path(__file__).parent / "js"
 
 # The floor is each file's count today; it only ever goes up.
 @pytest.mark.parametrize("name,floor", [
-    ("shell_logic.test.mjs", 22),
+    ("shell_logic.test.mjs", 28),
     ("dom.test.mjs", 5),
     ("api.test.mjs", 11),
 ])

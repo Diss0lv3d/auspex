@@ -1,0 +1,1 @@
+inputs: 200000 generated, 501 real (tests/fixtures); compared: inspect() answer + 2 rules x raw and folded spans; differences: 0

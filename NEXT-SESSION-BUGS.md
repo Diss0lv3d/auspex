@@ -1,98 +1,64 @@
-# NEXT-SESSION-BUGS — track: bugs · session: B3
+# NEXT-SESSION-BUGS — track: bugs · session: B4
 
-_Paste everything below the line into a fresh Claude Code window opened in
-/home/burhan/auspex-new. The bugs track works from BUGS.md (D-051). The
-backend is the current focus (S32, STATE.md); start B3 only when Burhan picks
-it. S29's review of S28's code logged B-010…B-020, F4 logged B-022…B-024 and
-S31 logged B-025…B-026 (S31 fixed S30's B-021), so B3 has work now._
+_Paste everything below the line into a fresh Claude Code window opened in the
+Auspex repo. **B4 is not scoped yet: which bugs it takes is Burhan's call.**
+B3 closed 2026-10-19 (Hunaiza, D-059): B-010 and B-024 fixed, B-027 and B-028
+logged. Run B4 only when STATE.md's Tracks table makes bugs the focus or
+Burhan says so; the order table in `NEXT-SESSION-BE.md` runs the backend
+first._
 
 ---
 
-SESSION B3 of Auspex, **bugs track** (D-051). The working dir must be
-/home/burhan/auspex-new. Run `/session-start bugs B3` first (the full ritual).
-It reads `SESSION-RULES.md` (standing rules for every track) and STATE.md.
+SESSION B4 of Auspex, **bugs track** (D-051). The working dir is the Auspex
+repo. Run `/session-start bugs B4` first (the full ritual). It reads
+`SESSION-RULES.md` (standing rules for every track) and STATE.md.
+
+**Who decides.** Burhan, unless STATE.md says B4 was handed to a collaborator
+(D-059); then the calls inside its scope are theirs, and re-scoping stays
+Burhan's.
 
 Step 0 (do BEFORE new scope):
 
-1. **One window at a time (D-051).** If anything moves that you did not move,
-   check `ps` for a second `claude` in this directory and stop.
-2. **If STATE.md says the promote slate is not empty, `/promote` it.** Read
-   the diff, not the list.
-3. **Read BUGS.md, then put the scope question to Burhan before any bug.**
-   B2 fixed B-002, B-004, B-006 and B-008. S29's review of S28's code logged
-   **B-010…B-020** (record: docs/probes/2026-10-14-s29-s28-code-review.md,
-   scripts in docs/probes/s29-review/). **B-010 is the most severe:** three
-   older classify rules let one crafted message stall the chat route's event
-   loop for seconds (the refang rules, `_GREETING_RE`, `_DOMAIN_CAND_RE`; S29
-   fixed the two S28 rules with possessive quantifiers, `8187925`). **B-005
-   and B-009 still sit next to the deferred fabricated-specifics item**
-   (SESSION-RULES.md, Deferred). **S31 fixed B-021** (`b1fa61e`) and logged
-   **B-025** (a sign-in racing a rehome names the new organization to the old
-   one's admins; tenancy, so a fix gets a fresh-agent review) and **B-026** (an
-   undeclared action argument named like a platform keyword is approved, then
-   the run fails into `incomplete`; S32's Step 0 may take it, so ask Burhan
-   first). **F4 logged
-   B-022** (the rail cut a note-only request whose thinking quoted the note
-   tool's description: TD-044's action-request case), **B-023** (a `lapsed`
-   pill has no colour) and **B-024** (the switcher's keyboard behaviour,
-   unverified; a fix changes its UX, so Burhan's call). Ask him, with the
-   evidence:
-   - **Which open bug first?** The track's default is the top open entry;
-     B-010's severity argues for it.
-   - **Does the fabricated-specifics item come out of Deferred** (for B-005 and
-     B-009)? That is a scope decision and a new D-entry.
-   - Has he **seen anything broken using the platform?** Log each with `/bug`.
-   - **B-011 and B-012 change classifier rules**, so they are judged on blind
-     batteries (SESSION-RULES.md) against pinned operating points. **B-012 is
-     partly Burhan's call:** D-047 counts "bot / chat / platform" as the
-     assistant.
+1. **Start from GitHub.** `git checkout staging && git pull --ff-only origin
+   staging`. One session at a time holds across machines (D-051, D-059): if
+   `origin/staging` moves while B4 runs and you did not move it, stop.
+2. **If STATE.md says the promote slate is not empty, `/promote` it** (unless
+   the handoff says otherwise). Read the diff, not the list.
+3. **Ask Burhan which bugs B4 takes, and in what order.** Do not pick. The
+   open entries in BUGS.md:
+   - **B-027** (B3): `extract()` checks every match against every earlier
+     span, so thousands of observables take 0.2–0.8 s on the event loop;
+   - **B-028** (B3): a failed switch, after a re-check rebuilt the header with
+     one workspace, throws on a null picker (reasoned, not reproduced);
+   - B-011…B-020 (S29's review of S28's code), B-022 and B-023 (F4), B-025
+     and B-026 (S31);
+   - B-030 and B-031 (PR #41's re-review), and B-032 (the review of its
+     answers): the guard's quote-line carve-out on a newline run, the
+     switcher's small edges, and a gap in the guard's live-rule test;
+   - B-005 and B-009, which wait on his call about the Deferred
+     fabricated-specifics item.
 
-Goal (one bug at a time, Burhan's order; the S29 entries are in BUGS.md with
-their evidence and the reviewer's repro sketch):
-- **B-010: the classify pass can still be stalled by crafted whitespace or
-  dotted input.** A plain possessive would stop `_DOMAIN_CAND_RE` matching
-  "evil.com." at the end of a sentence, so candidates must start only at the
-  beginning of a dotted run. Pin each rule with a timing test like
-  `tests/test_classifier.py`'s, and prove by differential fuzz that what it
-  matches did not change.
-- **The S29 entries B-011…B-020**, as Burhan picks.
-
-- **B-009: the agent calls a no-signal IP "legitimate"**, inferred from its
-  operator and from the absence of signals.
-  - B-006's fix handed the model `"reputation": "unknown"`, and it says
-    unknown 3/3 now, but it still writes "legitimate Google infrastructure"
-    3/3.
-  - Evidence: docs/probes/2026-10-13-b2-b006-reproduce.md and
-    docs/probes/b2-b006/raw-repro-after.jsonl. The probe that reproduces it
-    is `docs/probes/b2-b006/probe_repro.py`.
-- **B-005: on the conversational path glm forges the `⟦DATA⟧` fence** and
-  writes invented "platform data" inside it.
-  - Evidence: docs/probes/b1-b001/raw-replay-glm*.log.
-  - Replay with docs/probes/b1-b001/probe_replay_conversational.py, which
-    uses the route's own composition.
-
-For whichever is picked:
-- **Reproduce before fixing.**
+For each bug B4 takes:
+- **Reproduce before fixing**, and save the "before" to
+  `docs/probes/<date>-b4-<bug>.md`.
 - **Fix the cause**, with a test that fails before the fix and the exact
-  offending text pinned as a fixture (org rule).
-- **Check it live.**
-- **Have a fresh agent review the fix** (SESSION-RULES.md). At B2, two of the
-  four reviews found a real defect.
-- A check on what the model WRITES is a new kind of rail. Put its design to
-  Burhan with the numbers, as a D-entry. It must not loosen the output rail
-  (D-030, D-040, D-058).
+  offending input pinned as a fixture (org rule).
+- **Check it live** against the rebuilt container. A page change is loaded in
+  a real browser: B3's first B-024 build blanked every page with a TDZ error
+  while every source-reading test stayed green.
+- **Have a fresh agent review the fix** (SESSION-RULES.md). At B3 both reviews
+  found something worth fixing; one found a fourth bug of the same class.
+- When BUGS.md says `fixed <commit> (B4)`, comment on and close its GitHub
+  issue, if it has one.
 
-Candidates from B2's reviews. These are debt, not bugs, so take one only if
-Burhan picks it:
-- **TD-055:** claim before writing. Only the ceiling refusal discards a
-  stored question; other failures before the claim still leave one.
-- **TD-054:** pin a note's target when it is filed. A note named by its
-  indicator is re-resolved at execute time.
-
-Constraints: everything in `SESSION-RULES.md`. Bugs-only, this session:
-- **One bug per fix commit.** Each one names its B-id, and BUGS.md gets
-  `fixed <commit> (B3)` in the same session.
-- A new bug found while fixing one → `/bug`, not this session's scope, unless
-  it blocks the fix. In that case say so and let Burhan decide.
+Constraints: everything in `SESSION-RULES.md`. Bugs only, this session:
+- **One bug per fix commit**, naming its B-id; BUGS.md gets
+  `fixed <commit> (B4)` the same session.
+- A new bug found while fixing one goes to `/bug`, not this session, unless it
+  blocks the fix. Then say so: that is a scope call, Burhan's.
 - **Save evidence before any pytest run**, and take a live "before" run before
   the gate: `./ci.sh` redeploys the running container (STATE.md, Host notes).
+
+Session end: `/session-end`, then put the work on `staging` the way STATE.md
+says for this session (a push, or a PR for a collaborator), and `/promote`
+only if Burhan asks.

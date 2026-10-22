@@ -1,0 +1,21 @@
+{
+  "chatBefore": "⁨f4-live-bank⁩ · client · analyst",
+  "timelineAfterSwitch": "⁨f4-live-telco⁩ · client · analyst",
+  "afterBack": {
+    "url": "http://localhost:8000/",
+    "label": "⁨f4-live-telco⁩ · client · analyst",
+    "restoredFromCache": false,
+    "navType": "back_forward"
+  },
+  "timelineAfterSignOut": {
+    "signin": 1
+  },
+  "afterBackFromSignOut": {
+    "url": "http://localhost:8000/",
+    "signout": 0,
+    "signin": 1,
+    "label": null,
+    "restoredFromCache": false,
+    "storedToken": false
+  }
+}

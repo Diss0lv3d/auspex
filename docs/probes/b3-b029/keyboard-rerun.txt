@@ -1,0 +1,6 @@
+ArrowDown: switch requests +0, reloads +0, active now: ⁨b3-live-alpha⁩ · client · analyst
+ArrowDown: switch requests +0, reloads +0, active now: ⁨b3-live-bravo⁩ · client · analyst
+ArrowUp: switch requests +0, reloads +0, active now: ⁨b3-live-alpha⁩ · client · analyst
+Tab + Enter: switch requests +1, reloads +1, active now: ⁨b3-live-charlie⁩ · client · analyst
+pointer choose + click: switch requests +1, active now: ⁨b3-live-mssp⁩ · provider · analyst
+CSP violations: []

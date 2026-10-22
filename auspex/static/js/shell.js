@@ -7,7 +7,7 @@ import { $, el } from "./dom.js";
 import { createApi } from "./api.js";
 import {
   navEntries, switchOptions, activeWorkspace, workspaceLabel, roleChanged, afterSwitchUrl,
-  EXPIRED, STORAGE_BLOCKED,
+  switchReady, switchPending, pendingNote, mayAct, EXPIRED, STORAGE_BLOCKED,
 } from "./shell-logic.js";
 
 // D-056: the sign-in survives a reload in this tab, and dies with the tab. The
@@ -21,7 +21,7 @@ function forget(key) { try { sessionStorage.removeItem(key); } catch (e) { /* no
 
 const browserFetch = (...args) => window.fetch(...args);
 
-// `page` names the page for the navigation. `ready({ me, api, setBusy })` runs
+// `page` names the page for the navigation. `ready({ me, api, setBusy, pending })` runs
 // once /me accepts this tab's token; `signedOut()` when the tab holds none.
 export function startShell({ page, ready, signedOut }) {
   let token = stored(TOKEN_KEY);
@@ -31,6 +31,7 @@ export function startShell({ page, ready, signedOut }) {
   let checking = null;
   let signingIn = false;  // one sign-in at a time
   let picker = null;  // the workspace <select>, when there is more than one
+  let switchButton = null;  // its Switch button (B-024): choosing only selects
   let out = null;     // Sign out
 
   const header = $("shell");
@@ -39,6 +40,7 @@ export function startShell({ page, ready, signedOut }) {
   const workspace = el("div", { className: "workspace" });
   const session = el("div", { className: "session" });
   const status = el("span", { id: "status" });
+  status.setAttribute("role", "status");  // a polite live region: read aloud
   header.replaceChildren(...[
     header.querySelector(".page-lead"),
     el("span", { className: "mark" }, ["Auspex", el("span", { className: "dot" }, ["."])]),
@@ -89,7 +91,7 @@ export function startShell({ page, ready, signedOut }) {
       me = r.body;
       showSignedIn();
       setStatus("signed in", "ok");
-      ready({ me, api, setBusy });
+      ready({ me, api, setBusy, pending: heldByChoice });
       return;
     }
     if (r.status === 401 || r.status === 403) {
@@ -120,11 +122,24 @@ export function startShell({ page, ready, signedOut }) {
     }
   }
 
+  // The Switch button follows the choice: ready only for another workspace,
+  // and never while the page or a switch holds the controls. A choice not yet
+  // switched to is pending, and the header says where the page still is.
+  function syncSwitch() {
+    if (!switchButton) return;
+    const pending = switchPending(picker.value, me);
+    picker.classList.toggle("pending", pending);
+    if (pending && !switching) setStatus(pendingNote(me), "pending");
+    else if (status.className === "pending") setStatus("signed in", "ok");
+    switchButton.disabled = !switchReady(picker.value, me, busy || switching);
+  }
+
   async function switchTo() {
     const target = picker.value;
-    if (busy || target === me.workspace.id) { picker.value = me.workspace.id; return; }
+    if (!switchReady(picker.value, me, busy || switching)) { syncSwitch(); return; }
     switching = true;
     picker.disabled = true;  // one switch at a time
+    switchButton.disabled = true;
     if (out) out.disabled = true;  // its answer would override a Sign out
     setStatus("switching…");
     const r = await bare.post("/api/auth/switch", { workspace_id: target });
@@ -144,7 +159,9 @@ export function startShell({ page, ready, signedOut }) {
     switching = false;  // the switch was not made: the controls come back
     picker.value = me.workspace.id;
     picker.disabled = busy;
+    syncSwitch();
     if (out) out.disabled = busy;
+    if (!busy) picker.focus();  // the keyboard user's place, not <body>
     recheck();  // the set may have changed since it was read
   }
 
@@ -166,14 +183,26 @@ export function startShell({ page, ready, signedOut }) {
     showNav();
     const options = switchOptions(me);
     const label = workspaceLabel(activeWorkspace(me));
+    // A re-check rebuilds the header: the new picker keeps the old one's choice
+    // (if still listed) and its focus, so a pending choice and a keyboard
+    // user's place survive it (PR #41 review).
+    const kept = picker && picker.value;
+    const focused = Boolean(picker) && document.activeElement === picker;
     if (options.length > 1) {
       picker = el("select", { id: "workspace", disabled: busy || switching, title: label },
         options.map((o) => el("option", { value: o.id, selected: o.selected }, [o.text])));
       picker.setAttribute("aria-label", "Workspace");
-      picker.addEventListener("change", switchTo);
-      workspace.replaceChildren(picker);
+      picker.addEventListener("change", syncSwitch);
+      if (kept && options.some((o) => o.id === kept)) picker.value = kept;
+      switchButton = el("button", { id: "switch", className: "ghost" }, ["Switch"]);
+      switchButton.setAttribute("aria-label", "Switch workspace");
+      switchButton.addEventListener("click", switchTo);
+      workspace.replaceChildren(picker, switchButton);
+      if (focused) picker.focus();
+      syncSwitch();  // the select may show another workspace (no active entry)
     } else {
       picker = null;
+      switchButton = null;
       workspace.replaceChildren(el("span", { id: "workspace", className: "ws-label", title: label }, [label]));
     }
     out = el("button", { id: "signout", className: "ghost", disabled: busy || switching }, ["Sign out"]);
@@ -184,6 +213,7 @@ export function startShell({ page, ready, signedOut }) {
   function showSignedOut(notice) {
     me = null;
     picker = null;
+    switchButton = null;
     out = null;
     showNav();
     workspace.replaceChildren();
@@ -202,7 +232,17 @@ export function startShell({ page, ready, signedOut }) {
   function setBusy(on) {
     busy = on;
     if (picker) picker.disabled = on || switching;
+    syncSwitch();
     if (out) out.disabled = on || switching;
+  }
+
+  // A page asks before it acts (chat's Send): a pending choice blocks it and
+  // says why, so nothing goes to a client the header does not name (PR #41
+  // re-review; it replaced snapping the choice back when a turn began).
+  function heldByChoice() {
+    if (mayAct(picker && picker.value, me)) return false;
+    setStatus(pendingNote(me), "pending");
+    return true;
   }
 
   // D-070, and Back: a page the browser restores from its back/forward cache

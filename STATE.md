@@ -1,25 +1,45 @@
 # STATE — Auspex
 
-_Last updated: 2026-10-16 — **S31 CLOSED** (session-end ritual run). `./ci.sh`
-green at S31's last code commit (`75af29b`): **1687 tests, 133 modules**.
-`/api/health/ready` 200. Branch `staging`. **Promote slate: all of S31**
-(B-021's fix, D-069's build, the jobs queue and TD-025's first half, their
-reviews' fixes, the records); promote #37 shipped F4._
+_Last updated: 2026-10-22 — **PR #41 merged into `staging`** (Burhan, after
+Claude's review of the A–C answers in his window): a fast-forward to
+`45ac519`, so every commit B3's records cite is on `staging`. That review
+logged **B-032** (a test gap in the guard's live-rule test, no bypass today).
+**Promote slate: B3's fixes** (S32's Step 0 promotes them).
+
+2026-10-20 — **B3 CLOSED, and its PR's review answered**: by
+the collaborator Hunaiza (D-059), on her machine: **B-010, B-024 and B-029
+fixed** (B-029 from Burhan's review of PR #41, with the review's other six
+items). `./ci.sh` green after the re-review fixes: **1707 tests, 133 modules**;
+`/api/health/ready` 200. **B3 goes to `staging` as a PR from the branch
+`b3-b010-b024`** (Hunaiza's call; the prompt said push `staging`).
+Promote #40 (`09af821`) is the last one._
 
 ## Tracks (D-051) — read this first
 
 | Track | Prompt | Last closed | Next | Status |
 |---|---|---|---|---|
-| backend | `NEXT-SESSION-BE.md` | S31 (2026-10-16) | S32 | **focus** (the order table: S31 closed, S32 next) · Step 0: whether to promote S31 (Burhan's call), then S31's open ends S32 builds on |
+| backend | `NEXT-SESSION-BE.md` | S31 (2026-10-16) | S32 | **focus** · **Hunaiza's** (Burhan, 2026-10-22; D-059): she owns S32 fully · Step 0: B3's PR #41 is merged (2026-10-22); pull, promote B3's fixes, then S31's open ends S32 builds on |
 | front end | `NEXT-SESSION-FE.md` | F4 (2026-10-16) | F5 | waits for S32, S33 and S34 (the order table); F4 built the shell F5's admin pages stand on |
-| bugs | `NEXT-SESSION-BUGS.md` | B2 (2026-10-13) | B3 | S29 logged B-010…B-020 (B-010 is a stall a single message can cause), F4 B-022…B-024, S31 B-025…B-026 (S31 fixed B-021); B-005 and B-009 still wait on Burhan's call |
+| bugs | `NEXT-SESSION-BUGS.md` | B3 (2026-10-19) | B4 | waits for Burhan to scope it: the open entries (B-005, B-009, B-011…B-020, B-022, B-023, B-025…B-028, B-030…B-032) |
 
-- **Focus: backend, S32** (the order table: S31 closed, S32 next). **Burhan's
-  calls to make:** **whether to promote S31 now** (not a milestone; the next is
-  S33, but it carries D-069's residency rule and B-021's fix); whether B3 takes
-  B-010 (three old classify rules a crafted message can stall for seconds)
-  before S32 — the order table does not place B3; and **B-024** (the
-  switcher's keyboard behaviour; a fix changes its UX).
+- **S32 is handed to Hunaiza (Burhan, 2026-10-22; D-059).** She owns it
+  fully: every call, new D-entries and `/promote` included, on her machine
+  under her own identity. Re-scoping another track, or the plan's order, stays
+  Burhan's.
+- **Focus: backend, S32** (B3's session-end, by the order table: row 4b B3
+  closed, row 5 S32 next). B3 ran on Burhan's calls from the planning window:
+  - **S31 promoted now** (promote #40); the slate is empty.
+  - **B3 runs before S32**, scoped to **B-010** (three old classify rules a
+    crafted message can stall for seconds) **then B-024** (the switcher's
+    keyboard behaviour, unverified). Order table row 4b in
+    `NEXT-SESSION-BE.md`.
+  - **B3 is handed to Hunaiza (D-059)**, on her machine under her own
+    identity; GitHub #38 (B-010) and #39 (B-024) are assigned to her, and
+    Burhan tells her himself. **B-024's UX call goes with the handoff**
+    (Claude's default under D-059; Burhan left the question unanswered, so
+    he may take it back). Re-scoping stays his.
+  - **B3 does not promote**; S32's Step 0 promotes B3's fixes from Burhan's
+    window (Claude's default; his to change).
 - **The 2026-10-12 two-window collision is over.** F1 and B1 ran at once that
   morning, and both ran Step 0's `/promote`. B1 opened PR #30 while F1's
   `ci.sh` ran, and merged it 4 s before F1's merge; the promote is correct
@@ -88,6 +108,91 @@ reviews' fixes, the records); promote #37 shipped F4._
   - **S31 built the jobs queue and TD-025's first half**, fixed B-021 and
     built D-069, and closed 2026-10-16 (section below).
 - Standing rules every track obeys: `SESSION-RULES.md`. Bugs: `BUGS.md`.
+
+## B3 — what happened (bugs track's third session)
+
+B3 ran 2026-10-19, by Hunaiza (D-059), on her own machine as `HunaizaK`.
+Record: docs/probes/2026-10-19-b3-b010-b024.md. Her calls:
+- B-024's UX: **a Switch button** (over "Enter to switch");
+- the fourth backtracking rule the review found: **fixed inside B-010**;
+- **a PR into `staging`** at the close, not a push (Burhan merges);
+- no commit until the full gate and the live checks had passed.
+
+1. **Setup.** Her app container would not rebuild at first: pip timed out on
+   `pydantic-core` over a slow network and reported it as a version conflict.
+   It built on retry. Ollama is not installed on her machine (no B3 bug needed
+   an engine).
+2. **B-010 fixed (`0207b4a`).** Reproduced first, worse than logged: at the
+   32,000 cap `classify("hi" + spaces + "x")` took 101.5 s on her host and
+   41.8 s in the container.
+   - The refang rules take whitespace only from where its run begins.
+   - `_GREETING_RE` and `_ANALYTICAL_INITIAL_RE` (the fourth, found by the
+     review: 64.3 s on `"." + spaces + "x"`) are possessive.
+   - `_DOMAIN_CAND_RE`/`_EMAIL_RE` are unchanged, searched by linear scans
+     that skip only positions proven to fail. The note's "start only at the
+     beginning of a dotted run" would have lost `my_host.evil.com` →
+     `evil.com`.
+   - Worst message at the cap: about 12 ms. Same matches: 0 differences on
+     200,501 inputs over six rules. Mutants 7/7. The exact inputs are pinned
+     and run at full size under a 10 s timeout.
+3. **B-024 fixed (`2bc5eec`).** Reproduced live: three arrow presses, three
+   switches and reloads.
+   - The fix: choosing only selects; the Switch button (`switchReady` in
+     `js/shell-logic.js`) switches.
+   - Live: arrows made 0 switches; Tab and Enter, or a click, made exactly
+     one; zero CSP violations; phone width fits. Mutants 6/6.
+   - **The first build broke every page** (a TDZ error: `showSignedOut` has
+     its own `const go`). The live check caught it; the source-reading tests
+     could not.
+4. **Reviews (fresh agents).** No Critical in either. Fixed: the fourth rule,
+   weak timing inputs, a wrong comment, the button's gap, its state on render,
+   its screen-reader name, a failure-path test. **Logged for Burhan: B-027**
+   (`extract()` is O(matches × spans), 0.2–0.8 s) **and B-028** (a failed
+   switch after a re-check with one workspace throws; predates B3).
+
++11 tests (1687 → 1698). No engine calls, no new env vars. GitHub #38 and
+#39 have the commits in a comment; they close when the PR is merged.
+
+**Burhan's review of PR #41 (2026-10-20), answered on the same branch.**
+Items 1–7 became B3's scope by his call.
+1. **B-029 fixed (`8c51cb4`).** The input guard runs before classify, and two
+   of its rules had the same shape: `inspect("\n" * 31999 + "x")` took
+   130.7 s. They are now searched by a run-aware scan, and persona_override's
+   prefix is possessive. Result: 11–15 ms at the cap. Every verdict and span
+   is unchanged: 0 differences on 200,501 inputs against the old guard.
+   SESSION-RULES.md records his speed-only exception to "do not re-open the
+   guard regex" (`e3665d9`).
+2. **The pinned inputs run through the route's whole text pass** (guard,
+   extract, classify), with B-029's newline inputs, each under 1 s
+   (`f63d6ed`).
+3. **The Back/Forward live check** switches with the Switch button. Re-run with
+   the cache ON, it gives F4's after-fix result (`b325432`).
+4. **A choice not yet switched to is pending.** The select turns Signal and the
+   status reads "still in <active> — Switch to move". A turn snaps it back
+   (`a045881`). Live: the header names the active client while a turn runs.
+5. **`switchTo` asks `switchReady`** (`e069bd9`). It went in with an F4 pin
+   failing; `af26499` fixed that pin. Commits now wait for green tests.
+6. **A failed switch is announced and gives focus back.** `#status` is
+   `role=status` (`1720719`). The live check showed focus still falling to
+   `<body>` after the re-check rebuilt the header. A rebuilt picker now keeps
+   the old one's choice and focus (`1db360a`), which also covers the review's
+   optional "pending choice lost on re-check".
+7. These records. The review's idea is parked in IDEAS.md (`d1137d8`). Two
+   optional items were not taken: one C call for `_domain_candidates`' label
+   chain, and moving the timing helpers to `conftest.py`.
+
+**GitHub's run, then the re-review (2026-10-20).** GitHub's CI failed one
+timing bound on runner noise: a single 84 ms sample of a call that takes 4 ms
+locally. `tests/_timing.py` now times each input three times and keeps the
+fastest, from one shared helper (`65c101f`). The re-review then asked for
+three things:
+- **A.** A pending choice blocks Send (`464503e`). This replaces the
+  snap-back. Live: 0 `POST /api/chat`.
+- **B.** The pending note is organization-first.
+- **C.** A test pins the guard's scan to the live rules (`bb80411`).
+
+It also logged B-030 and B-031 (`a2f7d47`). Commits use `feat|fix|chore`
+only (CLAUDE.md rule 10).
 
 ## S31 — what happened (backend track; the jobs queue and TD-025's first half)
 
@@ -775,16 +880,20 @@ Phase 4:
   first half, D-066); a `ksa` workspace only on KSA storage (D-069); B-021
   fixed.**
 
-The ROADMAP through S20 is complete; S21–S30, F1–F4, B1 and B2 were each
+The ROADMAP through S20 is complete; S21–S30, F1–F4 and B1–B3 were each
 scoped by a decision or a bug. **The integration phase (S30–S41, F4–F9) builds
 the spec; S30, F4 and S31 are done.**
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: all of S31** (`b1fa61e`…`ee8c0b7` and this session-end):
-   B-021's fix and its review's pin; D-069's build, its pins and addendum; the
-   S31 baseline, spec, plan, the eight tasks, the final review's fix wave, the
-   live record; B-025, B-026, TD-063…TD-065. S31 is not a milestone (the next
-   is S33): **whether to promote it now is Burhan's call** (S32's Step 0).
+1. **Promote slate: B3's fixes** (`0207b4a`, `2bc5eec`, `8c51cb4` and the PR
+   review's fixes, their records, B-027…B-029, the session-end docs), from the PR `b3-b010-b024` → `staging`
+   once Burhan merges it. B3 did not promote, by the handoff; S32's Step 0
+   ships it. Promote #40 (`09af821`, back-merge `6007efb`; `./ci.sh`
+   green fresh, 1687 tests; GitHub CI green on push and PR; Burhan's call,
+   2026-10-19) shipped all of S31 (B-021's fix and its review's pin; D-069's
+   build, its pins and addendum; the S31 baseline, spec, plan, the eight
+   tasks, the final review's fix wave, the live record; B-025, B-026,
+   TD-063…TD-065; the session-end docs).
    Promote #37 (`6c12f18`, back-merge `992b9f4`;
    GitHub CI green on push and PR) shipped all of F4 (the Step 0 probe, the
    spec and plan, nine tasks, the final review's fix wave, the live records,
@@ -805,10 +914,8 @@ the spec; S30, F4 and S31 are done.**
      them, and do not ask again.
 2. **S29's review of S28's code left 13 entries open** (it is otherwise
    DONE; docs/probes/2026-10-14-s29-s28-code-review.md):
-   - **B-010: three older classify rules still stall the event loop** on
-     crafted input: the refang rules (3.65 s), `_GREETING_RE` (~18 s) and
-     `_DOMAIN_CAND_RE` (5.7 s), each at the 32,000-character cap. A message
-     from any signed-in user. Burhan's call where it goes (Tracks table).
+   - **B-010: fixed at B3 (`0207b4a`)**, with a fourth rule of the same class
+     its review found.
    - B-011, B-012 (the D-050 and D-047 rules route some analysis, drafting
      and bot/AI questions wrongly; a change needs blind batteries, and B-012
      is partly Burhan's call), B-013 (a fully flattened ECS export is not
@@ -1166,9 +1273,13 @@ records what the split left). F2 added #20–#22.
 6. **An intermittent, unattributed test failure was observed once in S22.** Not
    reproduced in any later full run, including about ten at S28. Still recorded
    rather than dismissed.
-7. **A signed-in user can still stall the chat route's event loop for
-   seconds** with one crafted message (B-010: three older classify rules; S29
-   fixed the two S28 ones). Open until B-010 is fixed.
+7. **The chat route's event loop and crafted messages.** B3 closed B-010
+   (the classify pass's four backtracking rules) and B-029 (the input guard's
+   two). The route's whole text pass (guard, extract, classify) runs in
+   milliseconds on every pinned input at the cap, each under a 1 s test
+   budget. Still open in the same pass: B-027 (`extract()` checks every match
+   against every earlier span, 0.2–0.8 s on thousands of observables). The
+   resolver has not been swept (IDEAS: one stall test for the whole pass).
 
 ## Host notes (reality snapshot)
 - Postgres 55432; app 8000; OpenSearch 9200. Host runs pin via `auspex.devhost`.
@@ -1366,6 +1477,20 @@ records what the split left). F2 added #20–#22.
   importing `auspex.config`**, or it reaches for the compose-internal
   `postgres` host and fails (S31's live scripts, `docs/probes/s31-live/`).
 
+- **B3 session-end (2026-10-19), Hunaiza's machine:** branch `b3-b010-b024`,
+  identity `HunaizaK`. `./ci.sh` **green, 1698 tests, 133 modules**,
+  `/api/health/ready` **200**, all three containers healthy.
+- **Hunaiza's machine, B3:** her user is in the `docker` group now (plain
+  `docker` works). Ollama is not installed: the D-013 start gate fails there,
+  so a session that needs no engine says so at the start. A slow network made
+  pip report a `pydantic-core` "conflict" on a rebuild; a retry built it.
+  Playwright 1.48.2 lives in the session scratchpad, so it is reinstalled per
+  session; Chromium stays in `~/.cache/ms-playwright`.
+- **A live browser check catches what the source-reading page tests cannot.**
+  B3's first B-024 build raised a TDZ error that blanked every page while
+  `tests/test_ui.py` stayed green. Load the page in Chromium after any shell
+  change.
+
 ## Reference intelligence (from the SARA Open architecture study)
 Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 - ACH analogues (S12): 2026-08-08-sara-ach-analogues.md
@@ -1379,13 +1504,12 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 **Pick a track (D-051); the Tracks table at the top has the ids.** Paste the
 prompt file of the track you mean. `/session-start` with no track asks.
 One window at a time (D-051).
-- **S32, backend, the focus** (`NEXT-SESSION-BE.md`): Step 0 asks Burhan
-  whether to promote S31 now, and which of S31's open ends (#30) S32 takes;
-  then the connector contract, the SDK and the catalogue (D-060, D-064).
-- **B3, bugs** (`NEXT-SESSION-BUGS.md`), **if Burhan picks it**: B-010 (a
-  crafted message stalls the event loop) heads the open entries; B-005 and
-  B-009 still wait on his call; F4 added B-022…B-024, S31 B-025 and B-026
-  (S31 fixed B-021).
+- **S32, backend, the focus** (`NEXT-SESSION-BE.md`). **First merge B3's PR
+  (`b3-b010-b024` → `staging`) and pull**; Step 0 then promotes B3's fixes and
+  asks which of S31's open ends (#30) S32 takes; then the connector contract,
+  the SDK and the catalogue (D-060, D-064).
+- **B4, bugs** (`NEXT-SESSION-BUGS.md`) waits for Burhan to scope it from the
+  open entries, B3's new B-027 and B-028 among them.
 - **F5, front end** (`NEXT-SESSION-FE.md`) starts only after S32, S33 and S34
   close (the order table): connectors, integrations, Edge Agents, memberships
   and approval-policy admin, on F4's shell and Members page.

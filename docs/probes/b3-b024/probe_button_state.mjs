@@ -1,0 +1,13 @@
+import { chromium } from "playwright";
+const b = await chromium.launch(); const p = await b.newPage();
+await p.goto("http://localhost:8000/timeline");
+await p.fill("#email", "m-wide@b3-live.auspex.dev"); await p.click("#signin");
+await p.waitForSelector("button#switch");
+const state = async () => p.$eval("button#switch", (x) => x.disabled);
+console.log("timeline page, fresh: Switch disabled =", await state());
+await p.selectOption("#workspace", { index: 2 }); console.log("after choosing another: disabled =", await state());
+await p.selectOption("#workspace", { index: 0 }); console.log("after choosing the current one again: disabled =", await state());
+await p.setViewportSize({ width: 390, height: 844 }); await new Promise((r) => setTimeout(r, 300));
+console.log("phone width: wider than screen =", await p.evaluate(() => document.documentElement.scrollWidth > innerWidth));
+await p.screenshot({ path: process.argv[2] + "/phone-switch.png" });
+await b.close();
