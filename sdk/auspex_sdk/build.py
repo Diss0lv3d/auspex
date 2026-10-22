@@ -77,7 +77,7 @@ def _under(path: str | None, root: Path) -> bool:
 
 
 @contextmanager
-def _importable(source_dir: Path) -> Iterator[None]:
+def importable(source_dir: Path) -> Iterator[None]:
     root = source_dir.resolve()
     before = set(sys.modules)
     dont_write = sys.dont_write_bytecode
@@ -98,7 +98,7 @@ def _importable(source_dir: Path) -> Iterator[None]:
         importlib.invalidate_caches()
 
 
-def _import(name: str, root: Path, where: str) -> ModuleType:
+def import_source_module(name: str, root: Path, where: str) -> ModuleType:
     try:
         mod = importlib.import_module(name)
     except ModuleNotFoundError as e:
@@ -159,10 +159,10 @@ def _check_signature(fn: object, where: str, ref: str, want: tuple[str, ...]) ->
 def check_handlers(manifest: Manifest, source_dir: Path) -> None:
     """Refuse a handler that is missing, or whose parameters differ from the declaration."""
     root = Path(source_dir).resolve()
-    with _importable(root):
+    with importable(root):
         for where, ref, want in _handler_refs(manifest):
             module_name, _, func_name = ref.partition(":")
-            mod = _import(module_name, root, where)
+            mod = import_source_module(module_name, root, where)
             fn = getattr(mod, func_name, None)
             if not callable(fn):
                 raise BuildError(
@@ -221,10 +221,10 @@ def _manifest_from_python(source_dir: Path) -> Manifest:
         and p.name not in ("setup.py", "conftest.py")
     )
     found: list[tuple[str, ModuleType]] = []
-    with _importable(root):
+    with importable(root):
         for fname in candidates:
             name = fname[:-3]
-            mod = _import(name, root, fname)
+            mod = import_source_module(name, root, fname)
             if any(
                 isinstance(_spec_of(o), _ConnectorSpec)
                 and getattr(o, "__module__", None) == mod.__name__
