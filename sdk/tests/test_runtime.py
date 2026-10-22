@@ -130,7 +130,10 @@ def expected(module_name: str) -> dict:
             {"name": "page", "label": "page", "type": "integer", "required": False, "default": 50},
         ],
         "hosts": ["https://{base_url}"],
-        "commands": {"test": {}, "fetch": {"serves_many_clients": False}},
+        "commands": {
+            "test": {"handler": f"{module_name}:check"},
+            "fetch": {"serves_many_clients": False, "handler": f"{module_name}:pull"},
+        },
         "actions": [
             {
                 "name": "close_alert",

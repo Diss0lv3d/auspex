@@ -392,8 +392,13 @@ def collect(module: types.ModuleType) -> Manifest:
         description=spec.description,
         config=tuple(config),
         hosts=spec.hosts,
-        fetch=Fetch(spec.serves_many_clients) if "fetch" in commands else None,
+        fetch=(
+            Fetch(spec.serves_many_clients, _ref(commands["fetch"], "commands.fetch.handler"))
+            if "fetch" in commands
+            else None
+        ),
         actions=tuple(actions),
+        test_handler=_ref(commands["test"], "commands.test.handler"),
     )
     validate_manifest(m)
     return m

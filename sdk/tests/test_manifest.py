@@ -31,7 +31,10 @@ def reference() -> dict:
             {"name": "page", "label": "Page", "type": "integer", "default": 50},
         ],
         "hosts": ["https://{base_url}", "https://api.vendor.example:8443"],
-        "commands": {"test": {}, "fetch": {"serves_many_clients": False}},
+        "commands": {
+            "test": {"handler": "qradar.actions:check"},
+            "fetch": {"serves_many_clients": False, "handler": "qradar.actions:pull"},
+        },
         "actions": [
             {
                 "name": "close_offense",
@@ -408,6 +411,30 @@ ROWS = [
         "actions[0].params",
     ),
     ("missing_test_command", lambda d: d["commands"].pop("test"), "bad_type", "commands.test"),
+    (
+        "missing_test_handler",
+        lambda d: d["commands"]["test"].pop("handler"),
+        "bad_type",
+        "commands.test.handler",
+    ),
+    (
+        "missing_fetch_handler",
+        lambda d: d["commands"]["fetch"].pop("handler"),
+        "bad_type",
+        "commands.fetch.handler",
+    ),
+    (
+        "malformed_test_handler",
+        lambda d: d["commands"]["test"].update(handler="not a ref"),
+        "bad_type",
+        "commands.test.handler",
+    ),
+    (
+        "malformed_fetch_handler",
+        lambda d: d["commands"]["fetch"].update(handler=""),
+        "bad_type",
+        "commands.fetch.handler",
+    ),
 ]
 ROWS = [r for r in ROWS if r[1] is not None]
 

@@ -21,8 +21,9 @@ The JSON shape (every key not marked optional is required; unknown keys are refu
       ],
       "hosts": ["https://{base_url}", "https://api.vendor.example:8443"],   # optional
       "commands": {
-        "test": {},
-        "fetch": {"serves_many_clients": false} # optional
+        "test": {"handler": "pkg.module:function"},   # handler: required
+        "fetch": {"handler": "pkg.module:function",   # optional command; handler required
+                  "serves_many_clients": false}
       },
       "actions": [                              # optional, default []
         {"name": "close_offense", "description": "...",
@@ -47,13 +48,13 @@ spelling. In the manifest a `tls` field may declare only its default, and that i
 
 Hosts. Each entry is `https://` plus a literal host (an optional `:port`, no wildcard, no
 path) or exactly `{field}` naming a declared `url` config field. A `url` field no entry uses
-is refused. Handler references are `module:function` strings; the build (Task 5) checks that
-they exist.
+is refused. Handler references are `module:function` strings; the build (`auspex_sdk.build`)
+checks that they exist and take the declared parameters.
 
 `validate_manifest` raises on the FIRST violation, checking in this order: schema_version, id,
-version, name and description, config (in order), hosts, fetch, actions (in order), then url
-fields no host uses. `ManifestError.rule` is one of `RULES`; `.path` is a dotted/indexed path
-such as `actions[0].undo`.
+version, name and description, config (in order), hosts, command handlers, actions (in
+order), then url fields no host uses. `ManifestError.rule` is one of `RULES`; `.path` is a
+dotted/indexed path such as `actions[0].undo`.
 """
 
 import json
@@ -190,6 +191,7 @@ class Action:
 @dataclass(frozen=True)
 class Fetch:
     serves_many_clients: bool = False
+    handler: str = ""  # empty means "not declared": validate_manifest refuses it
 
 
 @dataclass(frozen=True)
@@ -204,6 +206,7 @@ class Manifest:
     hosts: tuple[str, ...] = ()
     fetch: Fetch | None = None
     actions: tuple[Action, ...] = ()
+    test_handler: str = ""  # commands.test.handler; empty is refused by validate_manifest
 
 
 # --- parsing ------------------------------------------------------------------------------
@@ -367,11 +370,16 @@ def parse_manifest(data: dict) -> Manifest:
     if isinstance(sv, bool) or not isinstance(sv, int):
         raise ManifestError("bad_type", "schema_version", "expected an integer")
     cmds = _obj(d["commands"], "commands", {"test", "fetch"}, {"test"})
-    _obj(cmds["test"], "commands.test", set(), set())
+    t = _obj(cmds["test"], "commands.test", {"handler"}, {"handler"})
     fetch = None
     if "fetch" in cmds:
-        f = _obj(cmds["fetch"], "commands.fetch", {"serves_many_clients"}, set())
-        fetch = Fetch(serves_many_clients=_bool(f, "serves_many_clients", "commands.fetch"))
+        f = _obj(
+            cmds["fetch"], "commands.fetch", {"serves_many_clients", "handler"}, {"handler"}
+        )
+        fetch = Fetch(
+            serves_many_clients=_bool(f, "serves_many_clients", "commands.fetch"),
+            handler=_str(f, "handler", "commands.fetch"),
+        )
     return Manifest(
         schema_version=sv,
         id=_str(d, "id", ""),
@@ -387,6 +395,7 @@ def parse_manifest(data: dict) -> Manifest:
         actions=tuple(
             _parse_action(a, f"actions[{i}]") for i, a in enumerate(_list(d, "actions", ""))
         ),
+        test_handler=_str(t, "handler", "commands.test"),
     )
 
 
@@ -655,6 +664,9 @@ def validate_manifest(m: Manifest) -> None:
     _check_text(m.description, "description")
     _check_config(m)
     _check_hosts(m)
+    _check_handler(m.test_handler, "commands.test.handler")
+    if m.fetch is not None:
+        _check_handler(m.fetch.handler, "commands.fetch.handler")
     _check_unique(
         [a.name for a in m.actions], [f"actions[{i}].name" for i in range(len(m.actions))]
     )
@@ -695,9 +707,12 @@ def _drop_none(d: dict) -> dict:
 
 
 def manifest_to_dict(m: Manifest) -> dict:
-    commands: dict = {"test": {}}
+    commands: dict = {"test": {"handler": m.test_handler}}
     if m.fetch is not None:
-        commands["fetch"] = {"serves_many_clients": m.fetch.serves_many_clients}
+        commands["fetch"] = {
+            "serves_many_clients": m.fetch.serves_many_clients,
+            "handler": m.fetch.handler,
+        }
     return {
         "schema_version": m.schema_version,
         "id": m.id,
