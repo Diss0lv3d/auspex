@@ -413,6 +413,12 @@ def parse_tls_value(v: Any, path: str = "tls") -> Tls:
 # --- the rules ------------------------------------------------------------------------------
 
 
+def _literal_host_ok(entry: str) -> bool:
+    """`https://host[:port]` as a literal hosts entry may be: no IPv6 literal, port 1-65535."""
+    lit = _LITERAL_HOST.fullmatch(entry)
+    return bool(lit) and (lit.group("port") is None or 1 <= int(lit.group("port")) <= 65535)
+
+
 def _check_name(name: str, path: str, *, keyword: bool = False) -> None:
     if len(name) > MAX_NAME or not WIRE_NAME.fullmatch(name):
         raise ManifestError(
@@ -478,8 +484,20 @@ def _check_default(f: ConfigField, path: str) -> None:
         if not isinstance(d, str):
             raise ManifestError("bad_type", p, "expected a string")
         parts = urlsplit(d)
-        if parts.scheme != "https" or not parts.hostname:
+        if parts.scheme != "https" or not parts.netloc:
             raise ManifestError("http_url_default", p, "a url default must be an https:// URL")
+        if "@" in parts.netloc:
+            raise ManifestError(
+                "secret_with_default",
+                p,
+                "a url default must not carry credentials; a secret is a name the agent resolves",
+            )
+        if not _literal_host_ok("https://" + parts.netloc):
+            raise ManifestError(
+                "http_url_default",
+                p,
+                "a url default's host must be a literal name[:port] (port 1-65535), as in hosts",
+            )
         return
     if not ok:
         raise ManifestError("bad_type", p, f"does not match the field's type {f.type!r}")
@@ -525,8 +543,7 @@ def _check_hosts(m: Manifest) -> None:
                 )
             used.add(f.name)
         else:
-            lit = _LITERAL_HOST.fullmatch(h)
-            if lit and int(lit.group("port") or 0) <= 65535:
+            if _literal_host_ok(h):
                 continue
             raise ManifestError(
                 "undeclared_host",
@@ -634,6 +651,16 @@ def check_fetch_item(m: Manifest, item: dict) -> None:
 
     The manifest cannot show this; items exist only at runtime, so `collect` (Task 4) calls this.
     """
+    if not isinstance(item, dict):
+        raise ManifestError("bad_type", "", "a fetch item is a JSON object")
+    raw = item.get("raw")
+    if raw is not None:
+        if not isinstance(raw, str):
+            raise ManifestError("bad_type", "raw", "raw is a string")
+        if len(raw.encode("utf-8")) > MAX_RAW_BYTES:
+            raise ManifestError(
+                "description_too_long", "raw", f"raw is at most {MAX_RAW_BYTES} bytes of UTF-8"
+            )
     if m.fetch is not None and m.fetch.serves_many_clients:
         rk = item.get("routing_key")
         if not isinstance(rk, str) or not rk:

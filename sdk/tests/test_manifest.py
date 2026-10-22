@@ -316,6 +316,48 @@ ROWS = [
         "config[0].default",
     ),
     (
+        "url_default_with_userinfo",
+        lambda d: d["config"][0].update(default="https://admin:hunter2@q.example"),
+        "secret_with_default",
+        "config[0].default",
+    ),
+    (
+        "url_default_user_only",
+        lambda d: d["config"][0].update(default="https://admin@q.example"),
+        "secret_with_default",
+        "config[0].default",
+    ),
+    (
+        "url_default_bad_port",
+        lambda d: d["config"][0].update(default="https://q.example:99999"),
+        "http_url_default",
+        "config[0].default",
+    ),
+    (
+        "url_default_port_zero",
+        lambda d: d["config"][0].update(default="https://q.example:0"),
+        "http_url_default",
+        "config[0].default",
+    ),
+    (
+        "url_default_ipv6",
+        lambda d: d["config"][0].update(default="https://[::1]:99999/x"),
+        "http_url_default",
+        "config[0].default",
+    ),
+    (
+        "url_default_ipv6_valid_port",
+        lambda d: d["config"][0].update(default="https://[::1]:8443/x"),
+        "http_url_default",
+        "config[0].default",
+    ),
+    (
+        "host_port_zero",
+        lambda d: d["hosts"].append("https://api.vendor.example:0"),
+        "undeclared_host",
+        "hosts[2]",
+    ),
+    (
         "ftp_url_default",
         lambda d: d["config"][0].update(default="ftp://qradar.example"),
         "http_url_default",
@@ -470,3 +512,25 @@ def test_frozen_dataclasses():
     m = parse_manifest(copy.deepcopy(reference()))
     with pytest.raises(AttributeError):
         m.name = "other"  # type: ignore[misc]
+
+
+def test_check_fetch_item_enforces_the_raw_cap_in_utf8_bytes():
+    m = parse_manifest(reference())
+    ok = {"external_id": "1", "kind": "alert"}
+    mf.check_fetch_item(m, {**ok, "raw": "a" * mf.MAX_RAW_BYTES})
+    # one more byte, and a multi-byte char that is 1 char but 2 bytes
+    for raw in ("a" * (mf.MAX_RAW_BYTES + 1), "a" * (mf.MAX_RAW_BYTES - 1) + "\u00e9"):
+        with pytest.raises(ManifestError) as ei:
+            mf.check_fetch_item(m, {**ok, "raw": raw})
+        assert (ei.value.rule, ei.value.path) == ("description_too_long", "raw")
+    with pytest.raises(ManifestError) as ei:
+        mf.check_fetch_item(m, {**ok, "raw": {"x": 1}})
+    assert (ei.value.rule, ei.value.path) == ("bad_type", "raw")
+
+
+def test_check_fetch_item_refuses_a_non_dict_item():
+    m = parse_manifest(reference())
+    for item in ([], "x", None, 5):
+        with pytest.raises(ManifestError) as ei:
+            mf.check_fetch_item(m, item)  # type: ignore[arg-type]
+        assert ei.value.rule == "bad_type"
