@@ -401,3 +401,20 @@ def test_cli_refuses_a_manifest_rule_with_exit_one(yaml_twin, capsys):
     )
     assert main(["build", str(yaml_twin)]) == 1
     assert "schema_version" in capsys.readouterr().err
+
+
+def test_a_module_that_exits_at_import_is_a_refusal_not_an_exit(python_first, capsys):
+    (python_first / "script.py").write_text("import sys\nsys.exit(0)\n")
+    with pytest.raises(BuildError, match="script.*SystemExit"):
+        build(python_first)
+    assert main(["build", str(python_first)]) == 1
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1 and "script" in err
+    assert not (python_first / "dist").exists()
+
+
+def test_setup_py_and_conftest_are_ignored_by_discovery(python_first):
+    (python_first / "setup.py").write_text("raise RuntimeError('not a connector module')\n")
+    (python_first / "conftest.py").write_text("raise RuntimeError('not a connector module')\n")
+    path, _ = build(python_first)
+    assert {"setup.py", "conftest.py"} <= set(members(path))  # still packaged, just not imported

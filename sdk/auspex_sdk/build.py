@@ -105,7 +105,9 @@ def _import(name: str, root: Path, where: str) -> ModuleType:
         if e.name and (name == e.name or name.startswith(e.name + ".")):
             raise BuildError(f"{where}: module {name!r} not found in the source directory") from e
         raise BuildError(f"{where}: importing {name!r} failed: {e}") from e
-    except Exception as e:  # the author's code ran; whatever it raised is the reason
+    except KeyboardInterrupt:
+        raise
+    except BaseException as e:  # author code ran; even a sys.exit() at import is a refusal
         raise BuildError(f"{where}: importing {name!r} failed: {type(e).__name__}: {e}") from e
     if not _under(getattr(mod, "__file__", None), root):
         raise BuildError(f"{where}: module {name!r} does not come from the source directory")
@@ -214,7 +216,9 @@ def _manifest_from_python(source_dir: Path) -> Manifest:
     candidates = sorted(
         p.name
         for p in root.glob("*.py")
-        if p.is_file() and not p.name.startswith(("test_", ".", "__"))
+        if p.is_file()
+        and not p.name.startswith(("test_", ".", "__"))
+        and p.name not in ("setup.py", "conftest.py")
     )
     found: list[tuple[str, ModuleType]] = []
     with _importable(root):
