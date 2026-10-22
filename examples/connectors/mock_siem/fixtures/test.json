@@ -1,0 +1,17 @@
+{
+  "exchanges": [
+    {
+      "request": {
+        "method": "GET",
+        "url": "https://siem.example.test/api/health"
+      },
+      "response": {
+        "status": 200,
+        "headers": {},
+        "json": {
+          "status": "ok"
+        }
+      }
+    }
+  ]
+}

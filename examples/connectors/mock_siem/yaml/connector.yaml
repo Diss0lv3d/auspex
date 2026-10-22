@@ -1,0 +1,40 @@
+# example.mock_siem 1.0.0 as YAML: the same connector as ../python/mock_siem.py, declared in
+# data instead of decorators. `auspex-sdk build` turns both into the same manifest.json (so the
+# module is called mock_siem here too: the handler references are part of the manifest).
+# Handlers are "module:function" references into mock_siem.py beside this file.
+schema_version: 1
+id: example.mock_siem
+version: 1.0.0
+name: Mock SIEM
+description: "A mock SIEM: pulls its alerts and closes them. The reference connector."
+
+# The admin fills these in. A secret never has a default; tls is "verify" unless set.
+config:
+  - {name: base_url, label: SIEM URL, type: url, required: true}
+  - {name: api_token, label: API token, type: secret, required: true}
+  - {name: tls, label: TLS, type: tls, required: false, default: verify}
+
+# The only hosts the handlers may reach: the host of the admin's base_url.
+hosts: ["https://{base_url}"]
+
+commands:
+  test: {handler: "mock_siem:check"}
+  fetch: {handler: "mock_siem:pull", serves_many_clients: false}
+
+actions:
+  - name: close_alert
+    description: Close an alert in the SIEM.
+    risk: write
+    params:
+      - {name: alert_id, type: string, description: "The alert to close.", required: true}
+      - {name: note, type: string, description: "An optional closing note.", required: false}
+    execute: "mock_siem:close_alert"
+    dry_run: "mock_siem:close_dry_run"
+    undo:
+      handler: "mock_siem:reopen"
+      restores: "the alert's open status"
+      cannot_restore: ["the closing note, if the SIEM keeps one"]
+    observe: "mock_siem:closed_count"
+    output:
+      - {name: status, type: string, required: true}
+    targets: alert_id
