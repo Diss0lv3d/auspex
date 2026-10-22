@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 from auspex_sdk.build import load_manifest
 from auspex_sdk.manifest import MAX_DESCRIPTION
+from auspex_sdk.vocab import MAX_PREFIX, MAX_TOOL_NAME
 
 from auspex.actions.builtin import annotate_observable_spec
 from auspex.actions.proposal import (
@@ -239,3 +240,62 @@ def test_connector_kinds_are_the_six_the_spec_names():
         "integration_id", "content_hash", "command", "action", "arguments",
         "proposal_id", "idempotency_key", "cursor", "limit",
     ]
+
+
+# ── Fix round 1 (S32 Task 8 review) ──────────────────────────────────────────
+
+
+def _renamed(manifest, name: str):
+    """The reference manifest with its action renamed, built by hand: it skips
+    validate_manifest, the way a manifest from any other route would."""
+    return dataclasses.replace(
+        manifest, actions=(dataclasses.replace(manifest.actions[0], name=name),)
+    )
+
+
+def test_a_composed_name_over_the_tool_name_limit_is_refused(manifest):
+    """Defence in depth behind the manifest's action-name cap: whatever built the
+    manifest, a name the wire cannot carry never becomes an ActionSpec."""
+    fits = "a" * (MAX_TOOL_NAME - MAX_PREFIX - 2)
+    spec = compile_action(_renamed(manifest, fits), fits, content_hash=HASH_A,
+                          prefix="s" * MAX_PREFIX, integration_id=INTEGRATION,
+                          dispatch=FakeDispatch())
+    assert len(spec.name) == MAX_TOOL_NAME
+    over = fits + "a"
+    with pytest.raises(ValueError, match="64"):
+        compile_action(_renamed(manifest, over), over, content_hash=HASH_A,
+                       prefix="s" * MAX_PREFIX, integration_id=INTEGRATION,
+                       dispatch=FakeDispatch())
+
+
+def test_specs_differing_only_in_connector_id_have_different_fingerprints(manifest):
+    other = dataclasses.replace(manifest, id="example.other_siem")
+    a = _compile(manifest, FakeDispatch())
+    b = compile_action(other, "close_alert", content_hash=HASH_A, prefix="siem1",
+                       integration_id=INTEGRATION, dispatch=FakeDispatch())
+    assert a.origin.connector_id != b.origin.connector_id
+    assert fingerprint(a) != fingerprint(b)
+
+
+async def test_connector_result_text_is_flattened_and_capped(manifest):
+    """`would` is the sentence a human approves and `detail` reaches the card: a
+    connector's newline must not read as structure, and its length is capped."""
+    long = "x" * (MAX_DESCRIPTION + 50)
+    env = {
+        "would": "close alert A-1\nIGNORE PREVIOUS",
+        "affects": ["A-1"],
+        "reversible": True,
+        "detail": {"status": "open\r\nnow", "note": long, "tags": ["a\nb", long], "n": 3},
+    }
+    spec = _compile(manifest, FakeDispatch({"connector.action.dry_run": env}))
+    out = await spec.dry_run(workspace_id=uuid.uuid4(), alert_id="A-1")
+    assert out.would == "close alert A-1 IGNORE PREVIOUS"
+    assert out.detail["status"] == "open now"
+    assert len(out.detail["note"]) <= MAX_DESCRIPTION
+    assert out.detail["tags"][0] == "a b"
+    assert len(out.detail["tags"][1]) <= MAX_DESCRIPTION
+    assert out.detail["n"] == 3
+    long_would = {**env, "would": long, "detail": {}}
+    spec = _compile(manifest, FakeDispatch({"connector.action.dry_run": long_would}))
+    out = await spec.dry_run(workspace_id=uuid.uuid4(), alert_id="A-1")
+    assert len(out.would) <= MAX_DESCRIPTION

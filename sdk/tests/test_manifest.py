@@ -630,3 +630,20 @@ def test_check_fetch_item_refuses_a_non_dict_item():
         with pytest.raises(ManifestError) as ei:
             mf.check_fetch_item(m, item)  # type: ignore[arg-type]
         assert ei.value.rule == "bad_type"
+
+
+def test_an_action_name_leaves_room_for_the_integration_prefix():
+    """S32 Task 8 fix: the core names a compiled action `<prefix>__<action>`, and a tool
+    name on the wire is at most MAX_TOOL_NAME. So an action name is capped at what is left
+    after the longest legal prefix and the separator: every valid manifest compiles."""
+    from auspex_sdk.vocab import MAX_PREFIX, MAX_TOOL_NAME
+
+    assert mf.MAX_ACTION_NAME == MAX_TOOL_NAME - MAX_PREFIX - len("__")
+    d = reference()
+    d["actions"][0]["name"] = "a" * mf.MAX_ACTION_NAME
+    validate_manifest(parse_manifest(d))
+    d["actions"][0]["name"] = "a" * (mf.MAX_ACTION_NAME + 1)
+    with pytest.raises(ManifestError) as ei:
+        validate_manifest(parse_manifest(d))
+    assert (ei.value.rule, ei.value.path) == ("bad_name", "actions[0].name")
+    assert str(mf.MAX_ACTION_NAME) in str(ei.value)

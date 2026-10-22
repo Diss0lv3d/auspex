@@ -23,7 +23,7 @@ from typing import Any, Protocol
 from uuid import UUID
 
 from auspex_sdk.manifest import MAX_DESCRIPTION, Action, Manifest
-from auspex_sdk.vocab import WIRE_NAME
+from auspex_sdk.vocab import MAX_PREFIX, MAX_TOOL_NAME, WIRE_NAME
 
 from auspex.actions.types import (
     ActionOutcome,
@@ -35,11 +35,15 @@ from auspex.actions.types import (
     ParamType,
     UndoSpec,
 )
-from auspex.connectors.jobs import ConnectorJobPayload
+from auspex.connectors.jobs import CONNECTOR_KINDS, ConnectorJobPayload
 
-# The integration prefix is the first half of the wire name `<prefix>__<action>`. Capped
-# so the whole name stays a tool name the probe has measured (spec decision 5).
-MAX_PREFIX = 24
+# The integration prefix is the first half of the wire name `<prefix>__<action>`, capped
+# (MAX_PREFIX, from the SDK's vocab) so the whole name stays a valid tool name (spec
+# decision 5). The manifest caps the action name to fit; the composed name is checked
+# again here, whatever built the manifest.
+
+# The kind each handler role dispatches, looked up from the one declared list.
+_KIND = {k.rsplit(".", 1)[1]: k for k in CONNECTOR_KINDS if k.startswith("connector.action.")}
 
 
 class Dispatch(Protocol):
@@ -79,11 +83,23 @@ def _outcome(kind: str, result: Any) -> ActionOutcome:
     if not isinstance(result["detail"], dict):
         raise ConnectorResultError(f"{kind}: detail must be an object")
     return ActionOutcome(
-        would=would,
+        would=_text(would),
         affects=tuple(affects),
         reversible=result["reversible"],
-        detail=dict(result["detail"]),
+        detail=_flatten(result["detail"]),
     )
+
+
+def _flatten(value: Any) -> Any:
+    """Every string in a result's `detail`, one line and capped like `would`: it reaches
+    the approval card and the model, so connector text gets no structure of its own."""
+    if isinstance(value, str):
+        return _text(value)
+    if isinstance(value, dict):
+        return {k: _flatten(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_flatten(v) for v in value]
+    return value
 
 
 def _count(kind: str, result: Any) -> int:
@@ -120,6 +136,11 @@ def compile_action(
             f"prefix {prefix!r} must be a wire identifier of at most {MAX_PREFIX} characters"
         )
     a = _find(manifest, action)
+    name = f"{prefix}__{a.name}"
+    if len(name) > MAX_TOOL_NAME:
+        raise ValueError(
+            f"tool name {name!r} is longer than {MAX_TOOL_NAME} characters, the wire's limit"
+        )
 
     # The workspace is the job row's, not the payload's (S33 enqueues under it).
     def payload(command: str, proposal_id, idempotency_key, arguments: dict):
@@ -137,7 +158,7 @@ def compile_action(
 
     # A factory, called once per role, so each role gets its own function object.
     def handler(command: str):
-        kind = f"connector.action.{command}"
+        kind = _KIND[command]
 
         async def run(*, workspace_id=None, proposal_id=None, idempotency_key=None,
                       **arguments) -> ActionOutcome:
@@ -147,7 +168,7 @@ def compile_action(
         return run
 
     def probe():
-        kind = "connector.action.observe"
+        kind = _KIND["observe"]
 
         async def look(*, workspace_id=None, proposal_id=None, idempotency_key=None,
                        **arguments) -> int:
@@ -166,7 +187,7 @@ def compile_action(
         )
     risk = ActionRisk(a.risk)
     return ActionSpec(
-        name=f"{prefix}__{a.name}",
+        name=name,
         description=_text(f"{manifest.name}: {a.description}"),
         risk=risk,
         scope=(ActionScope(system=manifest.id, writes=risk is not ActionRisk.READ,
@@ -189,4 +210,4 @@ def compile_action(
     )
 
 
-__all__ = ["MAX_PREFIX", "ConnectorResultError", "Dispatch", "compile_action"]
+__all__ = ["ConnectorResultError", "Dispatch", "compile_action"]

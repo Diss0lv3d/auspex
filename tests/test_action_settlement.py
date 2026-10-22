@@ -365,24 +365,26 @@ def test_canonical_spec_covers_every_declared_field(spec):
 
 
 def test_a_version_bump_is_reported_as_a_version_bump_not_a_changed_action(spec):
-    """`FINGERPRINT_VERSION` had never been bumped (S32 bumped it to 2), and S19 established what
-    happens when it is: every approved-but-unexecuted proposal refuses, and the
-    copy told the analyst the ACTION had changed when only our hashing had.
+    """S19 established what a `FINGERPRINT_VERSION` bump does: every
+    approved-but-unexecuted proposal refuses, and the copy told the analyst the
+    ACTION had changed when only our hashing had.
 
     Recoverable either way — re-propose — but a false reason sends someone
     diffing an action that never moved. The declaration is unchanged here; only
-    the scheme is, and the refusal must say so.
+    the scheme is, and the refusal must say so. S32 made v2 real, so the bump is
+    simulated to v3: a fingerprint stored under EITHER older scheme is recognized.
     """
-    stored_under_v1 = fingerprint(spec, version=1)
-    with mock.patch.object(proposal_mod, "FINGERPRINT_VERSION", 2):
-        assert fingerprint(spec) != stored_under_v1
-        assert proposal_mod.matches_older_scheme(spec, stored_under_v1) == 1
-        with pytest.raises(ExecutionRefused) as err:
-            check_executable(spec, {"status": "approved", "spec_fingerprint": stored_under_v1})
-
-    assert err.value.reason == "fingerprint_scheme_changed"
-    assert "itself is unchanged" in err.value.detail
-    assert "v1 → v2" in err.value.detail
+    assert proposal_mod.FINGERPRINT_VERSION == 2
+    stored = {v: fingerprint(spec, version=v) for v in (1, 2)}
+    with mock.patch.object(proposal_mod, "FINGERPRINT_VERSION", 3):
+        for version, stored_fp in stored.items():
+            assert fingerprint(spec) != stored_fp
+            assert proposal_mod.matches_older_scheme(spec, stored_fp) == version
+            with pytest.raises(ExecutionRefused) as err:
+                check_executable(spec, {"status": "approved", "spec_fingerprint": stored_fp})
+            assert err.value.reason == "fingerprint_scheme_changed"
+            assert "itself is unchanged" in err.value.detail
+            assert f"v{version} → v3" in err.value.detail
 
 
 def test_a_genuinely_changed_spec_is_still_reported_as_changed(spec):

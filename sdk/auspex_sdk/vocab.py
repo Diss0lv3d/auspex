@@ -17,6 +17,14 @@ PARAM_TYPES: tuple[str, ...] = ("string", "integer", "number", "boolean")
 # A tool/parameter name must survive the wire as-is. Use with fullmatch.
 WIRE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
+# A tool name on an OpenAI-compatible wire is at most this many characters. The core has
+# no constant of its own: auspex.connectors.compile imports this one (S32, Task 8).
+MAX_TOOL_NAME = 64
+
+# The integration prefix of a compiled action's tool name `<prefix>__<action>` (spec
+# decision 5). The manifest caps action names so that any legal prefix still fits.
+MAX_PREFIX = 24
+
 # Names the platform passes every handler itself; a manifest parameter may not shadow them.
 PLATFORM_KEYWORDS = frozenset({"workspace_id", "proposal_id", "idempotency_key"})
 

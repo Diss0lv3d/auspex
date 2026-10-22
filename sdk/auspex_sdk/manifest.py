@@ -64,11 +64,22 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
 
-from auspex_sdk.vocab import CONNECTOR_ID, PARAM_TYPES, PLATFORM_KEYWORDS, RISKS, WIRE_NAME
+from auspex_sdk.vocab import (
+    CONNECTOR_ID,
+    MAX_PREFIX,
+    MAX_TOOL_NAME,
+    PARAM_TYPES,
+    PLATFORM_KEYWORDS,
+    RISKS,
+    WIRE_NAME,
+)
 
 SCHEMA_VERSION = 1
 MAX_DESCRIPTION = 2000  # chars; every description and label
 MAX_NAME = 64  # chars; action, param, output and config-field names
+# The core compiles an action to the tool name `<prefix>__<action>`, so an action name gets
+# what a tool name leaves after the longest legal prefix and the separator.
+MAX_ACTION_NAME = MAX_TOOL_NAME - MAX_PREFIX - len("__")
 MAX_RAW_BYTES = 64 * 1024  # a fetch item's `raw` (checked by the runtime, not by manifests)
 
 CONFIG_TYPES: tuple[str, ...] = ("string", "integer", "boolean", "url", "enum", "secret", "tls")
@@ -586,6 +597,13 @@ def _check_hosts(m: Manifest) -> None:
 
 def _check_action(a: Action, path: str) -> None:
     _check_name(a.name, f"{path}.name", keyword=True)
+    if len(a.name) > MAX_ACTION_NAME:
+        raise ManifestError(
+            "bad_name",
+            f"{path}.name",
+            f"{a.name!r} is longer than {MAX_ACTION_NAME} chars: the platform prefixes it with "
+            f"the integration's name to make a tool name of at most {MAX_TOOL_NAME}",
+        )
     _check_text(a.description, f"{path}.description")
     if a.risk not in RISKS:
         raise ManifestError(

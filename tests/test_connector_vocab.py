@@ -24,3 +24,18 @@ def test_connector_id_shape():
     assert CONNECTOR_ID.fullmatch("com.acme.edr")
     for bad in ("acme", "Acme.x", "acme.", "1acme.x", "acme.x-y", "acme.x\n"):
         assert not CONNECTOR_ID.fullmatch(bad), bad
+
+
+def test_the_tool_name_budget():
+    """S32 Task 8 fix: the core has no tool-name length constant of its own, so the
+    SDK's is the only one (compile.py imports it). A compiled name is
+    `<prefix>__<action>`; the two caps must leave a valid tool name."""
+    from auspex_sdk.manifest import MAX_ACTION_NAME
+    from auspex_sdk.vocab import MAX_PREFIX, MAX_TOOL_NAME
+
+    from auspex.connectors import compile as compile_mod
+
+    assert MAX_TOOL_NAME == 64
+    assert MAX_PREFIX + len("__") + MAX_ACTION_NAME == MAX_TOOL_NAME
+    assert compile_mod.MAX_TOOL_NAME is MAX_TOOL_NAME
+    assert compile_mod.MAX_PREFIX is MAX_PREFIX
