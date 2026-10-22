@@ -102,6 +102,7 @@ _LABEL = r"[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?"
 _LITERAL_HOST = re.compile(rf"https://{_LABEL}(\.{_LABEL})*(?::(?P<port>[0-9]{{1,5}}))?")
 _PLACEHOLDER_HOST = re.compile(r"https://\{([^{}/:]*)\}")
 _SHA256 = re.compile(r"[0-9a-fA-F]{64}")
+_PEM_CERT = "-----BEGIN CERTIFICATE-----"
 _TLS_OFF_WORDS = frozenset({"off", "none", "insecure", "false", "no", "disable", "disabled"})
 
 
@@ -123,6 +124,21 @@ class Tls:
     cert_sha256: str | None = None  # the leaf's DER hash; replaces chain and hostname checks
 
     # neither set means "verify": system trust, chain and hostname checked
+
+    def __post_init__(self) -> None:
+        # The HTTP client (auspex_sdk.http) acts on a Tls value as given, so one built in code
+        # rather than by parse_tls_value must still hold exactly one well-formed form (S32,
+        # carried from Task 2's review). The messages never echo the value.
+        if self.ca_pem is not None and self.cert_sha256 is not None:
+            raise ManifestError("bad_type", "tls", "a tls value is a CA PEM or a pin, not both")
+        if self.ca_pem is not None and (
+            not isinstance(self.ca_pem, str) or _PEM_CERT not in self.ca_pem
+        ):
+            raise ManifestError("bad_type", "tls", f"ca_pem must contain {_PEM_CERT}")
+        if self.cert_sha256 is not None and (
+            not isinstance(self.cert_sha256, str) or not _SHA256.fullmatch(self.cert_sha256)
+        ):
+            raise ManifestError("bad_type", "tls", "cert_sha256 must be 64 hex characters")
 
 
 @dataclass(frozen=True)
@@ -400,7 +416,7 @@ def parse_tls_value(v: Any, path: str = "tls") -> Tls:
     if v == "verify":
         return Tls()
     if isinstance(v, dict) and len(v) == 1:
-        if isinstance(v.get("ca_pem"), str) and v["ca_pem"].strip():
+        if isinstance(v.get("ca_pem"), str) and _PEM_CERT in v["ca_pem"]:
             return Tls(ca_pem=v["ca_pem"])
         pin = v.get("cert_sha256")
         if isinstance(pin, str) and _SHA256.fullmatch(pin):

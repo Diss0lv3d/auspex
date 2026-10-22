@@ -495,17 +495,54 @@ def test_validate_raises_on_the_first_violation_in_a_stable_order():
 
 def test_tls_values_parse_in_their_three_forms_and_never_off():
     assert mf.parse_tls_value("verify") == mf.Tls()
-    assert mf.parse_tls_value({"ca_pem": "PEM"}) == mf.Tls(ca_pem="PEM")
+    pem = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
+    assert mf.parse_tls_value({"ca_pem": pem}) == mf.Tls(ca_pem=pem)
     pin = "ab" * 32
     assert mf.parse_tls_value({"cert_sha256": pin}) == mf.Tls(cert_sha256=pin)
     for off in ("off", False, "none", "insecure", {"verify": False}, {"verify": "false"}):
         with pytest.raises(ManifestError) as ei:
             mf.parse_tls_value(off)
         assert ei.value.rule == "tls_off"
-    for bad in (None, {}, {"cert_sha256": "xy"}, {"ca_pem": "a", "cert_sha256": pin}, 5, "other"):
+    for bad in (
+        None,
+        {},
+        {"cert_sha256": "xy"},
+        {"ca_pem": "a", "cert_sha256": pin},
+        {"ca_pem": "not a certificate"},
+        5,
+        "other",
+    ):
         with pytest.raises(ManifestError) as ei:
             mf.parse_tls_value(bad)
         assert ei.value.rule == "bad_type"
+
+
+PEM = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"ca_pem": PEM, "cert_sha256": "ab" * 32},  # two forms at once
+        {"ca_pem": "MIIB"},  # not a PEM certificate
+        {"ca_pem": ""},
+        {"cert_sha256": "ab" * 31},  # 62 hex
+        {"cert_sha256": "zz" * 32},  # not hex
+        {"cert_sha256": "ab" * 32 + "\n"},
+    ],
+)
+def test_tls_built_directly_holds_exactly_one_valid_form(kwargs):
+    # S32 carry from Task 2's review: the HTTP client trusts a Tls value as given, so a Tls
+    # built in code (not through parse_tls_value) must not carry two forms or a malformed one.
+    with pytest.raises(ManifestError) as ei:
+        mf.Tls(**kwargs)
+    assert ei.value.rule == "bad_type"
+
+
+def test_tls_built_directly_accepts_each_single_form():
+    assert mf.Tls().ca_pem is None and mf.Tls().cert_sha256 is None
+    assert mf.Tls(ca_pem=PEM).ca_pem == PEM
+    assert mf.Tls(cert_sha256="AB" * 32).cert_sha256 == "AB" * 32
 
 
 def test_frozen_dataclasses():
