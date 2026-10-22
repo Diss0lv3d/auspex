@@ -1,8 +1,12 @@
 """S30's exit criteria, as an MSSP meets them (D-061): through the routes only."""
 
+import json
+
 import pytest
 from _tenancy import build_mssp, drop_orgs, make_org, make_workspace, token
+from auspex_sdk.package import build_zip
 
+from auspex.connectors.catalogue import available, register
 from auspex.db import create_pool
 
 PREFIX = "t-s30-iso"
@@ -121,3 +125,20 @@ async def test_an_audit_event_in_one_workspace_is_absent_from_anothers_trail(
     assert seen.status_code == 200, seen.text
     assert probe not in str(seen.json()), seen.json()
     assert all(e["subject"]["user_id"] != probe for e in seen.json()["events"])
+
+
+async def test_a_connector_package_registered_in_one_client_is_listed_nowhere_else(world):
+    """S32 (spec decision 3): the catalogue's cross-tenant row. The routes arrive with
+    Task 11; the one listing function they call is held to the same line here."""
+    pool, m = world
+    manifest = {"schema_version": 1, "id": "tiso.private", "version": "1.0.0",
+                "name": "Private", "description": "client1's own connector",
+                "commands": {"test": {"handler": "pkg.h:test"}}}
+    data = build_zip({"manifest.json": json.dumps(manifest).encode(), "pkg/h.py": b""})
+    entry = await register(pool, workspace_id=m.client1_ws, data=data,
+                           registered_by=m.c1_user, offered_to_clients=False)
+    assert [e.id for e in await available(pool, workspace_id=m.client1_ws)
+            if e.connector_id == "tiso.private"] == [entry.id]
+    for ws in (m.client2_ws, m.provider_ws, m.direct_ws):
+        assert all(e.connector_id != "tiso.private"
+                   for e in await available(pool, workspace_id=ws))

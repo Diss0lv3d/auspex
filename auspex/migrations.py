@@ -858,7 +858,42 @@ S31_JOBS: list[str] = [
     """,
 ]
 
-SCHEMA_V0 = [*SCHEMA_V0, *S30_TENANCY, *S31_JOBS]
+# S32 (D-064; docs/superpowers/specs/2026-10-22-s32-connectors-design.md decision 3):
+# the connector catalogue. A package is identified by its content hash (a changed
+# package is a new identity), so the hash is unique per workspace and an id+version
+# names one hash. First-party rows live in `__deployment__` (D-035/D-068).
+# `registered_by` carries no foreign key, as audit_events' actors: purging a person
+# must not erase or block who registered a package.
+S32_CONNECTORS: list[str] = [
+    """
+    CREATE TABLE IF NOT EXISTS connector_packages (
+        id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id        uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        connector_id        text NOT NULL,
+        version             text NOT NULL,
+        content_hash        text NOT NULL,
+        manifest            jsonb NOT NULL,
+        package             bytea NOT NULL,
+        first_party         boolean NOT NULL DEFAULT false,
+        offered_to_clients  boolean NOT NULL DEFAULT false,
+        registered_by       uuid,
+        created_at          timestamptz NOT NULL DEFAULT now(),
+        UNIQUE (workspace_id, content_hash),
+        UNIQUE (workspace_id, connector_id, version)
+    )
+    """,
+    # The listing's two cross-workspace probes: first-party and offered rows.
+    """
+    CREATE INDEX IF NOT EXISTS idx_connector_packages_first_party
+        ON connector_packages (connector_id) WHERE first_party
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_connector_packages_offered
+        ON connector_packages (workspace_id) WHERE offered_to_clients
+    """,
+]
+
+SCHEMA_V0 = [*SCHEMA_V0, *S30_TENANCY, *S31_JOBS, *S32_CONNECTORS]
 
 
 async def run_migrations(pool: asyncpg.Pool) -> None:

@@ -30,6 +30,7 @@ EXPECTED_TABLES = {
     "ach_evidence",
     "retrohunt_matches",
     "verdict_flips",
+    "connector_packages",
 }
 
 # D-008: workspace_id on EVERY table. D-061 (S30) names the only exemptions:
