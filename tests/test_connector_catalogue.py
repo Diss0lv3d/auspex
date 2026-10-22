@@ -239,3 +239,38 @@ async def test_the_cli_refuses_a_bad_package(world, tmp_path, capsys):
     zip_path.write_bytes(b"not a zip")
     assert await cli.run(["register", "--first-party", str(zip_path)]) == 1
     assert "refused" in capsys.readouterr().err
+
+
+# Fix round 1 (ruling c1): one listing per connector id, first-party > provider > own. A
+# shadowed package stays registered; the later registration is never refused over it.
+
+
+async def test_a_provider_offer_shadows_a_clients_own_package_of_that_id(world):
+    pool, m = world
+    cid = fresh_id()
+    own = await register(pool, workspace_id=m.client1_ws, data=package(cid),
+                         registered_by=m.c1_user, offered_to_clients=False)
+    offered = await register(pool, workspace_id=m.provider_ws, data=package(cid, "2.0.0"),
+                             registered_by=m.p_admin, offered_to_clients=True)
+    listed = _listed(await available(pool, workspace_id=m.client1_ws), cid)
+    assert [(e.id, e.source) for e in listed] == [(offered.id, "provider")]
+    assert await pool.fetchval("SELECT 1 FROM connector_packages WHERE id = $1", own.id)
+
+
+async def test_a_first_party_package_shadows_own_and_provider_packages_of_that_id(world):
+    pool, m = world
+    cid = fresh_id()
+    await register(pool, workspace_id=m.client1_ws, data=package(cid),
+                   registered_by=m.c1_user, offered_to_clients=False)
+    await register(pool, workspace_id=m.provider_ws, data=package(cid, "2.0.0"),
+                   registered_by=m.p_admin, offered_to_clients=True)
+    await register(pool, workspace_id=m.direct_ws, data=package(cid, "3.0.0"),
+                   registered_by=m.d_user, offered_to_clients=False)
+    first = await register(pool, workspace_id=await _deployment(pool),
+                           data=package(cid, "4.0.0"), registered_by=None,
+                           offered_to_clients=False, first_party=True)
+    for ws in (m.client1_ws, m.client2_ws, m.provider_ws, m.direct_ws):
+        listed = _listed(await available(pool, workspace_id=ws), cid)
+        assert [(e.id, e.source) for e in listed] == [(first.id, "first_party")]
+    assert await pool.fetchval(
+        "SELECT count(*) FROM connector_packages WHERE connector_id = $1", cid) == 4

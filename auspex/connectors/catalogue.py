@@ -184,27 +184,38 @@ async def available(pool: asyncpg.Pool, *, workspace_id: UUID) -> list[Catalogue
     """What `workspace_id` may use: its own packages, its provider's offered ones and the
     first-party ones, each marked with its source. The provider is the workspace's own
     organization's `parent_id`, read here; a workspace that does not exist lists nothing.
+
+    One source per connector id: first_party, then provider, then own. A shadowed package
+    stays registered but is not listed (ruling c1, Task 10 fix round 1).
     """
+    # Why the order: refusing a first-party or offered id a tenant already holds would let
+    # any tenant squat on it, so the higher source registers anyway and wins the listing.
     rows = await pool.fetch(
         """
         WITH me AS (
             SELECT w.id, o.parent_id FROM workspaces w
               LEFT JOIN organizations o ON o.id = w.org_id
              WHERE w.id = $1
+        ), visible AS (
+            SELECT cp.id, cp.workspace_id, cp.connector_id, cp.version, cp.content_hash,
+                   cp.manifest, cp.first_party, cp.offered_to_clients, cp.registered_by,
+                   cp.created_at,
+                   CASE WHEN cp.first_party THEN 0
+                        WHEN cp.workspace_id = me.id THEN 2
+                        ELSE 1 END AS rank
+              FROM connector_packages cp
+              CROSS JOIN me
+              JOIN workspaces pw ON pw.id = cp.workspace_id
+             WHERE cp.workspace_id = me.id
+                OR cp.first_party
+                OR (cp.offered_to_clients AND pw.org_id = me.parent_id)
         )
-        SELECT cp.id, cp.workspace_id, cp.connector_id, cp.version, cp.content_hash,
-               cp.manifest, cp.first_party, cp.offered_to_clients, cp.registered_by,
-               cp.created_at,
-               CASE WHEN cp.workspace_id = me.id THEN 'own'
-                    WHEN cp.first_party THEN 'first_party'
-                    ELSE 'provider' END AS source
-          FROM connector_packages cp
-          CROSS JOIN me
-          JOIN workspaces pw ON pw.id = cp.workspace_id
-         WHERE cp.workspace_id = me.id
-            OR cp.first_party
-            OR (cp.offered_to_clients AND pw.org_id = me.parent_id)
-         ORDER BY cp.connector_id, cp.created_at
+        SELECT v.*, CASE v.rank WHEN 0 THEN 'first_party' WHEN 1 THEN 'provider'
+                                ELSE 'own' END AS source
+          FROM visible v
+         WHERE v.rank = (SELECT min(rank) FROM visible x
+                          WHERE x.connector_id = v.connector_id)
+         ORDER BY v.connector_id, v.created_at
         """,
         workspace_id,
     )
