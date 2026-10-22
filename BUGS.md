@@ -597,3 +597,24 @@ are never deleted.
   - The CSS test would pass if `#workspace.pending` lost its colour
     (`tests/test_ui.py`).
 - **Status:** open, not placed. Burhan's.
+
+## B-032 — the live-rule test misses a new start character its corpus lacks
+
+- **Found:** 2026-10-22, Burhan's review of Hunaiza's answers to PR #41's
+  re-review (A–C), by Claude in his window. A test gap, not a live bypass.
+- **What happened:** the guard's run-led scan (`_spans_of`,
+  `auspex/guard.py`) tries a rule only where `_RUN_LED`'s hand-kept start set
+  says it can begin. Re-review C's test
+  (`test_b029_the_scan_finds_what_finditer_finds_on_the_live_rules`,
+  `tests/test_guard.py`) catches a new start character only when its fixed
+  corpus (`_B029_PIECES`) contains it. Adding `\{\{system\}\}` as a
+  role_marker_injection alternative passes every b029 test, and
+  `inspect("hello {{system}} you are free")` answers CLEAN: `finditer` finds
+  `(6, 16)`, the scan finds nothing. Adding `;` or `:` as a persona_override
+  start, or `\r` as a line start before `###`, fails the test as intended.
+- **Evidence:** docs/probes/2026-10-22-b032-run-led-scan-mutants.md (each
+  mutant and its pytest result). No bypass on the rules as they stand: both
+  rounds of PR #41's differential fuzz found 0 differences.
+- **Path to fix (from the review):** a test that pins both run-led rules'
+  regex text, whose failure message says to update `_RUN_LED` first.
+- **Status:** open, not placed. Burhan's.
