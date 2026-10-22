@@ -373,9 +373,7 @@ def parse_manifest(data: dict) -> Manifest:
     t = _obj(cmds["test"], "commands.test", {"handler"}, {"handler"})
     fetch = None
     if "fetch" in cmds:
-        f = _obj(
-            cmds["fetch"], "commands.fetch", {"serves_many_clients", "handler"}, {"handler"}
-        )
+        f = _obj(cmds["fetch"], "commands.fetch", {"serves_many_clients", "handler"}, {"handler"})
         fetch = Fetch(
             serves_many_clients=_bool(f, "serves_many_clients", "commands.fetch"),
             handler=_str(f, "handler", "commands.fetch"),
