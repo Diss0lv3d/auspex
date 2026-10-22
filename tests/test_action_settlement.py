@@ -19,6 +19,7 @@ import asyncio
 import dataclasses
 import json
 import uuid
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -2429,3 +2430,63 @@ async def test_the_routes_for_an_approval_that_never_ran(pool, client, route_ws)
     assert withdrew.status_code == 200, withdrew.text
     assert withdrew.json()["proposal"]["status"] == "withdrawn"
     assert client.post(f"/api/proposals/{uuid.uuid4()}/withdraw", headers=hdr).status_code == 404
+
+
+# -- B-026 (S32): an argument the action does not declare is refused ----------
+
+B026 = json.loads(
+    (Path(__file__).parent / "fixtures" / "actions" / "b026_undeclared_platform_keyword.json")
+    .read_text()
+)
+
+
+@pytest.mark.parametrize("offending", B026["offending_arguments"],
+                         ids=lambda a: next(k for k in a if k not in B026["declared"]
+                                            and k != "observable_id"))
+async def test_b026_a_proposal_with_an_undeclared_argument_is_refused_before_its_dry_run(
+    pool, spec, workspace_id, an_observable, offending
+):
+    """B-026. The probe's argument sets: the note action's declared arguments
+    plus a key it does not declare. The note dry run swallowed it in `**_`, the
+    card filed, and the approved run died with a TypeError. Refused, not
+    stripped: stripping would change what the analyst approved. The check runs
+    before the dry run and before any row."""
+    from auspex.actions.settlement import UndeclaredArgument, action_proposer
+
+    arguments = {**offending, "observable_id": an_observable}
+    extra = next(k for k in arguments if k not in {p.name for p in spec.params})
+    dry_run = mock.AsyncMock()
+    watched = dataclasses.replace(spec, dry_run=dry_run)
+    with pytest.raises(UndeclaredArgument) as caught:
+        await action_proposer(pool)(spec=watched, arguments=arguments,
+                                    workspace_id=workspace_id)
+
+    assert caught.value.names == (extra,)
+    assert extra in caught.value.model_feedback and "not proposed" in caught.value.model_feedback
+    dry_run.assert_not_called()
+    assert 0 == await pool.fetchval(
+        "SELECT count(*) FROM proposals WHERE workspace_id = $1", workspace_id)
+
+
+async def test_b026_every_undeclared_key_is_named_sorted_not_only_platform_keywords(
+    pool, spec, workspace_id, an_observable
+):
+    from auspex.actions.settlement import UndeclaredArgument, action_proposer
+
+    with pytest.raises(UndeclaredArgument) as caught:
+        await action_proposer(pool)(
+            spec=spec, workspace_id=workspace_id,
+            arguments={"observable_id": an_observable, "note": "n", "zeta": 1, "alpha": 2},
+        )
+
+    assert caught.value.names == ("alpha", "zeta")
+
+
+async def test_b026_declared_arguments_still_file(pool, spec, workspace_id, an_observable):
+    from auspex.actions.settlement import action_proposer
+
+    row = await action_proposer(pool)(
+        spec=spec, arguments={"observable_id": an_observable, "note": "n"},
+        workspace_id=workspace_id)
+
+    assert row["status"] == "pending_approval"

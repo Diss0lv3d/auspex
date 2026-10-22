@@ -493,6 +493,24 @@ class NothingToPropose(RuntimeError):
         self.model_feedback = f"not proposed: the action would change nothing. {would}"
 
 
+class UndeclaredArgument(NothingToPropose):
+    """The call carries an argument key the action does not declare (B-026, S32).
+
+    Refused, never stripped: dropping the key would file a card for a call the
+    model did not make. A declined proposal like `NothingToPropose`, so the agent
+    loop hands the model `model_feedback` (code-written, naming the keys) and no
+    row exists. `names` is sorted so the sentence is stable."""
+
+    def __init__(self, names) -> None:
+        self.names = tuple(sorted(names))
+        listed = ", ".join(self.names)
+        RuntimeError.__init__(self, f"undeclared argument(s): {listed}")
+        self.model_feedback = (
+            f"not proposed: the action does not take argument(s) {listed}. "
+            "Call it again with only the parameters it declares."
+        )
+
+
 def action_proposer(pool: asyncpg.Pool):
     """The seam the agent loop calls when a model calls an action.
 
@@ -509,6 +527,13 @@ def action_proposer(pool: asyncpg.Pool):
     settlement = ProposalSettlement(pool)
 
     async def propose(*, spec: ActionSpec, arguments: dict, workspace_id, session_id=None):
+        # B-026: before the dry run, which would swallow a stray key in `**_`, and
+        # before any row. The approved run passes the platform's own keywords too,
+        # so a key named like one of them would collide there.
+        declared = {p.name for p in spec.params}
+        undeclared = [k for k in arguments if k not in declared]
+        if undeclared:
+            raise UndeclaredArgument(undeclared)
         outcome = await spec.dry_run(workspace_id=workspace_id, **arguments)
         if not outcome.affects:
             raise NothingToPropose(outcome.would)
@@ -1013,6 +1038,7 @@ __all__ = [
     "ProposalSettlement",
     "SettleResult",
     "Settlement",
+    "UndeclaredArgument",
     "check_executable",
     "operation_key",
 ]
