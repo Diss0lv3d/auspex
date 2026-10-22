@@ -197,3 +197,99 @@ def test_a_stray_value_error_from_parsing_is_a_package_error():
 def test_garbage_is_a_package_error():
     with pytest.raises(PackageError, match="zip"):
         read_package(b"not a zip at all")
+
+
+# --- fix round 1 (task review) ---------------------------------------------------------
+
+
+def _patch_central(data: bytes, offset: int, fmt_len: int, value: int) -> bytes:
+    """Overwrite a little-endian field in every central-directory header."""
+    out = bytearray(data)
+    i = 0
+    while (i := out.find(b"PK\x01\x02", i)) != -1:
+        out[i + offset : i + offset + fmt_len] = value.to_bytes(fmt_len, "little")
+        i += 4
+    return bytes(out)
+
+
+@pytest.mark.parametrize("method", [zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA])
+def test_corrupt_bzip2_and_lzma_members_are_package_errors(method):
+    m = good_files()["manifest.json"]
+    body = bytes(range(256)) * 40
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", method) as z:
+        z.writestr("manifest.json", m, compress_type=zipfile.ZIP_DEFLATED)
+        z.writestr("pkg/a.py", body)
+    data = bytearray(buf.getvalue())
+    start = data.find(b"pkg/a.py") + len("pkg/a.py") + 20
+    for i in range(start, start + 8):
+        data[i] ^= 0xFF
+    for blob in (bytes(data), buf.getvalue()):  # corrupt, and merely not a deflate/stored member
+        with pytest.raises(PackageError) as e:
+            read_package(blob)
+        assert e.value.member == "pkg/a.py"
+
+
+def test_an_unknown_compression_method_is_refused():
+    m = good_files()["manifest.json"]
+    data = _patch_central(raw_zip([("manifest.json", m), ("pkg/a.py", b"1")]), 10, 2, 99)
+    with pytest.raises(PackageError) as e:
+        read_package(data)
+    assert e.value.member in ("manifest.json", "pkg/a.py")
+
+
+def test_an_encrypted_member_is_refused():
+    m = good_files()["manifest.json"]
+    data = _patch_central(raw_zip([("manifest.json", m), ("pkg/a.py", b"1")]), 8, 2, 0x1)
+    with pytest.raises(PackageError, match="encrypted") as e:
+        read_package(data)
+    assert e.value.member in ("manifest.json", "pkg/a.py")
+
+
+@pytest.mark.parametrize(
+    "first, second",
+    [
+        ("pkg/A.py", "pkg/a.py"),
+        ("pkg/é.py", "pkg/é.py"),
+        ("manifest.json", "MANIFEST.JSON"),
+    ],
+)
+@pytest.mark.filterwarnings("ignore:Duplicate name")
+def test_duplicates_by_case_or_normalization_are_refused(first, second):
+    m = good_files()["manifest.json"]
+    members = [("manifest.json", m), (first, b"1"), (second, b"2")]
+    members = list({n: (n, d) for n, d in members}.values())
+    with pytest.raises(PackageError) as e:
+        read_package(raw_zip(members))
+    assert e.value.member in (first, second)
+
+
+@pytest.mark.parametrize(
+    "member",
+    [
+        "pkg/x.PYC",
+        "c.YAML",
+        "pkg/__PYCACHE__/y",
+        "Tests/a.py",
+        "pkg/Test_a.py",
+        "pkg/a.py:ads",
+        "pkg/b:x/a.py",
+        "pkg/a.py ",
+        " pkg/a.py",
+        "pkg /a.py",
+        "pkg/a.py.",
+        "pkg./a.py",
+        "pkg/CON",
+        "pkg/con.txt",
+        "pkg/Nul.py",
+        "AUX/a.py",
+        "pkg/COM1.py",
+        "pkg/lpt9",
+        "pkg/é.py",
+    ],
+)
+def test_case_and_windows_rules(member):
+    data = raw_zip([("manifest.json", good_files()["manifest.json"]), (member, b"x")])
+    with pytest.raises(PackageError) as e:
+        read_package(data)
+    assert e.value.member == member

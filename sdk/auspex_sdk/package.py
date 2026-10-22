@@ -18,7 +18,9 @@ without being expanded), and a member that inflates past its declared size is re
 import hashlib
 import io
 import json
+import lzma
 import stat
+import unicodedata
 import zipfile
 import zlib
 
@@ -34,6 +36,16 @@ MANIFEST_NAME = "manifest.json"
 # The build compiles the YAML into manifest.json, so a package that still carries it, or
 # tests, caches and dotfiles, was not built by `auspex-sdk build`.
 _EXCLUDED_DIRS = frozenset({"tests", "test", "__pycache__"})
+
+# Windows device names: a file called `con.txt` cannot be extracted there as itself.
+_RESERVED = frozenset(
+    {"con", "prn", "aux", "nul"}
+    | {f"com{i}" for i in range(1, 10)}
+    | {f"lpt{i}" for i in range(1, 10)}
+)
+
+# A member must unpack to the same bytes on any host, so only these methods are read.
+_METHODS = (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED)
 
 
 class PackageError(ValueError):
@@ -69,22 +81,33 @@ def build_zip(files: dict[str, bytes]) -> bytes:
 
 
 def _check_path(name: str) -> str:
-    """Return the normalized member path, or refuse it. A leading `./` is tolerated and dropped."""
+    """Return the normalized member path, or refuse it. A leading `./` is tolerated and dropped.
+
+    The rules hold on a case-insensitive, NTFS or normalizing filesystem too, so the files that
+    run are the files that were hashed.
+    """
     path = name
     while path.startswith("./"):
         path = path[2:]
     if not path or "\0" in path or "\\" in path or path.startswith("/"):
         raise PackageError("not a relative posix path", name)
+    if unicodedata.normalize("NFC", path) != path:
+        raise PackageError("path is not NFC-normalized", name)
     segments = path.split("/")
     if any(s in ("", ".", "..") for s in segments):
         raise PackageError("empty, '.' or '..' path segment", name)
-    if ":" in segments[0]:
-        raise PackageError("drive-letter style path", name)
+    if any(":" in s for s in segments):
+        raise PackageError("':' in a path (drive letter or NTFS stream)", name)
+    if any(s != s.strip() or s.endswith(".") for s in segments):
+        raise PackageError("segment with surrounding whitespace or a trailing dot", name)
+    if any(s.split(".", 1)[0].lower() in _RESERVED for s in segments):
+        raise PackageError("Windows reserved device name", name)
     if any(s.startswith(".") for s in segments):
         raise PackageError("dotfiles are not part of a package", name)
-    if any(s in _EXCLUDED_DIRS for s in segments[:-1]) or segments[-1] == "__pycache__":
+    lowered = [s.lower() for s in segments]
+    if any(s in _EXCLUDED_DIRS for s in lowered[:-1]) or lowered[-1] == "__pycache__":
         raise PackageError("tests and caches are not part of a package", name)
-    leaf = segments[-1]
+    leaf = lowered[-1]
     if leaf.endswith((".pyc", ".yaml", ".yml")) or (
         leaf.startswith("test_") and leaf.endswith(".py")
     ):
@@ -133,9 +156,14 @@ def read_package(data: bytes) -> tuple[Manifest, str, dict[str, bytes]]:
             if stat.S_ISLNK(info.external_attr >> 16):
                 raise PackageError("symlinks are not allowed", name)
             path = _check_path(name)
-            if path in seen:
-                raise PackageError("duplicate member", name)
-            seen.add(path)
+            if info.flag_bits & 0x1:
+                raise PackageError("encrypted members are not allowed", name)
+            if info.compress_type not in _METHODS:
+                raise PackageError(f"compression method {info.compress_type} not allowed", name)
+            key = path.casefold()
+            if key in seen:
+                raise PackageError("duplicate member (case or normalization)", name)
+            seen.add(key)
             limit = MAX_MANIFEST_BYTES if path == MANIFEST_NAME else MAX_PACKAGE_BYTES
             if info.file_size > limit:
                 raise PackageError(f"declares more than {limit} bytes", name)
@@ -155,6 +183,8 @@ def read_package(data: bytes) -> tuple[Manifest, str, dict[str, bytes]]:
                 RuntimeError,
                 NotImplementedError,
                 zlib.error,
+                lzma.LZMAError,
+                OSError,
                 EOFError,
             ) as e:
                 raise PackageError(f"unreadable member: {e}", info.filename) from e
