@@ -54,6 +54,7 @@ def reference() -> dict:
                         "values": ["fp", "tp"],
                     },
                 ],
+                "execute": "qradar.actions:close_offense",
                 "dry_run": "qradar.actions:close_dry_run",
                 "undo": {
                     "handler": "qradar.actions:reopen",
@@ -71,6 +72,7 @@ def reference() -> dict:
                 "name": "get_offense",
                 "description": "Read an offense.",
                 "risk": "read",
+                "execute": "qradar.actions:get_offense",
                 "dry_run": "qradar.actions:get_dry_run",
             },
         ],
@@ -411,6 +413,36 @@ ROWS = [
         "actions[0].params",
     ),
     ("missing_test_command", lambda d: d["commands"].pop("test"), "bad_type", "commands.test"),
+    (
+        "missing_execute",
+        lambda d: d["actions"][0].pop("execute"),
+        "bad_type",
+        "actions[0].execute",
+    ),
+    (
+        "empty_execute",
+        lambda d: d["actions"][0].update(execute=""),
+        "bad_type",
+        "actions[0].execute",
+    ),
+    (
+        "execute_equals_dry_run",
+        lambda d: d["actions"][0].update(execute=d["actions"][0]["dry_run"]),
+        "duplicate_name",
+        "actions[0].execute",
+    ),
+    (
+        "execute_equals_undo",
+        lambda d: d["actions"][0].update(execute=d["actions"][0]["undo"]["handler"]),
+        "duplicate_name",
+        "actions[0].execute",
+    ),
+    (
+        "execute_equals_observe",
+        lambda d: d["actions"][0].update(execute=d["actions"][0]["observe"]),
+        "duplicate_name",
+        "actions[0].execute",
+    ),
     (
         "missing_test_handler",
         lambda d: d["commands"]["test"].pop("handler"),

@@ -154,6 +154,7 @@ def expected(module_name: str) -> dict:
                         "values": ["fp", "tp"],
                     },
                 ],
+                "execute": f"{module_name}:close_alert",
                 "dry_run": f"{module_name}:close_dry",
                 "undo": {
                     "handler": f"{module_name}:reopen",

@@ -329,6 +329,7 @@ def _action(fn: Callable, spec: _ActionSpec, path: str) -> Action:
         description=inspect.getdoc(fn) or "",
         risk=spec.risk,
         params=_params(fn, path),
+        execute=_ref(fn, f"{path}.execute"),
         dry_run=_ref(spec.dry_run, f"{path}.dry_run") if spec.dry_run is not None else "",
         undo=undo,
         observe=_ref(spec.observe, f"{path}.observe") if spec.observe is not None else None,

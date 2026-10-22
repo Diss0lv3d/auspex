@@ -17,8 +17,7 @@ afterwards, so a build leaves no trace and two builds in one process cannot see 
 `check_handlers` imports each referenced module and refuses a missing module or function by its
 reference, and a parameter mismatch: a handler takes the context first and then exactly the
 action's declared param names, in order (an author cannot forget one); `test` takes `(ctx)`;
-`fetch` takes `(ctx, cursor, limit)`. The manifest names no `execute` handler, so the execute
-function's parameters are checked only where they ARE the declaration (a Python-first action).
+`fetch` takes `(ctx, cursor, limit)`. The same rule covers an action's `execute`.
 
 `build` writes `dist/<id>-<version>.zip` in the source dir and verifies the bytes with
 `read_package`, so a build can never produce something the catalogue would refuse.
@@ -123,6 +122,7 @@ def _handler_refs(m: Manifest) -> list[tuple[str, str, tuple[str, ...]]]:
         refs.append(("commands.fetch.handler", m.fetch.handler, ("cursor", "limit")))
     for i, a in enumerate(m.actions):
         names = tuple(p.name for p in a.params)
+        refs.append((f"actions[{i}].execute", a.execute, names))
         refs.append((f"actions[{i}].dry_run", a.dry_run, names))
         if a.undo is not None:
             refs.append((f"actions[{i}].undo.handler", a.undo.handler, names))

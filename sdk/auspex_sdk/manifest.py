@@ -31,6 +31,7 @@ The JSON shape (every key not marked optional is required; unknown keys are refu
          "params": [{"name": "offense_id", "type": "string|integer|number|boolean",
                      "description": "...", "required": false,
                      "values": ["fp", "tp"]}],  # values: optional, string params only
+         "execute": "pkg.module:function",      # a handler reference; required
          "dry_run": "pkg.module:function",      # a handler reference; required
          "undo": {"handler": "pkg.module:function", "restores": "...",
                   "cannot_restore": ["..."]},   # required for destructive; refused on read
@@ -182,6 +183,7 @@ class Action:
     risk: str
     params: tuple[Param, ...] = ()
     dry_run: str = ""  # empty means "not declared": validate_manifest refuses it
+    execute: str = ""  # likewise; it must differ from dry_run, undo and observe
     undo: Undo | None = None
     observe: str | None = None
     output: tuple[OutputField, ...] = ()
@@ -318,13 +320,14 @@ def _parse_action(data: Any, path: str) -> Action:
             "description",
             "risk",
             "params",
+            "execute",
             "dry_run",
             "undo",
             "observe",
             "output",
             "targets",
         },
-        {"name", "description", "risk"},
+        {"name", "description", "risk", "execute"},
     )
     return Action(
         name=_str(d, "name", path),
@@ -334,6 +337,7 @@ def _parse_action(data: Any, path: str) -> Action:
             _parse_param(p, f"{path}.params[{i}]") for i, p in enumerate(_list(d, "params", path))
         ),
         dry_run=_str(d, "dry_run", path, default=""),
+        execute=_str(d, "execute", path),
         undo=_parse_undo(d["undo"], _join(path, "undo")) if "undo" in d else None,
         observe=_opt_str(d, "observe", path),
         output=tuple(
@@ -613,6 +617,7 @@ def _check_action(a: Action, path: str) -> None:
             "every action declares a dry run: what it would do, changing nothing",
         )
     _check_handler(a.dry_run, f"{path}.dry_run")
+    _check_handler(a.execute, f"{path}.execute")
     if a.risk == "destructive" and a.undo is None:
         raise ManifestError(
             "destructive_without_undo",
@@ -628,6 +633,14 @@ def _check_action(a: Action, path: str) -> None:
             _check_text(c, f"{path}.undo.cannot_restore[{k}]")
     if a.observe is not None:
         _check_handler(a.observe, f"{path}.observe")
+    # Distinct callables: an execute that is also the dry run would change what it must not.
+    others = [a.dry_run, a.undo.handler if a.undo else None, a.observe]
+    if a.execute in others:
+        raise ManifestError(
+            "duplicate_name",
+            f"{path}.execute",
+            "execute must be a different function from dry_run, undo and observe",
+        )
     for j, o in enumerate(a.output):
         op = f"{path}.output[{j}]"
         _check_name(o.name, f"{op}.name")
@@ -751,6 +764,7 @@ def manifest_to_dict(m: Manifest) -> dict:
                         )
                         for p in a.params
                     ],
+                    "execute": a.execute,
                     "dry_run": a.dry_run,
                     "undo": None
                     if a.undo is None

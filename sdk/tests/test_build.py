@@ -104,6 +104,7 @@ actions:
     params:
       - {name: alert_id, type: string, description: "The alert to close.", required: true}
       - {name: note, type: string, description: "Free text.", required: false}
+    execute: "sample:close_alert"
     dry_run: "sample:close_dry"
     observe: "sample:close_observe"
     output:
@@ -230,6 +231,28 @@ def test_a_yaml_naming_a_missing_function_is_refused_by_its_reference(yaml_twin)
     with pytest.raises(BuildError) as ei:
         build(yaml_twin)
     assert "sample:nope" in str(ei.value) and "actions[0].dry_run" in str(ei.value)
+
+
+def test_a_yaml_naming_a_missing_execute_is_refused_by_its_reference(yaml_twin):
+    y = (yaml_twin / "connector.yaml").read_text().replace("sample:close_alert", "sample:gone")
+    (yaml_twin / "connector.yaml").write_text(y)
+    with pytest.raises(BuildError) as ei:
+        build(yaml_twin)
+    assert "sample:gone" in str(ei.value) and "actions[0].execute" in str(ei.value)
+
+
+def test_a_yaml_execute_with_a_parameter_mismatch_is_refused(yaml_twin):
+    src = (yaml_twin / "sample.py").read_text()
+    old = 'def close_alert(ctx, alert_id, note=""):'
+    assert old in src
+    (yaml_twin / "sample.py").write_text(src.replace(old, "def close_alert(ctx, alert_id):"))
+    with pytest.raises(BuildError, match="actions.0..execute.*close_alert|close_alert.*must take"):
+        build(yaml_twin)
+
+
+def test_a_python_first_manifest_carries_the_execute_reference(python_first):
+    path, _ = build(python_first)
+    assert b'"execute":"sample:close_alert"' in members(path)["manifest.json"]
 
 
 def test_a_yaml_naming_a_missing_module_is_refused_by_its_reference(yaml_twin):
