@@ -36,24 +36,28 @@ def _key_path(path: str, key: str) -> str:
 
 
 def _string(s: str, path: str) -> str:
+    # The plain value first, through the base type's own slot: a subclass's __str__ (an Enum
+    # member's "E.OPEN") or __contains__ must not decide what is checked or written.
+    s = str.__str__(s)
     if "\x00" in s:
         raise ResultError(path, "a string may not hold \\x00")
     try:
         s.encode("utf-8")
     except UnicodeEncodeError:
         raise ResultError(path, "a string must be valid Unicode (a lone surrogate)") from None
-    return str(s)
+    return s
 
 
 def _clean(v: Any, path: str, open_ids: set[int]) -> Any:
-    if v is None or isinstance(v, bool):
+    if v is None or v is True or v is False:
         return v
     if isinstance(v, int):
-        return int(v)
+        return int.__int__(v)  # the plain int (an IntEnum member is its value)
     if isinstance(v, float):
-        if not math.isfinite(v):
-            raise ResultError(path, f"{v!r} is not a JSON number")
-        return float(v)
+        f = float.__float__(v)  # the plain float, whatever a subclass's __float__ says
+        if not math.isfinite(f):
+            raise ResultError(path, f"{f!r} is not a JSON number")
+        return f
     if isinstance(v, str):
         return _string(v, path)
     if isinstance(v, (list, tuple, dict)):
@@ -81,7 +85,10 @@ def encode_result(value: Any) -> bytes:
         clean = _clean(value, "$", set())
     except RecursionError:
         raise ResultError("$", "the result is nested too deeply") from None
-    text = json.dumps(
-        clean, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
-    )
-    return text.encode("utf-8")
+    try:
+        text = json.dumps(
+            clean, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        )
+        return text.encode("utf-8")
+    except (ValueError, UnicodeEncodeError) as exc:  # a backstop: _clean should have caught it
+        raise ResultError("$", f"cannot be encoded: {exc}") from None

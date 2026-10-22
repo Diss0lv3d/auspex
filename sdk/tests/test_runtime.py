@@ -437,3 +437,45 @@ def test_sdk_runtime_never_imports_the_core():
     ):
         src = open(sys.modules[name].__file__).read()
         assert "from auspex." not in src and "import auspex\n" not in src
+
+
+# --- str/int/float subclasses are read by their plain value (fix round 1) -------------------
+
+
+def test_encode_result_reads_enum_members_by_value():
+    import enum
+
+    class State(str, enum.Enum):  # noqa: UP042 -- the probe: StrEnum would hide the bug
+        OPEN = "open"
+
+    class Level(enum.IntEnum):
+        HIGH = 3
+
+    assert encode_result({"s": State.OPEN, "n": Level.HIGH}) == b'{"n":3,"s":"open"}'
+
+
+def test_encode_result_is_not_fooled_by_a_str_subclass_hiding_nul():
+    class Sneaky(str):
+        def __contains__(self, item):
+            return False
+
+        def __str__(self):
+            return "clean"
+
+    with pytest.raises(ResultError) as ei:
+        encode_result({"s": Sneaky("a\x00b")})
+    assert ei.value.path == "$.s"
+    with pytest.raises(ResultError):
+        encode_result({Sneaky("k\x00"): 1})
+
+
+def test_encode_result_refuses_a_float_subclass_that_is_nan():
+    class F(float):
+        def __float__(self):
+            return math.nan
+
+    # the plain value is what is written: 1.0, whatever __float__ claims
+    assert encode_result({"x": F(1.0)}) == b'{"x":1.0}'
+    with pytest.raises(ResultError) as ei:
+        encode_result({"x": F("nan")})
+    assert ei.value.path == "$.x"
