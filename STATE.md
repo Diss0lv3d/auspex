@@ -18,10 +18,14 @@ Promote #40 (`09af821`) is the last one._
 
 | Track | Prompt | Last closed | Next | Status |
 |---|---|---|---|---|
-| backend | `NEXT-SESSION-BE.md` | S31 (2026-10-16) | S32 | **focus** · Step 0: B3's PR #41 is merged (2026-10-22); pull, promote B3's fixes, then S31's open ends S32 builds on |
+| backend | `NEXT-SESSION-BE.md` | S31 (2026-10-16) | S32 | **focus** · **Hunaiza's** (Burhan, 2026-10-22; D-059): she owns S32 fully · Step 0: B3's PR #41 is merged (2026-10-22); pull, promote B3's fixes, then S31's open ends S32 builds on |
 | front end | `NEXT-SESSION-FE.md` | F4 (2026-10-16) | F5 | waits for S32, S33 and S34 (the order table); F4 built the shell F5's admin pages stand on |
 | bugs | `NEXT-SESSION-BUGS.md` | B3 (2026-10-19) | B4 | waits for Burhan to scope it: the open entries (B-005, B-009, B-011…B-020, B-022, B-023, B-025…B-028, B-030…B-032) |
 
+- **S32 is handed to Hunaiza (Burhan, 2026-10-22; D-059).** She owns it
+  fully: every call, new D-entries and `/promote` included, on her machine
+  under her own identity. Re-scoping another track, or the plan's order, stays
+  Burhan's.
 - **Focus: backend, S32** (B3's session-end, by the order table: row 4b B3
   closed, row 5 S32 next). B3 ran on Burhan's calls from the planning window:
   - **S31 promoted now** (promote #40); the slate is empty.
