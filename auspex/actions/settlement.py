@@ -32,6 +32,7 @@ never reads a sentence.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 from uuid import UUID
@@ -43,6 +44,7 @@ from auspex.actions.proposal import card, fingerprint, matches_older_scheme
 from auspex.actions.registry import ActionRegistry
 from auspex.actions.types import ActionOutcome, ActionSpec
 from auspex.agent.permissions import PermissionOutcome, gate
+from auspex.untrusted import flatten
 
 # Systems Auspex itself owns. An action whose scope names anything else may be
 # proposed, approved and rendered — and will refuse to run, loudly. Widening this
@@ -155,6 +157,7 @@ class ProposalSettlement:
         would show today's declaration for yesterday's decision, and an audit
         trail that quietly updates itself is worse than none.
         """
+        check_declared(spec, arguments)
         rendered = card(spec, arguments=arguments, dry_run=dry_run)
         row = await self._pool.fetchrow(
             """
@@ -493,22 +496,62 @@ class NothingToPropose(RuntimeError):
         self.model_feedback = f"not proposed: the action would change nothing. {would}"
 
 
+_ECHO_KEYS = 5  # how many offending names a sentence echoes
+_ECHO_NAME_CAP = 40  # characters of one name; a key comes from a model's tool call
+
+
+def _echo(names: tuple[str, ...]) -> str:
+    """The offending names as a sentence may carry them: the first few, each
+    flattened to one capped line (a name is model-chosen text and reaches the
+    model and the analyst), then a count of the rest."""
+    shown = ", ".join(repr(flatten(n, _ECHO_NAME_CAP)) for n in names[:_ECHO_KEYS])
+    more = len(names) - _ECHO_KEYS
+    return f"{shown} and {more} more" if more > 0 else shown
+
+
 class UndeclaredArgument(NothingToPropose):
     """The call carries an argument key the action does not declare (B-026, S32).
 
     Refused, never stripped: dropping the key would file a card for a call the
     model did not make. A declined proposal like `NothingToPropose`, so the agent
     loop hands the model `model_feedback` (code-written, naming the keys) and no
-    row exists. `names` is sorted so the sentence is stable."""
+    row exists. `names` is the full sorted tuple; the sentences echo a bounded
+    part of it."""
 
-    def __init__(self, names) -> None:
+    def __init__(self, names: Iterable[str]) -> None:
         self.names = tuple(sorted(names))
-        listed = ", ".join(self.names)
+        listed = _echo(self.names)
+        # Not super(): NothingToPropose.__init__ builds a "would change nothing"
+        # feedback this refusal must not carry.
         RuntimeError.__init__(self, f"undeclared argument(s): {listed}")
         self.model_feedback = (
             f"not proposed: the action does not take argument(s) {listed}. "
             "Call it again with only the parameters it declares."
         )
+
+
+def check_declared(spec: ActionSpec, arguments: dict) -> None:
+    """Refuse any argument key the action does not declare. The one check, used
+    by `file` and by `propose` (which runs it before the dry run)."""
+    declared = {p.name for p in spec.params}
+    undeclared = [k for k in arguments if k not in declared]
+    if undeclared:
+        raise UndeclaredArgument(undeclared)
+
+
+def _refuse_stored_undeclared(spec: ActionSpec, proposal: dict) -> None:
+    """The execute-side twin of `check_declared`, for a row that already exists
+    (filed by an older build, or written directly). Raised BEFORE the claim and
+    the handler, so the row is refused honestly rather than run into a TypeError
+    and read `incomplete`."""
+    try:
+        check_declared(spec, dict(proposal["tool_input"] or {}))
+    except UndeclaredArgument as err:
+        raise ExecutionRefused(
+            "undeclared_argument",
+            f"the stored arguments carry {_echo(err.names)}, which {spec.name} does not "
+            "declare — refusing rather than running it with them",
+        ) from None
 
 
 def action_proposer(pool: asyncpg.Pool):
@@ -530,10 +573,7 @@ def action_proposer(pool: asyncpg.Pool):
         # B-026: before the dry run, which would swallow a stray key in `**_`, and
         # before any row. The approved run passes the platform's own keywords too,
         # so a key named like one of them would collide there.
-        declared = {p.name for p in spec.params}
-        undeclared = [k for k in arguments if k not in declared]
-        if undeclared:
-            raise UndeclaredArgument(undeclared)
+        check_declared(spec, arguments)
         outcome = await spec.dry_run(workspace_id=workspace_id, **arguments)
         if not outcome.affects:
             raise NothingToPropose(outcome.would)
@@ -611,6 +651,8 @@ def check_executable(spec: ActionSpec, proposal: dict) -> None:
             f"{spec.name} touches {', '.join(outside)}, which Auspex does not own — "
             "it may be proposed and approved, and it will not be run from here",
         )
+
+    _refuse_stored_undeclared(spec, proposal)  # B-026: not run into a TypeError
 
 
 class ActionExecutor:
@@ -925,6 +967,7 @@ class ActionExecutor:
                 "no_undo",
                 f"{proposal['tool_name']} declares no undo — it cannot be put back",
             )
+        _refuse_stored_undeclared(spec, proposal)  # B-026: before the claim, as execute
         # A fresh put-back starts with an empty answer: an earlier attempt's
         # result is not this attempt's (S26 review of D-041).
         claimed = await self._pool.fetchrow(
@@ -1003,6 +1046,10 @@ async def _effects(
     if spec.observe is None:
         return "unknown"
     try:
+        check_declared(spec, args)  # B-026: a look is not made with keys it cannot take
+    except UndeclaredArgument:
+        return "unknown"
+    try:
         found = await spec.observe(
             workspace_id=workspace_id, proposal_id=str(proposal_id),
             idempotency_key=operation_key(proposal_id, "execute"), **args
@@ -1039,6 +1086,7 @@ __all__ = [
     "SettleResult",
     "Settlement",
     "UndeclaredArgument",
+    "check_declared",
     "check_executable",
     "operation_key",
 ]
