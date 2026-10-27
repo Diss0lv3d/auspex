@@ -1,5 +1,43 @@
 # Technical debt — logged the moment it's taken
 
+## TD-068 (S32) — registering a connector writes no audit event
+
+**Where:** `auspex/connectors/catalogue.py` (`register`) and
+`auspex/connectors/routes.py` (`POST /api/connectors`).
+**Risk:** MEDIUM from S33. Who added which code to a workspace's catalogue is
+only in the row's `registered_by`, not in the audit trail admins read (D-068).
+Until S33 runs connectors, a registered package does nothing.
+**Why taken:** the audit action list is pinned by a test, and adding an action
+is a decision, not a side effect of a task (S32 Task 10 ruling).
+**Path to fix:** a `connector.registered` audit action under a D-entry, written
+in the same transaction as the row.
+**Trigger:** S33, before the first connector runs.
+
+## TD-067 (S32) — connector text is flattened, but control and format characters pass
+
+**Where:** `auspex/connectors/compile.py` (`_text`, `_flatten`).
+**Risk:** LOW. A manifest's descriptions and a connector's `would`/`detail`
+are flattened to one line and capped, but non-whitespace control and format
+characters (`\x1b`, U+202E, U+200B) reach what the model and the approver read,
+and the keys of a connector's `detail` are not flattened at all.
+**Why taken:** neutralising what the model reads is the output rail's job
+(S34); S32 bounded length and line breaks only.
+**Path to fix:** strip or escape Unicode categories Cc/Cf (keeping the
+whitespace already folded), and flatten `detail` keys, in the same helper.
+**Trigger:** S34's rail work, or the first third-party connector.
+
+## TD-066 (S32) — connector package bytes are stored in Postgres
+
+**Where:** `connector_packages.data` (`auspex/migrations.py`, `S32_CONNECTORS`).
+**Risk:** LOW. A package is at most 5 MB (`MAX_PACKAGE_BYTES`); every version
+of every package in every workspace is a row with its zip inside, so the table
+grows with registrations and every backup carries it.
+**Why taken:** S32 needs one durable, transactional place for a package and
+its content hash; an object store is a new service and a new decision.
+**Path to fix:** move the bytes to object storage keyed by content hash
+(identical packages then share one object), keeping the row as the index.
+**Trigger:** the table passes 1 GB, or 1,000 packages.
+
 ## TD-065 (S31) — the jobs queue is polled, and its claim sorts every ready job
 
 **Where:** `auspex/jobs/worker.py` (`POLL_SECONDS = 5`) and
