@@ -2595,3 +2595,43 @@ client's data under the next one's token.
 - A dead token cannot list where else its person may go (`/me` refuses it), so
   lost access means signing in again.
 - A reload costs a page load; TD-047's 304s keep it to revalidations.
+
+## D-071 — A provider and its clients count as one customer for D-062; a certificate pin replaces the chain check (2026-10-22, S32)
+
+**Context.** D-062 says a customer-written connector runs only on that
+customer's own agent (v1). S32's catalogue lets a provider (an MSSP) register
+a connector with `offered_to_clients`, so its clients can use it
+(docs/superpowers/specs/2026-10-22-s32-connectors-design.md, "Hunaiza's two
+security calls"). Read literally, D-062 would forbid that connector from
+running on a client's agent. Separately, many on-prem SIEMs (QRadar is the
+common case) serve a self-signed certificate, which a chain check refuses.
+
+**Decision (Hunaiza's calls, S32; Burhan handed her the session).**
+- **"Customer" in D-062 means a provider together with its clients.** A
+  connector a provider registers with `offered_to_clients` may run on its
+  clients' own agents. This reads D-062; it does not supersede it. The bounds:
+  - the client's admin chooses to configure an integration from it (S33);
+  - the agent runs it only after its content hash matches the one the job
+    names (D-062), so it is byte-for-byte what the provider registered;
+  - it never runs on Auspex's own infrastructure (D-062's sandbox rule
+    stands);
+  - a provider can offer only to its own clients: the relation is read from
+    `organizations.parent_id`, never from a request, and only a workspace
+    whose organization is a provider may offer (S32 Task 10).
+- **A connector's `tls` takes one of three forms:**
+  - `verify`: system trust, with the chain and hostname checked;
+  - a pinned CA PEM: the chain must lead to that CA, and the hostname is
+    checked;
+  - a pinned certificate SHA-256 (of the leaf's DER bytes): the connection is
+    trusted only if the live leaf's hash equals the pin, whoever issued it and
+    whatever name it carries. It replaces the chain and hostname checks, so a
+    self-signed on-prem SIEM is reached securely and every other certificate
+    is refused.
+
+  Changing a pin is a config change made by an admin (S33/F5).
+
+**Bounds, stated.**
+- A provider's offered connector is trusted by its clients as much as the
+  provider is; a client that does not trust it does not configure it.
+- A pin must be rotated when the server's certificate changes; until then the
+  connection fails closed.
