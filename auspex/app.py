@@ -14,6 +14,7 @@ from auspex.actions.builtin import build_builtin_actions
 from auspex.actions.expiry import EXPIRE, EXPIRE_SCHEDULE
 from auspex.actions.settlement import action_proposer
 from auspex.config import Settings, get_settings
+from auspex.connectors import routes as connectors
 from auspex.db import create_pool
 from auspex.enrich import EnrichmentService
 from auspex.ingest import IngestScheduler
@@ -136,5 +137,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(watchers.router)
     app.include_router(timeline.router)
     app.include_router(workspace.router)
+    app.include_router(connectors.router)
     app.include_router(ui.router)
     return app
