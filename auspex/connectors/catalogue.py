@@ -131,21 +131,29 @@ async def register(
             " WHERE workspace_id = $1 AND connector_id = $2 AND version = $3",
             workspace_id, manifest.id, manifest.version,
         ):
+            # An identical upload racing this one may have committed since the read above.
+            if (same := await _by_hash(conn, workspace_id, content_hash)) is not None:
+                return _entry(same, "own")
             raise _bump(manifest.id, manifest.version)
         await _refuse_a_taken_id(conn, ws, manifest.id, first_party)
         try:
             # A concurrent registration of this very hash wins quietly: DO NOTHING waits
-            # for it, and the read below sees its row.
-            await conn.execute(
-                "INSERT INTO connector_packages (workspace_id, connector_id, version,"
-                " content_hash, manifest, package, first_party, offered_to_clients,"
-                " registered_by) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)"
-                " ON CONFLICT (workspace_id, content_hash) DO NOTHING",
-                workspace_id, manifest.id, manifest.version, content_hash, manifest_json,
-                data, first_party, offered_to_clients, registered_by,
-            )
+            # for it, and the read below sees its row. The savepoint keeps the outer
+            # transaction usable when the id+version index fires instead.
+            async with conn.transaction():
+                await conn.execute(
+                    "INSERT INTO connector_packages (workspace_id, connector_id, version,"
+                    " content_hash, manifest, package, first_party, offered_to_clients,"
+                    " registered_by) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)"
+                    " ON CONFLICT (workspace_id, content_hash) DO NOTHING",
+                    workspace_id, manifest.id, manifest.version, content_hash,
+                    manifest_json, data, first_party, offered_to_clients, registered_by,
+                )
         except asyncpg.UniqueViolationError as err:
-            # The id+version constraint: another hash under this version committed first.
+            # The id+version index: either this very package committed first (one entry),
+            # or another hash under this version did (refused).
+            if (same := await _by_hash(conn, workspace_id, content_hash)) is not None:
+                return _entry(same, "own")
             raise _bump(manifest.id, manifest.version) from err
         row = await _by_hash(conn, workspace_id, content_hash)
     return _entry(row, "own")

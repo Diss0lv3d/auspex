@@ -258,6 +258,20 @@ async def test_the_cli_refuses_an_oversize_file_before_reading_it(tmp_path, caps
     assert "over the" in capsys.readouterr().err
 
 
+async def test_the_same_package_registered_twice_at_once_is_one_entry(world):
+    """S32 final review: two identical uploads racing (a double click, a retry) both get
+    the one entry; neither is told to bump the version."""
+    import asyncio
+
+    pool, m = world
+    for _ in range(10):
+        data = package(fresh_id())
+        entries = await asyncio.gather(*(
+            register(pool, workspace_id=m.direct_ws, data=data, registered_by=m.d_user,
+                     offered_to_clients=False) for _ in range(4)))
+        assert len({e.id for e in entries}) == 1
+
+
 # Fix round 1 (ruling c1): one listing per connector id, first-party > provider > own. A
 # shadowed package stays registered; the later registration is never refused over it.
 
