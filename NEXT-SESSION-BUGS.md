@@ -31,7 +31,7 @@ Step 0 (do BEFORE new scope):
    - **B-028** (B3): a failed switch, after a re-check rebuilt the header with
      one workspace, throws on a null picker (reasoned, not reproduced);
    - B-011…B-020 (S29's review of S28's code), B-022 and B-023 (F4), B-025
-     and B-026 (S31);
+     (S31; B-026 was fixed at S32);
    - B-030 and B-031 (PR #41's re-review), and B-032 (the review of its
      answers): the guard's quote-line carve-out on a newline run, the
      switcher's small edges, and a gap in the guard's live-rule test;

@@ -188,8 +188,9 @@ session starts only after the backend sessions it depends on have closed.**
     which workspace, and sets who may approve what, all from the page.
   - **Exit criteria:**
     - **The catalogue** lists the connectors and versions available to the
-      workspace (and, if S32's decision allows, those an MSSP offers its
-      clients). Each shows its manifest's commands, risks and declared hosts
+      workspace, including those an MSSP offers its clients (D-071;
+      `GET /api/connectors` gives each row a `source`: own, provider or
+      first_party). Each shows its manifest's commands, risks and declared hosts
       as text.
     - **The integration form is generated from the manifest's config schema**
       by a pure, tested function, TLS pinning included. Validation errors are
