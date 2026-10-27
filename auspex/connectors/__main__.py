@@ -13,6 +13,8 @@ import asyncio
 import sys
 from pathlib import Path
 
+from auspex_sdk.package import MAX_PACKAGE_BYTES
+
 from auspex.config import get_settings
 from auspex.connectors.catalogue import RegistrationRefused, register
 from auspex.db import create_pool
@@ -33,6 +35,11 @@ def _parser() -> argparse.ArgumentParser:
 async def run(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        # Sized from the file system first: a wrong path to a huge file is never read.
+        if args.zip.stat().st_size > MAX_PACKAGE_BYTES:
+            print(f"refused: {args.zip} is over the {MAX_PACKAGE_BYTES} byte package limit",
+                  file=sys.stderr)
+            return 1
         data = args.zip.read_bytes()
     except OSError as err:
         print(f"refused: cannot read {args.zip}: {err.strerror}", file=sys.stderr)

@@ -3,6 +3,7 @@ per workspace, a provider's packages offered to its clients, first-party package
 reserved `__deployment__` workspace, and the one listing every workspace sees."""
 
 import json
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -239,6 +240,22 @@ async def test_the_cli_refuses_a_bad_package(world, tmp_path, capsys):
     zip_path.write_bytes(b"not a zip")
     assert await cli.run(["register", "--first-party", str(zip_path)]) == 1
     assert "refused" in capsys.readouterr().err
+
+
+async def test_the_cli_refuses_an_oversize_file_before_reading_it(tmp_path, capsys,
+                                                                  monkeypatch):
+    """S32 final review: the size is checked from the file system, so a mistyped path to
+    a huge file is never read into memory."""
+    from auspex_sdk.package import MAX_PACKAGE_BYTES
+
+    big = tmp_path / "big.zip"
+    with big.open("wb") as f:
+        f.truncate(MAX_PACKAGE_BYTES + 1)
+    read = []
+    monkeypatch.setattr(Path, "read_bytes", lambda self: read.append(self) or b"")
+    assert await cli.run(["register", "--first-party", str(big)]) == 1
+    assert read == []
+    assert "over the" in capsys.readouterr().err
 
 
 # Fix round 1 (ruling c1): one listing per connector id, first-party > provider > own. A
