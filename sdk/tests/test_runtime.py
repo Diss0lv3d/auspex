@@ -379,6 +379,18 @@ def test_encoded_forms_of_a_secret_are_redacted():
     assert text.count("[secret:password]") == 3
 
 
+def test_a_secret_in_a_url_path_is_redacted_as_httpx_writes_it():
+    """httpx encodes a path only partly (spaces and non-ASCII, not `/` or `;`), so an
+    error naming the URL carries a form neither raw nor fully quoted (S32 final review)."""
+    secret = "a b/\u00e9;cd"  # noqa: S105 -- a placeholder
+    url = str(httpx.URL(f"https://siem.example/v1/{secret}/x"))
+    log, out = capture({"path_key": secret})
+    log.info("GET %s failed", url)
+    text = out.getvalue()
+    assert "[secret:path_key]" in text
+    assert "%C3%A9;cd" not in text
+
+
 def test_a_short_secret_is_refused_by_the_filter():
     with pytest.raises(ValueError, match="pin") as ei:
         redacting_filter({"pin": "123"})

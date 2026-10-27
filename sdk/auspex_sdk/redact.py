@@ -41,6 +41,7 @@ def _forms(value: str) -> set[str]:
     forms = {
         value,
         quote(value, safe=""),
+        quote(value, safe="/:@!$&'()*+,;="),  # a URL path as httpx writes it (RFC 3986 pchar)
         quote_plus(value, safe=""),
         repr(value)[1:-1],
         json.dumps(value)[1:-1],
