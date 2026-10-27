@@ -557,6 +557,29 @@ BUGS.md) have their own sections at the end, before "Later".
   - 1687 tests; 133 modules; `STORAGE_REGION`, `JOBS_WORKER_ENABLED` born; no
     engine calls.
 
+- [x] **S32 — The connector contract, the SDK, and the catalogue.**
+  (2026-10-27, Hunaiza, handed fully under D-059) Not a promote milestone; to
+  `staging` as one PR from `s32-connectors`. Record of every call:
+  docs/superpowers/records/2026-10-27-s32-record.md.
+  - **Step 0:** promote #42 shipped B3; baseline
+    docs/probes/2026-10-22-s32-connector-baseline.md.
+  - **Design:** docs/superpowers/specs/2026-10-22-s32-connectors-design.md
+    (Hunaiza's decisions 1–11; builder-checked); D-071.
+  - **Built** (plan docs/superpowers/plans/2026-10-22-s32-connectors.md, 13
+    tasks; 1–10 subagent-driven with a review each, 11–13 inline): the SDK
+    (`sdk/`, `auspex-sdk`: manifest v1, packages, runtime, TLS pinning,
+    redaction, build from Python or YAML, the harness); the reference
+    connector; `compile_action` and fingerprint v2; the catalogue and
+    `/api/connectors`; B-026 fixed; structural tests.
+  - **Live:** a provider's offered connector listed by its clients only, then
+    first-party and listed everywhere
+    (docs/probes/2026-10-22-s32-connectors-live.md).
+  - **Final review** (fresh, whole branch): no Critical or Important; three
+    minors fixed, TD-069 logged.
+  - TD-066…TD-069 logged.
+  - 2058 tests; 139 modules; no env vars born; `python-multipart` added; no
+    engine calls.
+
 ## Track: front end (D-051)
 
 - [x] **F1 — Where a deep turn's reasoning loses its speed, measured first.**

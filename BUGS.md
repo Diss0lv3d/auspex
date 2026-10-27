@@ -516,7 +516,7 @@ are never deleted.
   "effects": "unknown"} notes=0`, and the same for `proposal_id`.
 - **Fix sketch (the review's):** refuse or strip undeclared argument keys (at
   least the platform's own keywords) when a proposal is filed.
-- **Status:** fixed (S32) — this commit. `propose` refuses any argument key the action
+- **Status:** fixed `c0b30de`, `19282ae` (S32). `propose` refuses any argument key the action
   does not declare (`UndeclaredArgument`, auspex/actions/settlement.py), before the dry
   run and before any row.
 
