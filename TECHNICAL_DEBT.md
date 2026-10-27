@@ -1,5 +1,18 @@
 # Technical debt — logged the moment it's taken
 
+## TD-069 (S32) — a build packages key and credential files that do not start with a dot
+
+**Where:** `sdk/auspex_sdk/build.py` (`_collect_files`: excludes dotfiles, tests,
+`__pycache__` and `dist/` only).
+**Risk:** LOW until connectors reach customers. A `creds.json`, `*.pem`, `*.key` or
+`*.p12` beside the source is zipped, registered and stored in `connector_packages`.
+Listings return the manifest, not the bytes, so no other tenant reads it today.
+**Why taken:** a CA PEM in a package can be legitimate, so a hard refusal is wrong;
+the warning is author ergonomics, found by S32's final review.
+**Path to fix:** `build` warns (by name) on `*.pem`, `*.key`, `*.p12`, `*.pfx`,
+`id_rsa*`, and names containing `cred` or `secret`; an explicit include list opts out.
+**Trigger:** the SDK is published to customers, or S33 serves package bytes to agents.
+
 ## TD-068 (S32) — registering a connector writes no audit event
 
 **Where:** `auspex/connectors/catalogue.py` (`register`) and
