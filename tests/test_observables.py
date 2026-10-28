@@ -474,3 +474,59 @@ def test_b010_each_rule_matches_exactly_what_it_matched_before():
             assert _after_b010(name, text) == [m.span() for m in before.finditer(text)], (
                 name, text,
             )
+
+
+# -- B-027: the overlap checks are O(log spans), and find what they found -------
+# Every span set `extract` checks against is disjoint, so a sorted index answers
+# "does this match overlap one?" by bisection. Before, each check walked every span,
+# so 4x the matches cost 8-14x the time (about a second for 4,571 emails); now 4x
+# costs 2.4-4.6x (docs/probes/2026-10-28-b4-b027.md). Growth, not a wall-clock bound,
+# is what is pinned: the linear rest of the pass (refang, building observables) is
+# not this bug's, and a slow runner scales both sizes alike.
+B027_MAX_GROWTH = 6.5
+B027_INPUTS = {
+    "emails": ("a@b.co ", 4571),
+    "url+ip": ("http://a 1.2.3.4 ", 1882),
+    "url+domain": ("http://a b.co ", 2285),
+}
+
+
+@pytest.mark.parametrize("name", sorted(B027_INPUTS))
+def test_b027_extract_grows_linearly_in_its_matches(name):
+    unit, repeat = B027_INPUTS[name]
+    assert len(unit * repeat) <= 32_000
+    growth = _elapsed_ms(extract, unit * repeat) / _elapsed_ms(extract, unit * (repeat // 4))
+    assert growth < B027_MAX_GROWTH, f"{name}: 4x the input took {growth:.1f}x the time"
+
+
+class _NaiveSpans:
+    """The pre-B-027 check, kept as the reference: every span, every time."""
+
+    def __init__(self, spans=()):
+        self._spans = list(spans)
+
+    def add(self, start, end):
+        self._spans.append((start, end))
+
+    def overlaps(self, start, end):
+        return any(start < s_end and end > s_start for s_start, s_end in self._spans)
+
+    def __add__(self, other):
+        return _NaiveSpans(self._spans + other._spans)
+
+
+def test_b027_the_index_finds_exactly_what_the_walk_found(monkeypatch):
+    """Differential: random mixes of every observable shape, extracted with the
+    index and with the walk, give the same observables and residual."""
+    import auspex.classify.observables as obs
+
+    pieces = ["a@b.co", "http://a", "http://u@x.co/p", "1.2.3.4", "b.co", "evil.com",
+              "::1", "fe80::1", "d41d8cd98f00b204e9800998ecf8427e", "CVE-2024-1234",
+              "x@evil[.]com", "hxxp://y.io/z", "a" * 64, "0" * 40, " ", "\n", ".", "@"]
+    rng = random.Random(27)  # noqa: S311 -- a fixed-seed fuzz, not a secret
+    texts = ["".join(rng.choice(pieces) for _ in range(rng.randint(1, 60)))
+             for _ in range(400)]
+    fast = [extract(t) for t in texts]
+    monkeypatch.setattr(obs, "_Spans", _NaiveSpans)
+    slow = [extract(t) for t in texts]
+    assert fast == slow
