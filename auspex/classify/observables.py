@@ -267,6 +267,31 @@ def _spans_overlap(start: int, end: int, spans: list[tuple[int, int]]) -> bool:
     return any(start < s_end and end > s_start for s_start, s_end in spans)
 
 
+_PORT_RE = re.compile(r"\[[^\]]*\](:\d*)?|[^:]*(:\d*)?")
+
+
+def _drop_userinfo(raw: str) -> str:
+    """`raw` with any `user:pass@` removed, by text alone, so a URL `urlsplit`
+    refuses still loses it (B-018).
+
+    The authority ends at the first `/`, `?` or `#`; an `@` inside it ends the
+    userinfo. A password may itself hold `/`, `?` or `#` (pasted unencoded): an
+    authority that is not a host and an optional numeric port, followed later
+    by an `@`, is userinfo up to that `@`. An `@` after a real host is path or
+    query, and stays.
+    """
+    scheme, sep, rest = raw.partition("://")
+    if not sep:
+        return raw
+    end = min((i for i in (rest.find(c) for c in "/?#") if i >= 0), default=len(rest))
+    authority = rest[:end]
+    if "@" in authority:
+        return f"{scheme}://{rest[authority.rindex('@') + 1:]}"
+    if "@" in rest[end:] and not _PORT_RE.fullmatch(authority):
+        return f"{scheme}://{rest[rest.index('@', end) + 1:]}"
+    return raw
+
+
 def _normalize_url(raw: str) -> str:
     """Lowercase scheme + host (not path or query), and drop any userinfo.
 
@@ -274,6 +299,7 @@ def _normalize_url(raw: str) -> str:
     pasted `user:pass@` must never reach it. The URL without it is the same
     indicator.
     """
+    raw = _drop_userinfo(raw)
     try:
         parts = urlsplit(raw)
         netloc = parts.netloc.rsplit("@", 1)[-1].lower()
