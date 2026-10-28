@@ -421,3 +421,23 @@ async def test_a_streamed_tool_call_list_in_any_shape_never_crashes_the_fold(del
 
     result = await accumulate_stream(events())
     assert all(isinstance(c.name, str) for c in result.tool_calls)
+
+
+async def test_a_numeric_string_index_keeps_two_parallel_calls_apart():
+    """Burhan's review of PR #50: `"1"` folded to call 0, so two parallel calls
+    merged (names overwrote, arguments concatenated). An index that parses as an
+    int is that int; only what does not parse folds into call 0."""
+    deltas = [{"tool_calls": [{"index": "0", "id": "a", "function": {"name": "lookup_ip",
+                                                                       "arguments": "{}"}}]},
+              {"tool_calls": [{"index": "1", "id": "b", "function": {"name": "lookup_domain",
+                                                                       "arguments": "{}"}}]}]
+    lines = ["data: " + json.dumps({"choices": [{"delta": d}]}) for d in deltas]
+
+    async def events():
+        for line in lines:
+            for event in parse_sse_line(line):
+                yield event
+
+    calls = (await accumulate_stream(events())).tool_calls
+    assert [(c.id, c.name, c.arguments) for c in calls] == [
+        ("a", "lookup_ip", "{}"), ("b", "lookup_domain", "{}")]

@@ -160,6 +160,23 @@ def _wire_text(value: Any) -> str:
     return value if isinstance(value, str) else json.dumps(value)
 
 
+def _wire_index(value: Any) -> int:
+    """A streamed tool call's `index` as an int (B-017). It keys the fold's dict and
+    is sorted at the end, so it must be one type. A numeric string is its number:
+    folding `"1"` into call 0 merged two parallel calls (Burhan's review of PR #50).
+    Only what does not parse (a list, a bool, `None`, `"a"`) folds into call 0."""
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            return 0
+    return 0
+
+
 def _as_dict(value: Any) -> dict[str, Any]:
     """A part of a tool call that should be an object, or {} when it is not (B-017)."""
     return value if isinstance(value, dict) else {}
@@ -366,11 +383,7 @@ def parse_sse_line(line: str) -> list[StreamEvent]:
         calls = delta.get("tool_calls")
         for tc in calls if isinstance(calls, list) else []:
             tc = _as_dict(tc)
-            index = tc.get("index", 0)
-            # B-017's class: `index` keys the fold's dict and is sorted at the end,
-            # so anything but an int (bool is not one) folds into call 0.
-            if not isinstance(index, int) or isinstance(index, bool):
-                index = 0
+            index = _wire_index(tc.get("index", 0))
             events.append(StreamEvent(kind="tool_call", tool_index=index, tool_delta=tc))
         if choices[0].get("finish_reason"):
             events.append(StreamEvent(kind="finish", finish_reason=choices[0]["finish_reason"]))
