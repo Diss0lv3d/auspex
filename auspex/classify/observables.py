@@ -268,15 +268,15 @@ def _spans_overlap(start: int, end: int, spans: list[tuple[int, int]]) -> bool:
 
 
 def _normalize_url(raw: str) -> str:
-    """Lowercase scheme + host (not userinfo, path, or query)."""
+    """Lowercase scheme + host (not path or query), and drop any userinfo.
+
+    B-018: the value is looked up at URLhaus and stored in `observables`, so a
+    pasted `user:pass@` must never reach it. The URL without it is the same
+    indicator.
+    """
     try:
         parts = urlsplit(raw)
-        netloc = parts.netloc
-        if "@" in netloc:
-            userinfo, host = netloc.rsplit("@", 1)
-            netloc = f"{userinfo}@{host.lower()}"
-        else:
-            netloc = netloc.lower()
+        netloc = parts.netloc.rsplit("@", 1)[-1].lower()
         return urlunsplit((parts.scheme.lower(), netloc, parts.path, parts.query, parts.fragment))
     except ValueError:
         return raw

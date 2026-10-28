@@ -6,6 +6,8 @@ false-positive traps the SARA study flagged (versions-as-IPs, filenames-as-
 domains, hash-length collisions).
 """
 
+import pytest
+
 from auspex.classify import (
     Observable,
     ObservableType,
@@ -165,6 +167,24 @@ def test_url_with_ip_host_suppresses_separate_ip():
         "http://203.0.113.9/mal.exe"
     ]
     assert [o for o in result if o.type is ObservableType.IPV4] == []
+
+
+def _b018_inputs() -> list[dict]:
+    import json
+    from pathlib import Path
+
+    path = Path(__file__).parent / "fixtures" / "classify" / "b018_url_credentials.json"
+    return json.loads(path.read_text())["inputs"]
+
+
+@pytest.mark.parametrize("case", _b018_inputs(), ids=lambda c: c["url"])
+def test_a_urls_credentials_are_dropped_before_it_is_an_observable(case):
+    """B-018: the value is what is looked up at URLhaus and stored, so `user:pass@`
+    never reaches it. An `@` after the host (path or query) is not userinfo."""
+    url = _one(case["text"], ObservableType.URL)
+    assert url.value == case["url"]
+    assert "PLACEHOLDER" not in url.value
+    assert url.obs_id == observable_id(ObservableType.URL, case["url"])
 
 
 def test_hash_inside_url_is_still_extracted():
