@@ -523,3 +523,20 @@ def test_a_secret_in_a_request_url_is_redacted_on_httpx_s_own_logger(load):
     assert "HTTP Request" in text and TOKEN not in text
     assert "[secret:api_token]" in text
     assert len(lib.filters) <= 1  # one shared filter, however many contexts ran
+
+
+def test_every_logger_the_http_library_writes_to_is_covered():
+    """Review of PR #43's fixes, M1: a filter on one logger does not reach a sibling,
+    so each name httpx and httpcore log on is listed (httpcore.socks was missing)."""
+    import pathlib
+    import re
+
+    import httpcore
+
+    from auspex_sdk.redact import LIBRARY_LOGGERS
+
+    root = pathlib.Path(httpcore.__file__).parent
+    used = {m for f in root.rglob("*.py")
+            for m in re.findall(r'getLogger\(\s*"([^"]+)"\s*\)', f.read_text())}
+    assert used <= set(LIBRARY_LOGGERS), used - set(LIBRARY_LOGGERS)
+    assert "httpx" in LIBRARY_LOGGERS

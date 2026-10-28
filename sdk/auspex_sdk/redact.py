@@ -131,7 +131,7 @@ def redacting_filter(secrets: dict[str, str]) -> logging.Filter:
 # context's redactor; the set is weak, so a finished run's secrets leave with it, and
 # the shared loggers never gather a filter per run.
 LIBRARY_LOGGERS = ("httpx", "httpcore.connection", "httpcore.http11", "httpcore.http2",
-                   "httpcore.proxy")
+                   "httpcore.proxy", "httpcore.socks")
 _LIVE: weakref.WeakSet[logging.Filter] = weakref.WeakSet()
 
 
