@@ -305,3 +305,20 @@ async def test_a_first_party_package_shadows_own_and_provider_packages_of_that_i
         assert [(e.id, e.source) for e in listed] == [(first.id, "first_party")]
     assert await pool.fetchval(
         "SELECT count(*) FROM connector_packages WHERE connector_id = $1", cid) == 4
+
+
+@pytest.mark.parametrize("escape", ["\\u0000", "\\ud800"], ids=["nul", "lone-surrogate"])
+async def test_a_manifest_postgres_cannot_store_is_refused_in_words(world, escape):
+    """PR #43 review #6 (reproduced, docs/probes/2026-10-28-s33-pr43-6-7-8.md): a NUL
+    or a lone surrogate escaped in manifest.json passed json.loads and the manifest
+    rules, then Postgres refused the jsonb and the route answered 500."""
+    pool, m = world
+    raw = json.dumps({"schema_version": 1, "id": fresh_id(), "version": "1.0.0",
+                      "name": "x", "description": "PLACEHOLDER",
+                      "commands": {"test": {"handler": "pkg.handlers:test"}}}
+                     ).replace("PLACEHOLDER", f"re{escape}pro")
+    data = build_zip({"manifest.json": raw.encode(), "pkg/__init__.py": b"",
+                      "pkg/handlers.py": b""})
+    with pytest.raises(RegistrationRefused, match="cannot be stored"):
+        await register(pool, workspace_id=m.direct_ws, data=data, registered_by=m.d_user,
+                       offered_to_clients=False)

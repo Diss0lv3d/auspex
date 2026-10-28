@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 import asyncpg
@@ -104,6 +104,7 @@ async def register(
         raise RegistrationRefused(f"package refused: {err}") from err
     # read_package validated manifest.json; it is stored as uploaded (the hash covers it).
     manifest_json = files["manifest.json"].decode("utf-8")
+    _refuse_unstorable(json.loads(manifest_json))
     async with pool.acquire() as conn, conn.transaction():
         ws = await conn.fetchrow(
             "SELECT w.name, w.org_id, o.kind, o.parent_id FROM workspaces w"
@@ -157,6 +158,23 @@ async def register(
             raise _bump(manifest.id, manifest.version) from err
         row = await _by_hash(conn, workspace_id, content_hash)
     return _entry(row, "own")
+
+
+def _refuse_unstorable(value: Any) -> None:
+    """Postgres `jsonb` cannot hold a NUL or a lone surrogate, though `json.loads`
+    accepts both as escapes. Refused in words here, not as a database error (a 500 at
+    the route; PR #43 review #6)."""
+    if isinstance(value, str):
+        if "\x00" in value or any("\ud800" <= c <= "\udfff" for c in value):
+            raise RegistrationRefused(
+                "manifest.json holds a NUL or a lone surrogate, which cannot be stored")
+    elif isinstance(value, dict):
+        for k, v in value.items():
+            _refuse_unstorable(k)
+            _refuse_unstorable(v)
+    elif isinstance(value, list):
+        for v in value:
+            _refuse_unstorable(v)
 
 
 def _bump(connector_id: str, version: str) -> RegistrationRefused:
