@@ -126,16 +126,7 @@ async def register(
             )
         same = await _by_hash(conn, workspace_id, content_hash)
         if same is not None:
-            # PR #43 review #7: the same package asking for another offer is refused in
-            # words, never dropped: a plain re-upload sends `false`, so honouring it
-            # would quietly withdraw an offer every client relies on.
-            if same["offered_to_clients"] != offered_to_clients:
-                raise RegistrationRefused(
-                    f"{manifest.id} {manifest.version} is already registered here with"
-                    f" offered_to_clients={str(same['offered_to_clients']).lower()};"
-                    " a re-upload does not change an offer"
-                )
-            return _entry(same, "own")
+            return _same_package(same, manifest, offered_to_clients)
         if await conn.fetchval(
             "SELECT 1 FROM connector_packages"
             " WHERE workspace_id = $1 AND connector_id = $2 AND version = $3",
@@ -143,7 +134,7 @@ async def register(
         ):
             # An identical upload racing this one may have committed since the read above.
             if (same := await _by_hash(conn, workspace_id, content_hash)) is not None:
-                return _entry(same, "own")
+                return _same_package(same, manifest, offered_to_clients)
             raise _bump(manifest.id, manifest.version)
         await _refuse_a_taken_id(conn, ws, manifest.id, first_party)
         if offered_to_clients:
@@ -178,9 +169,24 @@ async def register(
             # The id+version index: either this very package committed first (one entry),
             # or another hash under this version did (refused).
             if (same := await _by_hash(conn, workspace_id, content_hash)) is not None:
-                return _entry(same, "own")
+                return _same_package(same, manifest, offered_to_clients)
             raise _bump(manifest.id, manifest.version) from err
+        # DO NOTHING may have yielded to a racing upload of this very package.
         row = await _by_hash(conn, workspace_id, content_hash)
+    return _same_package(row, manifest, offered_to_clients)
+
+
+def _same_package(row: asyncpg.Record, manifest, offered_to_clients: bool) -> CatalogueEntry:
+    """The stored entry of this very package, unless the upload asked for another offer.
+    That is refused in words, never dropped: a plain re-upload sends `false`, so
+    honouring it would quietly withdraw an offer every client relies on (PR #43 review
+    #7). Every path that returns a stored row comes here, races included (I2)."""
+    if row["offered_to_clients"] != offered_to_clients:
+        raise RegistrationRefused(
+            f"{manifest.id} {manifest.version} is already registered here with"
+            f" offered_to_clients={str(row['offered_to_clients']).lower()};"
+            " a re-upload does not change an offer"
+        )
     return _entry(row, "own")
 
 

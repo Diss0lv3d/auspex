@@ -361,3 +361,22 @@ async def test_a_provider_offers_one_connector_id_from_one_workspace(world):
     listed = [e for e in await available(pool, workspace_id=m.client1_ws)
               if e.connector_id == cid]
     assert len(listed) == 1
+
+
+async def test_two_identical_uploads_asking_for_different_offers_never_merge_silently(world):
+    """Review of PR #43's fixes, I2: the race paths returned the stored row without the
+    offer check, so a racing upload asking for no offer got an offered package (or an
+    offer was dropped) without a word. One wins; the other is refused in words."""
+    import asyncio
+
+    pool, m = world
+    for _ in range(10):
+        data = package(fresh_id())
+        results = await asyncio.gather(*(
+            register(pool, workspace_id=m.provider_ws, data=data, registered_by=m.p_admin,
+                     offered_to_clients=offer) for offer in (True, False)),
+            return_exceptions=True)
+        refused = [r for r in results if isinstance(r, RegistrationRefused)]
+        won = [r for r in results if not isinstance(r, BaseException)]
+        assert len(won) == 1 and len(refused) == 1, results
+        assert "offered_to_clients" in refused[0].reason
