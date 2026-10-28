@@ -1,6 +1,14 @@
 # STATE — Auspex
 
-_Last updated: 2026-10-28 — **PR #50's review answered on `b4-bugs`**
+_Last updated: 2026-10-28 — **PR #50 (B4) merged into `staging`** (Burhan's
+window, after the re-review: B-018's third fix holds on the review's
+host-swap links, which keep their real host, and on the credential shapes,
+defanged and malformed ones included; the stream-index fix read): a
+fast-forward to `d62e9b7`, so every commit B4's records cite is on
+`staging`. **S33 is next, Hunaiza's** (`NEXT-SESSION-BE.md`). **Promote slate:
+S32 and B4** (S33's promote carries them, after #32's fixes).
+
+2026-10-28 — **PR #50's review answered on `b4-bugs`**
 (Burhan approved five of six; B-018 needed one more round). **B-018's third
 fix** (`2837720`) follows the URL standard: the authority ends at the first
 `/ ? # \`, the userinfo at its last `@`, and no host is taken from after it,
@@ -64,9 +72,9 @@ Promote #40 (`09af821`) is the last one._
 
 | Track | Prompt | Last closed | Next | Status |
 |---|---|---|---|---|
-| backend | `NEXT-SESSION-BE.md` | S32 (2026-10-27, Hunaiza; PR #43 merged 2026-10-28) | S33 | **focus** · **Hunaiza's, fully** (Burhan, 2026-10-28; D-059) · runs after B4's PR is merged · Step 0 fixes PR #43's review (#32) first; then integrations and the Edge Agent |
+| backend | `NEXT-SESSION-BE.md` | S32 (2026-10-27, Hunaiza; PR #43 merged 2026-10-28) | S33 | **focus** · **Hunaiza's, fully** (Burhan, 2026-10-28; D-059) · B4's PR #50 merged 2026-10-28, so it runs now · Step 0 fixes PR #43's review (#32) first; then integrations and the Edge Agent |
 | front end | `NEXT-SESSION-FE.md` | F4 (2026-10-16) | F5 | waits for S33 and S34 (the order table); F4 built the shell F5's admin pages stand on |
-| bugs | `NEXT-SESSION-BUGS.md` | B4 (2026-10-28, Hunaiza; its PR into `staging` awaits Burhan) | B5 | unscoped: Burhan picks from the open entries (B-033…B-039 new from B4) |
+| bugs | `NEXT-SESSION-BUGS.md` | B4 (2026-10-28, Hunaiza; PR #50 merged 2026-10-28) | B5 | unscoped: Burhan picks from the open entries (B-033…B-039 new from B4) |
 
 - **B4 closed (2026-10-28) as a PR from `b4-bugs`.** The focus moves to
   S33, which starts only after Burhan merges B4's PR. GitHub #44–#49 are
