@@ -927,6 +927,25 @@ S33_EDGE: list[str] = [
         used_at       timestamptz
     )
     """,
+    # An integration is disabled, never deleted, and its prefix (the wire name's) is
+    # unique in its workspace for good, disabled rows included: an approval can never
+    # later point at another integration under the same name (Hunaiza's call, S33).
+    """
+    CREATE TABLE IF NOT EXISTS integrations (
+        id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id  uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        name          text NOT NULL,
+        prefix        text NOT NULL,
+        connector_id  text NOT NULL,
+        content_hash  text NOT NULL,
+        config        jsonb NOT NULL,
+        agent_id      uuid NOT NULL REFERENCES edge_agents(id),
+        created_by    uuid,
+        created_at    timestamptz NOT NULL DEFAULT now(),
+        disabled_at   timestamptz,
+        UNIQUE (workspace_id, prefix)
+    )
+    """,
 ]
 
 SCHEMA_V0 = [*SCHEMA_V0, *S30_TENANCY, *S31_JOBS, *S32_CONNECTORS, *S33_EDGE]

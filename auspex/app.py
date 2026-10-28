@@ -19,6 +19,7 @@ from auspex.db import create_pool
 from auspex.edge_api import routes as edge
 from auspex.enrich import EnrichmentService
 from auspex.ingest import IngestScheduler
+from auspex.integrations import routes as integrations
 from auspex.jobs.worker import JobWorker
 from auspex.kb import KnowledgeService
 from auspex.llm.autoprobe import keep_scorecard_fresh
@@ -140,5 +141,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(workspace.router)
     app.include_router(connectors.router)
     app.include_router(edge.router)
+    app.include_router(integrations.router)
     app.include_router(ui.router)
     return app
