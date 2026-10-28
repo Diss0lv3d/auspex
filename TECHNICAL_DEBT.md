@@ -1,5 +1,18 @@
 # Technical debt — logged the moment it's taken
 
+## TD-071 (S33) — a manifest's four roles are distinct as written, not as imported
+
+**Where:** `sdk/auspex_sdk/manifest.py` (`_check_action`).
+**Risk:** LOW. PR #43 review #1's fix refuses two roles naming the same
+`module:function`. Two names for one function still pass: `pkg.a:f` and
+`pkg.b:f` where `b` re-exports `a.f`, or `mod:f` and `mod:g` where `g = f`.
+The compiled spec wraps each role in its own closure, so the core cannot see it.
+**Why taken:** the manifest holds names only; identity needs the imported
+objects.
+**Path to fix:** the build imports every handler already (`check_handlers`);
+compare the imported objects there and refuse a shared one.
+**Trigger:** S34, before a connector action can run.
+
 ## TD-070 (B4) — a password holding an unencoded / ? # or \ is read as a host and a path, by the URL standard
 
 **Where:** `auspex/classify/observables.py` (`_drop_userinfo`).
