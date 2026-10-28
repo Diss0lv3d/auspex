@@ -1,6 +1,17 @@
 # STATE — Auspex
 
-_Last updated: 2026-10-28 — **PR #43 (S32) merged into `staging`** (Burhan,
+_Last updated: 2026-10-28 — **B4 CLOSED** by Hunaiza (D-059, handed fully):
+all six bugs fixed, each with a fresh review (B-025 and B-030 adversarial):
+**B-018** (a URL's credentials dropped), **B-025** (a sign-in and a rehome
+cannot interleave), **B-017** (a malformed tool call is an unknown tool),
+**B-027** (extract's overlap checks bisect), **B-030** (the guard's quote-line
+scan is linear), **B-032** (the run-led rules pinned). The reviews logged
+**B-033, B-034, B-035** and TD-070. `./ci.sh` green: **2091 tests, 139
+modules**; `/api/health/ready` 200. **B4 goes to `staging` as one PR from the
+branch `b4-bugs`**; Burhan merges it, then S33 starts. No promote. Records:
+docs/probes/2026-10-28-b4-*.md.
+
+2026-10-28 — **PR #43 (S32) merged into `staging`** (Burhan,
 after a fresh review in his window): a fast-forward to `4cd5132`, so every
 commit S32's record cites is on `staging`. The review's ten findings
 (docs/probes/2026-10-28-pr43-review.md) are follow-up #32: **S33 fixes them
@@ -38,11 +49,14 @@ Promote #40 (`09af821`) is the last one._
 
 | Track | Prompt | Last closed | Next | Status |
 |---|---|---|---|---|
-| backend | `NEXT-SESSION-BE.md` | S32 (2026-10-27, Hunaiza; PR #43 merged 2026-10-28) | S33 | **Hunaiza's, fully** (Burhan, 2026-10-28; D-059) · runs after B4's PR is merged · Step 0 fixes PR #43's review (#32) first; then integrations and the Edge Agent |
+| backend | `NEXT-SESSION-BE.md` | S32 (2026-10-27, Hunaiza; PR #43 merged 2026-10-28) | S33 | **focus** · **Hunaiza's, fully** (Burhan, 2026-10-28; D-059) · runs after B4's PR is merged · Step 0 fixes PR #43's review (#32) first; then integrations and the Edge Agent |
 | front end | `NEXT-SESSION-FE.md` | F4 (2026-10-16) | F5 | waits for S33 and S34 (the order table); F4 built the shell F5's admin pages stand on |
-| bugs | `NEXT-SESSION-BUGS.md` | B3 (2026-10-19) | B4 | **focus** · **Hunaiza's, fully** (Burhan, 2026-10-28; D-059) · scoped by Burhan: B-018, B-025, B-017, B-027, B-030, B-032, every one required (GitHub #44–#49); closes as a PR, no promote |
+| bugs | `NEXT-SESSION-BUGS.md` | B4 (2026-10-28, Hunaiza; its PR into `staging` awaits Burhan) | B5 | unscoped: Burhan picks from the open entries (B-033…B-035 new from B4) |
 
-- **Focus: bugs, B4, then backend, S33. Both are Hunaiza's** (Burhan,
+- **B4 closed (2026-10-28) as a PR from `b4-bugs`.** The focus moves to
+  S33, which starts only after Burhan merges B4's PR. GitHub #44–#49 are
+  commented and closed with the PR.
+- **Focus was: bugs, B4, then backend, S33. Both are Hunaiza's** (Burhan,
   2026-10-28: "assign B4 to Hunaiza as well, tell her to first start on the
   bugs and then continue with S33"; D-059). Order table row 5b.
   - She owns both fully: every call, new D-entries and `/promote` included,
@@ -184,6 +198,37 @@ deferred minors: docs/superpowers/records/2026-10-27-s32-record.md.
   `02cda97`), one logged (TD-069).
 - **Debt:** TD-066…TD-069. **New dependency:** `python-multipart`.
 - **No new env vars.**
+
+## B4 — what happened (bugs track's fourth session)
+
+Hunaiza's session (D-059), 2026-10-28, on the branch `b4-bugs`, to `staging`
+by one PR. Scope fixed by Burhan: six bugs, every one required. Each was
+reproduced first (a "before" saved), fixed with a test that failed first and
+the exact input pinned, checked live in the rebuilt container, and reviewed by
+a fresh agent; each review found something, all fixed or logged.
+
+- **B-018** (`d78bc43`, `42ffd65`; #44): the userinfo is dropped by text
+  before the URL is parsed. The review found the parse-failure fallback and a
+  `/ ? #` in a password still leaking (fixed); TD-070 is the ambiguous limit.
+- **B-025** (`6310550`, `e145583`; #45): `enter()` is one transaction with the
+  person's row locked `FOR SHARE` first; login and switch races pinned (both
+  failed on the old code). Adversarial review: approved, no deadlock cycle.
+- **B-017** (`59d9a7c`, `0d6f980`; #46): a tool call's fields and the
+  stream's call list/index read as text or empty, never raised on; the loop
+  answers "unknown tool".
+- **B-027** (`be208f4`, `3ca52d7`; #47): a sorted `_Spans` index; at the cap
+  about 1,089 ms → 23 ms CPU for 4,571 emails. The review made the tests
+  firm: growth in CPU time, boundary mutants caught.
+- **B-030** (`aedb018`, `98cffb7`; #48): `_quote_line_spans`, the regex's
+  spans in one pass; 2,875 ms → 20 ms; the rule-hit stall input added.
+  Adversarial review: 0 differences on 300,000 texts.
+- **B-032** (`f837432`, `7e11b36`; #49): the run-led rules' text, flags and
+  start sets pinned; the `{{system}}` mutant (and a flag mutant) now fail it.
+- **Logged from the reviews:** B-033 (a pasted credential in the stored
+  message and pre-fix rows), B-034 (the membership API stamps a home read at
+  the request's start), B-035 (a malformed reply envelope still crashes the
+  parsers), TD-070.
+- 2091 tests; 139 modules; no env vars; no new dependencies.
 
 ## B3 — what happened (bugs track's third session)
 
@@ -965,7 +1010,9 @@ scoped by a decision or a bug. **The integration phase (S30–S41, F4–F9) buil
 the spec; S30, F4, S31 and S32 are done.**
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: all of S32**, once Burhan merges its PR
+1. **Promote slate: all of S32 and, once its PR is merged, all of B4**
+   (the six fixes, their tests and records, B-033…B-035, TD-070, the
+   session-end docs). S33's promote carries both. S32's, once Burhan merges its PR
    (`s32-connectors` → `staging`): the baseline probe, spec, plan, 13 tasks,
    the review fixes, B-026's fix, D-071, TD-066…TD-069, the live record, the
    S32 record and the session-end docs. The plan's next promote milestone is
@@ -1006,8 +1053,7 @@ the spec; S30, F4, S31 and S32 are done.**
      is partly Burhan's call), B-013 (a fully flattened ECS export is not
      detected as an alert), B-014 (the `action_request` contract passes any
      answer), B-015 and B-020 (what the agent says it recorded), B-016
-     (approvals wording), B-017 (a non-string tool name from the endpoint
-     crashes a turn), B-018 (a URL's credentials are kept and sent), B-019 (a
+     (approvals wording), B-017 and B-018 (**fixed at B4**), B-019 (a
      refused call reads as a search).
    - TD-056 (latent stream hold), TD-057 (`tool_names` not enforced at
      dispatch, before S34 passes it), TD-058 (an overlong URL).
@@ -1238,9 +1284,8 @@ the spec; S30, F4, S31 and S32 are done.**
       `docs/probes/f4-live/back-forward.cjs` (SESSION-RULES.md, The page).
 
 30. **S31's open ends** (they die by being done):
-    - **B-025** (a sign-in racing a rehome names the new organization to the
-      old one's admins). BUGS.md. (**B-026: fixed at S32**, `c0b30de`,
-      `19282ae`.)
+    - (**B-025: fixed at B4**, `6310550`; **B-026: fixed at S32**,
+      `c0b30de`, `19282ae`.)
     - **TD-063** (finished job rows never pruned), **TD-064** (no lease
       extension; S33's heartbeats), **TD-065** (a polled queue; the claim
       sorts every ready job).
@@ -1391,8 +1436,8 @@ records what the split left). F2 added #20–#22.
    (the classify pass's four backtracking rules) and B-029 (the input guard's
    two). The route's whole text pass (guard, extract, classify) runs in
    milliseconds on every pinned input at the cap, each under a 1 s test
-   budget. Still open in the same pass: B-027 (`extract()` checks every match
-   against every earlier span, 0.2–0.8 s on thousands of observables). The
+   budget. B-027 (`extract()`'s overlap checks) and B-030 (the guard's
+   quote-line carve-out) were fixed at B4. The
    resolver has not been swept (IDEAS: one stall test for the whole pass).
 
 ## Host notes (reality snapshot)
@@ -1618,12 +1663,12 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 **Pick a track (D-051); the Tracks table at the top has the ids.** Paste the
 prompt file of the track you mean. `/session-start` with no track asks.
 One window at a time (D-051).
-- **S33, backend, the focus** (`NEXT-SESSION-BE.md`). **First Burhan reviews
-  and merges S32's PR (`s32-connectors` → `staging`), then pull**; Step 0
-  reads the S32 record and #31; then integrations, Edge Agent enrollment and
+- **S33, backend, the focus** (`NEXT-SESSION-BE.md`), Hunaiza's. **First
+  Burhan reviews and merges B4's PR (`b4-bugs` → `staging`), then pull**;
+  Step 0 fixes PR #43's review (#32), reads the S32 record and #31; then integrations, Edge Agent enrollment and
   "Test connection" end to end, and the promote S33 is a milestone for.
-- **B4, bugs** (`NEXT-SESSION-BUGS.md`) waits for Burhan to scope it from the
-  open entries, B3's new B-027 and B-028 among them.
+- **B5, bugs** (`NEXT-SESSION-BUGS.md`) waits for Burhan to scope it from the
+  open entries, B4's new B-033…B-035 among them.
 - **F5, front end** (`NEXT-SESSION-FE.md`) starts only after S33 and S34
   close (the order table): connectors, integrations, Edge Agents, memberships
   and approval-policy admin, on F4's shell and Members page.

@@ -146,7 +146,7 @@ ticks the closed session._
 | 4 | S31 | be | S30 | closed 2026-10-16: the jobs queue, TD-025's first half; B-021 fixed, D-069 built; promote #40 |
 | 4b | B3 | bugs | S31 | closed 2026-10-19 by Hunaiza (D-059): B-010 and B-024 fixed; PR #41 merged 2026-10-22 |
 | 5 | S32 | be | S31, B3 | closed 2026-10-27 by Hunaiza (D-059): the connector contract, the SDK (Python and YAML), the catalogue; B-026 fixed; D-071; PR #43 merged 2026-10-28 |
-| 5b | B4 | bugs | S32 | Hunaiza's, fully (D-059, 2026-10-28): B-018, B-025, B-017, B-027, B-030, B-032, every one required |
+| 5b | B4 | bugs | S32 | closed 2026-10-28 by Hunaiza (D-059): B-017, B-018, B-025, B-027, B-030, B-032 fixed; to `staging` by PR |
 | 6 | S33 | be | S32, B4 | Hunaiza's, fully (D-059, 2026-10-28): PR #43's review fixed first; integrations and the Edge Agent, "Test connection" end to end |
 | 7 | S34 | be | S33 | integration actions through approvals and per-client policy |
 | 8 | F5 | fe | S34 | connectors, integrations, Edge Agents, memberships and approval policy admin |

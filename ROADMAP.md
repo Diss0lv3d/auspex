@@ -687,9 +687,16 @@ BUGS.md) have their own sections at the end, before "Later".
     announced and keeps the keyboard's place.
   - Re-review: a pending choice blocks Send; the guard scan pinned to the live rules; B-030, B-031 logged.
   - 1707 tests; 133 modules; no new env vars.
-- [ ] **B4 — Hunaiza's, fully (D-059; Burhan, 2026-10-28), before S33:**
+- [x] **B4 — Hunaiza's, fully (D-059; Burhan, 2026-10-28), before S33:**
   B-018, B-025, B-017, B-027, B-030, B-032, in that order, every one required
-  (GitHub #44–#49). Closes as a PR into `staging`; no promote.
+  (GitHub #44–#49). Closed 2026-10-28 as a PR from `b4-bugs`; no promote.
+  Records: docs/probes/2026-10-28-b4-*.md.
+  - Each reproduced first, fixed with a test that failed first and its input
+    pinned, checked live, and reviewed by a fresh agent (B-025 and B-030
+    adversarial). Every review found something: fixed, or logged as B-033,
+    B-034, B-035 and TD-070.
+  - B-027: about 1 s → 23 ms CPU at the cap; B-030: 2.9 s → 20 ms.
+  - 2091 tests; 139 modules; no new env vars or dependencies.
 
 ## Later / explicitly deferred
 Herd Immunity federation (needs k≥3 workspaces + privacy review) · billing ·
