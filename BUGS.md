@@ -620,3 +620,18 @@ are never deleted.
 - **Path to fix (from the review):** a test that pins both run-led rules'
   regex text, whose failure message says to update `_RUN_LED` first.
 - **Status:** open, not placed. Burhan's.
+
+## B-033 — a pasted credential stays in the stored message text and in observables saved before B-018's fix
+
+- **Found:** 2026-10-28, B4 (Claude), the fresh review of B-018's fix. Outside
+  B-018: that fix covers the observable's value only.
+- **What happened (by reading, not reproduced):** the chat route stores the
+  message as pasted and sends it to the engine, so `http://user:pass@host/`
+  still reaches the `messages` table and the model's prompt. Rows in
+  `observables` written before B-018's fix keep their credential-bearing
+  value under the old id; nothing scrubs them, and the same URL pasted again
+  is a second row under the new id.
+- **Evidence:** the review of B-018's fix (B4); docs/probes/2026-10-28-b4-b018.md.
+- **Path to fix:** decide whether a message is redacted before it is stored
+  and sent (a product call), and a one-off scrub of old `observables` rows.
+- **Status:** open, not placed. Burhan's.
