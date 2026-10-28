@@ -532,7 +532,6 @@ def test_every_logger_the_http_library_writes_to_is_covered():
     import re
 
     import httpcore
-
     from auspex_sdk.redact import LIBRARY_LOGGERS
 
     root = pathlib.Path(httpcore.__file__).parent
