@@ -345,6 +345,7 @@ are never deleted.
   output is not trusted to be well-formed.
 - **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 15.
 - **Status:** fixed `59d9a7c`, `0d6f980` (B4): a tool call's id, name, arguments, index and list are read through `_wire_text`/`_as_dict` (auspex/llm/client.py), so a malformed call is an unknown tool. The wider envelope is B-035. Record: docs/probes/2026-10-28-b4-b017.md.
+
 ## B-018 — a URL pasted with credentials keeps them, and they are sent to a provider and stored
 
 - **Found:** 2026-10-14, S29 (Claude), the Step 0 adversarial review of S28's code; predates S28, and D-049 widened it to agent lookups.
@@ -355,6 +356,7 @@ are never deleted.
   echo or store. The model cannot invent one (D-039).
 - **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 16.
 - **Status:** fixed `d78bc43`, `42ffd65` (B4): the userinfo is dropped by text before the URL is parsed (`_drop_userinfo`, auspex/classify/observables.py). Its limit is TD-070; the stored message and pre-fix rows are B-033. Record: docs/probes/2026-10-28-b4-b018.md.
+
 ## B-019 — a call refused for budget reads as a real search on the page and in the turn log
 
 - **Found:** 2026-10-14, S29 (Claude), the Step 0 adversarial review of S28's code (D-046).
@@ -491,6 +493,7 @@ are never deleted.
 - **Fix sketch (the review's):** read the home and the access in one statement,
   or lock the person's row `FOR SHARE` and re-check inside one transaction.
 - **Status:** fixed `6310550`, `e145583` (B4): `enter()` runs in one transaction with the person's row locked `FOR SHARE` first (auspex/tenancy/entry.py); login and switch races pinned. The membership API's same-class path is B-034. Record: docs/probes/2026-10-28-b4-b025.md.
+
 ## B-026 — an action argument named like a platform keyword is approved, then the run fails and reads "incomplete"
 
 - **Found:** 2026-10-16, S31 (Claude), the fresh review of the idempotency key
@@ -528,6 +531,7 @@ are never deleted.
   2285` 489 ms. All run on the chat route's event loop.
 - **Fix sketch (the review's):** walk the spans in sorted order, or bisect.
 - **Status:** fixed `be208f4`, `3ca52d7` (B4): a sorted, disjoint `_Spans` index answers each overlap by bisection (auspex/classify/observables.py); growth pinned in CPU time. Record: docs/probes/2026-10-28-b4-b027.md.
+
 ## B-028 — a failed switch, after a re-check rebuilt the header with one workspace, throws on a null picker
 
 - **Found:** 2026-10-19, B3 (Claude), the fresh review of B-024's fix
@@ -577,6 +581,7 @@ are never deleted.
   never hit a rule, so the carve-out half of `inspect()` is never timed. Add a
   rule-hit input when B-030 is fixed.
 - **Status:** fixed `aedb018`, `98cffb7` (B4): `_quote_line_spans` (auspex/guard.py) finds the regex's spans in one pass; the rule-hit input `guard-rule-hit-newlines` joins the stall fixture. Record: docs/probes/2026-10-28-b4-b030.md.
+
 ## B-031 — the workspace switcher's small edges
 
 - **Found:** 2026-10-20, Burhan's re-review of PR #41 (B3), by Claude in his
@@ -615,6 +620,7 @@ are never deleted.
 - **Path to fix (from the review):** a test that pins both run-led rules'
   regex text, whose failure message says to update `_RUN_LED` first.
 - **Status:** fixed `f837432`, `7e11b36` (B4): the run-led rules' text, flags and `_RUN_LED` start sets are pinned (tests/test_guard.py); the `{{system}}` mutant now fails it. Record: docs/probes/2026-10-28-b4-b032.md.
+
 ## B-033 — a pasted credential stays in the stored message text and in observables saved before B-018's fix
 
 - **Found:** 2026-10-28, B4 (Claude), the fresh review of B-018's fix. Outside
