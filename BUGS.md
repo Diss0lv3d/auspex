@@ -688,3 +688,19 @@ are never deleted.
   B-033 (the pasted message itself).
 - **Evidence:** Burhan's comment on PR #50.
 - **Status:** open, not placed. Burhan's.
+
+## B-037 — a membership removed while its person signs in still gets an entry event and a first token
+
+- **Found:** 2026-10-28, Burhan's review of PR #50 (B4), from B-025's race
+  test. Same family as B-025; B-025's fix locks only the person's row.
+- **What happened (by reading; B-025's test interleaving shows it):**
+  `enter()` (`auspex/tenancy/entry.py`) locks `users` `FOR SHARE`, not the
+  membership. A membership deleted between the access decision and the event
+  still gets a `workspace.enter` event and the route mints a first token. Every
+  request re-checks access (`resolve_user`), so that token is refused on its
+  next use; the harm is an audit event for an entry that did not hold.
+- **Path to fix:** lock the membership row (or re-check it) inside `enter()`'s
+  transaction before the event, or record the event only once the first
+  authenticated request succeeds.
+- **Evidence:** Burhan's comment on PR #50; docs/probes/2026-10-28-b4-b025.md.
+- **Status:** open, not placed. Burhan's.
