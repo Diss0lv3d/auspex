@@ -896,7 +896,40 @@ S32_CONNECTORS: list[str] = [
     """,
 ]
 
-SCHEMA_V0 = [*SCHEMA_V0, *S30_TENANCY, *S31_JOBS, *S32_CONNECTORS]
+# S33: Edge Agents and their one-time enrollments (D-062), then integrations
+# (D-060). An agent belongs to one workspace; its credential is stored hashed only
+# (the api_keys pattern), and is NULL until it enrolls.
+S33_EDGE: list[str] = [
+    """
+    CREATE TABLE IF NOT EXISTS edge_agents (
+        id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id       uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        name               text NOT NULL,
+        credential_hash    text UNIQUE,
+        key_prefix         text,
+        created_by         uuid,
+        created_at         timestamptz NOT NULL DEFAULT now(),
+        enrolled_at        timestamptz,
+        revoked_at         timestamptz,
+        last_heartbeat_at  timestamptz,
+        UNIQUE (workspace_id, name)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS edge_enrollments (
+        id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id  uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        agent_id      uuid NOT NULL REFERENCES edge_agents(id) ON DELETE CASCADE,
+        token_hash    text NOT NULL UNIQUE,
+        created_by    uuid,
+        created_at    timestamptz NOT NULL DEFAULT now(),
+        expires_at    timestamptz NOT NULL,
+        used_at       timestamptz
+    )
+    """,
+]
+
+SCHEMA_V0 = [*SCHEMA_V0, *S30_TENANCY, *S31_JOBS, *S32_CONNECTORS, *S33_EDGE]
 
 
 async def run_migrations(pool: asyncpg.Pool) -> None:

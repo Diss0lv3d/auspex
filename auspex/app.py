@@ -16,6 +16,7 @@ from auspex.actions.settlement import action_proposer
 from auspex.config import Settings, get_settings
 from auspex.connectors import routes as connectors
 from auspex.db import create_pool
+from auspex.edge_api import routes as edge
 from auspex.enrich import EnrichmentService
 from auspex.ingest import IngestScheduler
 from auspex.jobs.worker import JobWorker
@@ -138,5 +139,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(timeline.router)
     app.include_router(workspace.router)
     app.include_router(connectors.router)
+    app.include_router(edge.router)
     app.include_router(ui.router)
     return app

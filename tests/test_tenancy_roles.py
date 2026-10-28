@@ -27,6 +27,8 @@ ROLE_FREE_WRITES = {
     ("POST", "/api/auth/dev-login"),
     ("POST", "/api/auth/api-keys"),
     ("POST", "/api/auth/switch"),
+    # S33: an Edge Agent's first call; the one-time token it spends is its only proof.
+    ("POST", "/api/edge/enroll"),
 }
 TENANT_ID = re.compile(
     r"(^|_)(wid|ws|workspace|workspaces|tenant|tenants|org|orgs|organization|organizations)(_|$)",
