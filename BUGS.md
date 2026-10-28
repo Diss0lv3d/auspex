@@ -652,3 +652,25 @@ are never deleted.
   `_hold`, used for the actor.
 - **Evidence:** the review of B-025's fix (B4); docs/probes/2026-10-28-b4-b025.md.
 - **Status:** open, not placed. Burhan's.
+
+## B-035 — a reply envelope in the wrong shape still crashes the parsers, and an unknown tool's name is echoed unbounded
+
+- **Found:** 2026-10-28, B4 (Claude), the fresh review of B-017's fix. The
+  same trust boundary as B-017 (the customer's endpoint), a wider class:
+  B-017 covered the tool calls themselves.
+- **What happened (executed by the review, throwaway scripts):** in
+  `auspex/llm/client.py`, `choices`, `choices[0]`, `message` or `delta` that
+  is not an object raises (AttributeError/TypeError/KeyError) in both
+  parsers; a streamed `content` or reasoning that is not a string raises on
+  `+=`, and `parse_completion` passes a non-string `content` through; a body
+  or chunk that is a JSON list or string, or a non-object `usage`, raises;
+  non-streaming `tool_calls: 5` raises, and `tool_calls: "abc"` becomes three
+  empty calls. A non-string `finish_reason` passes through unaudited. The
+  loop's unknown-tool feedback (`auspex/agent/loop.py`, and the prompted
+  `<tool_result name="…">`) echoes the name unbounded, control characters and
+  `<tool_result` included.
+- **Path to fix:** one "coerce the envelope" pass at the top of both parsers,
+  fixtures from the review's exact inputs; truncate and escape the echoed
+  name.
+- **Evidence:** the review of B-017's fix (B4); docs/probes/2026-10-28-b4-b017.md.
+- **Status:** open, not placed. Burhan's.
