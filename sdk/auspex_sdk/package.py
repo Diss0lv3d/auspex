@@ -65,10 +65,12 @@ def tree_hash(files: dict[str, bytes]) -> str:
     return "sha256:" + hashlib.sha256(lines).hexdigest()
 
 
-def build_zip(files: dict[str, bytes]) -> bytes:
-    """Deterministic zip: sorted, fixed 1980 timestamps, deflate, no extras, fixed host system."""
+def build_zip(files: dict[str, bytes], *, comment: bytes = b"") -> bytes:
+    """Deterministic zip: sorted, fixed 1980 timestamps, deflate, no extras, fixed host system.
+    `comment` is the archive's own comment, which the content hash does not cover (D-072)."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.comment = comment
         for path in sorted(files):
             info = zipfile.ZipInfo(path, (1980, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED

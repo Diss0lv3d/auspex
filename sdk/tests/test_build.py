@@ -145,7 +145,7 @@ def test_python_first_and_yaml_build_to_byte_identical_manifests(python_first, y
     ym_zip, _ = build(yaml_twin)
     a, b = members(py_zip)["manifest.json"], members(ym_zip)["manifest.json"]
     assert a == b
-    assert b'"sdk_version":"0.1.0"' in a  # the build fills it
+    assert b'"sdk_version":""' in a  # D-072: the build's version is not hashed
     assert py_zip.name == "example.sample-1.0.0.zip"
     assert py_zip.parent == python_first / "dist"
 
@@ -418,3 +418,22 @@ def test_setup_py_and_conftest_are_ignored_by_discovery(python_first):
     (python_first / "conftest.py").write_text("raise RuntimeError('not a connector module')\n")
     path, _ = build(python_first)
     assert {"setup.py", "conftest.py"} <= set(members(path))  # still packaged, just not imported
+
+
+def test_the_sdk_version_is_not_part_of_a_package_s_identity(yaml_twin, monkeypatch):
+    """PR #43 review #10 (reproduced, docs/probes/2026-10-28-s33-pr43-10.md), D-072:
+    the build wrote its own version into manifest.json, which the content hash covers,
+    so the same source built by another SDK version was "other content" and
+    registering it said "bump the version". The version is recorded in the zip's
+    comment instead, which the hash does not cover."""
+    import auspex_sdk.build as b
+
+    built = {}
+    for version in ("0.1.0", "0.2.0"):
+        monkeypatch.setattr(b, "sdk_version", lambda v=version: v)
+        zip_path, digest = build(yaml_twin)
+        with zipfile.ZipFile(zip_path) as z:
+            built[version] = (digest, z.comment)
+    assert built["0.1.0"][0] == built["0.2.0"][0]
+    assert built["0.1.0"][1] == b"auspex-sdk 0.1.0"
+    assert built["0.2.0"][1] == b"auspex-sdk 0.2.0"

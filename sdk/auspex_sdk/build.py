@@ -23,7 +23,6 @@ action's declared param names, in order (an author cannot forget one); `test` ta
 `read_package`, so a build can never produce something the catalogue would refuse.
 """
 
-import dataclasses
 import importlib
 import importlib.metadata
 import inspect
@@ -204,8 +203,7 @@ def _manifest_from_yaml(path: Path) -> Manifest:
     if not isinstance(data, dict):
         raise BuildError(f"{YAML_NAME} must be a mapping shaped like manifest.json")
     if "sdk_version" in data:
-        raise BuildError(f"{YAML_NAME}: sdk_version is filled in by the build; remove it")
-    data["sdk_version"] = sdk_version()
+        raise BuildError(f"{YAML_NAME}: sdk_version is recorded by the build; remove it")
     m = parse_manifest(data)
     validate_manifest(m)
     return m
@@ -237,7 +235,7 @@ def _manifest_from_python(source_dir: Path) -> Manifest:
             names = ", ".join(n + ".py" for n, _ in found)
             raise BuildError(f"more than one module defines a @connector: {names}")
         m = collect(found[0][1])
-    return dataclasses.replace(m, sdk_version=sdk_version())
+    return m
 
 
 def load_manifest(source_dir: Path) -> Manifest:
@@ -297,7 +295,10 @@ def build(source_dir: Path) -> tuple[Path, str]:
     check_handlers(manifest, source_dir)
     files = _collect_files(source_dir.resolve())
     files[MANIFEST_NAME] = manifest_to_json(manifest)
-    data = build_zip(files)
+    # D-072: the SDK version that built a package is recorded in the zip's comment, not
+    # in manifest.json, so it is not part of the package's identity (the content hash):
+    # the same source rebuilt by another SDK version is the same package (PR #43 #10).
+    data = build_zip(files, comment=f"auspex-sdk {sdk_version()}".encode())
     _, digest, _ = read_package(data)  # whatever the catalogue would refuse, refuse here
     out = source_dir / DIST_DIR / f"{manifest.id}-{manifest.version}.zip"
     out.parent.mkdir(exist_ok=True)
