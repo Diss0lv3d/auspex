@@ -68,7 +68,7 @@ from auspex_sdk.manifest import (
     parse_tls_value,
     validate_manifest,
 )
-from auspex_sdk.redact import MIN_SECRET_LEN, redacting_filter
+from auspex_sdk.redact import MIN_SECRET_LEN, redact_library_logs, redacting_filter
 
 __all__ = [
     "ConfigError",
@@ -514,6 +514,7 @@ class Context:
                 secrets[f.name] = str(v)
         self.redactor = redacting_filter(secrets)
         log.addFilter(self.redactor)
+        redact_library_logs(self.redactor)  # httpx logs URLs on its own logger
         self.config = config
         self.http = http
         self.log = log

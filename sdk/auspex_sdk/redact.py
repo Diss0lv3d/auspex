@@ -26,6 +26,7 @@ import base64
 import json
 import logging
 import re
+import weakref
 from collections.abc import Mapping
 from urllib.parse import quote, quote_plus
 
@@ -122,3 +123,32 @@ class RedactingFilter(logging.Filter):
 def redacting_filter(secrets: dict[str, str]) -> logging.Filter:
     """A filter that redacts these secrets ({name: resolved value}) from every record."""
     return RedactingFilter(secrets)
+
+
+# PR #43 review #9: httpx (and httpcore beneath it) log each request on their own
+# loggers, the URL with its query string included, so a filter on `ctx.log` alone
+# missed them. One shared filter sits on those loggers and applies every live
+# context's redactor; the set is weak, so a finished run's secrets leave with it, and
+# the shared loggers never gather a filter per run.
+LIBRARY_LOGGERS = ("httpx", "httpcore.connection", "httpcore.http11", "httpcore.http2",
+                   "httpcore.proxy")
+_LIVE: weakref.WeakSet[logging.Filter] = weakref.WeakSet()
+
+
+class _LibraryRedactor(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        for redactor in list(_LIVE):
+            redactor.filter(record)
+        return True
+
+
+_LIBRARY_REDACTOR = _LibraryRedactor()
+
+
+def redact_library_logs(redactor: logging.Filter) -> None:
+    """Apply `redactor` to the HTTP library's own log records while it lives."""
+    _LIVE.add(redactor)
+    for name in LIBRARY_LOGGERS:
+        lib = logging.getLogger(name)
+        if _LIBRARY_REDACTOR not in lib.filters:
+            lib.addFilter(_LIBRARY_REDACTOR)

@@ -495,3 +495,31 @@ def test_encode_result_refuses_a_float_subclass_that_is_nan():
     with pytest.raises(ResultError) as ei:
         encode_result({"x": F("nan")})
     assert ei.value.path == "$.x"
+
+
+def test_a_secret_in_a_request_url_is_redacted_on_httpx_s_own_logger(load):
+    """PR #43 review #9: the filter was on `ctx.log` only, and httpx logs every
+    request's URL on its own logger, so a secret in a query string reached the log
+    as is. The library's loggers redact whatever secrets a live context holds, with
+    one shared filter (not one per run on a shared logger)."""
+    mod = load(SAMPLE)
+    lib = logging.getLogger("httpx")
+    out = io.StringIO()
+    handler = logging.StreamHandler(out)
+    level = lib.level
+    lib.addHandler(handler)
+    lib.setLevel(logging.INFO)
+    try:
+        ctx = Context.create(sample_config(mod),
+                             transport=httpx.MockTransport(lambda r: httpx.Response(200)))
+        ctx.http.request("GET", f"https://svc.example:9443/api/x?token={TOKEN}")
+        ctx2 = Context.create(sample_config(mod),
+                              transport=httpx.MockTransport(lambda r: httpx.Response(200)))
+        ctx2.http.request("GET", f"https://svc.example:9443/api/y?token={TOKEN}")
+    finally:
+        lib.removeHandler(handler)
+        lib.setLevel(level)
+    text = out.getvalue()
+    assert "HTTP Request" in text and TOKEN not in text
+    assert "[secret:api_token]" in text
+    assert len(lib.filters) <= 1  # one shared filter, however many contexts ran
