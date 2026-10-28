@@ -25,3 +25,4 @@
 | JWT_TTL_MINUTES | Session JWT lifetime in minutes | no | `720` | S1 |
 | GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET | Google OAuth web client. Both empty ⇒ OAuth endpoints return 503 "not configured" (config-stubbed) | no | empty | S1 |
 | GOOGLE_REDIRECT_URI | OAuth callback URL registered with Google | no | `http://localhost:8000/api/auth/google/callback` | S1 |
+| AUSPEX_SDK_RUN_FIXTURE | **Tests only.** Read by `auspex_sdk.run` (S33): a harness fixture file whose recorded exchanges answer the connector's HTTP requests instead of the network. An Edge Agent never sets it; unset ⇒ the real network | no | empty | S33 |

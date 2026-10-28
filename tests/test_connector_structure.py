@@ -78,3 +78,15 @@ def test_the_dynamic_load_check_catches_a_mutant(tmp_path, line):
     mutant = tmp_path / "compile.py"
     mutant.write_text((CONNECTORS / "compile.py").read_text() + f"\n{line}\n")
     assert _calls(mutant)
+
+
+def test_the_shared_validators_import_only_the_manifest():
+    """S33: the core checks what an Edge Agent posts with `auspex_sdk.validate`, so it
+    must stay pure: the SDK's manifest and the stdlib, never runtime, build or harness."""
+    import auspex_sdk.validate as v
+
+    tree = ast.parse(Path(v.__file__).read_text())
+    sdk = {n for n in _imports(tree) if n.startswith("auspex_sdk")}
+    assert sdk <= {"auspex_sdk.manifest"} | {f"auspex_sdk.manifest.{x}" for x in
+                                             ("Action", "Manifest", "ManifestError",
+                                              "check_fetch_item")}, sdk

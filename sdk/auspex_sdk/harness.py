@@ -24,16 +24,16 @@ same for both authoring forms, so a YAML connector (which has no config class) r
 
 import dataclasses
 import json
-from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any, Literal
 from urllib.parse import parse_qsl, urlsplit
 
 import httpx
 
+from auspex_sdk import validate
 from auspex_sdk.build import BuildError, import_source_module, importable, load_manifest
 from auspex_sdk.http import HostNotDeclared
-from auspex_sdk.manifest import Action, Manifest, ManifestError, Tls, check_fetch_item
+from auspex_sdk.manifest import Action, Manifest, Tls
 from auspex_sdk.results import ResultError, encode_result
 from auspex_sdk.runtime import Context, Secret, Url, connector, load_config
 
@@ -109,7 +109,7 @@ def _transport(fixture: Path) -> httpx.MockTransport:
 _CONFIG_PY = {"string": str, "integer": int, "boolean": bool, "url": Url, "secret": Secret}
 
 
-def _config_class(m: Manifest) -> type:
+def config_class(m: Manifest) -> type:
     fields = []
     for f in m.config:
         t: Any = Literal[f.values] if f.type == "enum" and f.values else _CONFIG_PY.get(f.type, Tls)
@@ -121,77 +121,6 @@ def _config_class(m: Manifest) -> type:
     cls = dataclasses.make_dataclass("Config", fields, frozen=True, kw_only=True)
     many = m.fetch is not None and m.fetch.serves_many_clients
     return connector(m.id, m.version, m.name, m.description, many, m.hosts)(cls)
-
-
-# --- what each command returns ---------------------------------------------------------------
-
-
-def _check_test(r: Any) -> None:
-    if not (isinstance(r, dict) and set(r) == {"ok", "detail"}):
-        raise HarnessError("test must return exactly {ok, detail}")
-    if not isinstance(r["ok"], bool) or not isinstance(r["detail"], str):
-        raise HarnessError("test: ok is a bool and detail a string")
-
-
-def _check_fetch(m: Manifest, r: Any) -> None:
-    if not (isinstance(r, dict) and set(r) == {"items", "next_cursor"}):
-        raise HarnessError("fetch must return exactly {items, next_cursor}")
-    if not isinstance(r["items"], list):
-        raise HarnessError("fetch: items is a list")
-    if r["next_cursor"] is not None and not isinstance(r["next_cursor"], str):
-        raise HarnessError("fetch: next_cursor is a string or None")
-    for i, item in enumerate(r["items"]):
-        try:
-            check_fetch_item(m, item)
-        except ManifestError as e:
-            raise HarnessError(f"fetch: items[{i}]: {e.message}") from e
-
-
-_OUTPUT_OK: dict[str, Callable[[Any], bool]] = {
-    "string": lambda v: isinstance(v, str),
-    "integer": lambda v: isinstance(v, int) and not isinstance(v, bool),
-    "number": lambda v: isinstance(v, int | float) and not isinstance(v, bool),
-    "boolean": lambda v: isinstance(v, bool),
-    "string[]": lambda v: isinstance(v, list | tuple) and all(isinstance(s, str) for s in v),
-}
-
-
-def _check_envelope(a: Action, step: str, r: Any) -> None:
-    if not (isinstance(r, dict) and set(r) == {"would", "affects", "reversible", "detail"}):
-        raise HarnessError(
-            f"{a.name}.{step} must return exactly {{would, affects, reversible, detail}}"
-        )
-    if not isinstance(r["would"], str):
-        raise HarnessError(f"{a.name}.{step}: would is a string")
-    if not isinstance(r["affects"], list | tuple) or not all(
-        isinstance(s, str) for s in r["affects"]
-    ):
-        raise HarnessError(f"{a.name}.{step}: affects is a list of strings")
-    if not isinstance(r["reversible"], bool):
-        raise HarnessError(f"{a.name}.{step}: reversible is a bool")
-    detail = r["detail"]
-    if not isinstance(detail, dict):
-        raise HarnessError(f"{a.name}.{step}: detail is an object")
-    declared = {o.name: o for o in a.output}
-    for key in detail:
-        if key not in declared:
-            raise HarnessError(
-                f"{a.name}.{step}: detail.{key} is not declared in the action's output"
-            )
-    for name, o in declared.items():
-        if name not in detail:
-            if o.required:
-                raise HarnessError(f"{a.name}.{step}: detail.{name} is required and missing")
-            continue
-        if detail[name] is None and not o.required:
-            continue
-        if not _OUTPUT_OK[o.type](detail[name]):
-            raise HarnessError(f"{a.name}.{step}: detail.{name} is not a {o.type}")
-
-
-def _check_observe(a: Action, r: Any) -> None:
-    if isinstance(r, bool) or not isinstance(r, int) or r < 0:
-        raise HarnessError(f"{a.name}.observe must return a non-negative integer")
 
 
 # --- running ---------------------------------------------------------------------------------
@@ -250,7 +179,7 @@ def run_command(
     manifest = load_manifest(source_dir)
     ref, action, step = _resolve(manifest, command)
     transport = _transport(fixture)
-    cfg = load_config(_config_class(manifest), config, secrets)
+    cfg = load_config(config_class(manifest), config, secrets)
     where = f"command {command}"
     root = source_dir.resolve()
     module_name, _, func_name = ref.partition(":")
@@ -273,12 +202,15 @@ def run_command(
             raise HarnessError(f"{command}: handler raised {type(e).__name__}: {e}") from e
         finally:
             ctx.http.close()
-    if command == "test":
-        _check_test(result)
-    elif command == "fetch":
-        _check_fetch(manifest, result)
-    elif step == "observe":
-        _check_observe(action, result)  # type: ignore[arg-type]
-    else:
-        _check_envelope(action, step, result)  # type: ignore[arg-type]
+    try:
+        if command == "test":
+            validate.check_test(result)
+        elif command == "fetch":
+            validate.check_fetch(manifest, result)
+        elif step == "observe":
+            validate.check_observe(action, result)  # type: ignore[arg-type]
+        else:
+            validate.check_envelope(action, step, result)  # type: ignore[arg-type]
+    except validate.ResultInvalid as e:
+        raise HarnessError(str(e)) from e
     return json.loads(encode_result(result))
