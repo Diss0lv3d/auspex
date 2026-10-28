@@ -2635,3 +2635,30 @@ common case) serve a self-signed certificate, which a chain check refuses.
   provider is; a client that does not trust it does not configure it.
 - A pin must be rotated when the server's certificate changes; until then the
   connection fails closed.
+
+## D-072 — The SDK version that built a connector is not part of its identity (2026-10-28, S33)
+
+**Context.** D-064 makes a connector package's identity its content hash over
+the package's files. S32's build wrote the SDK's own version into
+`manifest.json`, one of those files, so the same source built by a newer SDK
+was "other content": registering it under the same version was refused with
+"bump the version" (PR #43's review, finding 10; reproduced in
+docs/probes/2026-10-28-s33-pr43-10.md). S32's spec already called the field
+informational, with `schema_version` as the compatibility gate.
+
+**Decision (Hunaiza's call, S33; Burhan handed her the session).**
+- The build no longer writes its version into `manifest.json`. It records it
+  in the zip archive's own comment (`auspex-sdk <version>`), which the content
+  hash never covers.
+- The content hash's definition is unchanged (D-064): what it covers no
+  longer carries the SDK's version, so the same source is the same package
+  whichever SDK built it.
+- `manifest.json` keeps the optional `sdk_version` field; the build leaves it
+  empty, and an author's connector.yaml may not set it.
+
+**Bounds, stated.**
+- Two builds whose handlers behave differently because the SDK changed under
+  them hash the same. The runtime SDK on the Edge Agent is what runs a
+  package; its compatibility is `schema_version`'s job.
+- A package registered before this change hashes as it did then; rebuilding
+  it gives a new hash once, and so a new identity.
