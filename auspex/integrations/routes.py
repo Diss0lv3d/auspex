@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from auspex.auth import Admin, AnyRole
 from auspex.edge_api.agents import health
-from auspex.integrations import store
+from auspex.integrations import store, testing
 from auspex.integrations.store import Integration, IntegrationRefused
 from auspex.tenancy.audit import person
 
@@ -105,3 +105,32 @@ async def disable(integration_id: UUID, request: Request, auth: Admin) -> None:
                             integration_id=integration_id)
     except LookupError as err:
         raise HTTPException(status_code=404, detail=str(err)) from err
+
+
+@router.post("/{integration_id}/test", status_code=202)
+async def test_connection(integration_id: UUID, request: Request, auth: Admin) -> dict:
+    """Ask the integration's Edge Agent to run the connector's `test` now. 409 in words
+    when it cannot run, or with the job already in flight."""
+    pool = request.app.state.pool
+    found = await store.get(pool, workspace_id=auth.workspace_id,
+                            integration_id=integration_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="no such integration in this workspace")
+    try:
+        job_id = await testing.press(pool, found)
+    except testing.CannotTest as err:
+        raise HTTPException(status_code=409, detail={
+            "reason": err.reason, "job_id": str(err.job_id) if err.job_id else None}) from err
+    return {"job_id": str(job_id)}
+
+
+@router.get("/{integration_id}/test/{job_id}")
+async def test_state(integration_id: UUID, job_id: UUID, request: Request,
+                     auth: AnyRole) -> dict:
+    pool = request.app.state.pool
+    found = await store.get(pool, workspace_id=auth.workspace_id,
+                            integration_id=integration_id)
+    answer = None if found is None else await testing.state(pool, found, job_id)
+    if answer is None:
+        raise HTTPException(status_code=404, detail="no such test for this integration")
+    return answer

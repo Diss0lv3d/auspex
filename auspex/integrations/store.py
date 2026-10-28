@@ -138,6 +138,16 @@ async def _check_agent(conn, workspace_id: UUID, agent_id: UUID) -> None:
         raise IntegrationRefused("agent_id: no Edge Agent of this workspace has that id")
 
 
+async def cancel_queued_tests(conn, integration_id: UUID, why: str) -> None:
+    """Queued tests of an integration that changed under them can no longer run as asked:
+    they end now, in the change's transaction. A running one finishes (spec, builder
+    check 5)."""
+    await conn.execute(
+        "UPDATE jobs SET status = 'failed', last_error = $2, finished_at = now()"
+        " WHERE integration_id = $1 AND kind = 'connector.test' AND status = 'queued'",
+        integration_id, f"cancelled: {why}")
+
+
 async def create(pool, *, workspace_id: UUID, actor: audit.Actor, name: str, prefix: str,
                  content_hash: str, config: Any, agent_id: UUID) -> Integration:
     name, prefix = _check_name(name), _check_prefix(prefix)
@@ -199,6 +209,9 @@ async def update(pool, *, workspace_id: UUID, actor: audit.Actor, integration_id
             json.dumps(config), agent_id)
         if row is None:
             raise IntegrationRefused("this integration is disabled")
+        if agent_id != current.agent_id or content_hash != current.content_hash:
+            await cancel_queued_tests(conn, integration_id,
+                                      "the integration's agent or package changed")
         await audit.record(conn, workspace_id=workspace_id, action="integration.updated",
                            actor=actor, details={"integration_id": str(integration_id)})
     return _integration(row)
@@ -212,6 +225,7 @@ async def disable(pool, *, workspace_id: UUID, actor: audit.Actor,
             " WHERE id = $1 AND workspace_id = $2 RETURNING id", integration_id, workspace_id)
         if row is None:
             raise LookupError("no such integration in this workspace")
+        await cancel_queued_tests(conn, integration_id, "the integration was disabled")
         await audit.record(conn, workspace_id=workspace_id, action="integration.disabled",
                            actor=actor, details={"integration_id": str(integration_id)})
 
