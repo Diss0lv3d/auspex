@@ -674,3 +674,17 @@ are never deleted.
   name.
 - **Evidence:** the review of B-017's fix (B4); docs/probes/2026-10-28-b4-b017.md.
 - **Status:** open, not placed. Burhan's.
+
+## B-036 — credentials outside an http(s) URL are stored, a bare one as an email
+
+- **Found:** 2026-10-28, Burhan's review of PR #50 (B4). Already true on
+  `staging`; outside B-018, which covers http(s) URLs only.
+- **What happened (the review's examples):** `ftp://admin:S3cret@files.example.com/x`
+  (not matched by `_URL_RE`, http(s) only) and a bare
+  `admin:S3cret@mail.example.com` store the password as the email
+  `s3cret@mail.example.com` (`auspex/classify/observables.py`, the email pass).
+- **Path to fix:** decide which schemes and bare `user:pass@host` shapes are
+  credentials, and drop them before any observable is made; it may sit next to
+  B-033 (the pasted message itself).
+- **Evidence:** Burhan's comment on PR #50.
+- **Status:** open, not placed. Burhan's.
