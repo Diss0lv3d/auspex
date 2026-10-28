@@ -102,6 +102,11 @@ def _flatten(value: Any) -> Any:
     return value
 
 
+class WorkspaceMismatch(PermissionError):
+    """A compiled role was called for a workspace that does not own its integration
+    (PR #43 review #2). Raised before anything is dispatched."""
+
+
 def _count(kind: str, result: Any) -> int:
     # bool is an int subclass and is not a count (same rule as settlement's observe check).
     if type(result) is not int or result < 0:
@@ -123,6 +128,7 @@ def compile_action(
     content_hash: str,
     prefix: str,
     integration_id: UUID,
+    workspace_id: UUID,
     dispatch: Dispatch,
 ) -> ActionSpec:
     """The `ActionSpec` for one action of one integration of one connector package.
@@ -130,6 +136,9 @@ def compile_action(
     `integration_id` is in the signature because every job payload carries it (the job
     row's claim is scoped by it) and the handlers build those payloads: `dispatch` alone
     cannot supply it without the payload being built half-empty and patched afterwards.
+    `workspace_id` is the integration's: every role refuses any other caller (and
+    none), because the settlement hands each handler the workspace it settles in and
+    tenant isolation is an invariant (PR #43 review #2).
     """
     if not isinstance(prefix, str) or not WIRE_NAME.fullmatch(prefix) or len(prefix) > MAX_PREFIX:
         raise ValueError(
@@ -156,12 +165,24 @@ def compile_action(
             limit=None,
         )
 
+    owner = workspace_id
+
+    def own(caller) -> None:
+        try:
+            same = caller is not None and UUID(str(caller)) == owner
+        except ValueError:
+            same = False
+        if not same:
+            raise WorkspaceMismatch(
+                f"{name}: workspace {caller} does not own integration {integration_id}")
+
     # A factory, called once per role, so each role gets its own function object.
     def handler(command: str):
         kind = _KIND[command]
 
         async def run(*, workspace_id=None, proposal_id=None, idempotency_key=None,
                       **arguments) -> ActionOutcome:
+            own(workspace_id)
             job = payload(command, proposal_id, idempotency_key, arguments)
             return _outcome(kind, await dispatch(kind, job))
 
@@ -172,6 +193,7 @@ def compile_action(
 
         async def look(*, workspace_id=None, proposal_id=None, idempotency_key=None,
                        **arguments) -> int:
+            own(workspace_id)
             job = payload("observe", proposal_id, idempotency_key, arguments)
             return _count(kind, await dispatch(kind, job))
 
@@ -210,4 +232,4 @@ def compile_action(
     )
 
 
-__all__ = ["ConnectorResultError", "Dispatch", "compile_action"]
+__all__ = ["ConnectorResultError", "Dispatch", "WorkspaceMismatch", "compile_action"]

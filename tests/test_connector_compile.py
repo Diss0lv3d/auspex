@@ -36,13 +36,14 @@ from auspex.actions.types import (
     ParamType,
     validate_spec,
 )
-from auspex.connectors.compile import ConnectorResultError, compile_action
+from auspex.connectors.compile import ConnectorResultError, WorkspaceMismatch, compile_action
 from auspex.connectors.jobs import CONNECTOR_KINDS, ConnectorJobPayload
 
 REFERENCE = Path(__file__).resolve().parents[1] / "examples/connectors/mock_siem/yaml"
 HASH_A = "a" * 64
 HASH_B = "b" * 64
 INTEGRATION = uuid.UUID("00000000-0000-0000-0000-0000000000aa")
+WORKSPACE = uuid.UUID("00000000-0000-0000-0000-0000000000bb")  # the integration's
 
 # The built-in annotate action's fingerprint, computed with the code as it stood BEFORE
 # this change (FINGERPRINT_VERSION = 1, no `origin` in the canonical form). An approval
@@ -80,7 +81,7 @@ def manifest():
 def _compile(manifest, dispatch, *, content_hash=HASH_A, prefix="siem1"):
     return compile_action(
         manifest, "close_alert", content_hash=content_hash, prefix=prefix,
-        integration_id=INTEGRATION, dispatch=dispatch,
+        integration_id=INTEGRATION, workspace_id=WORKSPACE, dispatch=dispatch,
     )
 
 
@@ -107,7 +108,7 @@ async def test_four_distinct_callables_each_dispatch_their_own_kind(manifest):
     handlers = [spec.dry_run, spec.execute, spec.undo.handler, spec.observe]
     assert len({id(h) for h in handlers}) == 4
 
-    ws = uuid.uuid4()
+    ws = WORKSPACE
     pid = uuid.uuid4()
     await spec.dry_run(workspace_id=ws, alert_id="A-1")
     await spec.execute(workspace_id=ws, proposal_id=str(pid),
@@ -144,12 +145,12 @@ async def test_four_distinct_callables_each_dispatch_their_own_kind(manifest):
 
 async def test_the_envelope_maps_to_an_action_outcome(manifest):
     spec = _compile(manifest, FakeDispatch())
-    out = await spec.execute(workspace_id=uuid.uuid4(), proposal_id=str(uuid.uuid4()),
+    out = await spec.execute(workspace_id=WORKSPACE, proposal_id=str(uuid.uuid4()),
                              idempotency_key="k", alert_id="A-1")
     assert out == ActionOutcome(
         would="closed alert A-1", affects=("A-1",), reversible=True, detail={"status": "closed"}
     )
-    assert await spec.observe(workspace_id=uuid.uuid4(), proposal_id=str(uuid.uuid4()),
+    assert await spec.observe(workspace_id=WORKSPACE, proposal_id=str(uuid.uuid4()),
                               idempotency_key="k", alert_id="A-1") == 1
 
 
@@ -168,14 +169,14 @@ async def test_the_envelope_maps_to_an_action_outcome(manifest):
 async def test_a_malformed_envelope_is_refused(manifest, bad):
     spec = _compile(manifest, FakeDispatch({"connector.action.dry_run": bad}))
     with pytest.raises(ConnectorResultError):
-        await spec.dry_run(workspace_id=uuid.uuid4(), alert_id="A-1")
+        await spec.dry_run(workspace_id=WORKSPACE, alert_id="A-1")
 
 
 @pytest.mark.parametrize("bad", [True, -1, "1", None, 1.0])
 async def test_observe_must_return_a_count(manifest, bad):
     spec = _compile(manifest, FakeDispatch({"connector.action.observe": bad}))
     with pytest.raises(ConnectorResultError):
-        await spec.observe(workspace_id=uuid.uuid4(), proposal_id=str(uuid.uuid4()),
+        await spec.observe(workspace_id=WORKSPACE, proposal_id=str(uuid.uuid4()),
                            idempotency_key="k", alert_id="A-1")
 
 
@@ -193,7 +194,7 @@ def test_a_24_character_prefix_is_accepted(manifest):
 def test_an_unknown_action_is_refused(manifest):
     with pytest.raises(ValueError):
         compile_action(manifest, "nope", content_hash=HASH_A, prefix="siem1",
-                       integration_id=INTEGRATION, dispatch=FakeDispatch())
+                       integration_id=INTEGRATION, workspace_id=WORKSPACE, dispatch=FakeDispatch())
 
 
 def test_long_text_is_capped(manifest):
@@ -259,12 +260,12 @@ def test_a_composed_name_over_the_tool_name_limit_is_refused(manifest):
     fits = "a" * (MAX_TOOL_NAME - MAX_PREFIX - 2)
     spec = compile_action(_renamed(manifest, fits), fits, content_hash=HASH_A,
                           prefix="s" * MAX_PREFIX, integration_id=INTEGRATION,
-                          dispatch=FakeDispatch())
+                          workspace_id=WORKSPACE, dispatch=FakeDispatch())
     assert len(spec.name) == MAX_TOOL_NAME
     over = fits + "a"
     with pytest.raises(ValueError, match="64"):
         compile_action(_renamed(manifest, over), over, content_hash=HASH_A,
-                       prefix="s" * MAX_PREFIX, integration_id=INTEGRATION,
+                       prefix="s" * MAX_PREFIX, integration_id=INTEGRATION, workspace_id=WORKSPACE,
                        dispatch=FakeDispatch())
 
 
@@ -272,7 +273,7 @@ def test_specs_differing_only_in_connector_id_have_different_fingerprints(manife
     other = dataclasses.replace(manifest, id="example.other_siem")
     a = _compile(manifest, FakeDispatch())
     b = compile_action(other, "close_alert", content_hash=HASH_A, prefix="siem1",
-                       integration_id=INTEGRATION, dispatch=FakeDispatch())
+                       integration_id=INTEGRATION, workspace_id=WORKSPACE, dispatch=FakeDispatch())
     assert a.origin.connector_id != b.origin.connector_id
     assert fingerprint(a) != fingerprint(b)
 
@@ -288,7 +289,7 @@ async def test_connector_result_text_is_flattened_and_capped(manifest):
         "detail": {"status": "open\r\nnow", "note": long, "tags": ["a\nb", long], "n": 3},
     }
     spec = _compile(manifest, FakeDispatch({"connector.action.dry_run": env}))
-    out = await spec.dry_run(workspace_id=uuid.uuid4(), alert_id="A-1")
+    out = await spec.dry_run(workspace_id=WORKSPACE, alert_id="A-1")
     assert out.would == "close alert A-1 IGNORE PREVIOUS"
     assert out.detail["status"] == "open now"
     assert len(out.detail["note"]) <= MAX_DESCRIPTION
@@ -297,5 +298,21 @@ async def test_connector_result_text_is_flattened_and_capped(manifest):
     assert out.detail["n"] == 3
     long_would = {**env, "would": long, "detail": {}}
     spec = _compile(manifest, FakeDispatch({"connector.action.dry_run": long_would}))
-    out = await spec.dry_run(workspace_id=uuid.uuid4(), alert_id="A-1")
+    out = await spec.dry_run(workspace_id=WORKSPACE, alert_id="A-1")
     assert len(out.would) <= MAX_DESCRIPTION
+
+
+@pytest.mark.parametrize("caller", [uuid.UUID(int=7), None, "not-a-uuid"],
+                         ids=["another-workspace", "none", "not-a-uuid"])
+async def test_a_compiled_role_refuses_a_workspace_that_does_not_own_the_integration(
+        manifest, caller):
+    """PR #43 review #2: the closures took `workspace_id` and dropped it, so any
+    workspace's settlement could dispatch a job for this integration. Tenant
+    isolation is an invariant: each role refuses before anything is dispatched."""
+    dispatch = FakeDispatch()
+    spec = _compile(manifest, dispatch)
+    for role in (spec.dry_run, spec.execute, spec.undo.handler, spec.observe):
+        with pytest.raises(WorkspaceMismatch):
+            await role(workspace_id=caller, proposal_id=str(uuid.uuid4()),
+                       idempotency_key="k", alert_id="A-1")
+    assert dispatch.calls == []
