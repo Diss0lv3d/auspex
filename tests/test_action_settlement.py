@@ -2607,7 +2607,7 @@ async def test_an_undo_refuses_a_declaration_that_changed_since_the_approval(
     with pytest.raises(ExecutionRefused) as err:
         await ActionExecutor(pool, deployed).undo(workspace_id=workspace_id, proposal_id=pid)
     assert err.value.reason == "spec_changed"
-    assert "undo" in str(err.value)
+    assert "undo" in str(err.value) and "by hand" in str(err.value)
     row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
     assert row["status"] == "executed"
     assert 1 == await pool.fetchval(

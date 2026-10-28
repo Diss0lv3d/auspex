@@ -623,7 +623,8 @@ def check_fingerprint(spec: ActionSpec, proposal: dict, *, step: str) -> None:
             f"({stored[:12]}… → {current[:12]}…) — its {step} would run a "
             "declaration nobody approved"
             + ("; re-propose it so a human approves what would actually run"
-               if step == "execute" else ""),
+               if step == "execute" else
+               "; put the change back by hand, or restore the approved version and undo"),
         )
 
 
