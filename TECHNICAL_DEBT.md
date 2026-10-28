@@ -1,5 +1,21 @@
 # Technical debt — logged the moment it's taken
 
+## TD-070 (B4) — a password that looks like a host keeps its credential when it holds an unencoded / ? #
+
+**Where:** `auspex/classify/observables.py` (`_drop_userinfo`, `_PORT_RE`).
+**Risk:** LOW. B-018's fix drops `user:pass@` whatever the parser does, and
+a password holding `/`, `?` or `#` unencoded is dropped too, except when the
+text before that character is itself a valid host and port:
+`http://u:123/x@evil.com/` and `http://bob/x@evil.com/` keep it. Text alone
+cannot tell those from `http://evil.com/u/@handle`, a real path. A credential
+inside a nested URL in a query string (`?next=http://u:p@x/`) is also kept
+(B-033's class).
+**Why taken:** the ambiguity is in the input; refusing every `@` after a
+path would eat real indicators.
+**Path to fix:** treat such a URL as two candidates and keep the one whose
+host resolves to an allowlisted TLD, or ask the analyst.
+**Trigger:** a credential seen in a stored `observables` value.
+
 ## TD-069 (S32) — a build packages key and credential files that do not start with a dot
 
 **Where:** `sdk/auspex_sdk/build.py` (`_collect_files`: excludes dotfiles, tests,
