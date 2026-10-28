@@ -443,6 +443,27 @@ ROWS = [
         "duplicate_name",
         "actions[0].execute",
     ),
+    # PR #43 review #1: every role is its own function, as the core requires
+    # (auspex/actions/types.py): a dry run that is the undo would revert the
+    # vendor's system on a proposal; a look that previews or reverts is no look.
+    (
+        "dry_run_equals_undo",
+        lambda d: d["actions"][0].update(dry_run=d["actions"][0]["undo"]["handler"]),
+        "duplicate_name",
+        "actions[0].dry_run",
+    ),
+    (
+        "observe_equals_dry_run",
+        lambda d: d["actions"][0].update(observe=d["actions"][0]["dry_run"]),
+        "duplicate_name",
+        "actions[0].observe",
+    ),
+    (
+        "observe_equals_undo",
+        lambda d: d["actions"][0].update(observe=d["actions"][0]["undo"]["handler"]),
+        "duplicate_name",
+        "actions[0].observe",
+    ),
     (
         "missing_test_handler",
         lambda d: d["commands"]["test"].pop("handler"),

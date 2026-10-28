@@ -651,13 +651,24 @@ def _check_action(a: Action, path: str) -> None:
             _check_text(c, f"{path}.undo.cannot_restore[{k}]")
     if a.observe is not None:
         _check_handler(a.observe, f"{path}.observe")
-    # Distinct callables: an execute that is also the dry run would change what it must not.
-    others = [a.dry_run, a.undo.handler if a.undo else None, a.observe]
-    if a.execute in others:
+    # Distinct callables, every pair, as the core requires (auspex/actions/types.py):
+    # an execute that is also the dry run changes what it must not; a dry run that is
+    # the undo reverts the vendor's system on a proposal; a look that previews or
+    # reverts is no look (PR #43 review #1). The compiled spec wraps each role in its
+    # own closure, so the core cannot see two roles share one function: this is the
+    # only place that can.
+    undo = a.undo.handler if a.undo else None
+    clash = (
+        "execute" if a.execute in (a.dry_run, undo, a.observe)
+        else "dry_run" if undo is not None and a.dry_run == undo
+        else "observe" if a.observe is not None and a.observe in (a.dry_run, undo)
+        else None
+    )
+    if clash is not None:
         raise ManifestError(
             "duplicate_name",
-            f"{path}.execute",
-            "execute must be a different function from dry_run, undo and observe",
+            f"{path}.{clash}",
+            "execute, dry_run, undo and observe must each be a different function",
         )
     for j, o in enumerate(a.output):
         op = f"{path}.output[{j}]"
