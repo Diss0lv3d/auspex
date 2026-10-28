@@ -595,3 +595,25 @@ def test_b029_the_scan_finds_what_finditer_finds_on_the_live_rules():
                 continue
             for t in (text, _G._normalize(text)[0]):
                 assert _G._spans_of(label, pattern, t) == _G._spans(t, pattern), (label, t)
+
+
+# -- B-030: the quote-line carve-out, linear and span-for-span the regex's -------
+
+def test_b030_the_quote_line_scan_finds_what_finditer_finds():
+    """Burhan's rule for this family (B-029): speed only, every span unchanged.
+    Seeded random texts built from what the rule turns on (line breaks, other
+    whitespace `\\s` takes, `>`), plus the edges written out."""
+    edges = ["", ">", "\n", "\n>", ">\n", "  > a\n> b", "x\n\n\n  > q", "\n" * 50 + "x",
+             "a\r\n> b", "\x85> c", " \n> d", "> a\n\n> b\n", "x>y\n >", "\n\n"]
+    pieces = ["\n", " ", "\t", "\r", "\x0b", "\x0c", "\x85", " ", ">", "x", "> q", "ab"]
+    rng = random.Random(30)  # noqa: S311 -- a fixed-seed fuzz, not a secret
+    texts = edges + ["".join(rng.choice(pieces) for _ in range(rng.randint(1, 40)))
+                     for _ in range(3000)]
+    for text in texts:
+        assert _G._quote_line_spans(text) == [
+            m.span() for m in _G._QUOTE_LINE_RE.finditer(text)], repr(text)
+
+
+def test_b030_the_quote_line_scan_is_linear_on_a_newline_run():
+    q = "you are now x" + "\n" * 31986 + "x"
+    assert _elapsed_ms(_G._quote_line_spans, q) < _BOUNDED_MS

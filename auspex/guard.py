@@ -375,6 +375,33 @@ def _spans(text: str, pattern: re.Pattern[str]) -> list[tuple[int, int]]:
     return [m.span() for m in pattern.finditer(text)]
 
 
+# B-030 (B4): `_QUOTE_LINE_RE` is `^\s*>.*$` (MULTILINE), and `\s*` crosses line
+# breaks, so at every line start in a run of them it re-scanned to the run's end:
+# 2.9 s for a rule hit followed by 32,000 newlines. A match at a line start needs
+# the first non-whitespace character after it to be `>` (what `\s*` gives back on
+# backtracking is whitespace, never `>`), and it ends at that line's `\n`. Every
+# line start before that character sees the same one, so after a failure the scan
+# goes straight to the next line start past it. Same spans as `finditer`, by
+# Burhan's rule for this family (tests/test_guard.py fuzzes the two).
+_NON_SPACE_RE = re.compile(r"\S")
+
+
+def _quote_line_spans(text: str) -> list[tuple[int, int]]:
+    """`[m.span() for m in _QUOTE_LINE_RE.finditer(text)]`, in linear time."""
+    spans: list[tuple[int, int]] = []
+    pos, n = 0, len(text)
+    while pos <= n:  # `pos` is always a line start
+        first = _NON_SPACE_RE.search(text, pos)
+        if first is None:
+            break
+        line_end = text.find("\n", first.start())
+        line_end = n if line_end == -1 else line_end
+        if text[first.start()] == ">":
+            spans.append((pos, line_end))
+        pos = line_end + 1
+    return spans
+
+
 # B-029 (B3; Burhan's call, 2026-10-20: speed only, every span unchanged). Two
 # rules lead with a whitespace run: persona_override's `(?:^|[.!?]\s+|\n)\s*`
 # and role_marker_injection's `(?:^|\n)\s*`. `finditer` retried them at every
@@ -484,7 +511,7 @@ def inspect(message: str) -> GuardOutcome:
     # (2) Explicitly marked as material — fenced, quote-lined, or in quotes.
     fenced = (
         _spans(message, _FENCE_RE)
-        + _spans(message, _QUOTE_LINE_RE)
+        + _quote_line_spans(message)
         + _spans(message, _INLINE_QUOTE_RE)
     )
     if fenced and all(
