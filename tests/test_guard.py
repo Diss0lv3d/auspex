@@ -604,8 +604,9 @@ def test_b030_the_quote_line_scan_finds_what_finditer_finds():
     Seeded random texts built from what the rule turns on (line breaks, other
     whitespace `\\s` takes, `>`), plus the edges written out."""
     edges = ["", ">", "\n", "\n>", ">\n", "  > a\n> b", "x\n\n\n  > q", "\n" * 50 + "x",
-             "a\r\n> b", "\x85> c", " \n> d", "> a\n\n> b\n", "x>y\n >", "\n\n"]
-    pieces = ["\n", " ", "\t", "\r", "\x0b", "\x0c", "\x85", " ", ">", "x", "> q", "ab"]
+             "a\r\n> b", "\x85> c", "\u2028\n> d", "> a\n\n> b\n", "x>y\n >", "\n\n"]
+    pieces = ["\n", " ", "\t", "\r", "\x0b", "\x0c", "\x1c", "\x1f", "\x85", "\xa0", "\u2028",
+              "\u2029", "\u3000", "\u200b", ">", "x", "> q", "ab"]
     rng = random.Random(30)  # noqa: S311 -- a fixed-seed fuzz, not a secret
     texts = edges + ["".join(rng.choice(pieces) for _ in range(rng.randint(1, 40)))
                      for _ in range(3000)]
