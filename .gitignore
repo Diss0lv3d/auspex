@@ -15,3 +15,4 @@ docker-compose.override.yml
 
 # Connector builds (the examples build into their own dist/ too)
 examples/**/dist/
+.edge-dev/

@@ -68,4 +68,16 @@ assert not differing, f'installed copies differ from source: {differing}'
 print(f'installed dist == source tree ({len(list(source.rglob(\"*.py\")))} modules), app imports clean')
 "
 
+# S33 (D-062): the Edge Agent ships in its own image, with the SDK and the agent only.
+echo "== edge agent image: the agent and the SDK, nothing of the core =="
+docker compose --profile dev build edge
+docker compose --profile dev run --rm --no-deps --entrypoint python edge -c "
+import importlib.util as u
+import auspex.edge.agent, auspex_sdk.run
+absent = [m for m in ('auspex.db', 'auspex.app', 'auspex.connectors', 'auspex.edge_api')
+          if u.find_spec(m) is not None]
+assert not absent, f'core modules in the agent image: {absent}'
+print('edge image: auspex.edge and auspex_sdk import; the core is absent')
+"
+
 echo "CI green."
