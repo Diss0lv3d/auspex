@@ -316,3 +316,14 @@ async def test_a_compiled_role_refuses_a_workspace_that_does_not_own_the_integra
             await role(workspace_id=caller, proposal_id=str(uuid.uuid4()),
                        idempotency_key="k", alert_id="A-1")
     assert dispatch.calls == []
+
+
+async def test_connector_text_loses_control_zero_width_and_bidi_characters(manifest):
+    """PR #43 review #3: `_text` collapsed whitespace only, so a C0 control, a
+    zero-width space or a right-to-left override reached the approval card and the
+    model (hidden or reordered text). It now goes through `auspex.untrusted.flatten`."""
+    tricky = "close‮A-1​\x00 now⁦x"
+    dispatch = FakeDispatch({"connector.action.dry_run": _envelope(tricky)})
+    out = await _compile(manifest, dispatch).dry_run(workspace_id=WORKSPACE, alert_id="A-1")
+    for ch in ("‮", "​", "\x00", "⁦"):
+        assert ch not in out.would

@@ -36,6 +36,7 @@ from auspex.actions.types import (
     UndoSpec,
 )
 from auspex.connectors.jobs import CONNECTOR_KINDS, ConnectorJobPayload
+from auspex.untrusted import flatten
 
 # The integration prefix is the first half of the wire name `<prefix>__<action>`, capped
 # (MAX_PREFIX, from the SDK's vocab) so the whole name stays a valid tool name (spec
@@ -59,11 +60,11 @@ class ConnectorResultError(ValueError):
 
 
 def _text(value: str) -> str:
-    """One line, capped. A newline in customer text would read as structure to the model."""
-    line = " ".join(value.split())
-    if len(line) > MAX_DESCRIPTION:
-        line = line[: MAX_DESCRIPTION - 1].rstrip() + "…"
-    return line
+    """One line, capped. A newline in customer text would read as structure to the model,
+    and a control, zero-width or bidi character hides or reorders what a human approves:
+    `auspex.untrusted.flatten` folds all of them, as for every other untrusted field
+    (PR #43 review #3)."""
+    return flatten(value, MAX_DESCRIPTION)
 
 
 def _outcome(kind: str, result: Any) -> ActionOutcome:
