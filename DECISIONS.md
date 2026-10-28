@@ -2662,3 +2662,25 @@ informational, with `schema_version` as the compatibility gate.
   package; its compatibility is `schema_version`'s job.
 - A package registered before this change hashes as it did then; rebuilding
   it gives a new hash once, and so a new identity.
+
+## D-073 — S33's audit actions; an Edge Agent acts as `system`, naming itself (2026-10-28, S33)
+
+**Context.** TD-068: registering a connector wrote no audit event, because the
+audit action list is pinned (code and database) and adding one is a decision.
+S33 adds integrations and Edge Agents, which change what a workspace can run.
+
+**Decision (Hunaiza's session; Claude's call under her standing instruction).**
+- Seven actions join `audit_events_action_check` and `ACTIONS`:
+  `connector.registered`, `integration.created`, `integration.updated`,
+  `integration.disabled`, `edge_agent.created`, `edge_agent.enrolled`,
+  `edge_agent.revoked`.
+- Each is written in the same transaction as the change it records, in the
+  workspace the change belongs to.
+- `connector.registered` is written once, when a package row is inserted; a
+  same-hash re-register writes nothing. The actor is the registering person
+  (their home read under lock in that transaction) or the CLI (first-party).
+- An Edge Agent has no user: its own events are recorded with actor kind
+  `system` and `details.agent_id`. The actor kinds stay `user | cli | system`.
+
+**Bounds, stated.** An agent's events read as "system" in the audit list; the
+agent is named only in the details.
