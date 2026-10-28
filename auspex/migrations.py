@@ -731,7 +731,10 @@ S30_TENANCY: list[str] = [
             CHECK (action IN ('workspace.enter', 'membership.add', 'membership.role',
                               'membership.remove', 'membership.provider_wide',
                               'org.create', 'org.restricted', 'workspace.create',
-                              'person.rehome'));
+                              'person.rehome', 'connector.registered',
+                              'integration.created', 'integration.updated',
+                              'integration.disabled', 'edge_agent.created',
+                              'edge_agent.enrolled', 'edge_agent.revoked'));
     END $$
     """,
     # The one-time move, guarded on the old column like S16's watcher_id block:

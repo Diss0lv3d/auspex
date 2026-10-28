@@ -380,3 +380,24 @@ async def test_two_identical_uploads_asking_for_different_offers_never_merge_sil
         won = [r for r in results if not isinstance(r, BaseException)]
         assert len(won) == 1 and len(refused) == 1, results
         assert "offered_to_clients" in refused[0].reason
+
+
+async def test_a_registration_is_audited_in_its_workspace(world):
+    """TD-068 (S33 Task 1): `connector.registered` in the registering workspace, by the
+    registering person, once: a same-hash re-register writes nothing new."""
+    from auspex.tenancy.audit import list_events
+
+    pool, m = world
+    cid = fresh_id()
+    data = package(cid)
+    entry = await register(pool, workspace_id=m.direct_ws, data=data, registered_by=m.d_user,
+                           offered_to_clients=False)
+    await register(pool, workspace_id=m.direct_ws, data=data, registered_by=m.d_user,
+                   offered_to_clients=False)
+    events = [e for e in await list_events(pool, m.direct_ws)
+              if e["action"] == "connector.registered"]
+    assert len(events) == 1
+    assert events[0]["details"] == {"connector_id": cid, "version": "1.0.0",
+                                    "content_hash": entry.content_hash}
+    assert events[0]["actor"]["user_id"] == str(m.d_user)
+    assert events[0]["actor"]["organization"] == f"{PREFIX}-direct"

@@ -30,6 +30,7 @@ import asyncpg
 from auspex_sdk.package import PackageError, read_package
 
 from auspex.llm.scorecard import DEPLOYMENT_WORKSPACE
+from auspex.tenancy import audit
 
 Source = Literal["own", "provider", "first_party"]
 
@@ -157,14 +158,20 @@ async def register(
             # for it, and the read below sees its row. The savepoint keeps the outer
             # transaction usable when the id+version index fires instead.
             async with conn.transaction():
-                await conn.execute(
+                inserted = await conn.fetchval(
                     "INSERT INTO connector_packages (workspace_id, connector_id, version,"
                     " content_hash, manifest, package, first_party, offered_to_clients,"
                     " registered_by) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)"
-                    " ON CONFLICT (workspace_id, content_hash) DO NOTHING",
+                    " ON CONFLICT (workspace_id, content_hash) DO NOTHING RETURNING id",
                     workspace_id, manifest.id, manifest.version, content_hash,
                     manifest_json, data, first_party, offered_to_clients, registered_by,
                 )
+                if inserted is not None:  # TD-068: audited once, with the row
+                    await audit.record(
+                        conn, workspace_id=workspace_id, action="connector.registered",
+                        actor=await _actor(conn, registered_by),
+                        details={"connector_id": manifest.id, "version": manifest.version,
+                                 "content_hash": content_hash})
         except asyncpg.UniqueViolationError as err:
             # The id+version index: either this very package committed first (one entry),
             # or another hash under this version did (refused).
@@ -188,6 +195,17 @@ def _same_package(row: asyncpg.Record, manifest, offered_to_clients: bool) -> Ca
             " a re-upload does not change an offer"
         )
     return _entry(row, "own")
+
+
+async def _actor(conn: asyncpg.Connection, registered_by: UUID | None) -> audit.Actor:
+    """Who registered: the CLI (first-party), or a person stamped with the home their
+    row holds now, read under lock in this transaction (not a home read at the start
+    of the request, B-034's class)."""
+    if registered_by is None:
+        return audit.CLI
+    home = await conn.fetchval(
+        "SELECT home_org_id FROM users WHERE id = $1 FOR SHARE", registered_by)
+    return audit.person(registered_by, home)
 
 
 def _refuse_unstorable(value: Any) -> None:
