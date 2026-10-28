@@ -363,10 +363,15 @@ def parse_sse_line(line: str) -> list[StreamEvent]:
             events.append(StreamEvent(kind="content", text=delta["content"]))
         if thinking := _thinking(delta):  # thinking models stream it on its own field
             events.append(StreamEvent(kind="reasoning", text=thinking))
-        for tc in delta.get("tool_calls") or []:
-            events.append(
-                StreamEvent(kind="tool_call", tool_index=tc.get("index", 0), tool_delta=tc)
-            )
+        calls = delta.get("tool_calls")
+        for tc in calls if isinstance(calls, list) else []:
+            tc = _as_dict(tc)
+            index = tc.get("index", 0)
+            # B-017's class: `index` keys the fold's dict and is sorted at the end,
+            # so anything but an int (bool is not one) folds into call 0.
+            if not isinstance(index, int) or isinstance(index, bool):
+                index = 0
+            events.append(StreamEvent(kind="tool_call", tool_index=index, tool_delta=tc))
         if choices[0].get("finish_reason"):
             events.append(StreamEvent(kind="finish", finish_reason=choices[0]["finish_reason"]))
     usage = _usage_from(chunk)

@@ -690,4 +690,5 @@ async def test_a_malformed_tool_name_from_the_endpoint_is_an_unknown_tool_not_a_
     result = await _loop(reg, InMemoryProposalStore()).run(client, "Is 203.0.113.9 a threat?")
 
     assert result.stopped_reason == "final_answer"
-    assert result.executed == [] or all(i.status == "error" for i in result.executed)
+    errors = [i for i in result.invocations if i.status == "error"]
+    assert [i.name for i in errors] == ['["lookup_ip"]']

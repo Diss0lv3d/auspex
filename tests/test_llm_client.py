@@ -399,3 +399,25 @@ def test_a_tool_call_that_is_not_an_object_parses_as_an_empty_call(entry):
     body = {"choices": [{"message": {"tool_calls": [entry]}, "finish_reason": "tool_calls"}]}
     call = LLMClient.parse_completion(body).tool_calls[0]
     assert (call.name, call.arguments) == ("", "")
+
+
+@pytest.mark.parametrize("deltas", [
+    [{"tool_calls": "abc"}],
+    [{"tool_calls": [None, 1, "abc"]}],
+    [{"tool_calls": [{"index": [1], "function": {"name": "x"}}]}],
+    [{"tool_calls": [{"index": 0, "function": {"name": "a"}}]},
+     {"tool_calls": [{"index": None, "function": {"name": "b"}}]},
+     {"tool_calls": [{"index": "1", "function": {"name": "c"}}]}],
+], ids=["not-a-list", "not-objects", "list-index", "mixed-index"])
+async def test_a_streamed_tool_call_list_in_any_shape_never_crashes_the_fold(deltas):
+    """B-017's class, the streaming side (its review): the call list or a call's
+    `index` in a shape the wire does not promise is read, not raised on."""
+    lines = ["data: " + json.dumps({"choices": [{"delta": d}]}) for d in deltas]
+
+    async def events():
+        for line in lines:
+            for event in parse_sse_line(line):
+                yield event
+
+    result = await accumulate_stream(events())
+    assert all(isinstance(c.name, str) for c in result.tool_calls)
