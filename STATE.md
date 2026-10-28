@@ -1,6 +1,21 @@
 # STATE — Auspex
 
-_Last updated: 2026-10-28 — **B4 CLOSED** by Hunaiza (D-059, handed fully):
+_Last updated: 2026-10-28 — **PR #50's review answered on `b4-bugs`**
+(Burhan approved five of six; B-018 needed one more round). **B-018's third
+fix** (`2837720`) follows the URL standard: the authority ends at the first
+`/ ? # \`, the userinfo at its last `@`, and no host is taken from after it,
+so `http://evil.com:x/p?r=@google.com` keeps `evil.com`; TD-070 reworded (a
+password with an unencoded delimiter is a host and a path); a fresh
+adversarial review approved it. **B-017**: a numeric-string stream index is
+its number (`45314f8`). The dead `rsplit("@")` is gone. Logged: **B-036**
+(credentials outside http(s)), **B-037** (a membership removed mid sign-in),
+and from the re-fix's review **B-038** (`\` read with another host
+downstream) and **B-039** (a tab, newline or quote cuts a URL short). `./ci.sh`
+green: **2095 tests**. Pushed to the same PR #50 (no history rewritten);
+`staging` untouched, so it merges as a fast-forward. Burhan re-reviews and
+merges; S33 starts after.
+
+2026-10-28 — **B4 CLOSED** by Hunaiza (D-059, handed fully):
 all six bugs fixed, each with a fresh review (B-025 and B-030 adversarial):
 **B-018** (a URL's credentials dropped), **B-025** (a sign-in and a rehome
 cannot interleave), **B-017** (a malformed tool call is an unknown tool),
@@ -51,7 +66,7 @@ Promote #40 (`09af821`) is the last one._
 |---|---|---|---|---|
 | backend | `NEXT-SESSION-BE.md` | S32 (2026-10-27, Hunaiza; PR #43 merged 2026-10-28) | S33 | **focus** · **Hunaiza's, fully** (Burhan, 2026-10-28; D-059) · runs after B4's PR is merged · Step 0 fixes PR #43's review (#32) first; then integrations and the Edge Agent |
 | front end | `NEXT-SESSION-FE.md` | F4 (2026-10-16) | F5 | waits for S33 and S34 (the order table); F4 built the shell F5's admin pages stand on |
-| bugs | `NEXT-SESSION-BUGS.md` | B4 (2026-10-28, Hunaiza; its PR into `staging` awaits Burhan) | B5 | unscoped: Burhan picks from the open entries (B-033…B-035 new from B4) |
+| bugs | `NEXT-SESSION-BUGS.md` | B4 (2026-10-28, Hunaiza; its PR into `staging` awaits Burhan) | B5 | unscoped: Burhan picks from the open entries (B-033…B-039 new from B4) |
 
 - **B4 closed (2026-10-28) as a PR from `b4-bugs`.** The focus moves to
   S33, which starts only after Burhan merges B4's PR. GitHub #44–#49 are
@@ -224,6 +239,8 @@ a fresh agent; each review found something, all fixed or logged.
   Adversarial review: 0 differences on 300,000 texts.
 - **B-032** (`f837432`, `7e11b36`; #49): the run-led rules' text, flags and
   start sets pinned; the `{{system}}` mutant (and a flag mutant) now fail it.
+- **PR #50's review round** (Burhan): B-018 re-fixed by the URL standard
+  (`2837720`), B-017's numeric-string index (`45314f8`), B-036…B-039 logged.
 - **Logged from the reviews:** B-033 (a pasted credential in the stored
   message and pre-fix rows), B-034 (the membership API stamps a home read at
   the request's start), B-035 (a malformed reply envelope still crashes the
@@ -1668,7 +1685,7 @@ One window at a time (D-051).
   Step 0 fixes PR #43's review (#32), reads the S32 record and #31; then integrations, Edge Agent enrollment and
   "Test connection" end to end, and the promote S33 is a milestone for.
 - **B5, bugs** (`NEXT-SESSION-BUGS.md`) waits for Burhan to scope it from the
-  open entries, B4's new B-033…B-035 among them.
+  open entries, B4's new B-033…B-039 among them.
 - **F5, front end** (`NEXT-SESSION-FE.md`) starts only after S33 and S34
   close (the order table): connectors, integrations, Edge Agents, memberships
   and approval-policy admin, on F4's shell and Members page.
