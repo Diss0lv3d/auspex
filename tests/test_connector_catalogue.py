@@ -341,3 +341,23 @@ async def test_a_re_upload_that_changes_the_offer_is_refused_in_words(world, fir
     same = await register(pool, workspace_id=m.provider_ws, data=data,
                           registered_by=m.p_admin, offered_to_clients=first)
     assert same.offered_to_clients is first
+
+
+async def test_a_provider_offers_one_connector_id_from_one_workspace(world):
+    """PR #43 review #8 (reproduced): two workspaces of one provider each offered the
+    same id and version with different hashes, and every client listed both. An
+    offered id now comes from one of the provider's workspaces."""
+    pool, m = world
+    cid = fresh_id()
+    second = await make_workspace(pool, f"{PREFIX}-provider-2", m.provider)
+    await register(pool, workspace_id=m.provider_ws, data=package(cid),
+                   registered_by=m.p_admin, offered_to_clients=True)
+    with pytest.raises(RegistrationRefused, match="already offers"):
+        await register(pool, workspace_id=second, data=package(cid, body=b"# 2"),
+                       registered_by=m.p_admin, offered_to_clients=True)
+    # not offered, the second workspace may keep its own copy for itself
+    await register(pool, workspace_id=second, data=package(cid, body=b"# 2"),
+                   registered_by=m.p_admin, offered_to_clients=False)
+    listed = [e for e in await available(pool, workspace_id=m.client1_ws)
+              if e.connector_id == cid]
+    assert len(listed) == 1

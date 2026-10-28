@@ -146,6 +146,21 @@ async def register(
                 return _entry(same, "own")
             raise _bump(manifest.id, manifest.version)
         await _refuse_a_taken_id(conn, ws, manifest.id, first_party)
+        if offered_to_clients:
+            # Two workspaces offering at once would both pass the read below: the lock
+            # (per provider and id, released at commit) serialises them.
+            await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1))",
+                               f"connector-offer:{ws['org_id']}:{manifest.id}")
+        if offered_to_clients and await conn.fetchval(
+            "SELECT 1 FROM connector_packages cp JOIN workspaces pw ON pw.id = cp.workspace_id"
+            " WHERE pw.org_id = $1 AND cp.workspace_id <> $2 AND cp.offered_to_clients"
+            " AND cp.connector_id = $3",
+            ws["org_id"], workspace_id, manifest.id,
+        ):
+            # PR #43 review #8: an offered id comes from one of the provider's
+            # workspaces, or every client lists two packages under one name.
+            raise RegistrationRefused(
+                f"another workspace of this provider already offers {manifest.id}")
         try:
             # A concurrent registration of this very hash wins quietly: DO NOTHING waits
             # for it, and the read below sees its row. The savepoint keeps the outer
