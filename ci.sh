@@ -71,6 +71,9 @@ print(f'installed dist == source tree ({len(list(source.rglob(\"*.py\")))} modul
 # S33 (D-062): the Edge Agent ships in its own image, with the SDK and the agent only.
 echo "== edge agent image: the agent and the SDK, nothing of the core =="
 docker compose --profile dev build edge
+# The dev service mounts ./.edge-dev; made here, as this user, so docker never creates it
+# as root (which would lock the live check out of writing its token there).
+mkdir -p -m 700 .edge-dev
 docker compose --profile dev run --rm --no-deps --entrypoint python edge -c "
 import importlib.util as u
 import auspex.edge.agent, auspex_sdk.run
