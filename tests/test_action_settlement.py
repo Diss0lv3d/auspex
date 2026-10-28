@@ -2584,3 +2584,31 @@ async def test_b026_file_itself_refuses_an_undeclared_key(pool, spec, workspace_
                                             arguments=args, dry_run=dry)
     assert 0 == await pool.fetchval(
         "SELECT count(*) FROM proposals WHERE workspace_id = $1", workspace_id)
+
+
+async def test_an_undo_refuses_a_declaration_that_changed_since_the_approval(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """PR #43 review #5: only execute checked the fingerprint, so after a re-upload
+    under a new content hash the undo would run the NEW package's handler on the old
+    package's change. The undo refuses before its claim, and the run stays put back-able."""
+    import dataclasses
+
+    settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
+    pid = proposal["id"]
+    await settlement.settle(workspace_id=workspace_id, proposal_id=pid,
+                            decision="approved", decided_by=None)
+    await ActionExecutor(pool, registry).execute(workspace_id=workspace_id, proposal_id=pid)
+
+    changed = dataclasses.replace(spec, description=spec.description + " (re-uploaded)")
+    assert fingerprint(changed) != fingerprint(spec)
+    deployed = ActionRegistry()
+    deployed.register(changed)
+    with pytest.raises(ExecutionRefused) as err:
+        await ActionExecutor(pool, deployed).undo(workspace_id=workspace_id, proposal_id=pid)
+    assert err.value.reason == "spec_changed"
+    assert "undo" in str(err.value)
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert row["status"] == "executed"
+    assert 1 == await pool.fetchval(
+        "SELECT count(*) FROM observable_notes WHERE workspace_id = $1", workspace_id)

@@ -588,6 +588,45 @@ def action_proposer(pool: asyncpg.Pool):
     return propose
 
 
+def check_fingerprint(spec: ActionSpec, proposal: dict, *, step: str) -> None:
+    """The declaration about to run is the one the human approved. Execute and undo
+    both need it: an undo after a re-upload under a new content hash would run the
+    NEW package's handler on the OLD package's change, the case `ConnectorOrigin`
+    exists to stop (PR #43 review #5). `step` names what is refused."""
+    stored = proposal.get("spec_fingerprint")
+    if not stored:
+        raise ExecutionRefused(
+            "no_fingerprint",
+            "proposal carries no spec fingerprint, so what was approved cannot be "
+            "identified — refusing rather than assuming it is unchanged",
+        )
+    current = fingerprint(spec)
+    if stored != current:
+        # A mismatch alone cannot say WHY, and the two reasons want different
+        # words. If this same unchanged spec hashed to `stored` under an older
+        # FINGERPRINT_VERSION, the declaration never moved — we changed how we
+        # identify declarations. Saying "the action changed" there would be
+        # false, and an analyst who re-reads the card looking for the change
+        # would find nothing (S19 Step-0 review, angle 2).
+        older = matches_older_scheme(spec, stored)
+        if older is not None:
+            raise ExecutionRefused(
+                "fingerprint_scheme_changed",
+                f"{spec.name} itself is unchanged, but Auspex changed how it "
+                f"identifies declarations (v{older} → v{proposal_mod.FINGERPRINT_VERSION}) "
+                f"after this was approved — its {step} is refused until a "
+                "re-proposal carries an identity this version can verify",
+            )
+        raise ExecutionRefused(
+            "spec_changed",
+            f"{spec.name} has changed since it was approved "
+            f"({stored[:12]}… → {current[:12]}…) — its {step} would run a "
+            "declaration nobody approved"
+            + ("; re-propose it so a human approves what would actually run"
+               if step == "execute" else ""),
+        )
+
+
 def check_executable(spec: ActionSpec, proposal: dict) -> None:
     """Everything that must still be true at execute time. Raises, never returns
     a bool — a caller cannot forget to look at an exception.
@@ -613,36 +652,7 @@ def check_executable(spec: ActionSpec, proposal: dict) -> None:
             "approval — the proposal was filed under a different declaration",
         )
 
-    stored = proposal.get("spec_fingerprint")
-    if not stored:
-        raise ExecutionRefused(
-            "no_fingerprint",
-            "proposal carries no spec fingerprint, so what was approved cannot be "
-            "identified — refusing rather than assuming it is unchanged",
-        )
-    current = fingerprint(spec)
-    if stored != current:
-        # A mismatch alone cannot say WHY, and the two reasons want different
-        # words. If this same unchanged spec hashed to `stored` under an older
-        # FINGERPRINT_VERSION, the declaration never moved — we changed how we
-        # identify declarations. Saying "the action changed" there would be
-        # false, and an analyst who re-reads the card looking for the change
-        # would find nothing (S19 Step-0 review, angle 2).
-        older = matches_older_scheme(spec, stored)
-        if older is not None:
-            raise ExecutionRefused(
-                "fingerprint_scheme_changed",
-                f"{spec.name} itself is unchanged, but Auspex changed how it "
-                f"identifies declarations (v{older} → v{proposal_mod.FINGERPRINT_VERSION}) "
-                "after this was approved — re-propose it so the approval carries an "
-                "identity this version can verify",
-            )
-        raise ExecutionRefused(
-            "spec_changed",
-            f"{spec.name} has changed since it was approved "
-            f"({stored[:12]}… → {current[:12]}…) — re-propose it so a human "
-            "approves what would actually run",
-        )
+    check_fingerprint(spec, proposal, step="execute")
 
     outside = sorted({s.system for s in spec.scope} - EXECUTABLE_SYSTEMS)
     if outside:
@@ -968,6 +978,7 @@ class ActionExecutor:
                 f"{proposal['tool_name']} declares no undo — it cannot be put back",
             )
         _refuse_stored_undeclared(spec, proposal)  # B-026: before the claim, as execute
+        check_fingerprint(spec, proposal, step="undo")  # PR #43 review #5: before the claim
         # A fresh put-back starts with an empty answer: an earlier attempt's
         # result is not this attempt's (S26 review of D-041).
         claimed = await self._pool.fetchrow(
