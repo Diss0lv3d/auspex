@@ -2612,3 +2612,39 @@ async def test_an_undo_refuses_a_declaration_that_changed_since_the_approval(
     assert row["status"] == "executed"
     assert 1 == await pool.fetchval(
         "SELECT count(*) FROM observable_notes WHERE workspace_id = $1", workspace_id)
+
+
+async def test_a_handler_that_refused_before_dispatch_settles_as_failed_with_nothing_landed(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """Review of PR #43's fixes, I1: a connector role refusing the workspace raised
+    after the claim, so the run asked `observe`, which refused too, and the row read
+    "incomplete, effects unknown", a possible write in the very workspace the guard
+    protected. A `RefusedBeforeDispatch` is known to have sent nothing: `failed`,
+    effects `none`, without a look."""
+    import dataclasses
+
+    from auspex.actions.types import RefusedBeforeDispatch
+
+    looked = []
+
+    async def refuses(**_):
+        raise RefusedBeforeDispatch("not this workspace's integration")
+
+    async def look(**_):
+        looked.append(1)
+        return 0
+
+    guarded = dataclasses.replace(spec, execute=refuses, observe=look)
+    deployed = ActionRegistry()
+    deployed.register(guarded)
+    settlement, proposal = await _file(pool, deployed, guarded, workspace_id, an_observable)
+    pid = proposal["id"]
+    await settlement.settle(workspace_id=workspace_id, proposal_id=pid,
+                            decision="approved", decided_by=None)
+    with pytest.raises(RefusedBeforeDispatch):
+        await ActionExecutor(pool, deployed).execute(workspace_id=workspace_id, proposal_id=pid)
+    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
+    assert row["status"] == "failed"
+    assert row["result"]["effects"] == "none"
+    assert looked == []

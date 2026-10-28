@@ -42,7 +42,7 @@ import asyncpg
 from auspex.actions import proposal as proposal_mod
 from auspex.actions.proposal import card, fingerprint, matches_older_scheme
 from auspex.actions.registry import ActionRegistry
-from auspex.actions.types import ActionOutcome, ActionSpec
+from auspex.actions.types import ActionOutcome, ActionSpec, RefusedBeforeDispatch
 from auspex.agent.permissions import PermissionOutcome, gate
 from auspex.untrusted import flatten
 
@@ -811,7 +811,9 @@ class ActionExecutor:
             # TD-028b: a raise is not "nothing happened". The handler may have
             # written before it died, so ask the action what of THIS proposal's
             # exists. Only a look that found nothing earns `failed`.
-            effects = await _effects(spec, workspace_id, proposal_id, args)
+            # A refusal before dispatch sent nothing: no look, and nothing landed.
+            effects = ("none" if isinstance(exc, RefusedBeforeDispatch)
+                       else await _effects(spec, workspace_id, proposal_id, args))
             await self._finish_claim(
                 proposal_id,
                 token,

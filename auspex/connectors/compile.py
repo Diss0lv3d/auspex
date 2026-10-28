@@ -33,6 +33,7 @@ from auspex.actions.types import (
     ActionSpec,
     ConnectorOrigin,
     ParamType,
+    RefusedBeforeDispatch,
     UndoSpec,
 )
 from auspex.connectors.jobs import CONNECTOR_KINDS, ConnectorJobPayload
@@ -104,7 +105,7 @@ def _flatten(value: Any) -> Any:
     return value
 
 
-class WorkspaceMismatch(PermissionError):
+class WorkspaceMismatch(RefusedBeforeDispatch, PermissionError):
     """A compiled role was called for a workspace that does not own its integration
     (PR #43 review #2). Raised before anything is dispatched."""
 
