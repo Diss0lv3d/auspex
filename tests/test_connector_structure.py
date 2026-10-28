@@ -90,3 +90,33 @@ def test_the_shared_validators_import_only_the_manifest():
     assert sdk <= {"auspex_sdk.manifest"} | {f"auspex_sdk.manifest.{x}" for x in
                                              ("Action", "Manifest", "ManifestError",
                                               "check_fetch_item")}, sdk
+
+
+EDGE = CORE / "edge"
+
+
+def test_the_edge_agent_imports_nothing_of_the_core():
+    """S33 (D-062): the agent ships in its own image with the SDK only. It may import
+    `auspex_sdk` and `auspex.edge`, never the core's routes, database or settings."""
+    offences = {}
+    for path in _modules(EDGE):
+        tree = ast.parse(path.read_text(), filename=str(path))
+        bad = sorted(n for n in _imports(tree)
+                     if n.startswith("auspex") and not n.startswith(("auspex_sdk", "auspex.edge"))
+                     and n != "auspex")
+        if bad:
+            offences[str(path.relative_to(ROOT))] = bad
+    assert offences == {}
+
+
+def test_no_core_module_imports_the_edge_agent():
+    offences = {}
+    for path in _modules(CORE):
+        if EDGE in path.parents:
+            continue
+        tree = ast.parse(path.read_text(), filename=str(path))
+        bad = sorted(n for n in _imports(tree) if n == "auspex.edge" or
+                     n.startswith("auspex.edge.") and not n.startswith("auspex.edge_api"))
+        if bad:
+            offences[str(path.relative_to(ROOT))] = bad
+    assert offences == {}

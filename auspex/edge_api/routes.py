@@ -119,12 +119,13 @@ def _claimer(agent: AgentContext) -> str:
 
 
 @router.post("/claim")
-async def claim_job(request: Request, agent: AgentAuth) -> Response:
+async def claim_job(request: Request, agent: AgentAuth, wait: float | None = None) -> Response:
     """A long-poll: the next job of this agent's integrations, or 204 after at most
-    LONG_POLL_SECONDS. Scoped to the agent's one workspace and its own integrations,
-    so no other job is ever in reach (S31's `ClaimScope`)."""
+    `wait` seconds (capped at LONG_POLL_SECONDS). Scoped to the agent's one workspace and
+    its own integrations, so no other job is ever in reach (S31's `ClaimScope`)."""
     pool = request.app.state.pool
-    deadline = asyncio.get_running_loop().time() + LONG_POLL_SECONDS
+    bound = LONG_POLL_SECONDS if wait is None else max(0.0, min(wait, LONG_POLL_SECONDS))
+    deadline = asyncio.get_running_loop().time() + bound
     while True:
         integrations = await _integrations_of(pool, agent)
         if integrations:
