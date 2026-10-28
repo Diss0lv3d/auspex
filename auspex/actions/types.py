@@ -64,16 +64,20 @@ ActionHandler = Callable[..., Awaitable["ActionOutcome"]]
 # params). 0 means "looked, and nothing of this proposal's is there".
 EffectsProbe = Callable[..., Awaitable[int]]
 
-# The keywords the platform passes every handler (S31): an action parameter of
-# the same name would collide with them on the call.
 class RefusedBeforeDispatch(Exception):
     """A handler refused before it sent anything anywhere, so nothing of it can have
     landed. The settlement records that as `failed` with effects `none`, without asking
     `observe` (which would refuse for the same reason and read as "unknown"). Raised by
     a compiled connector role called for a workspace that does not own its integration
-    (review of PR #43's fixes, I1)."""
+    (review of PR #43's fixes, I1).
+
+    Raise it ONLY before any I/O: it is the platform's word that nothing happened, and
+    a handler that raises it after a write records a write as "nothing landed". Today
+    only compiled connector roles raise it."""
 
 
+# The keywords the platform passes every handler (S31): an action parameter of
+# the same name would collide with them on the call.
 PLATFORM_KEYWORDS = frozenset({"workspace_id", "proposal_id", "idempotency_key"})
 
 
