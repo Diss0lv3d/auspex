@@ -635,3 +635,20 @@ are never deleted.
 - **Path to fix:** decide whether a message is redacted before it is stored
   and sent (a product call), and a one-off scrub of old `observables` rows.
 - **Status:** open, not placed. Burhan's.
+
+## B-034 — a membership change stamps the actor's home read at the start of the request
+
+- **Found:** 2026-10-28, B4 (Claude), the fresh adversarial review of B-025's
+  fix. Same class as B-025, a different path; outside B4's scope.
+- **What happened (by reading, not reproduced):** `resolve_user`
+  (`auspex/auth.py:100`) reads the person's home in one statement and decides
+  access in another (`:103`); `auspex/routes/workspace.py:31` stamps that early
+  home on `membership.add`/`role`/`remove` events, and `_hold`
+  (`auspex/tenancy/admin.py:186-191`) re-checks access inside the write but
+  never re-reads the home. Three admin actions inside one request (remove,
+  rehome within the same provider family, re-add) stamp the old home.
+- **Impact:** stale attribution between a provider and its own client, not
+  another customer's name. Needs a re-read of the home `FOR SHARE` inside
+  `_hold`, used for the actor.
+- **Evidence:** the review of B-025's fix (B4); docs/probes/2026-10-28-b4-b025.md.
+- **Status:** open, not placed. Burhan's.
