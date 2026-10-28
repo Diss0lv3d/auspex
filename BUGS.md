@@ -344,7 +344,7 @@ are never deleted.
   (`auspex/llm/client.py:388-389`). The endpoint is the customer's, so its
   output is not trusted to be well-formed.
 - **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 15.
-- **Status:** fixed `59d9a7c`, `0d6f980` (B4): a tool call's id, name, arguments, index and list are read through `_wire_text`/`_as_dict` (auspex/llm/client.py), so a malformed call is an unknown tool. The wider envelope is B-035. Record: docs/probes/2026-10-28-b4-b017.md.
+- **Status:** fixed `59d9a7c`, `0d6f980`, `45314f8` (B4): a tool call's id, name, arguments, index and list are read through `_wire_text`/`_as_dict` (auspex/llm/client.py), so a malformed call is an unknown tool. The wider envelope is B-035. Record: docs/probes/2026-10-28-b4-b017.md.
 
 ## B-018 — a URL pasted with credentials keeps them, and they are sent to a provider and stored
 
@@ -355,7 +355,7 @@ are never deleted.
   a pasted artefact are exactly what the org's data-handling rules say never to
   echo or store. The model cannot invent one (D-039).
 - **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 16.
-- **Status:** fixed `d78bc43`, `42ffd65` (B4): the userinfo is dropped by text before the URL is parsed (`_drop_userinfo`, auspex/classify/observables.py). Its limit is TD-070; the stored message and pre-fix rows are B-033. Record: docs/probes/2026-10-28-b4-b018.md.
+- **Status:** fixed `d78bc43`, `42ffd65`, `2837720` (B4): the userinfo is dropped by text before the URL is parsed, following the URL standard: the authority ends at the first `/ ? # \`, the userinfo at its last `@`, and no host is taken from after it (`_drop_userinfo`, auspex/classify/observables.py; Burhan's review of PR #50). Its limit is TD-070; the stored message and pre-fix rows are B-033. Record: docs/probes/2026-10-28-b4-b018.md.
 
 ## B-019 — a call refused for budget reads as a real search on the page and in the turn log
 
