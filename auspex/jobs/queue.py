@@ -243,6 +243,22 @@ async def claim(pool: asyncpg.Pool, scope: ClaimScope, *, claimer: str) -> Job |
     return Job.from_row(row) if row is not None else None
 
 
+async def extend_leases(pool: asyncpg.Pool, *, claimer: str) -> int:
+    """Renew every lease `claimer` holds by its job's own lease length (TD-064): an Edge
+    Agent's heartbeat keeps a long command's job from being reclaimed. Only that
+    claimer's rows move. Returns how many."""
+    return await pool.fetchval(
+        """
+        WITH moved AS (
+            UPDATE jobs SET lease_expires_at = now() + make_interval(secs => lease_seconds)
+             WHERE status = 'claimed' AND claimed_by = $1 AND lease_expires_at >= now()
+            RETURNING 1
+        ) SELECT count(*) FROM moved
+        """,
+        claimer,
+    )
+
+
 async def complete(pool: asyncpg.Pool, job_id: UUID, token: UUID, result: dict) -> None:
     """Record a job's answer, only for the claim that still holds it."""
     done = await pool.fetchval(
