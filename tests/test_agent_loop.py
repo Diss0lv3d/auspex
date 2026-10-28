@@ -673,3 +673,21 @@ async def test_a_call_with_an_undeclared_argument_comes_back_as_an_error_naming_
     assert call.status == "error" and call.proposal_id is None
     assert "idempotency_key" in call.feedback["error"]
     assert call.feedback["error"].startswith("not proposed: ")
+
+
+async def test_a_malformed_tool_name_from_the_endpoint_is_an_unknown_tool_not_a_crash():
+    """B-017: the endpoint's raw body, through the real parser, then the loop. The
+    turn survives; the model hears the call was not a tool, and answers."""
+    from pathlib import Path
+
+    from auspex.llm.client import LLMClient
+
+    raw = json.loads((Path(__file__).parent / "fixtures" / "llm"
+                      / "b017_malformed_tool_calls.json").read_text())["completion"]
+    reg, _ = _make_registry()
+    client = FakeLLMClient([LLMClient.parse_completion(raw),
+                            ChatResult(content="Answered without it.", finish_reason="stop")])
+    result = await _loop(reg, InMemoryProposalStore()).run(client, "Is 203.0.113.9 a threat?")
+
+    assert result.stopped_reason == "final_answer"
+    assert result.executed == [] or all(i.status == "error" for i in result.executed)

@@ -365,3 +365,37 @@ def test_the_provider_error_code_is_kept_for_the_log():
                          '{"error": {"code": "1302", "message": "rate limit for glm"}}')
 
     assert (err.status, err.code) == (429, "1302")
+
+
+def _b017() -> dict:
+    path = Path(__file__).parent / "fixtures" / "llm" / "b017_malformed_tool_calls.json"
+    return json.loads(path.read_text())
+
+
+def test_a_non_string_tool_name_parses_as_text_not_a_crash():
+    """B-017: the endpoint is the customer's; a list where a name belongs becomes its
+    JSON text, which no tool is called, so the loop answers "unknown tool"."""
+    call = LLMClient.parse_completion(_b017()["completion"]).tool_calls[0]
+    assert call.name == '["lookup_ip"]'
+    assert isinstance(call.arguments, str)
+
+
+async def test_a_streamed_tool_call_with_object_fields_parses_as_text():
+    """B-017: an object-valued `arguments` (and a numeric id) once raised in the fold."""
+    line = "data: " + json.dumps(_b017()["stream_chunk"])
+
+    async def events():
+        for event in parse_sse_line(line):
+            yield event
+
+    call = (await accumulate_stream(events())).tool_calls[0]
+    assert (call.id, call.name) == ("7", '["lookup_ip"]')
+    assert json.loads(call.arguments) == {"ip": "203.0.113.9"}
+
+
+@pytest.mark.parametrize("entry", ["lookup_ip", {"id": "c1", "function": "lookup_ip"}, None])
+def test_a_tool_call_that_is_not_an_object_parses_as_an_empty_call(entry):
+    """B-017's class: the call, or its `function`, is not an object at all."""
+    body = {"choices": [{"message": {"tool_calls": [entry]}, "finish_reason": "tool_calls"}]}
+    call = LLMClient.parse_completion(body).tool_calls[0]
+    assert (call.name, call.arguments) == ("", "")
