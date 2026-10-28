@@ -639,14 +639,32 @@ _B032_PINNED = {
 }
 
 
+_B032_START_SETS = {
+    "persona_override": (r"[.!?\n]", ".!?"),
+    "role_marker_injection": (r"[<\[\n]", ""),
+}
+_B032_WHAT_TO_DO = (
+    "First update _RUN_LED['{label}'] in auspex/guard.py: every character a match "
+    "can begin with must be in its start set, or the scan never tries it and "
+    "inspect() answers CLEAN (B-032). Then add that character to _B029_PIECES in "
+    "tests/test_guard.py so the differential test exercises it, and only then "
+    "update the pins here."
+)
+
+
 def test_b032_the_run_led_rules_are_pinned_until_run_led_is_updated():
     live = dict(_G._INJECTION_PATTERNS)
-    assert set(_B032_PINNED) == set(_G._RUN_LED), "a run-led rule was added or removed"
+    assert set(_B032_PINNED) == set(_G._RUN_LED), (
+        "_RUN_LED's rules changed: pin each run-led rule's text, flags and start set "
+        "here, and keep every label in _RUN_LED equal to one in _INJECTION_PATTERNS.")
     for label, pinned in _B032_PINNED.items():
-        assert live[label].pattern == pinned, (
-            f"{label}'s regex changed. Before updating this pin, update "
-            f"_RUN_LED['{label}'] in auspex/guard.py: every character a match can "
-            "begin with must be in its start set, or the scan never tries it and "
-            "inspect() answers CLEAN (B-032). Then add that character to "
-            "_B029_PIECES so the differential test exercises it."
-        )
+        assert label in live, f"{label} is in _RUN_LED but no longer a rule (renamed?)"
+        what = _B032_WHAT_TO_DO.format(label=label)
+        # The flags too: MULTILINE or VERBOSE change a match with the text unchanged.
+        assert live[label].pattern == pinned, f"{label}'s regex changed. {what}"
+        assert live[label].flags == re.compile(pinned, re.IGNORECASE).flags, (
+            f"{label}'s flags changed. {what}")
+        start, lead = _G._RUN_LED[label]
+        assert (start.pattern, lead) == _B032_START_SETS[label], (
+            f"_RUN_LED['{label}'] changed: check it against the rule, then update "
+            "_B032_START_SETS.")
