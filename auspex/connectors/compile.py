@@ -85,19 +85,20 @@ def _outcome(kind: str, result: Any) -> ActionOutcome:
         raise ConnectorResultError(f"{kind}: detail must be an object")
     return ActionOutcome(
         would=_text(would),
-        affects=tuple(affects),
+        affects=tuple(_text(a) for a in affects),
         reversible=result["reversible"],
         detail=_flatten(result["detail"]),
     )
 
 
 def _flatten(value: Any) -> Any:
-    """Every string in a result's `detail`, one line and capped like `would`: it reaches
-    the approval card and the model, so connector text gets no structure of its own."""
+    """Every string in a result's `detail`, keys included, one line and capped like
+    `would`: it reaches the approval card and the model, so connector text gets no
+    structure of its own (PR #43 review #4)."""
     if isinstance(value, str):
         return _text(value)
     if isinstance(value, dict):
-        return {k: _flatten(v) for k, v in value.items()}
+        return {_flatten(k): _flatten(v) for k, v in value.items()}
     if isinstance(value, list):
         return [_flatten(v) for v in value]
     return value
