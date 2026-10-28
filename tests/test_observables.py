@@ -169,12 +169,17 @@ def test_url_with_ip_host_suppresses_separate_ip():
     assert [o for o in result if o.type is ObservableType.IPV4] == []
 
 
-def _b018_inputs() -> list[dict]:
+def _b018(key: str) -> list[dict]:
     import json
     from pathlib import Path
 
     path = Path(__file__).parent / "fixtures" / "classify" / "b018_url_credentials.json"
-    return json.loads(path.read_text())["inputs"]
+    data = json.loads(path.read_text())
+    return data["standard_limit"]["inputs"] if key == "standard_limit" else data[key]
+
+
+def _b018_inputs() -> list[dict]:
+    return _b018("inputs")
 
 
 @pytest.mark.parametrize("case", _b018_inputs(), ids=lambda c: c["url"])
@@ -185,6 +190,20 @@ def test_a_urls_credentials_are_dropped_before_it_is_an_observable(case):
     assert url.value == case["url"]
     assert "PLACEHOLDER" not in url.value
     assert url.obs_id == observable_id(ObservableType.URL, case["url"])
+
+
+@pytest.mark.parametrize("case", _b018("host_unchanged"), ids=lambda c: c["text"])
+def test_b018_the_host_is_never_taken_from_after_the_authority(case):
+    """Burhan's review of PR #50: text after the first `/ ? #` or `\\` is chosen by
+    whoever wrote the link, so an `@` there never moves the host (the lookup and
+    the verdict would land on a domain the link never reaches)."""
+    assert _one(case["text"], ObservableType.URL).value == case["url"]
+
+
+@pytest.mark.parametrize("case", _b018("standard_limit"), ids=lambda c: c["text"])
+def test_b018_a_password_holding_a_delimiter_parses_by_the_standard(case):
+    """TD-070: by the URL standard `http://u:p/w@host/` is host `u` with a path."""
+    assert _one(case["text"], ObservableType.URL).value == case["url"]
 
 
 def test_hash_inside_url_is_still_extracted():

@@ -1,19 +1,22 @@
 # Technical debt — logged the moment it's taken
 
-## TD-070 (B4) — a password that looks like a host keeps its credential when it holds an unencoded / ? #
+## TD-070 (B4) — a password holding an unencoded / ? # or \ is read as a host and a path, by the URL standard
 
-**Where:** `auspex/classify/observables.py` (`_drop_userinfo`, `_PORT_RE`).
-**Risk:** LOW. B-018's fix drops `user:pass@` whatever the parser does, and
-a password holding `/`, `?` or `#` unencoded is dropped too, except when the
-text before that character is itself a valid host and port:
-`http://u:123/x@evil.com/` and `http://bob/x@evil.com/` keep it. Text alone
-cannot tell those from `http://evil.com/u/@handle`, a real path. A credential
-inside a nested URL in a query string (`?next=http://u:p@x/`) is also kept
-(B-033's class).
-**Why taken:** the ambiguity is in the input; refusing every `@` after a
-path would eat real indicators.
-**Path to fix:** treat such a URL as two candidates and keep the one whose
-host resolves to an allowlisted TLD, or ask the analyst.
+**Where:** `auspex/classify/observables.py` (`_drop_userinfo`).
+**Risk:** LOW. B-018's fix follows the URL standard (Burhan's call, review of
+PR #50): for http(s) the authority ends at the first `/`, `?`, `#` or `\`, and
+the userinfo is everything up to the last `@` inside it. So
+`http://u:p@ss/word@host.com/` *is* host `ss` with a path, and
+`http://u:PLACEHOLDER/PW@evil.com/` keeps `u:placeholder` as its host: a
+password pasted with an unencoded delimiter stays in the value, exactly as a
+browser would read the link. A credential inside a nested URL in a query string
+(`?next=http://u:p@x/`) is also kept (B-033's class).
+**Why taken:** the alternative, taking the host from after the authority, lets
+whoever wrote the link choose the host the lookup and verdict land on
+(`http://evil.com:x/p?r=@google.com` read as `google.com`), which is worse than
+the leak.
+**Path to fix:** none in the parser; a pasted-credential scrub of message text
+(B-033) is where such a password could still be caught.
 **Trigger:** a credential seen in a stored `observables` value.
 
 ## TD-069 (S32) — a build packages key and credential files that do not start with a dot

@@ -291,28 +291,25 @@ class _Spans:
                        *zip(other._starts, other._ends, strict=True)])
 
 
-_PORT_RE = re.compile(r"\[[^\]]*\](:\d*)?|[^:]*(:\d*)?")
-
-
 def _drop_userinfo(raw: str) -> str:
     """`raw` with any `user:pass@` removed, by text alone, so a URL `urlsplit`
     refuses still loses it (B-018).
 
-    The authority ends at the first `/`, `?` or `#`; an `@` inside it ends the
-    userinfo. A password may itself hold `/`, `?` or `#` (pasted unencoded): an
-    authority that is not a host and an optional numeric port, followed later
-    by an `@`, is userinfo up to that `@`. An `@` after a real host is path or
-    query, and stays.
+    By the URL standard, for http(s) the authority ends at the first `/`, `?`,
+    `#` or `\\` (a browser reads `\\` as `/`), and the userinfo is everything up
+    to the LAST `@` inside it. The host is never taken from text after the
+    authority: that text is chosen by whoever wrote the link, and an `@` there
+    would move the lookup and the verdict to a host the link never reaches
+    (Burhan's review of PR #50). A password holding an unencoded `/ ? #` is
+    therefore a host and a path, as a browser reads it: TD-070.
     """
     scheme, sep, rest = raw.partition("://")
     if not sep:
         return raw
-    end = min((i for i in (rest.find(c) for c in "/?#") if i >= 0), default=len(rest))
+    end = min((i for i in (rest.find(c) for c in "/?#\\") if i >= 0), default=len(rest))
     authority = rest[:end]
     if "@" in authority:
         return f"{scheme}://{rest[authority.rindex('@') + 1:]}"
-    if "@" in rest[end:] and not _PORT_RE.fullmatch(authority):
-        return f"{scheme}://{rest[rest.index('@', end) + 1:]}"
     return raw
 
 
@@ -321,13 +318,13 @@ def _normalize_url(raw: str) -> str:
 
     B-018: the value is looked up at URLhaus and stored in `observables`, so a
     pasted `user:pass@` must never reach it. The URL without it is the same
-    indicator.
+    indicator. `_drop_userinfo` alone owns that rule.
     """
     raw = _drop_userinfo(raw)
     try:
         parts = urlsplit(raw)
-        netloc = parts.netloc.rsplit("@", 1)[-1].lower()
-        return urlunsplit((parts.scheme.lower(), netloc, parts.path, parts.query, parts.fragment))
+        return urlunsplit(
+            (parts.scheme.lower(), parts.netloc.lower(), parts.path, parts.query, parts.fragment))
     except ValueError:
         return raw
 
