@@ -479,11 +479,13 @@ def test_b010_each_rule_matches_exactly_what_it_matched_before():
 # -- B-027: the overlap checks are O(log spans), and find what they found -------
 # Every span set `extract` checks against is disjoint, so a sorted index answers
 # "does this match overlap one?" by bisection. Before, each check walked every span,
-# so 4x the matches cost 8-14x the time (about a second for 4,571 emails); now 4x
-# costs 2.4-4.6x (docs/probes/2026-10-28-b4-b027.md). Growth, not a wall-clock bound,
-# is what is pinned: the linear rest of the pass (refang, building observables) is
-# not this bug's, and a slow runner scales both sizes alike.
-B027_MAX_GROWTH = 6.5
+# about a second for 4,571 emails (docs/probes/2026-10-28-b4-b027.md). Growth, not
+# a wall-clock bound, is what is pinned: the linear rest of the pass (refang,
+# building observables) is not this bug's, and a slow runner scales both sizes
+# alike. 8x the matches, in CPU time (best of 3), so a busy runner does not flake
+# it (the review measured 9-15x wall-clock under heavy load at 4x): the index grows
+# 8.0-8.7x, the old walk 21-37x on these inputs, and the bound sits between.
+B027_MAX_GROWTH = 14
 B027_INPUTS = {
     "emails": ("a@b.co ", 4571),
     "url+ip": ("http://a 1.2.3.4 ", 1882),
@@ -491,12 +493,57 @@ B027_INPUTS = {
 }
 
 
+def _cpu_ms(fn, arg) -> float:
+    import time
+
+    best = float("inf")
+    for _ in range(3):
+        start = time.process_time()
+        fn(arg)
+        best = min(best, (time.process_time() - start) * 1000)
+    return max(best, 0.5)  # process_time's tick on some platforms
+
+
 @pytest.mark.parametrize("name", sorted(B027_INPUTS))
 def test_b027_extract_grows_linearly_in_its_matches(name):
     unit, repeat = B027_INPUTS[name]
     assert len(unit * repeat) <= 32_000
-    growth = _elapsed_ms(extract, unit * repeat) / _elapsed_ms(extract, unit * (repeat // 4))
-    assert growth < B027_MAX_GROWTH, f"{name}: 4x the input took {growth:.1f}x the time"
+    growth = _cpu_ms(extract, unit * repeat) / _cpu_ms(extract, unit * (repeat // 8))
+    assert growth < B027_MAX_GROWTH, f"{name}: 8x the input took {growth:.1f}x the time"
+
+
+def test_b027_the_index_answers_each_boundary_as_the_walk_does():
+    """The index on its own, against the walk: touching spans are not overlaps,
+    one shared character is, and an out-of-order `add` keeps it sorted."""
+    from auspex.classify.observables import _Spans
+
+    index, walk = _Spans(), _NaiveSpans()
+    for span in [(10, 15), (0, 5), (20, 30), (5, 8)]:  # out of order, (5, 8) touches
+        index.add(*span)
+        walk.add(*span)
+    for query in [(5, 10), (8, 10), (15, 20), (30, 40), (4, 5), (14, 16), (19, 21),
+                  (29, 30), (0, 1), (7, 9), (9, 10), (-5, 0), (8, 9), (16, 19)]:
+        assert index.overlaps(*query) == walk.overlaps(*query), query
+    merged = index + _Spans([(40, 50), (35, 36)])
+    assert merged.overlaps(35, 36) and merged.overlaps(49, 60) and not merged.overlaps(36, 40)
+
+
+def test_b027_the_index_matches_the_walk_on_shuffled_disjoint_spans():
+    from auspex.classify.observables import _Spans
+
+    rng = random.Random(2027)  # noqa: S311 -- a fixed-seed fuzz, not a secret
+    for _ in range(300):
+        cuts = sorted(rng.sample(range(200), rng.randint(2, 40)))
+        spans = [(cuts[i], cuts[i + 1]) for i in range(0, len(cuts) - 1, 2)]
+        rng.shuffle(spans)
+        index, walk = _Spans(), _NaiveSpans()
+        for span in spans:
+            index.add(*span)
+            walk.add(*span)
+        for _ in range(60):
+            start = rng.randint(-2, 201)
+            query = (start, start + rng.randint(1, 12))
+            assert index.overlaps(*query) == walk.overlaps(*query), (spans, query)
 
 
 class _NaiveSpans:
@@ -522,7 +569,9 @@ def test_b027_the_index_finds_exactly_what_the_walk_found(monkeypatch):
 
     pieces = ["a@b.co", "http://a", "http://u@x.co/p", "1.2.3.4", "b.co", "evil.com",
               "::1", "fe80::1", "d41d8cd98f00b204e9800998ecf8427e", "CVE-2024-1234",
-              "x@evil[.]com", "hxxp://y.io/z", "a" * 64, "0" * 40, " ", "\n", ".", "@"]
+              "x@evil[.]com", "hxxp://y.io/z", "a" * 64, "0" * 40, " ", "\n", ".", "@",
+              "http://[::1]:80/", "::ffff:1.2.3.4", "http://a@b.co",
+              "http://h.io/d41d8cd98f00b204e9800998ecf8427e", "http://[fe80::1]/x"]
     rng = random.Random(27)  # noqa: S311 -- a fixed-seed fuzz, not a secret
     texts = ["".join(rng.choice(pieces) for _ in range(rng.randint(1, 60)))
              for _ in range(400)]
