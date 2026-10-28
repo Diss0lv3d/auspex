@@ -704,3 +704,21 @@ are never deleted.
   authenticated request succeeds.
 - **Evidence:** Burhan's comment on PR #50; docs/probes/2026-10-28-b4-b025.md.
 - **Status:** open, not placed. Burhan's.
+
+## B-038 — a URL with `\` before an `@` is read with a different host downstream than a browser uses
+
+- **Found:** 2026-10-28, B4 (Claude), the fresh review of B-018's third fix.
+  Already true on `staging` (the value is kept as is there too).
+- **What happened (executed by the review):** for http(s) a browser reads `\`
+  as `/`, so `http://10.0.0.5\@evil.com/x` goes to `10.0.0.5`. The extracted
+  value keeps that text, and `auspex/enrich/filters.py:31` and
+  `auspex/phishing/victims.py:30` take its host with `urlsplit(...).hostname`,
+  which does not treat `\` as a delimiter and answers `evil.com`. So an
+  internal URL skips `INTERNAL_URL_SKIP` and is sent to URLhaus. Separately,
+  `_normalize_url` lowercases the whole netloc, which with `\` runs into what
+  a browser reads as path.
+- **Path to fix:** one host-of-URL helper that follows WHATWG for every
+  consumer, or canonicalise `\` to `/` in a URL's scheme and authority in
+  `_normalize_url`.
+- **Evidence:** the review of B-018's third fix (B4).
+- **Status:** open, not placed. Burhan's.
