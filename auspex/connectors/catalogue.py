@@ -126,6 +126,15 @@ async def register(
             )
         same = await _by_hash(conn, workspace_id, content_hash)
         if same is not None:
+            # PR #43 review #7: the same package asking for another offer is refused in
+            # words, never dropped: a plain re-upload sends `false`, so honouring it
+            # would quietly withdraw an offer every client relies on.
+            if same["offered_to_clients"] != offered_to_clients:
+                raise RegistrationRefused(
+                    f"{manifest.id} {manifest.version} is already registered here with"
+                    f" offered_to_clients={str(same['offered_to_clients']).lower()};"
+                    " a re-upload does not change an offer"
+                )
             return _entry(same, "own")
         if await conn.fetchval(
             "SELECT 1 FROM connector_packages"

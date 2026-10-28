@@ -322,3 +322,22 @@ async def test_a_manifest_postgres_cannot_store_is_refused_in_words(world, escap
     with pytest.raises(RegistrationRefused, match="cannot be stored"):
         await register(pool, workspace_id=m.direct_ws, data=data, registered_by=m.d_user,
                        offered_to_clients=False)
+
+
+@pytest.mark.parametrize("first,again", [(False, True), (True, False)],
+                         ids=["offer-on-re-upload", "withdraw-on-re-upload"])
+async def test_a_re_upload_that_changes_the_offer_is_refused_in_words(world, first, again):
+    """PR #43 review #7 (reproduced): the same hash came back with its stored
+    `offered_to_clients` and a 201, so asking to offer, or to withdraw, was dropped
+    without a word. Refused instead: a plain re-upload sends `false`, so honouring it
+    would quietly withdraw an offer every client relies on (S33 ruling)."""
+    pool, m = world
+    data = package(fresh_id())
+    await register(pool, workspace_id=m.provider_ws, data=data, registered_by=m.p_admin,
+                   offered_to_clients=first)
+    with pytest.raises(RegistrationRefused, match="offered_to_clients"):
+        await register(pool, workspace_id=m.provider_ws, data=data,
+                       registered_by=m.p_admin, offered_to_clients=again)
+    same = await register(pool, workspace_id=m.provider_ws, data=data,
+                          registered_by=m.p_admin, offered_to_clients=first)
+    assert same.offered_to_clients is first
