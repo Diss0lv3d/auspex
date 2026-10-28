@@ -1,113 +1,82 @@
-# NEXT-SESSION-BE — track: backend · session: S33
+# NEXT-SESSION-BE — track: backend · session: S34
 
 _Paste everything below the first line of dashes into a fresh Claude Code
-window opened in the Auspex repo. **S33 builds integrations and the Edge
-Agent, with "Test connection" running end to end (D-062, D-063).** S32 closed
-2026-10-27 (Hunaiza, handed fully under D-059): the connector contract, the SDK,
-the catalogue, B-026 fixed and D-071. Its PR #43 was merged 2026-10-28 (a
-fast-forward to `4cd5132`) after Burhan's review, whose ten findings S33
-fixes first. **S33 is handed to Hunaiza (Burhan, 2026-10-28; D-059): she owns
-it fully. It runs after B4**, which is hers too (`NEXT-SESSION-BUGS.md`)._
+window opened in the Auspex repo. **S34 makes connector actions run through
+approvals, with each client's approval policy, and offers them to the
+co-analyst.** S33 closed 2026-10-28 (Hunaiza, handed fully under D-059):
+integrations, Edge Agents and "Test connection" end to end, PR #43's review
+fixed, D-072 and D-073. It reaches `staging` as one PR from `s33-edge-agent`,
+which Burhan reviews and merges. **Whose S34 is, is Burhan's to say.**_
 
-_Below the S33 prompt is the **backend plan for the whole phase, S29–S41**.
+_Below the S34 prompt is the **backend plan for the whole phase, S29–S41**.
 **`/session-end` writes the next session's prompt from its entry in the plan,
 keeps the plan section, and ticks the session it closed.** A change to the
 plan's order is Burhan's call._
 
 ---
 
-SESSION S33 of Auspex, **backend track** (D-051). The working dir is the
-Auspex repo. Run `/session-start be S33` first (the full ritual). It reads
+SESSION S34 of Auspex, **backend track** (D-051). The working dir is the
+Auspex repo. Run `/session-start be S34` first (the full ritual). It reads
 `SESSION-RULES.md` and STATE.md.
-
-**The handoff (D-059).** Burhan handed S33 to Hunaiza (`HunaizaK`, on
-SESSION-RULES.md's "Who works here" table). She works on her own machine, in
-her own clone, under her own personal identity. **She owns S33 fully: every
-call, new D-entries and `/promote` included** (Burhan, 2026-10-28). Wherever
-this prompt, a rule or a command says "Burhan's call", "ask Burhan" or
-"brainstorm with Burhan", ask her. Re-scoping another track, or the plan's
-order, stays Burhan's: say so, and she passes it on. One session at a time
-spans both machines: Burhan runs no session while S33 runs.
 
 Step 0 (do BEFORE new scope):
 
-1. **B4 must be closed and merged first** (order table row 5b). B4 runs on
-   Hunaiza's machine and closes as a PR into `staging`, which Burhan merges.
-   `git fetch` and `git pull --ff-only origin staging`, then confirm STATE.md
-   says B4 closed and BUGS.md marks B-018, B-025, B-017, B-027, B-030 and
-   B-032 `fixed <commit> (B4)`. If B4's PR is not merged, stop: wrong window.
-   One session at a time spans both machines (D-051, D-059).
-2. **Fix PR #43's review before any S33 code**
-   (docs/probes/2026-10-28-pr43-review.md; Burhan, 2026-10-28). Ten findings
-   on S32's code. None can run yet, because S33's dispatch is what makes a
-   connector action run, so all ten are fixed before any dispatch code, and
-   before S33's promote. That record says how: a test that fails first, one
-   commit per finding, and 6, 7, 8 and 10 reproduced before fixing. Finding 10
-   is a design call, and a D-entry if it changes D-064's hash.
-3. **Read what S32 left you, before any code:**
-   - docs/superpowers/records/2026-10-27-s32-record.md (every call S32 made,
-     and §6, what S33 must pick up);
-   - STATE.md follow-up #31 (S32's open ends) and #30 (S31's: TD-064's lease
-     extension is S33's heartbeats);
-   - D-062, D-063, D-064 and D-071, and the integration-phase spec's sections
-     on integrations and the Edge Agent
-     (docs/superpowers/specs/2026-10-15-integration-phase-design.md).
-4. **If Burhan has given the QRadar's address**, run the reachability, TLS
-   and unauthenticated-API probes into
-   docs/probes/2026-10-14-qradar-reachability.md before any agent code.
+1. **S33's PR must be merged first.** `git fetch` and `git pull --ff-only
+   origin staging`, then confirm `auspex/edge/`, `auspex/edge_api/` and
+   `auspex/integrations/` exist and STATE.md says S33 closed. If the PR is not
+   merged, stop: wrong window. One session at a time (D-051, D-059).
+2. **Promote.** S33 is the plan's promote milestone, and the slate holds S32,
+   B4 and S33 (STATE.md #1): `/promote` it, after reading the diff
+   (`git diff origin/main..staging --stat`), not the commit list.
+3. **Owed from S33** (STATE.md #33): the S33 build's tenancy and agent-auth
+   review was a self-review (no helper agents that session). Run a fresh-agent
+   adversarial review of S33's edge API, agent and integrations before any
+   S34 code, and fix what it finds test-first.
+4. **Read what S33 left you, before any code:**
+   docs/superpowers/records/2026-10-28-s33-record.md (§6, what S34 picks up),
+   STATE.md #31 and #33, TD-071 (a manifest's roles distinct as imported:
+   **before any action runs**), D-024, D-048, D-062, D-064 and D-066.
 5. **Probe reality first (CLAUDE.md rule 4).** Save
-   `docs/probes/<date>-s33-baseline.md`: `compile_action` and its dispatch
-   payload (`auspex/connectors/compile.py`, `jobs.py`); `register`/`available`
-   (`catalogue.py`); `check_executable` and `EXECUTABLE_SYSTEMS`
-   (`auspex/actions/settlement.py`); `claim`/`complete`/`fail` and lease
-   handling (`auspex/jobs/queue.py`); the SDK's harness validators
-   (`sdk/auspex_sdk/harness.py`) and `read_package`'s hash
-   (`sdk/auspex_sdk/package.py`), by `file:line`.
+   `docs/probes/<date>-s34-baseline.md`: `compile_action` and
+   `WorkspaceMismatch`/`RefusedBeforeDispatch` (`auspex/connectors/compile.py`,
+   `auspex/actions/types.py`); `check_executable`, `check_fingerprint` and
+   `EXECUTABLE_SYSTEMS` (`auspex/actions/settlement.py`); the edge API's claim
+   scope and `post_result` (`auspex/edge_api/routes.py`); `auspex_sdk.run`
+   and `auspex_sdk.validate`; the integrations table, by `file:line`.
 
-Goal: **S33, the plan's entry below, is the contract: its exit criteria are
-the done line.** In short: integrations (a table and admin API, config
-validated against the manifest, secrets stored as names only); Edge Agent
-enrollment (a one-time token becomes a hashed, revocable credential for one
-workspace); the edge API (claim only its own integrations' jobs, post results,
-heartbeat, fetch packages by hash and verify it); the agent image
-(`auspex/edge/`, a Dockerfile, a compose service under a dev profile, each
-command in a subprocess with a timeout); "Test connection" end to end against
-the reference connector; and the promote this milestone calls for.
+Goal: **S34, the plan's entry below, is the contract: its exit criteria are
+the done line.** In short: an integration's action takes the existing path
+(a proposal whose card comes from a dry-run job on the agent, approval,
+claim, an execute job on the agent, the validated result, settle or undo);
+`EXECUTABLE_SYSTEMS` is widened by code and review; `check_executable`
+refuses with a reason (agent offline, integration disabled, package hash
+changed, outside the grants or the routing key, approver not allowed); the
+per-client approval policy; one execution even when a result is lost; every
+door works; the co-analyst is offered integration actions; live through the
+agent; an adversarial review.
 
-**S32's carries are part of S33's work** (record §6, STATE.md #31):
-- dispatch runs `actions[].execute` and `commands.test`/`fetch.handler`;
-- `check_executable` must admit connector systems, and an approval must be
-  bound to its `integration_id` (it is not in the fingerprint), or a prefix
-  is never reused;
-- the runner builds `ctx.config` exactly as the harness does, redacts
-  stdout/stderr as well as logs, and is the real egress sandbox;
-- the agent re-hashes a package exactly as `tree_hash` does (zip names
-  decoded as CPython does, sorted by UTF-8 bytes);
-- the core's result check imports the SDK's validators and calls
-  `check_fetch_item`, never a rewrite;
-- a `connector.registered` audit event under a new D-entry (TD-068).
+**S33's carries are part of S34's work** (record §6, STATE.md #33):
+- an approval bound to its integration (prefixes are never reused, so
+  workspace + prefix is stable);
+- dispatch enqueues `connector.action.*` jobs claimed by the integration's
+  agent, which runs them through `auspex_sdk.run`;
+- the core checks action envelopes and observe counts with
+  `auspex_sdk.validate`, never a rewrite;
+- TD-071 before any action runs.
 
-**Design first, then a plan.** Brainstorm with whoever owns S33, one question
-at a time, then write `docs/superpowers/plans/<date>-s33-edge-agent.md` and
-ask how to execute it.
+**Design first, then a plan.** Brainstorm with whoever owns S34, one question
+at a time, then write `docs/superpowers/plans/<date>-s34-actions.md` and ask
+how to execute it.
 
 Constraints: everything in `SESSION-RULES.md`, and the plan's "Standing for
 every session in this phase" below.
-- **Nothing a connector ships runs in the app process** (D-062):
-  `tests/test_connector_structure.py` pins it; the agent is where it runs.
-- **Tenant isolation is an invariant:** an agent claims only its own
-  workspace's integrations' jobs; every new table and route gets a
-  cross-tenant test.
 - **Every write to a customer system goes through an approval** (D-014,
-  D-024).
-- A new package → `pyproject.toml` and the Dockerfile skeleton; a new env var
-  → `.env.example` and `docs/ENV_VARS.md` at birth.
-- **A change to an action or the approvals state machine gets a fresh-agent
-  adversarial review before the close, and so do the review's fixes**
-  (SESSION-RULES.md). S33 also reviews tenancy and agent auth.
-- QRadar credentials never go into the chat or the repo (D-067).
-- Run pytest only when no live probe is running.
-- Do not start S34's work in S33 (scope lock).
+  D-024); widening `EXECUTABLE_SYSTEMS` is code plus an adversarial review.
+- **Nothing a connector ships runs in the app process** (D-062).
+- **Tenant isolation is an invariant**; every new table and route gets a
+  cross-tenant test.
+- A new env var → `.env.example` and `docs/ENV_VARS.md` at birth.
+- Do not start S35's work in S34 (scope lock).
 
 ---
 
@@ -147,7 +116,7 @@ ticks the closed session._
 | 4b | B3 | bugs | S31 | closed 2026-10-19 by Hunaiza (D-059): B-010 and B-024 fixed; PR #41 merged 2026-10-22 |
 | 5 | S32 | be | S31, B3 | closed 2026-10-27 by Hunaiza (D-059): the connector contract, the SDK (Python and YAML), the catalogue; B-026 fixed; D-071; PR #43 merged 2026-10-28 |
 | 5b | B4 | bugs | S32 | closed 2026-10-28 by Hunaiza (D-059): B-017, B-018, B-025, B-027, B-030, B-032 fixed; to `staging` by PR |
-| 6 | S33 | be | S32, B4 | Hunaiza's, fully (D-059, 2026-10-28): PR #43's review fixed first; integrations and the Edge Agent, "Test connection" end to end |
+| 6 | S33 | be | S32, B4 | closed 2026-10-28 by Hunaiza (D-059): PR #43's review fixed; integrations, Edge Agents, "Test connection" end to end; D-072, D-073; to `staging` by PR |
 | 7 | S34 | be | S33 | integration actions through approvals and per-client policy |
 | 8 | F5 | fe | S34 | connectors, integrations, Edge Agents, memberships and approval policy admin |
 | 9 | S35 | be | S33 | fetch schedules, cursors, alerts, routing for shared SIEMs |
@@ -369,7 +338,7 @@ ticks the closed session._
     - **Structural tests:** the app package never imports connector code; the
       core never reads YAML.
 
-- [ ] **S33 — Integrations and the Edge Agent: "Test connection", end to
+- [x] **S33 — Integrations and the Edge Agent: "Test connection", end to
   end.**
   - **Depends on:** S32, D-062, D-063.
   - **Step 0:** if Burhan has given the QRadar's address, run the reachability,

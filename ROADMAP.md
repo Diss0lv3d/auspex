@@ -580,6 +580,26 @@ BUGS.md) have their own sections at the end, before "Later".
   - 2058 tests; 139 modules; no env vars born; `python-multipart` added; no
     engine calls.
 
+- [x] **S33 — Integrations, the Edge Agent, and Test connection.** (2026-10-28,
+  Hunaiza, handed fully under D-059) To `staging` as one PR from
+  `s33-edge-agent`; S33 is the plan's promote milestone (slate: S32, B4, S33).
+  Record: docs/superpowers/records/2026-10-28-s33-record.md.
+  - **Step 0:** PR #43's ten findings fixed (6, 7, 8, 10 reproduced first);
+    D-072 (the SDK version is not identity); the fixes' adversarial review
+    found two gaps, fixed and re-reviewed.
+  - **Design:** docs/superpowers/specs/2026-10-28-s33-edge-agent-design.md
+    (Hunaiza's calls: one agent per integration; actions wait for S34; disable,
+    never delete); nine-task plan, executed inline.
+  - **Built:** integrations; Edge Agents (one-time enrollment, hashed
+    credential, revoke); the edge API (long-poll claim, validated results,
+    heartbeats holding leases, packages by hash); the agent and its image;
+    `auspex_sdk.run`/`validate`; Test connection and health; D-073.
+  - **Live:** ok through the real agent container against a pinned stub SIEM
+    (docs/probes/2026-10-28-s33-live.md).
+  - The build's review was a self-review (no helper agents mid-session); a
+    fresh one is owed at S34's Step 0. TD-068 closed; TD-071…TD-074 logged.
+  - 2183 tests; 153 modules; agent env vars born (agent and dev only).
+
 ## Track: front end (D-051)
 
 - [x] **F1 — Where a deep turn's reasoning loses its speed, measured first.**
