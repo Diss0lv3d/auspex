@@ -166,3 +166,18 @@ def test_the_agent_will_not_start_without_its_url_and_secrets_file():
     from auspex.edge.__main__ import main
 
     assert main({}) == 2
+
+
+def test_a_half_unpacked_package_left_by_a_crash_is_never_reused(tmp_path, reference_zip):
+    """Self-review (S33): a crash mid-unpack leaves `<hash>.partial`; the next unpack
+    must start clean, so a stray file there never joins the package that runs."""
+    from auspex_sdk.package import read_package
+
+    from auspex.edge import cache
+
+    _, digest, _ = read_package(reference_zip)
+    staging = (tmp_path / cache._SAFE.sub("_", digest)).with_suffix(".partial")
+    staging.mkdir(parents=True)
+    (staging / "planted.py").write_text("raise SystemExit('ran')\n")
+    target = cache.unpack(tmp_path, digest, reference_zip)
+    assert not (target / "planted.py").exists()

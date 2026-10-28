@@ -5,6 +5,7 @@ refused naming both hashes; nothing of it is unpacked."""
 from __future__ import annotations
 
 import re
+import shutil
 from pathlib import Path
 
 from auspex_sdk.package import read_package
@@ -26,6 +27,7 @@ def unpack(cache_dir: Path, content_hash: str, data: bytes) -> Path:
     target = cache_dir / _SAFE.sub("_", content_hash)
     if not target.exists():
         staging = target.with_suffix(".partial")
+        shutil.rmtree(staging, ignore_errors=True)  # a crash's leftovers never join it
         for name, body in files.items():
             path = staging / name
             path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
