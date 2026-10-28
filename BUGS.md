@@ -722,3 +722,19 @@ are never deleted.
   `_normalize_url`.
 - **Evidence:** the review of B-018's third fix (B4).
 - **Status:** open, not placed. Burhan's.
+
+## B-039 — a tab, newline or quote inside a pasted URL cuts its match short
+
+- **Found:** 2026-10-28, B4 (Claude), the fresh review of B-018's third fix.
+  Pre-existing in `_URL_RE` (`auspex/classify/observables.py`, `[^\s<>"']+`).
+- **What happened (executed by the review, and on `staging`):**
+  `http://u:secret\n@evil.com/` extracts the URL `http://u:secret` and the
+  domain `evil.com`, so the user and password reach an observable's value; a
+  browser strips tabs and newlines, so `http://paypal.com\t@evil.com/` goes to
+  `evil.com` while the value says `paypal.com`. `"`, `'` and `<` cut it too
+  (`http://u:p<x@evil.com/` also yields the email `x@evil.com`). `http:/\evil.com/`
+  is not a URL at all (`_URL_RE` requires `://`).
+- **Path to fix:** decide how a pasted URL's boundary is found when it holds
+  WHATWG-stripped characters; it is a regex-boundary question, not B-018's.
+- **Evidence:** the review of B-018's third fix (B4).
+- **Status:** open, not placed. Burhan's.
