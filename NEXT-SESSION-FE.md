@@ -3,7 +3,7 @@
 _Paste everything below the first line of dashes into a fresh Claude Code
 window opened in the Auspex repo. **F5 starts only after S32, S33 and S34
 close** (the order table in `NEXT-SESSION-BE.md`, row 8); until then the focus
-is the backend (STATE.md). F4 closed 2026-10-16: one shell for every page,
+is B4, then the backend (STATE.md). F4 closed 2026-10-16: one shell for every page,
 D-070, a read-only Members page._
 
 _Below the F5 prompt is **Burhan's front-end plan for the whole phase,

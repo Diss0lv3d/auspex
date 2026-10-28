@@ -1,6 +1,16 @@
 # STATE — Auspex
 
-_Last updated: 2026-10-27 — **S32 CLOSED** by Hunaiza (D-059, handed fully):
+_Last updated: 2026-10-28 — **PR #43 (S32) merged into `staging`** (Burhan,
+after a fresh review in his window): a fast-forward to `4cd5132`, so every
+commit S32's record cites is on `staging`. The review's ten findings
+(docs/probes/2026-10-28-pr43-review.md) are follow-up #32: **S33 fixes them
+first**, before any dispatch code and before its promote. **B4 and S33 are
+handed to Hunaiza, fully (D-059): B4 first**, scoped by Burhan to six bugs,
+every one required (B-018, B-025, B-017, B-027, B-030, B-032; GitHub #44–#49),
+**then S33**. **Promote slate: S32** (S33's promote carries it; B4 does not
+promote).
+
+2026-10-27 — **S32 CLOSED** by Hunaiza (D-059, handed fully):
 the connector contract, the SDK (`sdk/`, `auspex-sdk`), the reference
 connector, actions compiled to `ActionSpec` (fingerprint v2), the catalogue
 and `/api/connectors`; **B-026 fixed**; **D-071** written. `./ci.sh` green:
@@ -28,20 +38,30 @@ Promote #40 (`09af821`) is the last one._
 
 | Track | Prompt | Last closed | Next | Status |
 |---|---|---|---|---|
-| backend | `NEXT-SESSION-BE.md` | S32 (2026-10-27, Hunaiza) | S33 | **focus** · Step 0: S32's PR (`s32-connectors` → `staging`) is merged; then integrations and the Edge Agent. Whose S33 is, is Burhan's to say (the S32 handoff covered S32 only) |
-| front end | `NEXT-SESSION-FE.md` | F4 (2026-10-16) | F5 | waits for S32, S33 and S34 (the order table); F4 built the shell F5's admin pages stand on |
-| bugs | `NEXT-SESSION-BUGS.md` | B3 (2026-10-19) | B4 | waits for Burhan to scope it: the open entries (B-005, B-009, B-011…B-020, B-022, B-023, B-025…B-028, B-030…B-032) |
+| backend | `NEXT-SESSION-BE.md` | S32 (2026-10-27, Hunaiza; PR #43 merged 2026-10-28) | S33 | **Hunaiza's, fully** (Burhan, 2026-10-28; D-059) · runs after B4's PR is merged · Step 0 fixes PR #43's review (#32) first; then integrations and the Edge Agent |
+| front end | `NEXT-SESSION-FE.md` | F4 (2026-10-16) | F5 | waits for S33 and S34 (the order table); F4 built the shell F5's admin pages stand on |
+| bugs | `NEXT-SESSION-BUGS.md` | B3 (2026-10-19) | B4 | **focus** · **Hunaiza's, fully** (Burhan, 2026-10-28; D-059) · scoped by Burhan: B-018, B-025, B-017, B-027, B-030, B-032, every one required (GitHub #44–#49); closes as a PR, no promote |
 
-- **S32 closed (2026-10-27) as a PR, not on `staging`.** Hunaiza kept every
-  commit local on `s32-connectors` and opens one PR into `staging` at the end;
-  S33's Step 0 starts only after Burhan merges it. S32 did not promote (the
-  plan's next promote milestone is S33).
-- **S32 was handed to Hunaiza (Burhan, 2026-10-22; D-059).** She owns it
-  fully: every call, new D-entries and `/promote` included, on her machine
-  under her own identity. Re-scoping another track, or the plan's order, stays
-  Burhan's.
-- **Focus: backend, S32** (B3's session-end, by the order table: row 4b B3
-  closed, row 5 S32 next). B3 ran on Burhan's calls from the planning window:
+- **Focus: bugs, B4, then backend, S33. Both are Hunaiza's** (Burhan,
+  2026-10-28: "assign B4 to Hunaiza as well, tell her to first start on the
+  bugs and then continue with S33"; D-059). Order table row 5b.
+  - She owns both fully: every call, new D-entries and `/promote` included,
+    on her machine under her own identity. **Re-scoping stays Burhan's**: B4
+    takes the six bugs and no others.
+  - **B4 does not promote**: S32 is on `staging` with PR #43's review unfixed,
+    and Burhan's call is that S33 fixes it before any promote. S33's promote
+    carries S32, B4 and S33.
+  - B4 closes as a PR into `staging`, which Burhan merges; S33's Step 0 starts
+    only after that.
+  - Claude told her on PR #43 and through the six issues, which are assigned
+    to her. #38 and #39 (B3's) are still open on GitHub, although promote #42
+    shipped their fixes.
+- **S32 closed (2026-10-27) as a PR, merged 2026-10-28.** Hunaiza kept every
+  commit local on `s32-connectors` and opened PR #43 at the end. S32 did not
+  promote (the plan's next promote milestone is S33). It was handed to her
+  fully on 2026-10-22.
+- **B3 ran on Burhan's calls from the planning window** (history; B3's
+  section below has the record):
   - **S31 promoted now** (promote #40); the slate is empty.
   - **B3 runs before S32**, scoped to **B-010** (three old classify rules a
     crafted message can stall for seconds) **then B-024** (the switcher's
@@ -1271,6 +1291,15 @@ the spec; S30, F4, S31 and S32 are done.**
     - TD-068 (a `connector.registered` audit event, under a D-entry),
       TD-066, TD-067, TD-069;
     - the deferred minors in the S32 record §5.
+
+32. **PR #43's review, for S33's Step 0** (Burhan, 2026-10-28; it dies by
+    being done): ten findings on S32's code, in
+    docs/probes/2026-10-28-pr43-review.md, each fixed or closed as not real
+    with the reason **before any dispatch code and before S33's promote**.
+    The two that matter most: the SDK lets `dry_run` or `observe` share the
+    undo's function, which the core refuses but cannot see once compiled
+    (#1), and compiled handlers drop the `workspace_id` they are called with
+    (#2). #2, #5 and #9 overlap #31's dispatch, approval and runner bullets.
 
 **Closed at S32, so they leave this list:** #30's B-026 and its worker-test
 bullet. S32 added #31.

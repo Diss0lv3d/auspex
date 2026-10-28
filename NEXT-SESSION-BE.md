@@ -4,9 +4,10 @@ _Paste everything below the first line of dashes into a fresh Claude Code
 window opened in the Auspex repo. **S33 builds integrations and the Edge
 Agent, with "Test connection" running end to end (D-062, D-063).** S32 closed
 2026-10-27 (Hunaiza, handed fully under D-059): the connector contract, the SDK,
-the catalogue, B-026 fixed and D-071. It reaches `staging` as one PR from the
-branch `s32-connectors`, which Burhan reviews and merges. **Whose S33 is, is
-Burhan's to say**: the S32 handoff covered S32 only._
+the catalogue, B-026 fixed and D-071. Its PR #43 was merged 2026-10-28 (a
+fast-forward to `4cd5132`) after Burhan's review, whose ten findings S33
+fixes first. **S33 is handed to Hunaiza (Burhan, 2026-10-28; D-059): she owns
+it fully. It runs after B4**, which is hers too (`NEXT-SESSION-BUGS.md`)._
 
 _Below the S33 prompt is the **backend plan for the whole phase, S29–S41**.
 **`/session-end` writes the next session's prompt from its entry in the plan,
@@ -19,14 +20,31 @@ SESSION S33 of Auspex, **backend track** (D-051). The working dir is the
 Auspex repo. Run `/session-start be S33` first (the full ritual). It reads
 `SESSION-RULES.md` and STATE.md.
 
+**The handoff (D-059).** Burhan handed S33 to Hunaiza (`HunaizaK`, on
+SESSION-RULES.md's "Who works here" table). She works on her own machine, in
+her own clone, under her own personal identity. **She owns S33 fully: every
+call, new D-entries and `/promote` included** (Burhan, 2026-10-28). Wherever
+this prompt, a rule or a command says "Burhan's call", "ask Burhan" or
+"brainstorm with Burhan", ask her. Re-scoping another track, or the plan's
+order, stays Burhan's: say so, and she passes it on. One session at a time
+spans both machines: Burhan runs no session while S33 runs.
+
 Step 0 (do BEFORE new scope):
 
-1. **S32's PR must be merged first.** S32 ran on Hunaiza's machine and closed
-   as a PR from `s32-connectors` into `staging`. `git fetch` and `git pull
-   --ff-only origin staging`, then confirm `auspex/connectors/` and `sdk/`
-   exist and STATE.md says S32 closed. If the PR is not merged, stop: wrong
-   window. One session at a time spans both machines (D-051, D-059).
-2. **Read what S32 left you, before any code:**
+1. **B4 must be closed and merged first** (order table row 5b). B4 runs on
+   Hunaiza's machine and closes as a PR into `staging`, which Burhan merges.
+   `git fetch` and `git pull --ff-only origin staging`, then confirm STATE.md
+   says B4 closed and BUGS.md marks B-018, B-025, B-017, B-027, B-030 and
+   B-032 `fixed <commit> (B4)`. If B4's PR is not merged, stop: wrong window.
+   One session at a time spans both machines (D-051, D-059).
+2. **Fix PR #43's review before any S33 code**
+   (docs/probes/2026-10-28-pr43-review.md; Burhan, 2026-10-28). Ten findings
+   on S32's code. None can run yet, because S33's dispatch is what makes a
+   connector action run, so all ten are fixed before any dispatch code, and
+   before S33's promote. That record says how: a test that fails first, one
+   commit per finding, and 6, 7, 8 and 10 reproduced before fixing. Finding 10
+   is a design call, and a D-entry if it changes D-064's hash.
+3. **Read what S32 left you, before any code:**
    - docs/superpowers/records/2026-10-27-s32-record.md (every call S32 made,
      and §6, what S33 must pick up);
    - STATE.md follow-up #31 (S32's open ends) and #30 (S31's: TD-064's lease
@@ -34,10 +52,10 @@ Step 0 (do BEFORE new scope):
    - D-062, D-063, D-064 and D-071, and the integration-phase spec's sections
      on integrations and the Edge Agent
      (docs/superpowers/specs/2026-10-15-integration-phase-design.md).
-3. **If Burhan has given the QRadar's address**, run the reachability, TLS
+4. **If Burhan has given the QRadar's address**, run the reachability, TLS
    and unauthenticated-API probes into
    docs/probes/2026-10-14-qradar-reachability.md before any agent code.
-4. **Probe reality first (CLAUDE.md rule 4).** Save
+5. **Probe reality first (CLAUDE.md rule 4).** Save
    `docs/probes/<date>-s33-baseline.md`: `compile_action` and its dispatch
    payload (`auspex/connectors/compile.py`, `jobs.py`); `register`/`available`
    (`catalogue.py`); `check_executable` and `EXECUTABLE_SYSTEMS`
@@ -127,8 +145,9 @@ ticks the closed session._
 | 3 | F4 | fe | S30 | closed 2026-10-16: one shell for every page, role-aware, a workspace switcher (D-070) |
 | 4 | S31 | be | S30 | closed 2026-10-16: the jobs queue, TD-025's first half; B-021 fixed, D-069 built; promote #40 |
 | 4b | B3 | bugs | S31 | closed 2026-10-19 by Hunaiza (D-059): B-010 and B-024 fixed; PR #41 merged 2026-10-22 |
-| 5 | S32 | be | S31, B3 | closed 2026-10-27 by Hunaiza (D-059): the connector contract, the SDK (Python and YAML), the catalogue; B-026 fixed; D-071; to `staging` by PR |
-| 6 | S33 | be | S32 | integrations and the Edge Agent, "Test connection" end to end |
+| 5 | S32 | be | S31, B3 | closed 2026-10-27 by Hunaiza (D-059): the connector contract, the SDK (Python and YAML), the catalogue; B-026 fixed; D-071; PR #43 merged 2026-10-28 |
+| 5b | B4 | bugs | S32 | Hunaiza's, fully (D-059, 2026-10-28): B-018, B-025, B-017, B-027, B-030, B-032, every one required |
+| 6 | S33 | be | S32, B4 | Hunaiza's, fully (D-059, 2026-10-28): PR #43's review fixed first; integrations and the Edge Agent, "Test connection" end to end |
 | 7 | S34 | be | S33 | integration actions through approvals and per-client policy |
 | 8 | F5 | fe | S34 | connectors, integrations, Edge Agents, memberships and approval policy admin |
 | 9 | S35 | be | S33 | fetch schedules, cursors, alerts, routing for shared SIEMs |
