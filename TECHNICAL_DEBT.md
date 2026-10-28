@@ -1,5 +1,41 @@
 # Technical debt — logged the moment it's taken
 
+## TD-074 (S33) — a test claimed by an agent that is then swapped out waits for its lease
+
+**Where:** `auspex/edge_api/routes.py` (`post_result` scopes a result to the
+integrations that name the posting agent NOW) and `auspex/integrations/store.py`.
+**Risk:** LOW. If an admin moves an integration to another agent while its test is
+running, the old agent's answer is refused (404) and the job ends only when its 90 s
+lease expires (`dead`, "lease expired"); the poll shows that as `error`.
+**Why taken:** refusing a former agent's answer is the safe side; the cost is a
+slower, vaguer error on a rare edit.
+**Path to fix:** on an agent change, fail the running test at once with "the
+integration's agent changed".
+**Trigger:** an admin reports a test that hung after editing its agent.
+
+## TD-073 (S33) — each Edge Agent holds one HTTP request open for its long-poll
+
+**Where:** `auspex/edge_api/routes.py` (`claim_job`, up to 25 s, re-claiming each
+second).
+**Risk:** LOW today. Every agent keeps one connection and a 1 Hz query loop on the
+app; hundreds of agents are hundreds of held requests and claim queries.
+**Why taken:** D-062 chose HTTPS long-poll (proxies pass it); a 1 s poll inside it is
+the simplest correct wait, on S31's polled queue (TD-065).
+**Path to fix:** wake waiting claims on `NOTIFY` (TD-065's path), and cap held polls
+per worker.
+**Trigger:** more than ~100 agents per app replica, or claim queries in the slow log.
+
+## TD-072 (S33) — packages are pulled by hash; there is no local install for air-gapped sites
+
+**Where:** `auspex/edge/agent.py` (`_package`), D-062.
+**Risk:** LOW until such a site exists. An agent that cannot reach the edge API's
+package route cannot run anything.
+**Why taken:** D-062 builds pull-by-hash first and local install "when the first
+air-gapped site needs it".
+**Path to fix:** an agent option to read packages from a local directory, still
+re-hashed against the job's `content_hash` before running.
+**Trigger:** the first air-gapped site.
+
 ## TD-071 (S33) — a manifest's four roles are distinct as written, not as imported
 
 **Where:** `sdk/auspex_sdk/manifest.py` (`_check_action`).
