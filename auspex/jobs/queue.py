@@ -99,27 +99,44 @@ async def enqueue(
     existing job comes back with `created=False`. It takes the migration's
     advisory lock shared first, so a booting replica's schema DDL (which locks
     `workspaces`, then `jobs`) is never caught in a lock cycle with this insert."""
+    async with pool.acquire() as conn, conn.transaction():
+        return await enqueue_on(conn, workspace_id=workspace_id, kind=kind,
+                                idempotency_key=idempotency_key, payload=payload,
+                                integration_id=integration_id, run_after=run_after)
+
+
+async def enqueue_on(
+    conn: asyncpg.Connection,
+    *,
+    workspace_id: UUID,
+    kind: JobKind,
+    idempotency_key: str,
+    payload: dict | None = None,
+    integration_id: UUID | None = None,
+    run_after: datetime | None = None,
+) -> tuple[Job, bool]:
+    """`enqueue`, on a connection whose transaction the caller holds: a caller that
+    checks and enqueues under one lock needs no second connection (PR #51 review s1)."""
     if not idempotency_key.strip():
         raise ValueError("a job needs an idempotency key")
-    async with pool.acquire() as conn, conn.transaction():
-        await conn.execute("SELECT pg_advisory_xact_lock_shared($1)", MIGRATION_LOCK)
-        row = await conn.fetchrow(
-            """
-            INSERT INTO jobs (workspace_id, kind, integration_id, payload, idempotency_key,
-                              max_attempts, lease_seconds, run_after)
-            VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, COALESCE($8, now()))
-            ON CONFLICT (workspace_id, idempotency_key) DO NOTHING
-            RETURNING *
-            """,
-            workspace_id, kind.name, integration_id, json.dumps(payload or {}),
-            idempotency_key, kind.max_attempts, kind.lease_seconds, run_after,
-        )
-        if row is not None:
-            return Job.from_row(row), True
-        existing = await conn.fetchrow(
-            "SELECT * FROM jobs WHERE workspace_id = $1 AND idempotency_key = $2",
-            workspace_id, idempotency_key,
-        )
+    await conn.execute("SELECT pg_advisory_xact_lock_shared($1)", MIGRATION_LOCK)
+    row = await conn.fetchrow(
+        """
+        INSERT INTO jobs (workspace_id, kind, integration_id, payload, idempotency_key,
+                          max_attempts, lease_seconds, run_after)
+        VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, COALESCE($8, now()))
+        ON CONFLICT (workspace_id, idempotency_key) DO NOTHING
+        RETURNING *
+        """,
+        workspace_id, kind.name, integration_id, json.dumps(payload or {}),
+        idempotency_key, kind.max_attempts, kind.lease_seconds, run_after,
+    )
+    if row is not None:
+        return Job.from_row(row), True
+    existing = await conn.fetchrow(
+        "SELECT * FROM jobs WHERE workspace_id = $1 AND idempotency_key = $2",
+        workspace_id, idempotency_key,
+    )
     return Job.from_row(existing), False
 
 

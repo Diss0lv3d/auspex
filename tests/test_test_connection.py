@@ -152,3 +152,24 @@ async def test_no_response_carries_a_secret_value(world, client):
     texts.append(_poll(client, world, job_id).text)
     assert all(SECRET_VALUE not in t for t in texts)
     assert all("secret:siem_token" in texts[0] for _ in [0])
+
+
+async def test_presses_at_once_never_hang_a_small_pool(world, client, settings):
+    """PR #51 review s1: `press` held a connection and its transaction while `enqueue`
+    took a second, so N presses on a pool of N could wait on each other for good. It
+    now queues on the connection that holds the lock."""
+    import asyncio
+
+    import asyncpg
+
+    from auspex.integrations import testing
+
+    small = await asyncpg.create_pool(settings.database_url, min_size=1, max_size=1)
+    try:
+        results = await asyncio.wait_for(asyncio.gather(
+            *(testing.press(small, world["integ"]) for _ in range(3)),
+            return_exceptions=True), timeout=10)
+    finally:
+        await small.close()
+    assert sum(1 for r in results if isinstance(r, uuid.UUID)) == 1
+    assert all(isinstance(r, (uuid.UUID, testing.CannotTest)) for r in results)

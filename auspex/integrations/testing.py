@@ -16,7 +16,7 @@ from uuid import UUID
 from auspex.connectors.kinds import CONNECTOR_TEST
 from auspex.edge_api.agents import health
 from auspex.integrations.store import Integration
-from auspex.jobs.queue import enqueue
+from auspex.jobs.queue import enqueue_on
 
 
 class CannotTest(Exception):
@@ -56,8 +56,8 @@ async def press(pool, integration: Integration) -> UUID:
             integration.id)
         if running is not None:
             raise CannotTest("a test of this integration is already running", running)
-        job, _ = await enqueue(
-            pool, workspace_id=integration.workspace_id, kind=CONNECTOR_TEST,
+        job, _ = await enqueue_on(
+            conn, workspace_id=integration.workspace_id, kind=CONNECTOR_TEST,
             idempotency_key=f"test:{integration.id}:{uuid.uuid4()}",
             integration_id=integration.id,
             payload={"integration_id": str(integration.id),
