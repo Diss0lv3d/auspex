@@ -786,3 +786,18 @@ are never deleted.
 - **Path to fix:** in `press` and `state`, treat a `claimed` row whose lease has
   expired as not running, or sweep it there first.
 - **Status:** open, not placed. Burhan's.
+
+## B-043 — an integration can be assigned to a revoked Edge Agent
+
+- **Found:** 2026-10-29, Burhan's window, the fresh review of PR #51 at `1d64692`.
+- **What happened (by reading, not reproduced):** `_check_agent`
+  (`auspex/integrations/store.py`) checks only that the agent belongs to the
+  workspace, not `revoked_at`. Creating an integration on a revoked agent, or moving
+  one to it, succeeds (a move also cancels the queued tests). No job of it can ever be
+  claimed, and the admin learns that only when Test connection answers "its Edge Agent
+  was revoked; choose another agent".
+- **Evidence:** the review's reading, checked against the code by Burhan's window;
+  not run.
+- **Path to fix:** add `AND revoked_at IS NULL` to the check and refuse in words at
+  write time.
+- **Status:** open, not placed. Burhan's.
