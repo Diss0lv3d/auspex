@@ -2586,32 +2586,63 @@ async def test_b026_file_itself_refuses_an_undeclared_key(pool, spec, workspace_
         "SELECT count(*) FROM proposals WHERE workspace_id = $1", workspace_id)
 
 
-async def test_an_undo_refuses_a_declaration_that_changed_since_the_approval(
-    pool, registry, spec, workspace_id, an_observable
-):
-    """PR #43 review #5: only execute checked the fingerprint, so after a re-upload
-    under a new content hash the undo would run the NEW package's handler on the old
-    package's change. The undo refuses before its claim, and the run stays put back-able."""
-    import dataclasses
-
+async def _executed(pool, registry, spec, workspace_id, an_observable):
     settlement, proposal = await _file(pool, registry, spec, workspace_id, an_observable)
     pid = proposal["id"]
     await settlement.settle(workspace_id=workspace_id, proposal_id=pid,
                             decision="approved", decided_by=None)
     await ActionExecutor(pool, registry).execute(workspace_id=workspace_id, proposal_id=pid)
+    return settlement, pid
 
-    changed = dataclasses.replace(spec, description=spec.description + " (re-uploaded)")
-    assert fingerprint(changed) != fingerprint(spec)
+
+async def test_a_built_in_s_undo_survives_a_reworded_declaration(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """PR #51 review #4 (Hunaiza's call, D-074): undo is the safety net. A built-in has
+    no connector origin and ships with the platform's code, so a reworded description
+    (or a fingerprint-scheme bump) does not block putting it back."""
+    import dataclasses
+
+    settlement, pid = await _executed(pool, registry, spec, workspace_id, an_observable)
+    changed = dataclasses.replace(spec, description=spec.description + " (reworded)")
     deployed = ActionRegistry()
     deployed.register(changed)
+    await ActionExecutor(pool, deployed).undo(workspace_id=workspace_id, proposal_id=pid)
+    assert (await settlement.get(workspace_id=workspace_id, proposal_id=pid))["status"] \
+        == "undone"
+
+
+async def test_a_connector_action_s_undo_refuses_a_different_package(
+    pool, registry, spec, workspace_id, an_observable
+):
+    """PR #43 review #5, narrowed by D-074: after a re-upload under a new content hash,
+    the undo would run the NEW package's handler on the OLD package's change: refused
+    before its claim, saying what the analyst can do. A reworded description of the SAME
+    package does not block it."""
+    import dataclasses
+
+    from auspex.actions.types import ConnectorOrigin
+
+    v1 = dataclasses.replace(spec, origin=ConnectorOrigin("example.siem", "sha256:" + "a" * 64))
+    registry_v1 = ActionRegistry()
+    registry_v1.register(v1)
+    settlement, pid = await _executed(pool, registry_v1, v1, workspace_id, an_observable)
+
+    reworded = dataclasses.replace(v1, description=v1.description + " (reworded)")
+    other = dataclasses.replace(v1, origin=ConnectorOrigin("example.siem", "sha256:" + "b" * 64))
+    deployed = ActionRegistry()
+    deployed.register(other)
     with pytest.raises(ExecutionRefused) as err:
         await ActionExecutor(pool, deployed).undo(workspace_id=workspace_id, proposal_id=pid)
-    assert err.value.reason == "spec_changed"
-    assert "undo" in str(err.value) and "by hand" in str(err.value)
-    row = await settlement.get(workspace_id=workspace_id, proposal_id=pid)
-    assert row["status"] == "executed"
-    assert 1 == await pool.fetchval(
-        "SELECT count(*) FROM observable_notes WHERE workspace_id = $1", workspace_id)
+    assert err.value.reason == "undo_changed" and "by hand" in str(err.value)
+    assert (await settlement.get(workspace_id=workspace_id, proposal_id=pid))["status"] \
+        == "executed"
+
+    same = ActionRegistry()
+    same.register(reworded)
+    await ActionExecutor(pool, same).undo(workspace_id=workspace_id, proposal_id=pid)
+    assert (await settlement.get(workspace_id=workspace_id, proposal_id=pid))["status"] \
+        == "undone"
 
 
 async def test_a_handler_that_refused_before_dispatch_settles_as_failed_with_nothing_landed(

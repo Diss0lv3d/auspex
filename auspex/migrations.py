@@ -896,6 +896,12 @@ S32_CONNECTORS: list[str] = [
     """,
 ]
 
+# D-074 (S33, PR #51 review #4): what an undo depends on, recorded when a proposal is
+# filed, so a put-back is refused only when the code it would run changed.
+S33_UNDO: list[str] = [
+    "ALTER TABLE proposals ADD COLUMN IF NOT EXISTS undo_identity text",
+]
+
 # S33: Edge Agents and their one-time enrollments (D-062), then integrations
 # (D-060). An agent belongs to one workspace; its credential is stored hashed only
 # (the api_keys pattern), and is NULL until it enrolls.
@@ -948,7 +954,7 @@ S33_EDGE: list[str] = [
     """,
 ]
 
-SCHEMA_V0 = [*SCHEMA_V0, *S30_TENANCY, *S31_JOBS, *S32_CONNECTORS, *S33_EDGE]
+SCHEMA_V0 = [*SCHEMA_V0, *S30_TENANCY, *S31_JOBS, *S32_CONNECTORS, *S33_EDGE, *S33_UNDO]
 
 
 async def run_migrations(pool: asyncpg.Pool) -> None:

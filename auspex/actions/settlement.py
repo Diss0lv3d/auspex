@@ -40,7 +40,7 @@ from uuid import UUID
 import asyncpg
 
 from auspex.actions import proposal as proposal_mod
-from auspex.actions.proposal import card, fingerprint, matches_older_scheme
+from auspex.actions.proposal import card, fingerprint, matches_older_scheme, undo_identity
 from auspex.actions.registry import ActionRegistry
 from auspex.actions.types import ActionOutcome, ActionSpec, RefusedBeforeDispatch
 from auspex.agent.permissions import PermissionOutcome, gate
@@ -163,8 +163,8 @@ class ProposalSettlement:
             """
             INSERT INTO proposals
                 (workspace_id, session_id, tool_name, tool_level, tool_input,
-                 spec_fingerprint, card)
-            VALUES ($1::uuid, $2::uuid, $3, $4, $5::jsonb, $6, $7::jsonb)
+                 spec_fingerprint, card, undo_identity)
+            VALUES ($1::uuid, $2::uuid, $3, $4, $5::jsonb, $6, $7::jsonb, $8)
             RETURNING *
             """,
             str(workspace_id),
@@ -174,6 +174,7 @@ class ProposalSettlement:
             json.dumps(arguments),
             rendered["spec_fingerprint"],
             json.dumps(rendered),
+            undo_identity(spec),
         )
         return _as_dict(row)
 
@@ -628,6 +629,26 @@ def check_fingerprint(spec: ActionSpec, proposal: dict, *, step: str) -> None:
         )
 
 
+def check_undo_identity(spec: ActionSpec, proposal: dict) -> None:
+    """D-074 (PR #51 review #4, Hunaiza's call): an undo is refused only when what it
+    would run changed since the approval: the connector or its package, or the undo's
+    own declaration. A built-in action (no connector origin) ships with the platform's
+    code and is never blocked by a reworded declaration or a fingerprint-scheme bump:
+    undo is the safety net. A connector action filed before undo identities existed
+    cannot be checked, and is refused rather than assumed unchanged."""
+    if spec.origin is None:
+        return
+    stored = proposal.get("undo_identity")
+    if stored == undo_identity(spec):
+        return
+    raise ExecutionRefused(
+        "undo_changed",
+        f"{spec.name}'s undo would now run different code from the one approved"
+        " (its connector, package or undo changed); put the change back by hand, or"
+        " restore the approved package version and undo",
+    )
+
+
 def check_executable(spec: ActionSpec, proposal: dict) -> None:
     """Everything that must still be true at execute time. Raises, never returns
     a bool — a caller cannot forget to look at an exception.
@@ -981,7 +1002,7 @@ class ActionExecutor:
                 f"{proposal['tool_name']} declares no undo — it cannot be put back",
             )
         _refuse_stored_undeclared(spec, proposal)  # B-026: before the claim, as execute
-        check_fingerprint(spec, proposal, step="undo")  # PR #43 review #5: before the claim
+        check_undo_identity(spec, proposal)  # D-074 (PR #51 #4): before the claim
         # A fresh put-back starts with an empty answer: an earlier attempt's
         # result is not this attempt's (S26 review of D-041).
         claimed = await self._pool.fetchrow(

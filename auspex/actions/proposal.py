@@ -117,6 +117,26 @@ def fingerprint(spec: ActionSpec, *, version: int | None = None) -> str:
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
+def undo_identity(spec: ActionSpec) -> str:
+    """What an undo depends on: the code that would run it (the connector and its
+    package, `origin`) and the undo's own declaration. Not the description, the params
+    or the fingerprint scheme: changing those does not change what a put-back runs, and
+    blocking undo on them would take away the safety net (D-074, PR #51 review #4)."""
+    canon = {
+        "origin": None if spec.origin is None else {
+            "connector_id": spec.origin.connector_id,
+            "content_hash": spec.origin.content_hash,
+        },
+        "undo": None if spec.undo is None else {
+            "description": spec.undo.description,
+            "restores": spec.undo.restores,
+            "cannot_restore": list(spec.undo.cannot_restore),
+        },
+    }
+    blob = json.dumps(canon, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
 def matches_older_scheme(spec: ActionSpec, stored: str) -> int | None:
     """The version under which `stored` was this spec's identity, or None.
 
