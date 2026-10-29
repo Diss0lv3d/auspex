@@ -124,6 +124,36 @@ def main() -> int:
             time.sleep(1)
         say("the test answered", f"{state['state']}: {state['detail']}")
 
+        # PR #51 review #3: a connector that ECHOES its secret in its result. The agent
+        # must send only the placeholder, so no job row (what the admin sees) holds it.
+        echo_dir = Path("/tmp") / "s33-live-echo"  # noqa: S108 -- a scratch build dir
+        shutil.rmtree(echo_dir, ignore_errors=True)
+        shutil.copytree(copy, echo_dir, ignore=shutil.ignore_patterns("dist"))
+        manifest = (echo_dir / "connector.yaml").read_text()
+        (echo_dir / "connector.yaml").write_text(
+            manifest.replace("version: 1.0.0", "version: 1.0.1"))
+        with (echo_dir / "mock_siem.py").open("a") as f:
+            f.write("\n\ndef check(ctx):\n    return {'ok': False, 'detail':"
+                    " 'SIEM said: bad key ' + str(ctx.config.api_token)}\n")
+        echo_zip, echo_hash = build(echo_dir)
+        res = httpx.post(f"{APP}/api/connectors", headers=admin,
+                         files={"package": (echo_zip.name, echo_zip.read_bytes())})
+        say("register a connector that echoes its secret", res.status_code)
+        res = httpx.post(f"{APP}/api/integrations", headers=admin,
+                         json={**body, "name": "Echo", "prefix": "echo1",
+                               "content_hash": echo_hash})
+        echo_integration = res.json()["id"]
+        echo_job = httpx.post(f"{APP}/api/integrations/{echo_integration}/test",
+                              headers=admin).json()["job_id"]
+        for _ in range(60):
+            echo_state = httpx.get(
+                f"{APP}/api/integrations/{echo_integration}/test/{echo_job}",
+                headers=admin).json()
+            if echo_state["state"] not in ("queued", "running"):
+                break
+            time.sleep(1)
+        say("the echoing test answered", f"{echo_state['state']}: {echo_state['detail']}")
+
         sh(*DEV, "stop", "edge")
         asyncio.run(db(lambda p: p.execute(
             "UPDATE edge_agents SET last_heartbeat_at = now() - interval '6 minutes'"
@@ -141,7 +171,10 @@ def main() -> int:
             SECRET)))
         say("the secret's value in app/edge logs", SECRET in logs)
         say("the secret's value in jobs/integrations/audit", rows)
-        return 0 if state["state"] == "ok" and not (SECRET in logs) and rows == 0 else 1
+        echoed = SECRET in json.dumps(echo_state)
+        say("the secret's value in the echoing answer", echoed)
+        return 0 if (state["state"] == "ok" and not (SECRET in logs) and rows == 0
+                     and not echoed and "[secret:api_token]" in echo_state["detail"]) else 1
     finally:
         sh(*DEV, "rm", "-sf", "edge", "mock-siem", check=False)
         shutil.rmtree(EDGE_DEV, ignore_errors=True)
