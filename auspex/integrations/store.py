@@ -220,9 +220,12 @@ async def update(pool, *, workspace_id: UUID, actor: audit.Actor, integration_id
             json.dumps(config), agent_id)
         if row is None:
             raise IntegrationRefused("this integration is disabled")
-        if agent_id != current.agent_id or content_hash != current.content_hash:
+        # Anything a queued test runs with: its agent, its package, its config (PR #51
+        # review s4). A rename alone leaves it be.
+        if (agent_id != current.agent_id or content_hash != current.content_hash
+                or config != current.config):
             await cancel_queued_tests(conn, integration_id,
-                                      "the integration's agent or package changed")
+                                      "the integration's agent, package or config changed")
         await audit.record(conn, workspace_id=workspace_id, action="integration.updated",
                            actor=actor, details={"integration_id": str(integration_id)})
     return _integration(row)

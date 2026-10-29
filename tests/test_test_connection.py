@@ -173,3 +173,21 @@ async def test_presses_at_once_never_hang_a_small_pool(world, client, settings):
         await small.close()
     assert sum(1 for r in results if isinstance(r, uuid.UUID)) == 1
     assert all(isinstance(r, (uuid.UUID, testing.CannotTest)) for r in results)
+
+
+async def test_a_config_edit_cancels_a_queued_test(world, client):
+    """PR #51 review s4: a test queued before a config edit ran with the old config.
+    Any edit to what the test runs with cancels the queued one."""
+    job_id = _press(client, world).json()["job_id"]
+    changed = client.patch(f"/api/integrations/{world['integ'].id}", headers=world["admin"],
+                           json={"config": {**CONFIG, "base_url": "https://new.example"}})
+    assert changed.status_code == 200, changed.text
+    polled = _poll(client, world, job_id).json()
+    assert polled["state"] == "error" and "cancelled" in polled["detail"]
+
+
+async def test_a_rename_alone_leaves_a_queued_test_alone(world, client):
+    job_id = _press(client, world).json()["job_id"]
+    client.patch(f"/api/integrations/{world['integ'].id}", headers=world["admin"],
+                 json={"name": "Main SIEM"})
+    assert _poll(client, world, job_id).json()["state"] == "queued"
