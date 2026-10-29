@@ -116,7 +116,10 @@ async def enqueue_on(
     run_after: datetime | None = None,
 ) -> tuple[Job, bool]:
     """`enqueue`, on a connection whose transaction the caller holds: a caller that
-    checks and enqueues under one lock needs no second connection (PR #51 review s1)."""
+    checks and enqueues under one lock needs no second connection (PR #51 review s1).
+    The caller must take the migration's lock (shared) BEFORE its transaction touches
+    `jobs`: taken here only, it would come after a read of `jobs` and could meet a
+    booting replica's DDL in a lock cycle (fresh review of PR #51, I1)."""
     if not idempotency_key.strip():
         raise ValueError("a job needs an idempotency key")
     await conn.execute("SELECT pg_advisory_xact_lock_shared($1)", MIGRATION_LOCK)

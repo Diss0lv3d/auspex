@@ -191,3 +191,47 @@ async def test_a_rename_alone_leaves_a_queued_test_alone(world, client):
     client.patch(f"/api/integrations/{world['integ'].id}", headers=world["admin"],
                  json={"name": "Main SIEM"})
     assert _poll(client, world, job_id).json()["state"] == "queued"
+
+
+async def test_a_press_builds_its_job_from_the_integration_as_it_is_under_the_lock(
+        world, client):
+    """Fresh review of PR #51, I2: `press` built the payload from an Integration read
+    before its lock, so a config edit committed in between still queued the old config.
+    It re-reads the row under the lock."""
+    from auspex.integrations import testing
+    from auspex.integrations.store import update
+
+    stale = world["integ"]
+    await update(world["pool"], workspace_id=world["m"].direct_ws,
+                 actor=person(world["m"].d_user, world["m"].direct), integration_id=stale.id,
+                 config={**CONFIG, "base_url": "https://new.example"})
+    job_id = await testing.press(world["pool"], stale)
+    payload = json.loads(await world["pool"].fetchval("SELECT payload FROM jobs WHERE id = $1",
+                                                      job_id))
+    assert payload["config"]["base_url"] == "https://new.example"
+
+
+async def test_a_press_waits_for_the_migration_lock_before_it_touches_jobs(world, settings):
+    """Fresh review of PR #51, I1: `press` read `jobs` before taking the migration's
+    shared lock, so a booting replica's DDL (holding that lock, waiting on `jobs`)
+    and the press could deadlock. The lock comes first, as `enqueue` always took it."""
+    import asyncio
+
+    import asyncpg
+
+    from auspex.integrations import testing
+    from auspex.migrations import MIGRATION_LOCK
+
+    holder = await asyncpg.connect(settings.database_url)
+    try:
+        await holder.execute("SELECT pg_advisory_lock($1)", MIGRATION_LOCK)
+        task = asyncio.create_task(testing.press(world["pool"], world["integ"]))
+        await asyncio.sleep(0.5)
+        touching = await holder.fetchval(
+            "SELECT count(*) FROM pg_locks WHERE relation = 'jobs'::regclass AND granted"
+            " AND pid <> pg_backend_pid()")
+        assert touching == 0  # waiting on the migration lock, holding nothing on jobs
+        await holder.execute("SELECT pg_advisory_unlock($1)", MIGRATION_LOCK)
+        await asyncio.wait_for(task, timeout=10)
+    finally:
+        await holder.close()

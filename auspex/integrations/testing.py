@@ -15,8 +15,9 @@ from uuid import UUID
 
 from auspex.connectors.kinds import CONNECTOR_TEST
 from auspex.edge_api.agents import health
-from auspex.integrations.store import Integration
+from auspex.integrations.store import Integration, _integration
 from auspex.jobs.queue import enqueue_on
+from auspex.migrations import MIGRATION_LOCK
 
 
 class CannotTest(Exception):
@@ -43,26 +44,43 @@ async def _refusal(pool, integration: Integration) -> str | None:
 
 async def press(pool, integration: Integration) -> UUID:
     """Queue one test, or CannotTest (with the in-flight job's id when one is running).
-    A transaction-scoped lock per integration makes "at most one in flight" hold for two
-    presses at once."""
-    if (reason := await _refusal(pool, integration)) is not None:
-        raise CannotTest(reason)
+
+    One transaction, its locks in this order:
+    1. the migration's lock, shared, before anything touches `jobs`, as `enqueue`
+       takes it, so a booting replica's DDL never meets it in a lock cycle (fresh
+       review of PR #51, I1);
+    2. a lock per integration, so two presses at once queue one test;
+    3. the integration's row, re-read `FOR SHARE`: the job is built from the row as it
+       is now, and an edit (`store.update` writes the row) waits for this press, then
+       cancels what it queued (fresh review of PR #51, I2).
+    """
     async with pool.acquire() as conn, conn.transaction():
+        await conn.execute("SELECT pg_advisory_xact_lock_shared($1)", MIGRATION_LOCK)
         await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1))",
                            f"connector-test:{integration.id}")
+        row = await conn.fetchrow(
+            "SELECT id, workspace_id, name, prefix, connector_id, content_hash, config,"
+            " agent_id, created_at, disabled_at FROM integrations"
+            " WHERE id = $1 AND workspace_id = $2 FOR SHARE",
+            integration.id, integration.workspace_id)
+        if row is None:
+            raise CannotTest("this integration no longer exists")
+        current = _integration(row)
+        if (reason := await _refusal(conn, current)) is not None:
+            raise CannotTest(reason)
         running = await conn.fetchval(
             "SELECT id FROM jobs WHERE integration_id = $1 AND kind = 'connector.test'"
             " AND status IN ('queued', 'claimed') ORDER BY created_at LIMIT 1",
-            integration.id)
+            current.id)
         if running is not None:
             raise CannotTest("a test of this integration is already running", running)
         job, _ = await enqueue_on(
-            conn, workspace_id=integration.workspace_id, kind=CONNECTOR_TEST,
-            idempotency_key=f"test:{integration.id}:{uuid.uuid4()}",
-            integration_id=integration.id,
-            payload={"integration_id": str(integration.id),
-                     "content_hash": integration.content_hash, "command": "test",
-                     "config": integration.config, "arguments": {}})
+            conn, workspace_id=current.workspace_id, kind=CONNECTOR_TEST,
+            idempotency_key=f"test:{current.id}:{uuid.uuid4()}",
+            integration_id=current.id,
+            payload={"integration_id": str(current.id),
+                     "content_hash": current.content_hash, "command": "test",
+                     "config": current.config, "arguments": {}})
     return job.id
 
 
