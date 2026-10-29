@@ -10,7 +10,10 @@ refused only when the code it would run changed (#4); the agent survives a bad
 package, a full disk (#5) and a refused credential (#6); s1–s4 (press never hangs a
 pool; NUL/surrogate and malformed URLs refused in words; a config edit cancels a
 queued test). A **fresh-agent review** of the fixes and S33's sensitive changes ran
-(Hunaiza agreed), recorded in the S33 record. Pushed to the same PR #51; `staging`
+(Hunaiza agreed): it found I1–I3 and M1–M2, all fixed test first, and B-040
+(logged); recorded in the S33 record. The gate is green (run in four foreground
+parts, as a single run now passes 10 minutes): **2210 passed, 1 skipped**, 153
+modules, both images checked; `/api/health/ready` 200. Pushed to the same PR #51; `staging`
 untouched. **S34 is Burhan's** (his window); **the promote stays Hunaiza's** once
 #51 is merged (S32, B4, S33).
 
