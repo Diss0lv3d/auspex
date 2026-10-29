@@ -235,3 +235,58 @@ def test_the_agent_scrubs_every_string_of_a_result_again():
         "ok": False, "detail": f"x {TOKEN}", f"k{TOKEN}": [f"y{TOKEN}"]}}), 0,
         {"siem_token": TOKEN})
     assert TOKEN not in json.dumps(answer)
+
+
+async def test_a_package_that_is_not_a_zip_is_answered_not_fatal(site):
+    """PR #51 review #5: `PackageError` from `read_package` escaped `run_once` and
+    killed the agent. It is answered as an error in words."""
+    pool, agent, integration, _, reference_zip = site
+    job, pinned = await integration(reference_zip, "sitebad")
+    await pool.execute("UPDATE connector_packages SET package = $2 WHERE content_hash = $1",
+                       pinned, b"not a zip at all")
+    assert agent.run_once() is True
+    row = await _row(pool, job.id)
+    assert row["status"] == "failed" and "package" in row["last_error"]
+
+
+async def test_a_full_disk_is_answered_not_fatal(site, monkeypatch):
+    pool, agent, integration, _, reference_zip = site
+    job, _ = await integration(reference_zip, "sitedisk")
+
+    def full(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(agent_mod.cache, "unpack", full)
+    assert agent.run_once() is True
+    row = await _row(pool, job.id)
+    assert row["status"] == "failed" and "No space left" in row["last_error"]
+
+
+def test_the_loop_survives_any_one_job_s_failure(monkeypatch, tmp_path):
+    """`main()` caught only httpx errors; any other escape ended the agent."""
+    from auspex.edge import __main__ as entry
+
+    calls = []
+
+    class Boom:
+        def __init__(self, **kw):
+            pass
+
+        def heartbeat(self):
+            pass
+
+        def run_once(self):
+            calls.append(1)
+            if len(calls) == 1:
+                raise RuntimeError("one bad job")
+            raise KeyboardInterrupt
+
+    secrets = tmp_path / "s.json"
+    secrets.write_text("{}")
+    secrets.chmod(0o600)
+    monkeypatch.setattr(entry, "Agent", Boom)
+    monkeypatch.setattr(entry, "credential", lambda *a, **k: "apa_x")
+    monkeypatch.setattr(entry.time, "sleep", lambda s: None)
+    assert entry.main({"AUSPEX_URL": "http://127.0.0.1:9", "AUSPEX_SECRETS_FILE": str(secrets),
+                       "AUSPEX_AGENT_CACHE": str(tmp_path / "c")}) == 0
+    assert len(calls) == 2

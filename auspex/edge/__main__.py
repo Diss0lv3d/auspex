@@ -91,6 +91,9 @@ def main(env: dict | None = None) -> int:
                 except httpx.HTTPError as err:
                     logger.warning("edge API unreachable (%s); retrying", type(err).__name__)
                     time.sleep(5)
+                except Exception:  # noqa: BLE001 -- one job's failure never ends the agent
+                    logger.exception("a job failed in the agent itself; carrying on")
+                    time.sleep(5)
         except KeyboardInterrupt:
             return 0
         finally:

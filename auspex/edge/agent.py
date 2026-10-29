@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from auspex_sdk.package import PackageError
 
 from auspex.edge import cache, secrets
 
@@ -120,6 +121,10 @@ class Agent:
             held = secrets.load(self.secrets_path)
         except (cache.PackageMismatch, secrets.SecretsFileRefused) as err:
             return {"error": str(err)}
+        except PackageError as err:
+            return {"error": f"the package for {payload.get('content_hash')} is refused: {err}"}
+        except OSError as err:  # a full disk, an unwritable cache (PR #51 review #5)
+            return {"error": f"the agent could not store the package: {err.strerror or err}"}
         except (httpx.HTTPError, KeyError) as err:
             return {"error": f"the package could not be fetched: {type(err).__name__}"}
         config = payload.get("config") or {}
