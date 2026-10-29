@@ -1,6 +1,20 @@
 # STATE — Auspex
 
-_Last updated: 2026-10-28 — **S33 CLOSED** by Hunaiza (D-059, handed fully):
+_Last updated: 2026-10-29 — **PR #51's review answered on `s33-edge-agent`**
+(Burhan: changes requested; findings in docs/probes/2026-10-28-pr51-review.md,
+each row marked with its fix). Fixed, one commit each, test first: heartbeats
+renew only running jobs and a failed result post is retried (#1); a result is
+accepted on the agent's own claim (#2); a secret echoed in a RESULT is redacted
+(#3; live re-run with an echoing connector); **D-074** (Hunaiza's call): an undo is
+refused only when the code it would run changed (#4); the agent survives a bad
+package, a full disk (#5) and a refused credential (#6); s1–s4 (press never hangs a
+pool; NUL/surrogate and malformed URLs refused in words; a config edit cancels a
+queued test). A **fresh-agent review** of the fixes and S33's sensitive changes ran
+(Hunaiza agreed), recorded in the S33 record. Pushed to the same PR #51; `staging`
+untouched. **S34 is Burhan's** (his window); **the promote stays Hunaiza's** once
+#51 is merged (S32, B4, S33).
+
+2026-10-28 — **S33 CLOSED** by Hunaiza (D-059, handed fully):
 **integrations, Edge Agents and "Test connection" end to end** through a real
 agent container (docs/probes/2026-10-28-s33-live.md). Step 0 fixed all ten of
 PR #43's review findings (#32), with D-072 (the SDK version is not identity).
@@ -85,7 +99,7 @@ Promote #40 (`09af821`) is the last one._
 
 | Track | Prompt | Last closed | Next | Status |
 |---|---|---|---|---|
-| backend | `NEXT-SESSION-BE.md` | S33 (2026-10-28, Hunaiza; its PR into `staging` awaits Burhan) | S34 | **focus** · whose S34 is, is Burhan's to say · Step 0: S33's PR merged, then the promote S33 is a milestone for; then connector actions through approvals |
+| backend | `NEXT-SESSION-BE.md` | S33 (2026-10-28, Hunaiza; PR #51's review answered 2026-10-29, awaits Burhan's merge) | S34 | **focus** · **Burhan's** (2026-10-28), in his window · Step 0: #51 merged and Hunaiza's promote (S32, B4, S33) landed (checked, not run); then connector actions through approvals |
 | front end | `NEXT-SESSION-FE.md` | F4 (2026-10-16) | F5 | waits for S34 (the order table); F4 built the shell F5's admin pages stand on |
 | bugs | `NEXT-SESSION-BUGS.md` | B4 (2026-10-28, Hunaiza; PR #50 merged 2026-10-28) | B5 | unscoped: Burhan picks from the open entries (B-033…B-039 new from B4) |
 
@@ -1084,7 +1098,7 @@ the spec; S30, F4, S31, S32 and S33 are done.**
 
 ## In-flight / standing follow-ups (carry forward until DONE)
 1. **Promote slate: S32, B4 and S33** (S33 is the plan's promote milestone;
-   the promote is Hunaiza's once Burhan merges S33's PR). Before that, it read:
+   **the promote is Hunaiza's once Burhan merges #51**; S34 only checks it). Before that, it read:
    **all of S32 and, once its PR is merged, all of B4**
    (the six fixes, their tests and records, B-033…B-035, TD-070, the
    session-end docs). S33's promote carries both. S32's, once Burhan merges its PR
@@ -1428,8 +1442,7 @@ the spec; S30, F4, S31, S32 and S33 are done.**
     connector systems and an approval is bound to its integration (prefixes
     are never reused); dispatch runs `actions[].execute` on the edge API; the
     core checks envelopes with `auspex_sdk.validate`; TD-071 before any action
-    runs; TD-072…TD-074; the S33 build's review was a self-review (a fresh
-    adversarial review of it is owed when helper agents are back).
+    runs; TD-072…TD-074; the S33 build's review was a self-review, and a fresh-agent review ran at PR #51's review (S33 record).
 
 **Closed at S33, so they leave this list:** #32 (all ten findings). S33 added #33.
 
