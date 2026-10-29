@@ -8,7 +8,8 @@ and CI is green. A second fresh review of the whole PR found no blocker; Burhan 
 and logged what it found: **B-041** (reproduced: a connector that prints while it
 loads fails every job), **B-042**, **B-043**; **TD-075…TD-078**; TD-074 resolved by
 review #2; two notes for S34 (#33). Next: **Hunaiza's promote** (S32, B4, S33), then
-**S34** (Burhan's).
+**S34** (Burhan's). **The dev engine is local Ollama `qwen3:14b`** until the Z.ai
+key, refused 2026-10-29, is rotated (Blockers #8).
 
 2026-10-29 — **PR #51's review answered on `s33-edge-agent`**
 (Burhan: changes requested; findings in docs/probes/2026-10-28-pr51-review.md,
@@ -1558,6 +1559,18 @@ records what the split left). F2 added #20–#22.
    budget. B-027 (`extract()`'s overlap checks) and B-030 (the guard's
    quote-line carve-out) were fixed at B4. The
    resolver has not been swept (IDEAS: one stall test for the whole pass).
+8. **The dev engine is local Ollama, not Z.ai (2026-10-29).** Z.ai refuses the
+   dev key: a direct call returned 401 `{"code":"1000","message":"Authentication
+   Failed"}`, so every chat turn answered "the platform's engine refused the
+   platform's credentials". `.env` now points at the D-013 fallback,
+   `LLM_BASE_URL=http://host.docker.internal:11434/v1` and `LLM_MODEL=qwen3:14b`,
+   with the Z.ai lines commented out above them and the key untouched. A test
+   turn streamed end to end. `qwen3:14b` is slower and weaker than
+   `glm-4.5-air`, so anything measured on the engine until then (S34's
+   co-analyst offers included) is qwen3:14b's result, not D-034's model's.
+   **To go back:** Burhan rotates the key in Z.ai's console, puts it in `.env`
+   (never in a chat), uncomments the two Z.ai lines, removes the two Ollama
+   lines, and runs `docker compose up -d --force-recreate app`.
 
 ## Host notes (reality snapshot)
 - Postgres 55432; app 8000; OpenSearch 9200. Host runs pin via `auspex.devhost`.
