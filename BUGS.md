@@ -750,3 +750,21 @@ are never deleted.
   first's change.
 - **Path to fix:** read the row `FOR UPDATE` inside the update's transaction.
 - **Status:** open, not placed. Burhan's.
+
+## B-041 — a connector that prints while it loads fails every job it runs
+
+- **Found:** 2026-10-29, Burhan's window, the fresh review of PR #51 at `1d64692`,
+  before the merge. Reproduced.
+- **What happened:** `_invoke` (`sdk/auspex_sdk/run.py`) imports the connector's
+  module, and loads its config, before it redirects stdout. Whatever a connector
+  prints at import (a debug `print`, a library's banner) lands on the runner's stdout
+  ahead of its one JSON answer. The agent cannot read the answer, and the job fails
+  although the connector answered correctly. What it printed is not kept in the job's
+  log either.
+- **Evidence:** the mock SIEM connector (`examples/connectors/mock_siem/yaml`) with
+  `print('connector loaded')` added at the top of its module, built and run with
+  `python -I -m auspex_sdk.run`: exit 0, stdout
+  `connector loaded\n{"result": {"detail": "reachable", "ok": true}, "log": []}`. The
+  agent's `_answer` reads it as `the runner answered nothing usable (exit 0)`. It fails
+  closed: no secret reached the answer.
+- **Status:** open, not placed. Burhan's.
