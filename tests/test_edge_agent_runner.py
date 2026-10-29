@@ -319,15 +319,19 @@ def test_a_refused_credential_with_no_new_token_stops_and_says_so(monkeypatch, t
             pass
 
         def heartbeat(self):
-            pass
+            raise _refused()
 
         def run_once(self):
             raise _refused()
 
+    kept = tmp_path / "c" / "credential"
+    kept.parent.mkdir(parents=True)
+    kept.write_text("apa_old")
     monkeypatch.setattr(entry, "Agent", Revoked)
     monkeypatch.setattr(entry, "credential", lambda *a, **k: "apa_old")
     assert entry.main(_env(tmp_path, AUSPEX_AGENT_TOKEN="apa_old")) == 3
     assert "credential was refused" in caplog.text
+    assert kept.read_text() == "apa_old"  # fresh review I3: never deleted on a refusal
 
 
 def test_a_refused_credential_re_enrolls_with_a_new_token(monkeypatch, tmp_path):
@@ -343,7 +347,8 @@ def test_a_refused_credential_re_enrolls_with_a_new_token(monkeypatch, tmp_path)
             used.append(credential)
 
         def heartbeat(self):
-            pass
+            if used[-1] == "apa_old":
+                raise _refused()  # the confirming call is refused too: truly revoked
 
         def run_once(self):
             if used[-1] == "apa_old":
@@ -354,6 +359,7 @@ def test_a_refused_credential_re_enrolls_with_a_new_token(monkeypatch, tmp_path)
         if (cache_dir / "credential").exists():
             return (cache_dir / "credential").read_text()
         enrolled.append(env["AUSPEX_AGENT_TOKEN"])
+        (cache_dir / "credential").write_text("apa_new")  # as the real enrollment keeps it
         return "apa_new"
 
     monkeypatch.setattr(entry, "Agent", Agent)
@@ -361,3 +367,62 @@ def test_a_refused_credential_re_enrolls_with_a_new_token(monkeypatch, tmp_path)
     assert entry.main(_env(tmp_path, AUSPEX_AGENT_TOKEN="ape_fresh")) == 0
     assert used == ["apa_old", "apa_new"] and enrolled == ["ape_fresh"]
     assert not kept.exists() or kept.read_text() != "apa_old"
+
+
+def test_a_single_401_that_is_not_confirmed_keeps_the_credential(monkeypatch, tmp_path):
+    """Fresh review of PR #51, I3: a 401 can be a proxy or a half-deployed backend. One
+    that a second authenticated call does not repeat is a blip: the credential stays,
+    and the agent carries on."""
+    from auspex.edge import __main__ as entry
+
+    kept = tmp_path / "c" / "credential"
+    kept.parent.mkdir(parents=True)
+    kept.write_text("apa_good")
+    runs = []
+
+    class Agent:
+        def __init__(self, **kw):
+            pass
+
+        def heartbeat(self):
+            pass  # the confirming call succeeds
+
+        def run_once(self):
+            runs.append(1)
+            if len(runs) == 1:
+                raise _refused()
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(entry, "Agent", Agent)
+    monkeypatch.setattr(entry, "credential", lambda *a, **k: "apa_good")
+    monkeypatch.setattr(entry.time, "sleep", lambda s: None)
+    assert entry.main(_env(tmp_path, AUSPEX_AGENT_TOKEN="ape_spent")) == 0
+    assert kept.read_text() == "apa_good" and len(runs) == 2
+
+
+def test_a_failed_re_enrollment_puts_the_old_credential_back(monkeypatch, tmp_path):
+    from auspex.edge import __main__ as entry
+
+    kept = tmp_path / "c" / "credential"
+    kept.parent.mkdir(parents=True)
+    kept.write_text("apa_old")
+
+    class Agent:
+        def __init__(self, **kw):
+            pass
+
+        def heartbeat(self):
+            raise _refused()
+
+        def run_once(self):
+            raise _refused()
+
+    def enroll(http, env, cache_dir):
+        if (cache_dir / "credential").exists():
+            return (cache_dir / "credential").read_text()
+        raise entry.AgentConfigError("enrollment refused: this token is used")
+
+    monkeypatch.setattr(entry, "Agent", Agent)
+    monkeypatch.setattr(entry, "credential", enroll)
+    assert entry.main(_env(tmp_path, AUSPEX_AGENT_TOKEN="ape_spent")) == 3
+    assert kept.read_text() == "apa_old"

@@ -82,16 +82,39 @@ def main(env: dict | None = None) -> int:
             outcome = _serve(agent)
             if outcome != "refused":
                 return outcome
-            # PR #51 review #6: a 401 is the credential refused (revoked), not the API
-            # unreachable. A new enrollment token in the environment re-enrolls; without
-            # one the agent says so and stops, instead of retrying for ever.
-            (cache_dir / "credential").unlink(missing_ok=True)
+            # PR #51 review #6, with the fresh review's I3: a 401 is the credential
+            # refused only if a second authenticated call is refused too (a proxy or a
+            # half-deployed backend can answer one 401). Then, with no new enrollment
+            # token, say so and stop, the credential kept; with one, set the old
+            # credential aside, enroll, and drop it only once that succeeded.
+            if not _confirmed_refused(agent):
+                logger.warning("one refused call, not repeated; carrying on")
+                continue
             if not _token_is_enrollment(env):
                 logger.error("this agent's credential was refused (revoked?). Create a new"
                              " agent and start this one with its enrollment token.")
                 return 3
-            logger.warning("this agent's credential was refused; enrolling again with the"
-                           " enrollment token given")
+            kept, aside = cache_dir / "credential", cache_dir / "credential.refused"
+            if kept.exists():
+                kept.replace(aside)
+            try:
+                credential(http, env, cache_dir)
+            except (AgentConfigError, OSError, httpx.HTTPError) as err:
+                if aside.exists():
+                    aside.replace(kept)
+                logger.error("this agent's credential was refused and enrolling again"
+                             " failed (%s); the old credential is kept", err)
+                return 3
+            aside.unlink(missing_ok=True)
+            logger.warning("this agent's credential was refused; enrolled again")
+
+
+def _confirmed_refused(agent: Agent) -> bool:
+    try:
+        agent.heartbeat()
+    except httpx.HTTPError as err:
+        return _refused(err)
+    return False
 
 
 def _token_is_enrollment(env: dict) -> bool:
