@@ -53,6 +53,12 @@ def _forms(value: str) -> set[str]:
     return {f for f in forms if len(f) >= MIN_SECRET_LEN}
 
 
+def secret_forms(value: str) -> set[str]:
+    """Every form of `value` the redaction replaces (plain, URL-quoted, base64, repr,
+    JSON): for a scrub that runs outside a logger, such as the Edge Agent's (S33)."""
+    return _forms(value)
+
+
 class RedactingFilter(logging.Filter):
     """Replaces secret values in a record with `[secret:<name>]`. Never drops a record."""
 

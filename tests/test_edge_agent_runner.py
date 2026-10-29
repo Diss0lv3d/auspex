@@ -426,3 +426,48 @@ def test_a_failed_re_enrollment_puts_the_old_credential_back(monkeypatch, tmp_pa
     monkeypatch.setattr(entry, "credential", enroll)
     assert entry.main(_env(tmp_path, AUSPEX_AGENT_TOKEN="ape_spent")) == 3
     assert kept.read_text() == "apa_old"
+
+
+def test_the_agent_s_own_scrub_catches_encoded_forms_of_a_secret():
+    """Fresh review of PR #51, M2: a hostile connector can write its own answer and exit
+    before the runner redacts; the agent then scrubbed only the plain value."""
+    import base64
+    from urllib.parse import quote
+
+    leaked = {"detail": f"{quote(TOKEN, safe='')} {base64.b64encode(TOKEN.encode()).decode()}"}
+    answer = agent_mod._answer(json.dumps({"result": leaked}), 0, {"siem_token": TOKEN})
+    text = json.dumps(answer)
+    assert quote(TOKEN, safe="") not in text
+    assert base64.b64encode(TOKEN.encode()).decode() not in text
+
+
+def test_the_heartbeat_thread_survives_any_error(monkeypatch, tmp_path):
+    """Fresh review of PR #51, M1: a non-HTTP error ended the heartbeat thread silently,
+    and leases and health lapsed with no log line."""
+    from auspex.edge import __main__ as entry
+
+    beats = []
+
+    class Agent:
+        def __init__(self, **kw):
+            pass
+
+        def heartbeat(self):
+            beats.append(1)
+            if len(beats) == 1:
+                raise RuntimeError("set changed size during iteration")
+
+        def run_once(self):
+            import time as real_time
+
+            for _ in range(50):
+                if len(beats) >= 2:
+                    raise KeyboardInterrupt
+                real_time.sleep(0.02)
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(entry, "Agent", Agent)
+    monkeypatch.setattr(entry, "credential", lambda *a, **k: "apa_x")
+    monkeypatch.setattr(entry, "HEARTBEAT_SECONDS", 0.01)
+    assert entry.main(_env(tmp_path)) == 0
+    assert len(beats) >= 2

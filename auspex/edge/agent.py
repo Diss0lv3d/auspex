@@ -19,12 +19,14 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
 
 import httpx
 from auspex_sdk.package import PackageError
+from auspex_sdk.redact import secret_forms
 
 from auspex.edge import cache, secrets
 
@@ -50,6 +52,7 @@ class Agent:
         self.wait = wait
         self._auth = {"Authorization": f"Bearer {credential}"}
         self.running: set[str] = set()  # job ids the heartbeat renews
+        self._lock = threading.Lock()  # the heartbeat thread reads `running` (M1)
         self.cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self.cache_dir, 0o700)
         secrets.load(self.secrets_path)  # refuse a loose or broken file at start
@@ -57,8 +60,10 @@ class Agent:
     # -- the edge API -----------------------------------------------------------------------
 
     def heartbeat(self) -> None:
+        with self._lock:
+            jobs = sorted(self.running)  # a copy, never the set while run_once changes it
         self.http.post("/api/edge/heartbeat", headers=self._auth,
-                       json={"jobs": sorted(self.running)}).raise_for_status()
+                       json={"jobs": jobs}).raise_for_status()
 
     def _claim(self) -> dict | None:
         res = self.http.post("/api/edge/claim", headers=self._auth,
@@ -96,12 +101,14 @@ class Agent:
         job = self._claim()
         if job is None:
             return False
-        self.running.add(job["id"])
+        with self._lock:
+            self.running.add(job["id"])
         try:
             answer = self._run(job["payload"])
             self._post(job, answer)
         finally:
-            self.running.discard(job["id"])
+            with self._lock:
+                self.running.discard(job["id"])
         logger.info("job %s (%s): %s", job["id"], job["kind"],
                     "answered" if "result" in answer else "failed")
         return True
@@ -162,9 +169,13 @@ def _answer(stdout: str, returncode: int, held: dict[str, str]) -> dict:
 
 
 def _scrub(text: str, held: dict[str, str]) -> str:
-    for value in sorted(held.values(), key=len, reverse=True):
-        if value:
-            text = text.replace(value, "[secret]")
+    """Every form the SDK's redaction knows (plain, URL-quoted, base64, repr, JSON):
+    a connector that writes its own answer and exits skips the runner's redaction,
+    and only this pass is left (fresh review of PR #51, M2)."""
+    forms = sorted({f for v in held.values() if v for f in secret_forms(v)},
+                   key=len, reverse=True)
+    for form in forms:
+        text = text.replace(form, "[secret]")
     return text
 
 

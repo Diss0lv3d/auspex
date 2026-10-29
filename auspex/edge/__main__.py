@@ -134,6 +134,8 @@ def _serve(agent: Agent) -> int | str:
                 agent.heartbeat()
             except httpx.HTTPError as err:
                 logger.warning("heartbeat failed: %s", type(err).__name__)
+            except Exception:  # noqa: BLE001 -- the thread must outlive any one beat (M1)
+                logger.exception("heartbeat failed in the agent itself; carrying on")
             stop.wait(HEARTBEAT_SECONDS)
 
     threading.Thread(target=beat, daemon=True, name="heartbeat").start()
