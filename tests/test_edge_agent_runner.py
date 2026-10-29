@@ -214,3 +214,24 @@ def test_the_heartbeat_names_the_job_being_run(site, monkeypatch):
     agent.running.add("00000000-0000-0000-0000-000000000001")
     agent.heartbeat()
     assert sent == [{"jobs": ["00000000-0000-0000-0000-000000000001"]}]
+
+
+async def test_a_secret_echoed_in_a_result_never_reaches_the_job_row(site):
+    """PR #51 review #3, end to end: the connector answers with its secret in the
+    result's text; the job row (what the admin is shown) holds only the placeholder."""
+    pool, agent, integration, _, reference_zip = site
+    echo = _variant(reference_zip, (
+        "\n\ndef check(ctx):\n"
+        "    return {'ok': False, 'detail': 'SIEM said: bad key ' + str(ctx.config.api_token)}\n"))
+    job, _ = await integration(echo, "siteecho")
+    agent.run_once()
+    row = await _row(pool, job.id)
+    assert row["status"] == "done"
+    assert TOKEN not in row["result"] and "[secret:api_token]" in row["result"]
+
+
+def test_the_agent_scrubs_every_string_of_a_result_again():
+    answer = agent_mod._answer(json.dumps({"result": {
+        "ok": False, "detail": f"x {TOKEN}", f"k{TOKEN}": [f"y{TOKEN}"]}}), 0,
+        {"siem_token": TOKEN})
+    assert TOKEN not in json.dumps(answer)

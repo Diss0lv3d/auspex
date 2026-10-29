@@ -153,7 +153,7 @@ def _answer(stdout: str, returncode: int, held: dict[str, str]) -> dict:
                                 held)}
     if "error" in out:
         return {"error": _scrub(str(out["error"]), held)}
-    return {"result": out["result"]}
+    return {"result": _scrub_value(out["result"], held)}
 
 
 def _scrub(text: str, held: dict[str, str]) -> str:
@@ -161,3 +161,15 @@ def _scrub(text: str, held: dict[str, str]) -> str:
         if value:
             text = text.replace(value, "[secret]")
     return text
+
+
+def _scrub_value(value: Any, held: dict[str, str]) -> Any:
+    """The runner redacted the result already; every string, keys included, is scrubbed
+    again here before it leaves the host (PR #51 review #3)."""
+    if isinstance(value, str):
+        return _scrub(value, held)
+    if isinstance(value, dict):
+        return {_scrub_value(k, held): _scrub_value(v, held) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_scrub_value(v, held) for v in value]
+    return value

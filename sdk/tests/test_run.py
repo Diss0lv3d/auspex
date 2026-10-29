@@ -88,3 +88,20 @@ def test_a_malformed_job_is_refused_in_words(package_dir, stdin):
         capture_output=True, text=True, timeout=30, env={"PATH": "/usr/bin:/bin"})
     assert proc.returncode == 1
     assert json.loads(proc.stdout)["error"].startswith("job:")
+
+
+def test_a_secret_echoed_in_the_result_is_redacted(package_dir, tmp_path):
+    """PR #51 review #3: logs and errors were redacted, the result was not, so a test
+    answering "401 for key <secret>" stored and showed it."""
+    echo = tmp_path / "echo"
+    shutil.copytree(package_dir, echo)
+    module = echo / "mock_siem.py"
+    module.write_text(module.read_text() + (
+        "\n\ndef _echo(ctx):\n"
+        "    return {'ok': False, 'detail': '401 for key ' + str(ctx.config.api_token)}\n"
+        "check = _echo\n"))
+    code, out, _ = _run(echo, {"command": "test", "config": CONFIG,
+                               "secrets": {"siem_token": TOKEN}, "arguments": {}})
+    assert code == 0
+    assert TOKEN not in json.dumps(out)
+    assert out["result"] == {"ok": False, "detail": "401 for key [secret:api_token]"}

@@ -81,6 +81,19 @@ def _redact(text: str, filt: logging.Filter) -> str:
     return record.getMessage()
 
 
+def _redact_value(value: Any, filt: logging.Filter) -> Any:
+    """Every string of a result, keys and values, at any depth, redacted with the same
+    forms as the logs: a connector that echoes a SIEM's error body, or its key, sends
+    nothing of the secret (PR #51 review #3)."""
+    if isinstance(value, str):
+        return _redact(value, filt)
+    if isinstance(value, dict):
+        return {_redact_value(k, filt): _redact_value(v, filt) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_redact_value(v, filt) for v in value]
+    return value
+
+
 def run(package_dir: Path, raw_job: str) -> tuple[int, dict]:
     log_lines: list[str] = []
     filt: logging.Filter = redacting_filter({})
@@ -91,7 +104,8 @@ def run(package_dir: Path, raw_job: str) -> tuple[int, dict]:
         filt = redacting_filter(resolved)
         result = _invoke(package_dir, manifest, job["command"], values, resolved,
                          dict(job.get("arguments") or {}), log_lines)
-        return 0, {"result": result, "log": [_redact(x, filt) for x in log_lines]}
+        return 0, {"result": _redact_value(result, filt),
+                   "log": [_redact(x, filt) for x in log_lines]}
     except Exception as e:  # noqa: BLE001 -- every failure is an answer, redacted
         message = str(e) if isinstance(e, JobError) else f"{type(e).__name__}: {e}"
         return 1, {"error": _redact(message, filt),
