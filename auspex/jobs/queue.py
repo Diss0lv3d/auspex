@@ -243,19 +243,23 @@ async def claim(pool: asyncpg.Pool, scope: ClaimScope, *, claimer: str) -> Job |
     return Job.from_row(row) if row is not None else None
 
 
-async def extend_leases(pool: asyncpg.Pool, *, claimer: str) -> int:
-    """Renew every lease `claimer` holds by its job's own lease length (TD-064): an Edge
-    Agent's heartbeat keeps a long command's job from being reclaimed. Only that
-    claimer's rows move. Returns how many."""
+async def extend_leases(pool: asyncpg.Pool, *, claimer: str, job_ids: list[UUID]) -> int:
+    """Renew the leases of `job_ids` that `claimer` still holds (TD-064): an Edge Agent's
+    heartbeat names the jobs it is running, so a long command's job is not reclaimed.
+    Only the named jobs move: renewing everything the claimer held kept a job whose
+    answer was lost "running" for ever (PR #51 review #1). Returns how many."""
+    if not job_ids:
+        return 0
     return await pool.fetchval(
         """
         WITH moved AS (
             UPDATE jobs SET lease_expires_at = now() + make_interval(secs => lease_seconds)
-             WHERE status = 'claimed' AND claimed_by = $1 AND lease_expires_at >= now()
+             WHERE status = 'claimed' AND claimed_by = $1 AND id = ANY($2::uuid[])
+               AND lease_expires_at >= now()
             RETURNING 1
         ) SELECT count(*) FROM moved
         """,
-        claimer,
+        claimer, job_ids,
     )
 
 

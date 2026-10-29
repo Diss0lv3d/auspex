@@ -170,13 +170,18 @@ async def post_result(job_id: UUID, body: Answer, request: Request, agent: Agent
         raise HTTPException(status_code=409, detail="this job is no longer held") from err
 
 
+class Beat(BaseModel):
+    jobs: list[UUID] = []
+
+
 @router.post("/heartbeat", status_code=204)
-async def heartbeat(request: Request, agent: AgentAuth) -> None:
-    """Liveness (health is read from it) and the agent's held leases, renewed."""
+async def heartbeat(request: Request, agent: AgentAuth, body: Beat | None = None) -> None:
+    """Liveness (health is read from it), and the leases of the jobs the agent says it
+    is running now, renewed; no others (PR #51 review #1)."""
     pool = request.app.state.pool
     await pool.execute("UPDATE edge_agents SET last_heartbeat_at = now() WHERE id = $1",
                        agent.agent_id)
-    await extend_leases(pool, claimer=_claimer(agent))
+    await extend_leases(pool, claimer=_claimer(agent), job_ids=(body.jobs if body else []))
 
 
 @router.get("/packages/{content_hash}")

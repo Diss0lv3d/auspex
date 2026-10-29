@@ -181,3 +181,36 @@ def test_a_half_unpacked_package_left_by_a_crash_is_never_reused(tmp_path, refer
     (staging / "planted.py").write_text("raise SystemExit('ran')\n")
     target = cache.unpack(tmp_path, digest, reference_zip)
     assert not (target / "planted.py").exists()
+
+
+async def test_a_result_post_that_fails_once_is_retried_not_dropped(site, monkeypatch):
+    """PR #51 review #1: the agent dropped an answer whose post failed, leaving the job
+    to the heartbeat. It retries with backoff, and the job ends."""
+    import httpx
+
+    pool, agent, integration, _, reference_zip = site
+    job, _ = await integration(reference_zip, "siteretry")
+    real_post, failures = agent.http.post, []
+
+    def flaky(url, *args, **kwargs):
+        if "/result" in url and not failures:
+            failures.append(url)
+            raise httpx.ConnectError("transient")
+        return real_post(url, *args, **kwargs)
+
+    monkeypatch.setattr(agent.http, "post", flaky)
+    monkeypatch.setattr(agent_mod, "RETRY_DELAYS", (0, 0, 0))
+    assert agent.run_once() is True
+    assert failures and (await _row(pool, job.id))["status"] == "done"
+    assert agent.running == set()  # the heartbeat names nothing once it is posted
+
+
+def test_the_heartbeat_names_the_job_being_run(site, monkeypatch):
+    _, agent, _, _, _ = site
+    sent = []
+    monkeypatch.setattr(agent.http, "post",
+                        lambda url, **kw: sent.append(kw.get("json")) or
+                        type("R", (), {"raise_for_status": lambda self: None})())
+    agent.running.add("00000000-0000-0000-0000-000000000001")
+    agent.heartbeat()
+    assert sent == [{"jobs": ["00000000-0000-0000-0000-000000000001"]}]

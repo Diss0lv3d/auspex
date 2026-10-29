@@ -157,7 +157,8 @@ async def test_a_heartbeat_marks_the_agent_and_holds_only_its_own_leases(world, 
     client.post("/api/edge/claim", headers=b["auth"])
     await pool.execute("UPDATE jobs SET lease_expires_at = now() + interval '5 seconds'"
                        " WHERE id = ANY($1::uuid[])", [mine.id, theirs.id])
-    assert client.post("/api/edge/heartbeat", headers=a["auth"]).status_code == 204
+    assert client.post("/api/edge/heartbeat", headers=a["auth"],
+                       json={"jobs": [str(mine.id), str(theirs.id)]}).status_code == 204
     leases = {r["id"]: r["left"] for r in await pool.fetch(
         "SELECT id, extract(epoch FROM lease_expires_at - now()) AS left FROM jobs"
         " WHERE id = ANY($1::uuid[])", [mine.id, theirs.id])}
@@ -183,3 +184,25 @@ async def test_a_person_cannot_call_the_agent_endpoints(world, client, settings)
     for method, path in (("post", "/api/edge/claim"), ("post", "/api/edge/heartbeat"),
                          ("get", f"/api/edge/packages/{a['hash']}")):
         assert getattr(client, method)(path, headers=person_auth).status_code == 401
+
+
+async def test_a_heartbeat_renews_only_the_jobs_the_agent_says_it_is_running(world, client):
+    """PR #51 review #1: renewing every job the claimer held kept a job whose result post
+    had failed "running" for ever, and every later test was refused. Only the named jobs,
+    still scoped to this claimer, are renewed."""
+    pool, _, a, b = world
+    running, forgotten, theirs = await _job(pool, a), await _job(pool, a), await _job(pool, b)
+    client.post("/api/edge/claim", params={"wait": 0}, headers=a["auth"])
+    client.post("/api/edge/claim", params={"wait": 0}, headers=a["auth"])
+    client.post("/api/edge/claim", params={"wait": 0}, headers=b["auth"])
+    ids = [running.id, forgotten.id, theirs.id]
+    await pool.execute("UPDATE jobs SET lease_expires_at = now() + interval '5 seconds'"
+                       " WHERE id = ANY($1::uuid[])", ids)
+    res = client.post("/api/edge/heartbeat", headers=a["auth"],
+                      json={"jobs": [str(running.id), str(theirs.id)]})
+    assert res.status_code == 204, res.text
+    left = {r["id"]: r["left"] for r in await pool.fetch(
+        "SELECT id, extract(epoch FROM lease_expires_at - now()) AS left FROM jobs"
+        " WHERE id = ANY($1::uuid[])", ids)}
+    assert left[running.id] > 60
+    assert left[forgotten.id] < 10 and left[theirs.id] < 10
