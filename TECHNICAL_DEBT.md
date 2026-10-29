@@ -1,5 +1,66 @@
 # Technical debt — logged the moment it's taken
 
+## TD-078 (S33) — the dev Edge Agent keeps its credential in the container's /tmp
+
+**Where:** `docker-compose.yml` (the dev `edge` service: `AUSPEX_AGENT_CACHE:
+/tmp/auspex-agent`, its token file holding a one-time `ape_` token).
+**Risk:** LOW, dev only. Recreating the container (`--force-recreate`, a rebuild)
+loses the enrolled credential; the agent then tries the spent `ape_` token, is
+refused, and exits. The dev agent needs a new agent and token after every recreate.
+**Why taken:** the dev agent runs as the host user so it can read the 0600 secrets
+file (D-063); `/tmp` was the writable place that needed no volume.
+**Path to fix:** mount the cache on a volume, or under `./.edge-dev`.
+**Trigger:** the next time the dev agent has to be re-created by hand.
+_Found by the fresh review at PR #51's merge (2026-10-29)._
+
+## TD-077 (S33) — the SDK runner repeats the harness's invoke and validate
+
+**Where:** `sdk/auspex_sdk/run.py` (`_invoke`) and `sdk/auspex_sdk/harness.py`
+(`run_command`): both resolve the command, load the config, import the handler, call
+it per command form, and pick the validator by command.
+**Risk:** LOW. The next contract change (a new command form in S34) must be made in
+both, or the local harness and the Edge Agent drift apart.
+**Why taken:** S33 needed the runner's own output capture and redaction around the
+call; a shared helper was not split out.
+**Path to fix:** one shared invoke-and-validate helper that both call, the runner
+wrapping it in its capture.
+**Trigger:** S34's first change to how a command is invoked or validated.
+_Found by the fresh review at PR #51's merge (2026-10-29)._
+
+## TD-076 (S33) — the integrations listing reads each agent's health one at a time
+
+**Where:** `auspex/integrations/routes.py` (`listing` awaits `present()` per
+integration; each runs its own `edge_agents` query).
+**Risk:** LOW. N integrations make N+1 sequential round trips on every
+`GET /api/integrations`.
+**Why taken:** the simplest shape for S33's few integrations per workspace.
+**Path to fix:** join `edge_agents` in `store.list_for`, or read the workspace's
+agents once and look each health up in a map.
+**Trigger:** a workspace with tens of integrations, or the listing showing up in
+latency.
+_Found by the fresh review at PR #51's merge (2026-10-29)._
+
+## TD-075 (S33) — connector code runs as the agent's own user
+
+**Where:** `auspex/edge/agent.py` (`_run`: the command is a subprocess of the agent,
+same user, its working directory in the package cache) and `auspex/edge/cache.py`
+(`cached` returns an unpacked package without re-hashing it).
+**Risk:** LOW while every connector an agent runs was uploaded by its own
+workspace's admins; higher once that stops being true. A connector's code can read
+the agent's 0600 secrets file and rewrite another connector's cached package. So
+"the command gets only the secrets its config names" and "a package runs only under
+its hash" hold against mistakes, not against a hostile package. PR #51's description
+says the agent "re-hashes each package before running it"; it hashes at download
+only.
+**Why taken:** S33 ran connectors a workspace's own admins uploaded, on that
+workspace's own host (D-062, D-063); a sandbox was outside its scope.
+**Path to fix:** run each command as its own unprivileged user, or in a sandbox, that
+cannot read the secrets file or the cache; hand it a read-only copy of its package;
+re-verify the package's tree hash before each run.
+**Trigger:** before an agent runs a connector its workspace's admins did not upload
+themselves.
+_Found by the fresh review at PR #51's merge (2026-10-29)._
+
 ## TD-074 (S33) — a test claimed by an agent that is then swapped out waits for its lease
 
 **Where:** `auspex/edge_api/routes.py` (`post_result` scopes a result to the
