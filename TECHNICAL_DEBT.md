@@ -61,7 +61,12 @@ re-verify the package's tree hash before each run.
 themselves.
 _Found by the fresh review at PR #51's merge (2026-10-29)._
 
-## TD-074 (S33) — a test claimed by an agent that is then swapped out waits for its lease
+## ~~TD-074 (S33) — a test claimed by an agent that is then swapped out waits for its lease~~ RESOLVED S33
+**Resolved 2026-10-29 (`88c6f5e`, PR #51 review #2):** `post_result` now accepts an
+answer on the agent's own claim (workspace, `claimed_by` and the token), whatever the
+integration's state, so a swapped-out agent's running test finishes with its answer
+(`test_a_running_test_s_answer_is_kept_after_its_integration_changes[move]`). The
+entry below is kept as it was written.
 
 **Where:** `auspex/edge_api/routes.py` (`post_result` scopes a result to the
 integrations that name the posting agent NOW) and `auspex/integrations/store.py`.
