@@ -738,3 +738,15 @@ are never deleted.
   WHATWG-stripped characters; it is a regex-boundary question, not B-018's.
 - **Evidence:** the review of B-018's third fix (B4).
 - **Status:** open, not placed. Burhan's.
+
+## B-040 — two edits of one integration at once can lose one
+
+- **Found:** 2026-10-29, the fresh-agent review of PR #51's fixes (S33). Outside
+  that review's findings.
+- **What happened (by reading, not reproduced):** `store.update`
+  (`auspex/integrations/store.py`) reads the current row outside its transaction,
+  merges the change into it, then writes. Two admins editing the same integration at
+  once each merge into the same old row, and the second write silently drops the
+  first's change.
+- **Path to fix:** read the row `FOR UPDATE` inside the update's transaction.
+- **Status:** open, not placed. Burhan's.
