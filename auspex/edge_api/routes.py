@@ -145,15 +145,16 @@ async def claim_job(request: Request, agent: AgentAuth, wait: float | None = Non
 
 @router.post("/jobs/{job_id}/result", status_code=204)
 async def post_result(job_id: UUID, body: Answer, request: Request, agent: AgentAuth) -> None:
-    """The agent's answer for a job it holds. The job must be in its workspace and one
-    of its integrations' (404 otherwise, whatever the token); the claim token must
-    still hold it (409). A result is checked with the SDK's validators before it is
-    stored; an invalid one, or the agent's error, fails the job in words."""
+    """The agent's answer for a job it holds. The authority is the claim: a job in the
+    agent's workspace that THIS agent claimed (404 otherwise, whatever the token), still
+    held by the token sent (409). Not the integration's state now: a running test
+    finishes after its integration is disabled or moved (PR #51 review #2). A result is
+    checked with the SDK's validators before it is stored; an invalid one, or the
+    agent's error, fails the job in words."""
     pool = request.app.state.pool
     row = await pool.fetchrow(
-        "SELECT kind FROM jobs WHERE id = $1 AND workspace_id = $2"
-        " AND integration_id = ANY($3::uuid[])",
-        job_id, agent.workspace_id, await _integrations_of(pool, agent))
+        "SELECT kind FROM jobs WHERE id = $1 AND workspace_id = $2 AND claimed_by = $3",
+        job_id, agent.workspace_id, _claimer(agent))
     if row is None or row["kind"] not in EDGE_KINDS:
         raise HTTPException(status_code=404, detail="no such job for this agent")
     try:

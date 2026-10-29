@@ -206,3 +206,30 @@ async def test_a_heartbeat_renews_only_the_jobs_the_agent_says_it_is_running(wor
         " WHERE id = ANY($1::uuid[])", ids)}
     assert left[running.id] > 60
     assert left[forgotten.id] < 10 and left[theirs.id] < 10
+
+
+@pytest.mark.parametrize("change", ["disable", "move"])
+async def test_a_running_test_s_answer_is_kept_after_its_integration_changes(world, client,
+                                                                               change):
+    """PR #51 review #2: the answer was refused once the integration was disabled or moved
+    to another agent, though "a running one finishes". The authority is the claim: this
+    agent, this token, this workspace."""
+    from auspex.edge_api.agents import create_agent
+    from auspex.integrations.store import update
+
+    pool, m, a, _ = world
+    admin = person(m.d_user, m.direct)
+    job = await _job(pool, a)
+    claimed = client.post("/api/edge/claim", params={"wait": 0}, headers=a["auth"]).json()
+    if change == "disable":
+        await disable(pool, workspace_id=a["ws"], actor=admin,
+                      integration_id=a["integration"].id)
+    else:
+        other, _ = await create_agent(pool, workspace_id=a["ws"], actor=admin, name="other")
+        await update(pool, workspace_id=a["ws"], actor=admin,
+                     integration_id=a["integration"].id, agent_id=other.id)
+    res = client.post(f"/api/edge/jobs/{job.id}/result", headers=a["auth"],
+                      json={"token": claimed["job"]["token"],
+                            "result": {"ok": True, "detail": "reachable"}})
+    assert res.status_code == 204, res.text
+    assert (await _status(pool, job.id))["status"] == "done"
