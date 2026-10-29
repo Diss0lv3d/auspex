@@ -290,3 +290,74 @@ def test_the_loop_survives_any_one_job_s_failure(monkeypatch, tmp_path):
     assert entry.main({"AUSPEX_URL": "http://127.0.0.1:9", "AUSPEX_SECRETS_FILE": str(secrets),
                        "AUSPEX_AGENT_CACHE": str(tmp_path / "c")}) == 0
     assert len(calls) == 2
+
+
+def _refused():
+    import httpx
+
+    request = httpx.Request("POST", "http://app/api/edge/claim")
+    return httpx.HTTPStatusError("401", request=request,
+                                 response=httpx.Response(401, request=request))
+
+
+def _env(tmp_path, **extra):
+    secrets = tmp_path / "s.json"
+    secrets.write_text("{}")
+    secrets.chmod(0o600)
+    return {"AUSPEX_URL": "http://127.0.0.1:9", "AUSPEX_SECRETS_FILE": str(secrets),
+            "AUSPEX_AGENT_CACHE": str(tmp_path / "c"), **extra}
+
+
+def test_a_refused_credential_with_no_new_token_stops_and_says_so(monkeypatch, tmp_path,
+                                                                    caplog):
+    """PR #51 review #6: a revoked agent logged "unreachable; retrying" every 5 s for
+    ever. A 401 is "credential refused": with no new enrollment token, say so, exit."""
+    from auspex.edge import __main__ as entry
+
+    class Revoked:
+        def __init__(self, **kw):
+            pass
+
+        def heartbeat(self):
+            pass
+
+        def run_once(self):
+            raise _refused()
+
+    monkeypatch.setattr(entry, "Agent", Revoked)
+    monkeypatch.setattr(entry, "credential", lambda *a, **k: "apa_old")
+    assert entry.main(_env(tmp_path, AUSPEX_AGENT_TOKEN="apa_old")) == 3
+    assert "credential was refused" in caplog.text
+
+
+def test_a_refused_credential_re_enrolls_with_a_new_token(monkeypatch, tmp_path):
+    from auspex.edge import __main__ as entry
+
+    kept = tmp_path / "c" / "credential"
+    kept.parent.mkdir(parents=True)
+    kept.write_text("apa_old")
+    used, enrolled = [], []
+
+    class Agent:
+        def __init__(self, *, credential, **kw):
+            used.append(credential)
+
+        def heartbeat(self):
+            pass
+
+        def run_once(self):
+            if used[-1] == "apa_old":
+                raise _refused()
+            raise KeyboardInterrupt
+
+    def enroll(http, env, cache_dir):
+        if (cache_dir / "credential").exists():
+            return (cache_dir / "credential").read_text()
+        enrolled.append(env["AUSPEX_AGENT_TOKEN"])
+        return "apa_new"
+
+    monkeypatch.setattr(entry, "Agent", Agent)
+    monkeypatch.setattr(entry, "credential", enroll)
+    assert entry.main(_env(tmp_path, AUSPEX_AGENT_TOKEN="ape_fresh")) == 0
+    assert used == ["apa_old", "apa_new"] and enrolled == ["ape_fresh"]
+    assert not kept.exists() or kept.read_text() != "apa_old"

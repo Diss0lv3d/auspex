@@ -57,6 +57,10 @@ def credential(http: httpx.Client, env: dict, cache_dir: Path) -> str:
     return value
 
 
+def _refused(err: httpx.HTTPError) -> bool:
+    return isinstance(err, httpx.HTTPStatusError) and err.response.status_code == 401
+
+
 def main(env: dict | None = None) -> int:
     env = dict(os.environ if env is None else env)
     logging.basicConfig(level=logging.INFO,
@@ -67,37 +71,65 @@ def main(env: dict | None = None) -> int:
         return 2
     cache_dir = Path(env.get("AUSPEX_AGENT_CACHE", "agent-cache"))
     with httpx.Client(base_url=env["AUSPEX_URL"], trust_env=False, timeout=40) as http:
-        try:
-            agent = Agent(http=http, credential=credential(http, env, cache_dir),
-                          secrets_path=Path(env["AUSPEX_SECRETS_FILE"]), cache_dir=cache_dir)
-        except (AgentConfigError, ValueError, OSError) as err:
-            logger.error("%s", err)
-            return 2
-        stop = threading.Event()
+        while True:  # once more only after a refused credential is replaced (review #6)
+            try:
+                agent = Agent(http=http, credential=credential(http, env, cache_dir),
+                              secrets_path=Path(env["AUSPEX_SECRETS_FILE"]),
+                              cache_dir=cache_dir)
+            except (AgentConfigError, ValueError, OSError) as err:
+                logger.error("%s", err)
+                return 2
+            outcome = _serve(agent)
+            if outcome != "refused":
+                return outcome
+            # PR #51 review #6: a 401 is the credential refused (revoked), not the API
+            # unreachable. A new enrollment token in the environment re-enrolls; without
+            # one the agent says so and stops, instead of retrying for ever.
+            (cache_dir / "credential").unlink(missing_ok=True)
+            if not _token_is_enrollment(env):
+                logger.error("this agent's credential was refused (revoked?). Create a new"
+                             " agent and start this one with its enrollment token.")
+                return 3
+            logger.warning("this agent's credential was refused; enrolling again with the"
+                           " enrollment token given")
 
-        def beat() -> None:
-            while not stop.is_set():
-                try:
-                    agent.heartbeat()
-                except httpx.HTTPError as err:
-                    logger.warning("heartbeat failed: %s", type(err).__name__)
-                stop.wait(HEARTBEAT_SECONDS)
 
-        threading.Thread(target=beat, daemon=True, name="heartbeat").start()
-        try:
-            while True:
-                try:
-                    agent.run_once()
-                except httpx.HTTPError as err:
-                    logger.warning("edge API unreachable (%s); retrying", type(err).__name__)
-                    time.sleep(5)
-                except Exception:  # noqa: BLE001 -- one job's failure never ends the agent
-                    logger.exception("a job failed in the agent itself; carrying on")
-                    time.sleep(5)
-        except KeyboardInterrupt:
-            return 0
-        finally:
-            stop.set()
+def _token_is_enrollment(env: dict) -> bool:
+    try:
+        return _token(env).startswith("ape_")
+    except (AgentConfigError, OSError):
+        return False
+
+
+def _serve(agent: Agent) -> int | str:
+    """Run jobs until stopped (0) or the credential is refused ("refused")."""
+    stop = threading.Event()
+
+    def beat() -> None:
+        while not stop.is_set():
+            try:
+                agent.heartbeat()
+            except httpx.HTTPError as err:
+                logger.warning("heartbeat failed: %s", type(err).__name__)
+            stop.wait(HEARTBEAT_SECONDS)
+
+    threading.Thread(target=beat, daemon=True, name="heartbeat").start()
+    try:
+        while True:
+            try:
+                agent.run_once()
+            except httpx.HTTPError as err:
+                if _refused(err):
+                    return "refused"
+                logger.warning("edge API unreachable (%s); retrying", type(err).__name__)
+                time.sleep(5)
+            except Exception:  # noqa: BLE001 -- one job's failure never ends the agent
+                logger.exception("a job failed in the agent itself; carrying on")
+                time.sleep(5)
+    except KeyboardInterrupt:
+        return 0
+    finally:
+        stop.set()
 
 
 if __name__ == "__main__":
