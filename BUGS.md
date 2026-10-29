@@ -768,3 +768,21 @@ are never deleted.
   agent's `_answer` reads it as `the runner answered nothing usable (exit 0)`. It fails
   closed: no secret reached the answer.
 - **Status:** open, not placed. Burhan's.
+
+## B-042 — a test whose agent is gone keeps reading "running"
+
+- **Found:** 2026-10-29, Burhan's window, the fresh review of PR #51 at `1d64692`.
+- **What happened (by reading, not reproduced):** a `connector.test` gets one attempt
+  (`max_attempts=1`, `auspex/connectors/kinds.py`), and an expired lease is marked
+  `dead` only inside `claim()`, for a claimer whose scope holds that integration
+  (`auspex/jobs/queue.py` `claim`). If the agent dies or is revoked mid-test, or the
+  integration is disabled, no claim covers it. The row stays `claimed`, and the test's
+  poll (`auspex/integrations/testing.py` `state`) says "the Edge Agent is running the
+  test" until an agent claims for that integration again. A live agent sweeps it
+  within a second of the lease expiring, and a new press gives the true reason first
+  (offline, revoked or disabled).
+- **Evidence:** the review's reading, checked against the code by Burhan's window;
+  not run.
+- **Path to fix:** in `press` and `state`, treat a `claimed` row whose lease has
+  expired as not running, or sweep it there first.
+- **Status:** open, not placed. Burhan's.
