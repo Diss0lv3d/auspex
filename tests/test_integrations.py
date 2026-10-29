@@ -178,3 +178,10 @@ async def test_an_agent_name_postgres_cannot_store_is_refused(world):
     with pytest.raises(ValueError, match="NUL or a lone surrogate"):
         await create_agent(pool, workspace_id=m.direct_ws, actor=_admin(m), name="a\x00b")
 
+
+async def test_a_malformed_base_url_is_refused_in_words(world):
+    """PR #51 review s3: `urlsplit` raised outside any refusal, a 500."""
+    pool, m, content_hash, agent_id = world
+    with pytest.raises(IntegrationRefused, match="https"):
+        await _make(pool, m, content_hash, agent_id,
+                    config={**CONFIG, "base_url": "https://[siem.local/api"})

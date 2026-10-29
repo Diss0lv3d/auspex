@@ -97,8 +97,12 @@ def _check_field(name: str, kind: str, values: tuple[str, ...] | None, value: An
         except ManifestError as err:
             raise IntegrationRefused(f"{where}: {err.message}") from err
     elif kind == "url":
-        parts = urlsplit(value) if isinstance(value, str) else None
-        if parts is None or parts.scheme != "https" or not parts.hostname:
+        try:
+            parts = urlsplit(value) if isinstance(value, str) else None
+            host = parts.hostname if parts else None
+        except ValueError:  # a malformed URL ("https://[siem.local/api"): PR #51 s3
+            parts, host = None, None
+        if parts is None or parts.scheme != "https" or not host:
             raise IntegrationRefused(f"{where}: expected an https:// URL")
         if "@" in parts.netloc:
             raise IntegrationRefused(
