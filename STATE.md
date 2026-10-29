@@ -1,6 +1,16 @@
 # STATE — Auspex
 
-_Last updated: 2026-10-29 — **PR #51's review answered on `s33-edge-agent`**
+_Last updated: 2026-10-29 — **PR #51 (S33) merged into `staging`** (fast-forward to
+`1d64692`, Burhan's window). Before the merge, each of the round's 13 fix commits had
+its tests run against the code before the fix: all fail (review #6's old code hangs,
+retrying the refused credential). The six changed test files pass on `1d64692` (188),
+and CI is green. A second fresh review of the whole PR found no blocker; Burhan merged
+and logged what it found: **B-041** (reproduced: a connector that prints while it
+loads fails every job), **B-042**, **B-043**; **TD-075…TD-078**; TD-074 resolved by
+review #2; two notes for S34 (#33). Next: **Hunaiza's promote** (S32, B4, S33), then
+**S34** (Burhan's).
+
+2026-10-29 — **PR #51's review answered on `s33-edge-agent`**
 (Burhan: changes requested; findings in docs/probes/2026-10-28-pr51-review.md,
 each row marked with its fix). Fixed, one commit each, test first: heartbeats
 renew only running jobs and a failed result post is retried (#1); a result is
@@ -102,9 +112,9 @@ Promote #40 (`09af821`) is the last one._
 
 | Track | Prompt | Last closed | Next | Status |
 |---|---|---|---|---|
-| backend | `NEXT-SESSION-BE.md` | S33 (2026-10-28, Hunaiza; PR #51's review answered 2026-10-29, awaits Burhan's merge) | S34 | **focus** · **Burhan's** (2026-10-28), in his window · Step 0: #51 merged and Hunaiza's promote (S32, B4, S33) landed (checked, not run); then connector actions through approvals |
+| backend | `NEXT-SESSION-BE.md` | S33 (2026-10-28, Hunaiza; PR #51 merged 2026-10-29, `1d64692`) | S34 | **focus** · **Burhan's** (2026-10-28), in his window · Step 0: Hunaiza's promote (S32, B4, S33) landed (checked, not run); then connector actions through approvals |
 | front end | `NEXT-SESSION-FE.md` | F4 (2026-10-16) | F5 | waits for S34 (the order table); F4 built the shell F5's admin pages stand on |
-| bugs | `NEXT-SESSION-BUGS.md` | B4 (2026-10-28, Hunaiza; PR #50 merged 2026-10-28) | B5 | unscoped: Burhan picks from the open entries (B-033…B-039 new from B4) |
+| bugs | `NEXT-SESSION-BUGS.md` | B4 (2026-10-28, Hunaiza; PR #50 merged 2026-10-28) | B5 | unscoped: Burhan picks from the open entries (B-033…B-039 new from B4; B-040…B-043 from S33's PR #51) |
 
 - **B4 closed (2026-10-28) as a PR from `b4-bugs`.** The focus moves to
   S33, which starts only after Burhan merges B4's PR. GitHub #44–#49 are
@@ -1101,7 +1111,7 @@ the spec; S30, F4, S31, S32 and S33 are done.**
 
 ## In-flight / standing follow-ups (carry forward until DONE)
 1. **Promote slate: S32, B4 and S33** (S33 is the plan's promote milestone;
-   **the promote is Hunaiza's once Burhan merges #51**; S34 only checks it). Before that, it read:
+   **the promote is Hunaiza's: #51 merged 2026-10-29, `1d64692`**; S34 only checks it). Before that, it read:
    **all of S32 and, once its PR is merged, all of B4**
    (the six fixes, their tests and records, B-033…B-035, TD-070, the
    session-end docs). S33's promote carries both. S32's, once Burhan merges its PR
@@ -1445,7 +1455,13 @@ the spec; S30, F4, S31, S32 and S33 are done.**
     connector systems and an approval is bound to its integration (prefixes
     are never reused); dispatch runs `actions[].execute` on the edge API; the
     core checks envelopes with `auspex_sdk.validate`; TD-071 before any action
-    runs; TD-072…TD-074; the S33 build's review was a self-review, and a fresh-agent review ran at PR #51's review (S33 record).
+    runs; TD-072 and TD-073 (TD-074 resolved by PR #51 review #2); the S33 build's review was a self-review, and a fresh-agent review ran at PR #51's review (S33 record).
+    The second fresh review, at #51's merge (2026-10-29), left two for S34:
+    `post_result` checks every result with `check_test`
+    (`auspex/edge_api/routes.py`), so it must pick the check by job kind before
+    `EDGE_KINDS` grows; and `check_fingerprint`'s docstring
+    (`auspex/actions/settlement.py`) still says undo uses it (D-074 moved undo to
+    `check_undo_identity`). B-041…B-043 and TD-075…TD-077 sit in code S34 touches.
 
 **Closed at S33, so they leave this list:** #32 (all ten findings). S33 added #33.
 

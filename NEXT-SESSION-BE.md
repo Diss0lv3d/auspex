@@ -5,8 +5,8 @@ window opened in the Auspex repo. **S34 makes connector actions run through
 approvals, with each client's approval policy, and offers them to the
 co-analyst.** S33 closed 2026-10-28 (Hunaiza, handed fully under D-059):
 integrations, Edge Agents and "Test connection" end to end, PR #43's review
-fixed, D-072 and D-073. It reaches `staging` as one PR from `s33-edge-agent` (#51,
-whose review was answered on the branch). **S34 is Burhan's** (2026-10-28): it runs
+fixed, D-072 and D-073. It reached `staging` as PR #51, merged 2026-10-29 (a
+fast-forward to `1d64692`). **S34 is Burhan's** (2026-10-28): it runs
 in his window. **The promote (S32, B4, S33) is Hunaiza's**, once #51 is merged._
 
 _Below the S34 prompt is the **backend plan for the whole phase, S29–S41**.
@@ -22,16 +22,21 @@ Auspex repo. Run `/session-start be S34` first (the full ritual). It reads
 
 Step 0 (do BEFORE new scope):
 
-1. **S33's PR must be merged first.** `git fetch` and `git pull --ff-only
-   origin staging`, then confirm `auspex/edge/`, `auspex/edge_api/` and
-   `auspex/integrations/` exist and STATE.md says S33 closed. If the PR is not
-   merged, stop: wrong window. One session at a time (D-051, D-059).
+1. **S33's PR (#51) was merged 2026-10-29 (`1d64692`).** `git fetch` and
+   `git pull --ff-only origin staging`, then confirm `auspex/edge/`,
+   `auspex/edge_api/` and `auspex/integrations/` exist and STATE.md says S33
+   closed. If they are missing, stop: wrong window. One session at a time
+   (D-051, D-059).
 2. **Check the promote landed; do not run it.** S33 is the plan's promote
    milestone, and **the promote is Hunaiza's** once #51 is merged (S32, B4 and
    S33 together; STATE.md #1). Confirm `main` carries S33 (`git log origin/main`)
    before any S34 code; if it does not, ask her, do not promote from here.
 3. **S33's fresh review ran at PR #51's review** (recorded in the S33 record);
-   read its findings and any it left open before touching the same code.
+   read its findings and any it left open before touching the same code. A
+   second fresh review, at #51's merge, left two for S34 (STATE.md #33): pick
+   `post_result`'s result check by job kind before `EDGE_KINDS` grows, and fix
+   `check_fingerprint`'s docstring, which still says undo uses it (D-074). It
+   also logged B-041…B-043 and TD-075…TD-077, all in code S34 touches.
 4. **Read what S33 left you, before any code:**
    docs/superpowers/records/2026-10-28-s33-record.md (§6, what S34 picks up),
    STATE.md #31 and #33, TD-071 (a manifest's roles distinct as imported:
