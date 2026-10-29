@@ -31,6 +31,7 @@ from auspex_sdk.package import PackageError, read_package
 
 from auspex.llm.scorecard import DEPLOYMENT_WORKSPACE
 from auspex.tenancy import audit
+from auspex.untrusted import unstorable
 
 Source = Literal["own", "provider", "first_party"]
 
@@ -212,17 +213,9 @@ def _refuse_unstorable(value: Any) -> None:
     """Postgres `jsonb` cannot hold a NUL or a lone surrogate, though `json.loads`
     accepts both as escapes. Refused in words here, not as a database error (a 500 at
     the route; PR #43 review #6)."""
-    if isinstance(value, str):
-        if "\x00" in value or any("\ud800" <= c <= "\udfff" for c in value):
-            raise RegistrationRefused(
-                "manifest.json holds a NUL or a lone surrogate, which cannot be stored")
-    elif isinstance(value, dict):
-        for k, v in value.items():
-            _refuse_unstorable(k)
-            _refuse_unstorable(v)
-    elif isinstance(value, list):
-        for v in value:
-            _refuse_unstorable(v)
+    if unstorable(value):
+        raise RegistrationRefused(
+            "manifest.json holds a NUL or a lone surrogate, which cannot be stored")
 
 
 def _bump(connector_id: str, version: str) -> RegistrationRefused:

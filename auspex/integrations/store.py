@@ -23,6 +23,7 @@ from auspex_sdk.vocab import MAX_PREFIX, WIRE_NAME
 
 from auspex.connectors.catalogue import available
 from auspex.tenancy import audit
+from auspex.untrusted import unstorable
 
 # `secret:<name>`: the name the agent looks up in its own secrets file (D-063).
 SECRET_REF = re.compile(r"secret:[A-Za-z0-9_.-]{1,64}")
@@ -66,6 +67,9 @@ def check_config(manifest: Manifest, config: Any) -> dict:
     agent checks it again with the SDK's `load_config` before it runs anything."""
     if not isinstance(config, dict):
         raise IntegrationRefused("config must be an object of field name to value")
+    if unstorable(config):
+        raise IntegrationRefused("config holds a NUL or a lone surrogate, which cannot be"
+                                 " stored")
     fields = {f.name: f for f in manifest.config}
     for key in config:
         if key not in fields:
@@ -109,6 +113,9 @@ def _check_field(name: str, kind: str, values: tuple[str, ...] | None, value: An
 
 
 def _check_name(name: str) -> str:
+    if unstorable(name):
+        raise IntegrationRefused("name holds a NUL or a lone surrogate, which cannot be"
+                                 " stored")
     name = " ".join(str(name).split())
     if not name or len(name) > MAX_NAME:
         raise IntegrationRefused(f"name: required, at most {MAX_NAME} characters")

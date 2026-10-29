@@ -160,3 +160,21 @@ async def test_the_routes_are_admin_written_and_never_cross_a_workspace(world, c
     assert client.patch(f"/api/integrations/{iid}", json={"name": "Main SIEM"},
                         headers=admin).json()["name"] == "Main SIEM"
     assert client.post(f"/api/integrations/{iid}/disable", headers=admin).status_code == 204
+
+
+@pytest.mark.parametrize("field,value", [
+    ("name", "SI\x00EM"), ("name", "SI\ud800EM"),
+    ("config", {**CONFIG, "base_url": "https://siem.example/\x00"}),
+], ids=["nul-name", "surrogate-name", "nul-config"])
+async def test_text_postgres_cannot_store_is_refused_in_words(world, field, value):
+    """PR #51 review s2: a NUL or a lone surrogate reached Postgres and answered 500."""
+    pool, m, content_hash, agent_id = world
+    with pytest.raises(IntegrationRefused, match="NUL or a lone surrogate"):
+        await _make(pool, m, content_hash, agent_id, **{field: value})
+
+
+async def test_an_agent_name_postgres_cannot_store_is_refused(world):
+    pool, m, _, _ = world
+    with pytest.raises(ValueError, match="NUL or a lone surrogate"):
+        await create_agent(pool, workspace_id=m.direct_ws, actor=_admin(m), name="a\x00b")
+

@@ -18,6 +18,7 @@ import asyncpg
 
 from auspex.auth import hash_api_key
 from auspex.tenancy import audit
+from auspex.untrusted import unstorable
 
 ENROLLMENT_PREFIX = "ape_"
 AGENT_KEY_PREFIX = "apa_"
@@ -59,6 +60,9 @@ def health(last_heartbeat_at: datetime | None, now: datetime) -> str:
 async def create_agent(pool: asyncpg.Pool, *, workspace_id: UUID, actor: audit.Actor,
                        name: str) -> tuple[Agent, str]:
     """A new agent and its one-time enrollment token, which exists only in this return."""
+    if unstorable(name):
+        raise ValueError("an agent's name holds a NUL or a lone surrogate, which cannot be"
+                         " stored")
     name = " ".join(name.split())
     if not name or len(name) > 80:
         raise ValueError("an agent needs a name of at most 80 characters")
