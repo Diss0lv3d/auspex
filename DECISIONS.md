@@ -2684,3 +2684,28 @@ S33 adds integrations and Edge Agents, which change what a workspace can run.
 
 **Bounds, stated.** An agent's events read as "system" in the audit list; the
 agent is named only in the details.
+
+## D-074 — An undo is refused only when what it would run changed (2026-10-28, S33)
+
+**Context.** PR #43's review #5 found that undo never checked the declaration, so
+after a re-upload under a new content hash an undo would run the NEW package's
+handler on the OLD package's change. S33 Step 0 fixed it by checking the whole spec
+fingerprint at undo. PR #51's review #4 found that broader than needed: a reworded
+description, or a `FINGERPRINT_VERSION` bump, blocked undoing every executed
+proposal of that action for good, and the message offered a re-proposal, which
+cannot undo anything. Undo is the safety net.
+
+**Decision (Hunaiza's call, S33).**
+- A proposal records an **undo identity** when it is filed: a hash of the action's
+  connector origin (connector id and content hash) and its undo declaration
+  (`proposals.undo_identity`, `auspex/actions/proposal.py` `undo_identity`).
+- An undo is refused (`undo_changed`) only when that identity changed: the code a
+  put-back would run is not the approved code. The message says what the analyst
+  can do: put the change back by hand, or restore the approved package and undo.
+- A built-in action (no connector origin) ships with the platform's own code; its
+  undo is never blocked by a declaration change.
+- A connector action filed before undo identities existed is refused, not assumed
+  unchanged (none exist: connector actions run from S34).
+- Execute is unchanged: it still checks the whole fingerprint (D-024).
+
+**Bounds, stated.** A built-in's undo runs today's code, as it did before S33.
