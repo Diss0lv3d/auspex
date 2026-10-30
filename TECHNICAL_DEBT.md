@@ -1,5 +1,190 @@
 # Technical debt — logged the moment it's taken
 
+## TD-078 (S33) — the dev Edge Agent keeps its credential in the container's /tmp
+
+**Where:** `docker-compose.yml` (the dev `edge` service: `AUSPEX_AGENT_CACHE:
+/tmp/auspex-agent`, its token file holding a one-time `ape_` token).
+**Risk:** LOW, dev only. Recreating the container (`--force-recreate`, a rebuild)
+loses the enrolled credential; the agent then tries the spent `ape_` token, is
+refused, and exits. The dev agent needs a new agent and token after every recreate.
+**Why taken:** the dev agent runs as the host user so it can read the 0600 secrets
+file (D-063); `/tmp` was the writable place that needed no volume.
+**Path to fix:** mount the cache on a volume, or under `./.edge-dev`.
+**Trigger:** the next time the dev agent has to be re-created by hand.
+_Found by the fresh review at PR #51's merge (2026-10-29)._
+
+## TD-077 (S33) — the SDK runner repeats the harness's invoke and validate
+
+**Where:** `sdk/auspex_sdk/run.py` (`_invoke`) and `sdk/auspex_sdk/harness.py`
+(`run_command`): both resolve the command, load the config, import the handler, call
+it per command form, and pick the validator by command.
+**Risk:** LOW. The next contract change (a new command form in S34) must be made in
+both, or the local harness and the Edge Agent drift apart.
+**Why taken:** S33 needed the runner's own output capture and redaction around the
+call; a shared helper was not split out.
+**Path to fix:** one shared invoke-and-validate helper that both call, the runner
+wrapping it in its capture.
+**Trigger:** S34's first change to how a command is invoked or validated.
+_Found by the fresh review at PR #51's merge (2026-10-29)._
+
+## TD-076 (S33) — the integrations listing reads each agent's health one at a time
+
+**Where:** `auspex/integrations/routes.py` (`listing` awaits `present()` per
+integration; each runs its own `edge_agents` query).
+**Risk:** LOW. N integrations make N+1 sequential round trips on every
+`GET /api/integrations`.
+**Why taken:** the simplest shape for S33's few integrations per workspace.
+**Path to fix:** join `edge_agents` in `store.list_for`, or read the workspace's
+agents once and look each health up in a map.
+**Trigger:** a workspace with tens of integrations, or the listing showing up in
+latency.
+_Found by the fresh review at PR #51's merge (2026-10-29)._
+
+## TD-075 (S33) — connector code runs as the agent's own user
+
+**Where:** `auspex/edge/agent.py` (`_run`: the command is a subprocess of the agent,
+same user, its working directory in the package cache) and `auspex/edge/cache.py`
+(`cached` returns an unpacked package without re-hashing it).
+**Risk:** LOW while every connector an agent runs was uploaded by its own
+workspace's admins; higher once that stops being true. A connector's code can read
+the agent's 0600 secrets file and rewrite another connector's cached package. So
+"the command gets only the secrets its config names" and "a package runs only under
+its hash" hold against mistakes, not against a hostile package. PR #51's description
+says the agent "re-hashes each package before running it"; it hashes at download
+only.
+**Why taken:** S33 ran connectors a workspace's own admins uploaded, on that
+workspace's own host (D-062, D-063); a sandbox was outside its scope.
+**Path to fix:** run each command as its own unprivileged user, or in a sandbox, that
+cannot read the secrets file or the cache; hand it a read-only copy of its package;
+re-verify the package's tree hash before each run.
+**Trigger:** before an agent runs a connector its workspace's admins did not upload
+themselves.
+_Found by the fresh review at PR #51's merge (2026-10-29)._
+
+## ~~TD-074 (S33) — a test claimed by an agent that is then swapped out waits for its lease~~ RESOLVED S33
+**Resolved 2026-10-29 (`88c6f5e`, PR #51 review #2):** `post_result` now accepts an
+answer on the agent's own claim (workspace, `claimed_by` and the token), whatever the
+integration's state, so a swapped-out agent's running test finishes with its answer
+(`test_a_running_test_s_answer_is_kept_after_its_integration_changes[move]`). The
+entry below is kept as it was written.
+
+**Where:** `auspex/edge_api/routes.py` (`post_result` scopes a result to the
+integrations that name the posting agent NOW) and `auspex/integrations/store.py`.
+**Risk:** LOW. If an admin moves an integration to another agent while its test is
+running, the old agent's answer is refused (404) and the job ends only when its 90 s
+lease expires (`dead`, "lease expired"); the poll shows that as `error`.
+**Why taken:** refusing a former agent's answer is the safe side; the cost is a
+slower, vaguer error on a rare edit.
+**Path to fix:** on an agent change, fail the running test at once with "the
+integration's agent changed".
+**Trigger:** an admin reports a test that hung after editing its agent.
+
+## TD-073 (S33) — each Edge Agent holds one HTTP request open for its long-poll
+
+**Where:** `auspex/edge_api/routes.py` (`claim_job`, up to 25 s, re-claiming each
+second).
+**Risk:** LOW today. Every agent keeps one connection and a 1 Hz query loop on the
+app; hundreds of agents are hundreds of held requests and claim queries.
+**Why taken:** D-062 chose HTTPS long-poll (proxies pass it); a 1 s poll inside it is
+the simplest correct wait, on S31's polled queue (TD-065).
+**Path to fix:** wake waiting claims on `NOTIFY` (TD-065's path), and cap held polls
+per worker.
+**Trigger:** more than ~100 agents per app replica, or claim queries in the slow log.
+
+## TD-072 (S33) — packages are pulled by hash; there is no local install for air-gapped sites
+
+**Where:** `auspex/edge/agent.py` (`_package`), D-062.
+**Risk:** LOW until such a site exists. An agent that cannot reach the edge API's
+package route cannot run anything.
+**Why taken:** D-062 builds pull-by-hash first and local install "when the first
+air-gapped site needs it".
+**Path to fix:** an agent option to read packages from a local directory, still
+re-hashed against the job's `content_hash` before running.
+**Trigger:** the first air-gapped site.
+
+## TD-071 (S33) — a manifest's four roles are distinct as written, not as imported
+
+**Where:** `sdk/auspex_sdk/manifest.py` (`_check_action`).
+**Risk:** LOW. PR #43 review #1's fix refuses two roles naming the same
+`module:function`. Two names for one function still pass: `pkg.a:f` and
+`pkg.b:f` where `b` re-exports `a.f`, or `mod:f` and `mod:g` where `g = f`.
+The compiled spec wraps each role in its own closure, so the core cannot see it.
+**Why taken:** the manifest holds names only; identity needs the imported
+objects.
+**Path to fix:** the build imports every handler already (`check_handlers`);
+compare the imported objects there and refuse a shared one.
+**Trigger:** S34, before a connector action can run.
+
+## TD-070 (B4) — a password holding an unencoded / ? # or \ is read as a host and a path, by the URL standard
+
+**Where:** `auspex/classify/observables.py` (`_drop_userinfo`).
+**Risk:** LOW. B-018's fix follows the URL standard (Burhan's call, review of
+PR #50): for http(s) the authority ends at the first `/`, `?`, `#` or `\`, and
+the userinfo is everything up to the last `@` inside it. So
+`http://u:p@ss/word@host.com/` *is* host `ss` with a path, and
+`http://u:PLACEHOLDER/PW@evil.com/` keeps `u:placeholder` as its host: a
+password pasted with an unencoded delimiter stays in the value, exactly as a
+browser would read the link. A credential inside a nested URL in a query string
+(`?next=http://u:p@x/`) is also kept (B-033's class).
+**Why taken:** the alternative, taking the host from after the authority, lets
+whoever wrote the link choose the host the lookup and verdict land on
+(`http://evil.com:x/p?r=@google.com` read as `google.com`), which is worse than
+the leak.
+**Path to fix:** none in the parser; a pasted-credential scrub of message text
+(B-033) is where such a password could still be caught.
+**Trigger:** a credential seen in a stored `observables` value.
+
+## TD-069 (S32) — a build packages key and credential files that do not start with a dot
+
+**Where:** `sdk/auspex_sdk/build.py` (`_collect_files`: excludes dotfiles, tests,
+`__pycache__` and `dist/` only).
+**Risk:** LOW until connectors reach customers. A `creds.json`, `*.pem`, `*.key` or
+`*.p12` beside the source is zipped, registered and stored in `connector_packages`.
+Listings return the manifest, not the bytes, so no other tenant reads it today.
+**Why taken:** a CA PEM in a package can be legitimate, so a hard refusal is wrong;
+the warning is author ergonomics, found by S32's final review.
+**Path to fix:** `build` warns (by name) on `*.pem`, `*.key`, `*.p12`, `*.pfx`,
+`id_rsa*`, and names containing `cred` or `secret`; an explicit include list opts out.
+**Trigger:** the SDK is published to customers, or S33 serves package bytes to agents.
+
+## TD-068 (S32) — registering a connector writes no audit event
+
+**Where:** `auspex/connectors/catalogue.py` (`register`) and
+`auspex/connectors/routes.py` (`POST /api/connectors`).
+**Risk:** MEDIUM from S33. Who added which code to a workspace's catalogue is
+only in the row's `registered_by`, not in the audit trail admins read (D-068).
+Until S33 runs connectors, a registered package does nothing.
+**Why taken:** the audit action list is pinned by a test, and adding an action
+is a decision, not a side effect of a task (S32 Task 10 ruling).
+**Path to fix:** a `connector.registered` audit action under a D-entry, written
+in the same transaction as the row.
+**Trigger:** S33, before the first connector runs.
+
+## TD-067 (S32) — connector text is flattened, but control and format characters pass
+
+**Where:** `auspex/connectors/compile.py` (`_text`, `_flatten`).
+**Risk:** LOW. A manifest's descriptions and a connector's `would`/`detail`
+are flattened to one line and capped, but non-whitespace control and format
+characters (`\x1b`, U+202E, U+200B) reach what the model and the approver read,
+and the keys of a connector's `detail` are not flattened at all.
+**Why taken:** neutralising what the model reads is the output rail's job
+(S34); S32 bounded length and line breaks only.
+**Path to fix:** strip or escape Unicode categories Cc/Cf (keeping the
+whitespace already folded), and flatten `detail` keys, in the same helper.
+**Trigger:** S34's rail work, or the first third-party connector.
+
+## TD-066 (S32) — connector package bytes are stored in Postgres
+
+**Where:** `connector_packages.data` (`auspex/migrations.py`, `S32_CONNECTORS`).
+**Risk:** LOW. A package is at most 5 MB (`MAX_PACKAGE_BYTES`); every version
+of every package in every workspace is a row with its zip inside, so the table
+grows with registrations and every backup carries it.
+**Why taken:** S32 needs one durable, transactional place for a package and
+its content hash; an object store is a new service and a new decision.
+**Path to fix:** move the bytes to object storage keyed by content hash
+(identical packages then share one object), keeping the row as the index.
+**Trigger:** the table passes 1 GB, or 1,000 packages.
+
 ## TD-065 (S31) — the jobs queue is polled, and its claim sorts every ready job
 
 **Where:** `auspex/jobs/worker.py` (`POLL_SECONDS = 5`) and

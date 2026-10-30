@@ -1,0 +1,10 @@
+{
+  "bug": "B-017 (GitHub #46): a tool call whose name (or id, or arguments) is not a string crashes the agent turn",
+  "found": "S29's review of S28's code (docs/probes/2026-10-14-s29-s28-code-review.md, finding 15); reproduced at B4 (docs/probes/2026-10-28-b4-b017.md)",
+  "completion": {"choices": [{"message": {"tool_calls": [
+    {"id": "c1", "type": "function", "function": {"name": ["lookup_ip"], "arguments": "{}"}}
+  ]}, "finish_reason": "tool_calls"}]},
+  "stream_chunk": {"choices": [{"delta": {"tool_calls": [
+    {"index": 0, "id": 7, "function": {"name": ["lookup_ip"], "arguments": {"ip": "203.0.113.9"}}}
+  ]}}]}
+}

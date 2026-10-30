@@ -26,7 +26,8 @@ Design notes:
 import hashlib
 import ipaddress
 import re
-from collections.abc import Iterator
+from bisect import bisect_left, bisect_right
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from enum import StrEnum
 from urllib.parse import urlsplit, urlunsplit
@@ -263,21 +264,67 @@ def _email_candidates(text: str) -> Iterator[re.Match[str]]:
 # -- extraction ---------------------------------------------------------------
 
 
-def _spans_overlap(start: int, end: int, spans: list[tuple[int, int]]) -> bool:
-    return any(start < s_end and end > s_start for s_start, s_end in spans)
+class _Spans:
+    """Disjoint spans, sorted, so "does [start, end) overlap one?" is a bisection
+    (B-027: walking every span for every match was O(matches x spans), about a
+    second for 4,571 emails). Every set `extract` builds is disjoint: each pass
+    skips a match that overlaps an earlier span of the set it adds to."""
+
+    def __init__(self, spans: Iterable[tuple[int, int]] = ()) -> None:
+        ordered = sorted(spans)
+        self._starts = [s for s, _ in ordered]
+        self._ends = [e for _, e in ordered]
+
+    def add(self, start: int, end: int) -> None:
+        i = bisect_left(self._starts, start)
+        self._starts.insert(i, start)
+        self._ends.insert(i, end)
+
+    def overlaps(self, start: int, end: int) -> bool:
+        # Disjoint and sorted, so the ends are sorted too: the first span ending
+        # after `start` is the only one that can overlap.
+        i = bisect_right(self._ends, start)
+        return i < len(self._starts) and self._starts[i] < end
+
+    def __add__(self, other: "_Spans") -> "_Spans":
+        return _Spans([*zip(self._starts, self._ends, strict=True),
+                       *zip(other._starts, other._ends, strict=True)])
+
+
+def _drop_userinfo(raw: str) -> str:
+    """`raw` with any `user:pass@` removed, by text alone, so a URL `urlsplit`
+    refuses still loses it (B-018).
+
+    By the URL standard, for http(s) the authority ends at the first `/`, `?`,
+    `#` or `\\` (a browser reads `\\` as `/`), and the userinfo is everything up
+    to the LAST `@` inside it. The host is never taken from text after the
+    authority: that text is chosen by whoever wrote the link, and an `@` there
+    would move the lookup and the verdict to a host the link never reaches
+    (Burhan's review of PR #50). A password holding an unencoded `/ ? #` is
+    therefore a host and a path, as a browser reads it: TD-070.
+    """
+    scheme, sep, rest = raw.partition("://")
+    if not sep:
+        return raw
+    end = min((i for i in (rest.find(c) for c in "/?#\\") if i >= 0), default=len(rest))
+    authority = rest[:end]
+    if "@" in authority:
+        return f"{scheme}://{rest[authority.rindex('@') + 1:]}"
+    return raw
 
 
 def _normalize_url(raw: str) -> str:
-    """Lowercase scheme + host (not userinfo, path, or query)."""
+    """Lowercase scheme + host (not path or query), and drop any userinfo.
+
+    B-018: the value is looked up at URLhaus and stored in `observables`, so a
+    pasted `user:pass@` must never reach it. The URL without it is the same
+    indicator. `_drop_userinfo` alone owns that rule.
+    """
+    raw = _drop_userinfo(raw)
     try:
         parts = urlsplit(raw)
-        netloc = parts.netloc
-        if "@" in netloc:
-            userinfo, host = netloc.rsplit("@", 1)
-            netloc = f"{userinfo}@{host.lower()}"
-        else:
-            netloc = netloc.lower()
-        return urlunsplit((parts.scheme.lower(), netloc, parts.path, parts.query, parts.fragment))
+        return urlunsplit(
+            (parts.scheme.lower(), parts.netloc.lower(), parts.path, parts.query, parts.fragment))
     except ValueError:
         return raw
 
@@ -301,22 +348,19 @@ def extract(text: str) -> Extraction:
     # (type, value, raw_matched_text, span) — the span drives double-extraction
     # guards, the residual, and the positional defanged flag.
     found: list[tuple[ObservableType, str, str, tuple[int, int]]] = []
-    url_spans: list[tuple[int, int]] = []
-    email_spans: list[tuple[int, int]] = []
-    ipv6_spans: list[tuple[int, int]] = []
-    hash_spans: list[tuple[int, int]] = []
+    url_spans, email_spans, ipv6_spans, hash_spans = _Spans(), _Spans(), _Spans(), _Spans()
 
     # URLs first — they define the spans that suppress host double-extraction.
     for m in _URL_RE.finditer(refanged):
         raw = m.group().rstrip(_URL_TRAILING_JUNK)
         span = (m.start(), m.start() + len(raw))
-        url_spans.append(span)
+        url_spans.add(*span)
         found.append((ObservableType.URL, _normalize_url(raw), raw, span))
 
     for m in _email_candidates(refanged):
-        if _spans_overlap(m.start(), m.end(), url_spans):
+        if url_spans.overlaps(m.start(), m.end()):
             continue
-        email_spans.append(m.span())
+        email_spans.add(*m.span())
         found.append((ObservableType.EMAIL, m.group().lower(), m.group(), m.span()))
 
     for m in _IPV6_CAND_RE.finditer(refanged):
@@ -339,7 +383,7 @@ def extract(text: str) -> Extraction:
         # Bare "::" (C++ scope, slicing) is a *valid* IPv6 address — require hex.
         if not candidate.strip(":"):
             continue
-        if _spans_overlap(start, end, url_spans):
+        if url_spans.overlaps(start, end):
             continue
         try:
             ip = ipaddress.ip_address(candidate)
@@ -347,12 +391,12 @@ def extract(text: str) -> Extraction:
             continue
         if ip.version != 6:
             continue
-        ipv6_spans.append((start, end))
+        ipv6_spans.add(start, end)
         found.append((ObservableType.IPV6, _canonical_ipv6(ip), candidate, (start, end)))
 
     host_spans = url_spans + ipv6_spans  # complete by now; loop-invariant
     for m in _IPV4_CAND_RE.finditer(refanged):
-        if _spans_overlap(m.start(), m.end(), host_spans):
+        if host_spans.overlaps(m.start(), m.end()):
             continue
         if _VERSION_CTX_RE.search(refanged[max(0, m.start() - 12) : m.start()]):
             continue
@@ -372,16 +416,14 @@ def extract(text: str) -> Extraction:
         (ObservableType.MD5, _MD5_RE),
     ):
         for m in pattern.finditer(refanged):
-            if _spans_overlap(m.start(), m.end(), hash_spans) or _spans_overlap(
-                m.start(), m.end(), email_spans
-            ):
+            if hash_spans.overlaps(*m.span()) or email_spans.overlaps(*m.span()):
                 continue
-            hash_spans.append(m.span())
+            hash_spans.add(*m.span())
             found.append((hash_type, m.group().lower(), m.group(), m.span()))
 
     nonhost_spans = url_spans + email_spans  # loop-invariant
     for m in _domain_candidates(refanged):
-        if _spans_overlap(m.start(), m.end(), nonhost_spans):
+        if nonhost_spans.overlaps(m.start(), m.end()):
             continue
         domain = _domain_backtrack(m.group())
         if domain is None:

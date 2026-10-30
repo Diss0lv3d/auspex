@@ -3,7 +3,7 @@
 _Paste everything below the first line of dashes into a fresh Claude Code
 window opened in the Auspex repo. **F5 starts only after S32, S33 and S34
 close** (the order table in `NEXT-SESSION-BE.md`, row 8); until then the focus
-is the backend (STATE.md). F4 closed 2026-10-16: one shell for every page,
+is the backend, S34 next (STATE.md; S33 closed 2026-10-28). F4 closed 2026-10-16: one shell for every page,
 D-070, a read-only Members page._
 
 _Below the F5 prompt is **Burhan's front-end plan for the whole phase,
@@ -188,8 +188,9 @@ session starts only after the backend sessions it depends on have closed.**
     which workspace, and sets who may approve what, all from the page.
   - **Exit criteria:**
     - **The catalogue** lists the connectors and versions available to the
-      workspace (and, if S32's decision allows, those an MSSP offers its
-      clients). Each shows its manifest's commands, risks and declared hosts
+      workspace, including those an MSSP offers its clients (D-071;
+      `GET /api/connectors` gives each row a `source`: own, provider or
+      first_party). Each shows its manifest's commands, risks and declared hosts
       as text.
     - **The integration form is generated from the manifest's config schema**
       by a pure, tested function, TLS pinning included. Validation errors are

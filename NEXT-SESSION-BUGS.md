@@ -1,64 +1,61 @@
-# NEXT-SESSION-BUGS — track: bugs · session: B4
+# NEXT-SESSION-BUGS — track: bugs · session: B5
 
-_Paste everything below the line into a fresh Claude Code window opened in the
-Auspex repo. **B4 is not scoped yet: which bugs it takes is Burhan's call.**
-B3 closed 2026-10-19 (Hunaiza, D-059): B-010 and B-024 fixed, B-027 and B-028
-logged. Run B4 only when STATE.md's Tracks table makes bugs the focus or
-Burhan says so; the order table in `NEXT-SESSION-BE.md` runs the backend
-first._
+_Paste everything below the line into a fresh Claude Code window opened in
+your clone of the Auspex repo, **once Burhan has scoped B5**. B4 closed
+2026-10-28 (Hunaiza, handed fully under D-059): B-017, B-018, B-025, B-027,
+B-030 and B-032 fixed, as one PR from `b4-bugs` into `staging`. **S34 runs next** (`NEXT-SESSION-BE.md`); B5 waits for Burhan to pick its bugs and its
+owner._
 
 ---
 
-SESSION B4 of Auspex, **bugs track** (D-051). The working dir is the Auspex
-repo. Run `/session-start bugs B4` first (the full ritual). It reads
+SESSION B5 of Auspex, **bugs track** (D-051). The working dir is your clone of
+the Auspex repo. Run `/session-start bugs B5` first (the full ritual). It reads
 `SESSION-RULES.md` (standing rules for every track) and STATE.md.
-
-**Who decides.** Burhan, unless STATE.md says B4 was handed to a collaborator
-(D-059); then the calls inside its scope are theirs, and re-scoping stays
-Burhan's.
 
 Step 0 (do BEFORE new scope):
 
 1. **Start from GitHub.** `git checkout staging && git pull --ff-only origin
-   staging`. One session at a time holds across machines (D-051, D-059): if
-   `origin/staging` moves while B4 runs and you did not move it, stop.
-2. **If STATE.md says the promote slate is not empty, `/promote` it** (unless
-   the handoff says otherwise). Read the diff, not the list.
-3. **Ask Burhan which bugs B4 takes, and in what order.** Do not pick. The
-   open entries in BUGS.md:
-   - **B-027** (B3): `extract()` checks every match against every earlier
-     span, so thousands of observables take 0.2–0.8 s on the event loop;
-   - **B-028** (B3): a failed switch, after a re-check rebuilt the header with
-     one workspace, throws on a null picker (reasoned, not reproduced);
-   - B-011…B-020 (S29's review of S28's code), B-022 and B-023 (F4), B-025
-     and B-026 (S31);
-   - B-030 and B-031 (PR #41's re-review), and B-032 (the review of its
-     answers): the guard's quote-line carve-out on a newline run, the
-     switcher's small edges, and a gap in the guard's live-rule test;
-   - B-005 and B-009, which wait on his call about the Deferred
-     fabricated-specifics item.
+   staging`, then confirm STATE.md names B5's scope and owner. **If it does
+   not, stop: B5 is unscoped, and scoping it is Burhan's.** If `origin/staging`
+   moves while B5 runs and you did not move it, stop.
+2. **Promote only if Burhan asks.** The slate is in STATE.md, follow-up #1.
+3. **The scope is the list Burhan writes into STATE.md**, in his order. The
+   open entries are in BUGS.md; B4's reviews and PR #50's review added seven:
+   - **B-033**: a pasted credential stays in the stored message text, and in
+     `observables` rows saved before B-018's fix (partly a product call);
+   - **B-034**: a membership change stamps the actor's home read at the start
+     of the request (B-025's class, another path);
+   - **B-035**: a reply envelope in the wrong shape still crashes the LLM
+     parsers, and an unknown tool's name is echoed unbounded (B-017's class).
+   - **B-036**: credentials outside an http(s) URL (ftp, a bare
+     `user:pass@host`) are stored, a bare one as an email;
+   - **B-037**: a membership removed mid sign-in still gets an entry event
+     and a first token (B-025's family);
+   - **B-038**: a URL with `\` before an `@` is read with another host by
+     `urlsplit` downstream than a browser uses;
+   - **B-039**: a tab, newline or quote inside a pasted URL cuts its match
+     short (a credential can reach a value).
 
-For each bug B4 takes:
+For each bug (the B4 pattern):
 - **Reproduce before fixing**, and save the "before" to
-  `docs/probes/<date>-b4-<bug>.md`.
+  `docs/probes/<date>-b5-<bug>.md`.
 - **Fix the cause**, with a test that fails before the fix and the exact
-  offending input pinned as a fixture (org rule).
-- **Check it live** against the rebuilt container. A page change is loaded in
-  a real browser: B3's first B-024 build blanked every page with a TDZ error
-  while every source-reading test stayed green.
-- **Have a fresh agent review the fix** (SESSION-RULES.md). At B3 both reviews
-  found something worth fixing; one found a fourth bug of the same class.
-- When BUGS.md says `fixed <commit> (B4)`, comment on and close its GitHub
-  issue, if it has one.
+  offending input pinned as a fixture (org rule). Where a test pins behaviour
+  that already holds, prove it with a mutant.
+- **Check it live** against the rebuilt container.
+- **Have a fresh agent review the fix** (SESSION-RULES.md); tenancy and the
+  guard get adversarial reviews. At B4 every review found something.
+- When BUGS.md says `fixed <commit> (B5)`, comment on and close its GitHub
+  issue.
 
 Constraints: everything in `SESSION-RULES.md`. Bugs only, this session:
-- **One bug per fix commit**, naming its B-id; BUGS.md gets
-  `fixed <commit> (B4)` the same session.
+- **One bug per fix commit**, naming its B-id.
 - A new bug found while fixing one goes to `/bug`, not this session, unless it
-  blocks the fix. Then say so: that is a scope call, Burhan's.
+  blocks the fix; then say so in STATE.md (a scope call, Burhan's).
 - **Save evidence before any pytest run**, and take a live "before" run before
-  the gate: `./ci.sh` redeploys the running container (STATE.md, Host notes).
+  the gate: `./ci.sh` redeploys the running container.
+- A timing test pins growth or uses `tests/_timing.py`'s best-of-3, never a
+  single wall-clock sample (B4's B-027 review).
 
-Session end: `/session-end`, then put the work on `staging` the way STATE.md
-says for this session (a push, or a PR for a collaborator), and `/promote`
-only if Burhan asks.
+Session end: `/session-end`. It writes B6's prompt, unscoped. Then open one PR
+from your B5 branch into `staging` for Burhan to review and merge.

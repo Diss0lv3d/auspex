@@ -2,19 +2,28 @@ FROM python:3.12-slim
 
 WORKDIR /srv/auspex
 
+# The SDK first (S32, R1): the core does not declare `auspex-sdk` as a dependency (the name
+# is unowned on PyPI), so it is installed explicitly, from this repo, before the core.
+# Only what installing it needs is copied, so editing core code never invalidates this layer.
+COPY sdk/pyproject.toml sdk/pyproject.toml
+COPY sdk/auspex_sdk sdk/auspex_sdk
+RUN pip install --no-cache-dir ./sdk && rm -rf sdk/build sdk/*.egg-info
+
 # Dependency layer: install deps from pyproject against an empty package skeleton so
 # this layer is cached and only re-runs when pyproject changes — not on every code edit.
 # Deps still come solely from pyproject (no hand-maintained requirements to drift).
 COPY pyproject.toml ./
 # Skeleton must satisfy every declared package/package-data in pyproject so the
 # metadata build succeeds with no real source present (deps-only layer).
-RUN mkdir -p auspex/routes auspex/ach auspex/actions auspex/agent auspex/alerts auspex/phishing auspex/llm auspex/classify \
+RUN mkdir -p auspex/routes auspex/ach auspex/actions auspex/agent auspex/alerts auspex/phishing auspex/llm auspex/classify auspex/connectors \
+             auspex/edge auspex/edge_api auspex/integrations \
              auspex/enrich/providers auspex/ingest auspex/jobs auspex/retrohunt auspex/tenancy auspex/watchers auspex/timeline auspex/modes \
              auspex/kb/seed_data auspex/static auspex/static/css auspex/static/js \
     && touch auspex/__init__.py auspex/routes/__init__.py auspex/ach/__init__.py \
              auspex/actions/__init__.py auspex/agent/__init__.py \
              auspex/alerts/__init__.py auspex/phishing/__init__.py \
-             auspex/llm/__init__.py auspex/classify/__init__.py \
+             auspex/llm/__init__.py auspex/classify/__init__.py auspex/connectors/__init__.py \
+             auspex/edge/__init__.py auspex/edge_api/__init__.py auspex/integrations/__init__.py \
              auspex/enrich/__init__.py auspex/enrich/providers/__init__.py \
              auspex/ingest/__init__.py auspex/jobs/__init__.py auspex/retrohunt/__init__.py auspex/tenancy/__init__.py auspex/timeline/__init__.py \
              auspex/watchers/__init__.py auspex/modes/__init__.py \

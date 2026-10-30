@@ -1,113 +1,87 @@
-# NEXT-SESSION-BE — track: backend · session: S32
+# NEXT-SESSION-BE — track: backend · session: S34
 
 _Paste everything below the first line of dashes into a fresh Claude Code
-window opened in your clone of the Auspex repo. **S32 is handed to Hunaiza
-(Burhan, 2026-10-22; D-059): she owns it fully.** **S32 builds the connector contract,
-the SDK and the catalogue (D-060, D-064).** S31 closed 2026-10-16 (the jobs
-queue and TD-025's first half; B-021 fixed; D-069 built), and promote #40
-shipped it. **B3 closed 2026-10-19** (Hunaiza: B-010 and B-024 fixed). Its
-PR #41 was merged into `staging` on 2026-10-22, so the promote slate is B3's
-fixes (STATE.md)._
+window opened in the Auspex repo. **S34 makes connector actions run through
+approvals, with each client's approval policy, and offers them to the
+co-analyst.** S33 closed 2026-10-28 (Hunaiza, handed fully under D-059):
+integrations, Edge Agents and "Test connection" end to end, PR #43's review
+fixed, D-072 and D-073. It reached `staging` as PR #51, merged 2026-10-29 (a
+fast-forward to `1d64692`). **S34 is Burhan's** (2026-10-28): it runs
+in his window. **The promote (S32, B4, S33) is Hunaiza's**, once #51 is merged._
 
-_Below the S32 prompt is the **backend plan for the whole phase, S29–S41**.
+_Below the S34 prompt is the **backend plan for the whole phase, S29–S41**.
 **`/session-end` writes the next session's prompt from its entry in the plan,
 keeps the plan section, and ticks the session it closed.** A change to the
 plan's order is Burhan's call._
 
 ---
 
-SESSION S32 of Auspex, **backend track** (D-051). The working dir is your
-clone of the Auspex repo. Run `/session-start be S32` first (the full ritual).
-It reads `SESSION-RULES.md` (standing rules for every track, including the
-**Jobs** section S31 added) and STATE.md.
-
-**The handoff (D-059).** Burhan handed S32 to Hunaiza (`HunaizaK`, on
-SESSION-RULES.md's "Who works here" table). She works on her own machine, in
-her own clone, under her own personal identity. **She owns S32 fully: every
-call, new D-entries and `/promote` included** (Burhan, 2026-10-22). Wherever
-this prompt, a rule or a command says "Burhan's call", "ask Burhan" or
-"brainstorm with Burhan", ask her. Re-scoping another track, or the plan's
-order, stays Burhan's: say so, and she passes it on. One session at a time
-spans both machines: Burhan runs no session while S32 runs.
+SESSION S34 of Auspex, **backend track** (D-051). The working dir is the
+Auspex repo. Run `/session-start be S34` first (the full ritual). It reads
+`SESSION-RULES.md` and STATE.md.
 
 Step 0 (do BEFORE new scope):
 
-1. **One window at a time (D-051, D-059).** B3 ran on Hunaiza's machine and
-   closed as PR #41, which Burhan merged into `staging` on 2026-10-22: `git
-   fetch` and `git pull --ff-only origin staging`, and confirm STATE.md says
-   PR #41 is merged. If it does not, stop: wrong window. If anything else moves that you did not move, check `ps` for a
-   second `claude` in this directory and stop.
-2. **The promote slate holds B3's fixes** (STATE.md, follow-up #1; B3 did not
-   promote, by the handoff). B-010 closes a message-driven stall, so
-   **`/promote` it** (the first session after a track runs its Step 0
-   promote). Read the diff, not the list.
-3. **Read D-060 and D-064, and the spec's sections on them, before any code**
-   (docs/superpowers/specs/2026-10-15-integration-phase-design.md). They are the
-   contract; re-debating one is "overturn or drop?" to Burhan.
-4. **S31's open ends S32 builds on** (STATE.md #30). Put them to Burhan with
-   the design, one at a time:
-   - **What a job may store.** `complete` stores only what JSON can carry: a
-     tuple holding NUL, or a NaN, fails it and the job re-runs. A connector's
-     output types (S32) and the core's result validation (S33) are the natural
-     place; say which.
-   - **B-026** (BUGS.md): an undeclared action argument named like a platform
-     keyword is approved, then the run fails into `incomplete`. A manifest
-     action compiles to an `ActionSpec` (S32): propose whether the compiled
-     path refuses undeclared arguments when a proposal is filed.
-   - The worker's `except` around a failing `fail` has no test of its own
-     (`auspex/jobs/worker.py`; monkeypatch `fail` to raise).
-5. **Probe reality first (CLAUDE.md rule 4).** Save to
-   `docs/probes/<date>-s32-connector-baseline.md`:
-   - `ActionSpec`, `validate_spec`, `canonical_spec` and `fingerprint`
-     (`auspex/actions/types.py`, `auspex/actions/proposal.py`) by `file:line`,
-     and exactly what the fingerprint covers;
-   - the action registry (`auspex/actions/registry.py`) and how the agent loop
-     receives its actions today (TD-023: in-process, workspace-blind);
-   - the enrichment provider shape (`auspex/enrich/providers/base.py`), the
-     nearest existing thing to a connector;
-   - S31's `JobKind` and `claim` (`auspex/jobs/queue.py`) as S33's agents will
-     meet them.
+1. **S33's PR (#51) was merged 2026-10-29 (`1d64692`).** `git fetch` and
+   `git pull --ff-only origin staging`, then confirm `auspex/edge/`,
+   `auspex/edge_api/` and `auspex/integrations/` exist and STATE.md says S33
+   closed. If they are missing, stop: wrong window. One session at a time
+   (D-051, D-059).
+2. **Check the promote landed; do not run it.** S33 is the plan's promote
+   milestone, and **the promote is Hunaiza's** once #51 is merged (S32, B4 and
+   S33 together; STATE.md #1). Confirm `main` carries S33 (`git log origin/main`)
+   before any S34 code; if it does not, ask her, do not promote from here.
+3. **S33's fresh review ran at PR #51's review** (recorded in the S33 record);
+   read its findings and any it left open before touching the same code. A
+   second fresh review, at #51's merge, left two for S34 (STATE.md #33): pick
+   `post_result`'s result check by job kind before `EDGE_KINDS` grows, and fix
+   `check_fingerprint`'s docstring, which still says undo uses it (D-074). It
+   also logged B-041…B-043 and TD-075…TD-077, all in code S34 touches.
+4. **Read what S33 left you, before any code:**
+   docs/superpowers/records/2026-10-28-s33-record.md (§6, what S34 picks up),
+   STATE.md #31 and #33, TD-071 (a manifest's roles distinct as imported:
+   **before any action runs**), D-024, D-048, D-062, D-064 and D-066.
+5. **Probe reality first (CLAUDE.md rule 4).** Save
+   `docs/probes/<date>-s34-baseline.md`: `compile_action` and
+   `WorkspaceMismatch`/`RefusedBeforeDispatch` (`auspex/connectors/compile.py`,
+   `auspex/actions/types.py`); `check_executable`, `check_fingerprint` and
+   `EXECUTABLE_SYSTEMS` (`auspex/actions/settlement.py`); the edge API's claim
+   scope and `post_result` (`auspex/edge_api/routes.py`); `auspex_sdk.run`
+   and `auspex_sdk.validate`; the integrations table, by `file:line`.
 
-Goal: **S32, the plan's entry below, is the contract: its exit criteria are
-the done line.** In short: the manifest v1 types; `validate_manifest` refusing
-with exact reasons; a manifest action compiling to an `ActionSpec` (wire names
-prefixed per integration; the fingerprint includes the connector id and the
-package hash); the SDK, a new package (decorators, a typed context, an HTTP
-client limited to declared hosts with TLS pinning, logs that redact secrets, a
-local harness) whose `auspex-sdk build` turns Python or YAML into the same
-manifest; the catalogue (an admin registers a content-hashed package in a
-workspace); a reference connector passing the harness; the structural tests
-(the app never imports connector code; the core never reads YAML).
+Goal: **S34, the plan's entry below, is the contract: its exit criteria are
+the done line.** In short: an integration's action takes the existing path
+(a proposal whose card comes from a dry-run job on the agent, approval,
+claim, an execute job on the agent, the validated result, settle or undo);
+`EXECUTABLE_SYSTEMS` is widened by code and review; `check_executable`
+refuses with a reason (agent offline, integration disabled, package hash
+changed, outside the grants or the routing key, approver not allowed); the
+per-client approval policy; one execution even when a result is lost; every
+door works; the co-analyst is offered integration actions; live through the
+agent; an adversarial review.
 
-**Design first, then a plan.** Brainstorm with Burhan, one question at a time,
-then write `docs/superpowers/plans/<date>-s32-connectors.md` and ask how to
-execute it. Questions D-064 leaves to S32:
-- where the SDK lives (a package in this repo, its name, how it installs) and
-  whether S33's Edge Agent image carries it;
-- what bytes a package's content hash covers, so S33's pull-by-hash verifies
-  exactly what the catalogue registered;
-- the catalogue's tenancy: **whether and how a provider offers its connectors
-  to its clients' workspaces** (S32 proposes, Burhan decides);
-- how a manifest's `test`, `fetch` and `actions[]` become job kinds on S31's
-  queue (S33 runs them; S32 only types them).
+**S33's carries are part of S34's work** (record §6, STATE.md #33):
+- an approval bound to its integration (prefixes are never reused, so
+  workspace + prefix is stable);
+- dispatch enqueues `connector.action.*` jobs claimed by the integration's
+  agent, which runs them through `auspex_sdk.run`;
+- the core checks action envelopes and observe counts with
+  `auspex_sdk.validate`, never a rewrite;
+- TD-071 before any action runs.
 
-Candidates: S31's open ends in Step 0 item 4. Ending early with the rituals
-done beats starting S33's work.
+**Design first, then a plan.** Brainstorm with whoever owns S34, one question
+at a time, then write `docs/superpowers/plans/<date>-s34-actions.md` and ask
+how to execute it.
 
 Constraints: everything in `SESSION-RULES.md`, and the plan's "Standing for
 every session in this phase" below.
-- **Nothing a connector ships runs in the app process** (D-062); the core
-  never reads YAML.
-- **Specs over prompts (D-064):** the manifest generates the forms, the action
-  specs, the agent's tool text and the contract tests. Nothing is written
-  twice.
-- A new package → `pyproject.toml` and the Dockerfile skeleton; a new env var
-  → `.env.example` and `docs/ENV_VARS.md` at birth.
-- **A change to an action or the approvals state machine gets a fresh-agent
-  adversarial review before the close, and so do the review's fixes**
-  (SESSION-RULES.md).
-- Run pytest only when no live probe is running.
-- Do not start S33's work in S32 (scope lock).
+- **Every write to a customer system goes through an approval** (D-014,
+  D-024); widening `EXECUTABLE_SYSTEMS` is code plus an adversarial review.
+- **Nothing a connector ships runs in the app process** (D-062).
+- **Tenant isolation is an invariant**; every new table and route gets a
+  cross-tenant test.
+- A new env var → `.env.example` and `docs/ENV_VARS.md` at birth.
+- Do not start S35's work in S34 (scope lock).
 
 ---
 
@@ -145,8 +119,9 @@ ticks the closed session._
 | 3 | F4 | fe | S30 | closed 2026-10-16: one shell for every page, role-aware, a workspace switcher (D-070) |
 | 4 | S31 | be | S30 | closed 2026-10-16: the jobs queue, TD-025's first half; B-021 fixed, D-069 built; promote #40 |
 | 4b | B3 | bugs | S31 | closed 2026-10-19 by Hunaiza (D-059): B-010 and B-024 fixed; PR #41 merged 2026-10-22 |
-| 5 | S32 | be | S31, B3 | Hunaiza's, fully (D-059, 2026-10-22): the connector contract, the SDK (Python and YAML), the catalogue |
-| 6 | S33 | be | S32 | integrations and the Edge Agent, "Test connection" end to end |
+| 5 | S32 | be | S31, B3 | closed 2026-10-27 by Hunaiza (D-059): the connector contract, the SDK (Python and YAML), the catalogue; B-026 fixed; D-071; PR #43 merged 2026-10-28 |
+| 5b | B4 | bugs | S32 | closed 2026-10-28 by Hunaiza (D-059): B-017, B-018, B-025, B-027, B-030, B-032 fixed; to `staging` by PR |
+| 6 | S33 | be | S32, B4 | closed 2026-10-28 by Hunaiza (D-059): PR #43's review fixed; integrations, Edge Agents, "Test connection" end to end; D-072, D-073; to `staging` by PR |
 | 7 | S34 | be | S33 | integration actions through approvals and per-client policy |
 | 8 | F5 | fe | S34 | connectors, integrations, Edge Agents, memberships and approval policy admin |
 | 9 | S35 | be | S33 | fetch schedules, cursors, alerts, routing for shared SIEMs |
@@ -168,6 +143,14 @@ ticks the closed session._
   demo).
 
 ### Where the code stands (2026-10-16, after S31; re-verify before relying on it)
+
+- **Since S32 (2026-10-27):** `sdk/` (the `auspex-sdk` distribution:
+  manifest, package, runtime, http, redact, results, build, harness, cli);
+  `auspex/connectors/` (`compile.py`, `jobs.py`, `catalogue.py`,
+  `routes.py`, `__main__.py`); `FINGERPRINT_VERSION = 2`; `ActionSpec.origin`;
+  `connector_packages`; `POST`/`GET /api/connectors`; the reference connector
+  under `examples/connectors/mock_siem/`. B-026 is fixed. The bullets below
+  predate S32.
 
 - **Actions** (`auspex/actions/`):
   - `EXECUTABLE_SYSTEMS = frozenset({"auspex"})` (`settlement.py:50`), checked
@@ -324,7 +307,7 @@ ticks the closed session._
         `test_startup_survives_every_status_a_proposal_can_be_in` passes.
     - An adversarial review covers the approvals state machine.
 
-- [ ] **S32 — The connector contract, the SDK, and the catalogue.**
+- [x] **S32 — The connector contract, the SDK, and the catalogue.** (closed 2026-10-27; record: docs/superpowers/records/2026-10-27-s32-record.md)
   - **Depends on:** S31, D-060, D-064.
   - **Goal:** a connector is a typed, versioned manifest plus Python handlers,
     written Python-first or in YAML, and both build to one canonical
@@ -360,7 +343,7 @@ ticks the closed session._
     - **Structural tests:** the app package never imports connector code; the
       core never reads YAML.
 
-- [ ] **S33 — Integrations and the Edge Agent: "Test connection", end to
+- [x] **S33 — Integrations and the Edge Agent: "Test connection", end to
   end.**
   - **Depends on:** S32, D-062, D-063.
   - **Step 0:** if Burhan has given the QRadar's address, run the reachability,

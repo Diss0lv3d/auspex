@@ -1,8 +1,12 @@
 """S30's exit criteria, as an MSSP meets them (D-061): through the routes only."""
 
+import json
+
 import pytest
 from _tenancy import build_mssp, drop_orgs, make_org, make_workspace, token
+from auspex_sdk.package import build_zip
 
+from auspex.connectors.catalogue import available, register
 from auspex.db import create_pool
 
 PREFIX = "t-s30-iso"
@@ -121,3 +125,50 @@ async def test_an_audit_event_in_one_workspace_is_absent_from_anothers_trail(
     assert seen.status_code == 200, seen.text
     assert probe not in str(seen.json()), seen.json()
     assert all(e["subject"]["user_id"] != probe for e in seen.json()["events"])
+
+
+async def test_a_connector_package_registered_in_one_client_is_listed_nowhere_else(world):
+    """S32 (spec decision 3): the catalogue's cross-tenant row. The routes arrive with
+    Task 11; the one listing function they call is held to the same line here."""
+    pool, m = world
+    manifest = {"schema_version": 1, "id": "tiso.private", "version": "1.0.0",
+                "name": "Private", "description": "client1's own connector",
+                "commands": {"test": {"handler": "pkg.h:test"}}}
+    data = build_zip({"manifest.json": json.dumps(manifest).encode(), "pkg/h.py": b""})
+    entry = await register(pool, workspace_id=m.client1_ws, data=data,
+                           registered_by=m.c1_user, offered_to_clients=False)
+    assert [e.id for e in await available(pool, workspace_id=m.client1_ws)
+            if e.connector_id == "tiso.private"] == [entry.id]
+    for ws in (m.client2_ws, m.provider_ws, m.direct_ws):
+        assert all(e.connector_id != "tiso.private"
+                   for e in await available(pool, workspace_id=ws))
+
+
+async def test_a_connector_registered_through_the_route_is_listed_by_no_other_workspace(
+        world, client, settings):
+    """The same row through HTTP (S32 Task 11): client1's admin registers, then every
+    other workspace's listing and a provider-wide switch into client2 stay without it."""
+    pool, m = world
+    manifest = {"schema_version": 1, "id": "tiso.viaroute", "version": "1.0.0",
+                "name": "Via route", "description": "client1's own connector",
+                "commands": {"test": {"handler": "pkg.h:test"}}}
+    data = build_zip({"manifest.json": json.dumps(manifest).encode(), "pkg/h.py": b""})
+    admin = await pool.fetchval(
+        "INSERT INTO users (email, home_org_id) VALUES ($1, $2) RETURNING id",
+        f"c1-admin@{PREFIX}.auspex.dev", m.client1)
+    await pool.execute("INSERT INTO memberships (workspace_id, user_id, role)"
+                       " VALUES ($1, $2, 'admin')", m.client1_ws, admin)
+    posted = client.post("/api/connectors", headers=token(settings, admin, m.client1_ws),
+                         files={"package": ("p.zip", data, "application/zip")})
+    assert posted.status_code == 201, posted.text
+
+    def listed(user, ws):
+        res = client.get("/api/connectors", headers=token(settings, user, ws))
+        assert res.status_code == 200, res.text
+        return {c["connector_id"] for c in res.json()["connectors"]}
+
+    assert "tiso.viaroute" in listed(admin, m.client1_ws)
+    assert "tiso.viaroute" in listed(m.c1_user, m.client1_ws)
+    for user, ws in ((m.c2_user, m.client2_ws), (m.p_admin, m.provider_ws),
+                     (m.d_user, m.direct_ws)):
+        assert "tiso.viaroute" not in listed(user, ws)

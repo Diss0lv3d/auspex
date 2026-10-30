@@ -25,3 +25,16 @@ def flatten(raw: str, cap: int = 120) -> str:
     """Collapse whitespace/control runs to one space, strip, hard-cap length."""
     flat = _UNSAFE_RUN_RE.sub(" ", raw).strip()
     return flat[: cap - 1] + "…" if len(flat) > cap else flat
+
+
+def unstorable(value) -> bool:
+    """True when a string anywhere in `value` (keys and values, at any depth) holds a NUL
+    or a lone surrogate: Postgres text and jsonb refuse both, so a write would fail as a
+    database error instead of a refusal in words (PR #43 #6, PR #51 s2)."""
+    if isinstance(value, str):
+        return "\x00" in value or any("\ud800" <= c <= "\udfff" for c in value)
+    if isinstance(value, dict):
+        return any(unstorable(k) or unstorable(v) for k, v in value.items())
+    if isinstance(value, list | tuple):
+        return any(unstorable(v) for v in value)
+    return False

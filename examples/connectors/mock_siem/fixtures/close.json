@@ -1,0 +1,22 @@
+{
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://siem.example.test/api/alerts/A-1001/close"
+      },
+      "response": {
+        "status": 200,
+        "headers": {},
+        "json": {
+          "id": "A-1001",
+          "title": "Impossible travel for a service account",
+          "severity": "high",
+          "status": "closed",
+          "created": 1792670400,
+          "modified": 1792674000
+        }
+      }
+    }
+  ]
+}

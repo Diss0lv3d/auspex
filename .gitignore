@@ -12,3 +12,7 @@ dist/
 dev-endpoints.json
 docker-compose.override.yml
 .playwright-mcp/
+
+# Connector builds (the examples build into their own dist/ too)
+examples/**/dist/
+.edge-dev/

@@ -99,27 +99,47 @@ async def enqueue(
     existing job comes back with `created=False`. It takes the migration's
     advisory lock shared first, so a booting replica's schema DDL (which locks
     `workspaces`, then `jobs`) is never caught in a lock cycle with this insert."""
+    async with pool.acquire() as conn, conn.transaction():
+        return await enqueue_on(conn, workspace_id=workspace_id, kind=kind,
+                                idempotency_key=idempotency_key, payload=payload,
+                                integration_id=integration_id, run_after=run_after)
+
+
+async def enqueue_on(
+    conn: asyncpg.Connection,
+    *,
+    workspace_id: UUID,
+    kind: JobKind,
+    idempotency_key: str,
+    payload: dict | None = None,
+    integration_id: UUID | None = None,
+    run_after: datetime | None = None,
+) -> tuple[Job, bool]:
+    """`enqueue`, on a connection whose transaction the caller holds: a caller that
+    checks and enqueues under one lock needs no second connection (PR #51 review s1).
+    The caller must take the migration's lock (shared) BEFORE its transaction touches
+    `jobs`: taken here only, it would come after a read of `jobs` and could meet a
+    booting replica's DDL in a lock cycle (fresh review of PR #51, I1)."""
     if not idempotency_key.strip():
         raise ValueError("a job needs an idempotency key")
-    async with pool.acquire() as conn, conn.transaction():
-        await conn.execute("SELECT pg_advisory_xact_lock_shared($1)", MIGRATION_LOCK)
-        row = await conn.fetchrow(
-            """
-            INSERT INTO jobs (workspace_id, kind, integration_id, payload, idempotency_key,
-                              max_attempts, lease_seconds, run_after)
-            VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, COALESCE($8, now()))
-            ON CONFLICT (workspace_id, idempotency_key) DO NOTHING
-            RETURNING *
-            """,
-            workspace_id, kind.name, integration_id, json.dumps(payload or {}),
-            idempotency_key, kind.max_attempts, kind.lease_seconds, run_after,
-        )
-        if row is not None:
-            return Job.from_row(row), True
-        existing = await conn.fetchrow(
-            "SELECT * FROM jobs WHERE workspace_id = $1 AND idempotency_key = $2",
-            workspace_id, idempotency_key,
-        )
+    await conn.execute("SELECT pg_advisory_xact_lock_shared($1)", MIGRATION_LOCK)
+    row = await conn.fetchrow(
+        """
+        INSERT INTO jobs (workspace_id, kind, integration_id, payload, idempotency_key,
+                          max_attempts, lease_seconds, run_after)
+        VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, COALESCE($8, now()))
+        ON CONFLICT (workspace_id, idempotency_key) DO NOTHING
+        RETURNING *
+        """,
+        workspace_id, kind.name, integration_id, json.dumps(payload or {}),
+        idempotency_key, kind.max_attempts, kind.lease_seconds, run_after,
+    )
+    if row is not None:
+        return Job.from_row(row), True
+    existing = await conn.fetchrow(
+        "SELECT * FROM jobs WHERE workspace_id = $1 AND idempotency_key = $2",
+        workspace_id, idempotency_key,
+    )
     return Job.from_row(existing), False
 
 
@@ -241,6 +261,26 @@ async def claim(pool: asyncpg.Pool, scope: ClaimScope, *, claimer: str) -> Job |
                 row["workspace_id"],
             )
     return Job.from_row(row) if row is not None else None
+
+
+async def extend_leases(pool: asyncpg.Pool, *, claimer: str, job_ids: list[UUID]) -> int:
+    """Renew the leases of `job_ids` that `claimer` still holds (TD-064): an Edge Agent's
+    heartbeat names the jobs it is running, so a long command's job is not reclaimed.
+    Only the named jobs move: renewing everything the claimer held kept a job whose
+    answer was lost "running" for ever (PR #51 review #1). Returns how many."""
+    if not job_ids:
+        return 0
+    return await pool.fetchval(
+        """
+        WITH moved AS (
+            UPDATE jobs SET lease_expires_at = now() + make_interval(secs => lease_seconds)
+             WHERE status = 'claimed' AND claimed_by = $1 AND id = ANY($2::uuid[])
+               AND lease_expires_at >= now()
+            RETURNING 1
+        ) SELECT count(*) FROM moved
+        """,
+        claimer, job_ids,
+    )
 
 
 async def complete(pool: asyncpg.Pool, job_id: UUID, token: UUID, result: dict) -> None:

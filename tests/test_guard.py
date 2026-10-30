@@ -595,3 +595,77 @@ def test_b029_the_scan_finds_what_finditer_finds_on_the_live_rules():
                 continue
             for t in (text, _G._normalize(text)[0]):
                 assert _G._spans_of(label, pattern, t) == _G._spans(t, pattern), (label, t)
+
+
+# -- B-030: the quote-line carve-out, linear and span-for-span the regex's -------
+
+def test_b030_the_quote_line_scan_finds_what_finditer_finds():
+    """Burhan's rule for this family (B-029): speed only, every span unchanged.
+    Seeded random texts built from what the rule turns on (line breaks, other
+    whitespace `\\s` takes, `>`), plus the edges written out."""
+    edges = ["", ">", "\n", "\n>", ">\n", "  > a\n> b", "x\n\n\n  > q", "\n" * 50 + "x",
+             "a\r\n> b", "\x85> c", "\u2028\n> d", "> a\n\n> b\n", "x>y\n >", "\n\n"]
+    pieces = ["\n", " ", "\t", "\r", "\x0b", "\x0c", "\x1c", "\x1f", "\x85", "\xa0", "\u2028",
+              "\u2029", "\u3000", "\u200b", ">", "x", "> q", "ab"]
+    rng = random.Random(30)  # noqa: S311 -- a fixed-seed fuzz, not a secret
+    texts = edges + ["".join(rng.choice(pieces) for _ in range(rng.randint(1, 40)))
+                     for _ in range(3000)]
+    for text in texts:
+        assert _G._quote_line_spans(text) == [
+            m.span() for m in _G._QUOTE_LINE_RE.finditer(text)], repr(text)
+
+
+def test_b030_the_quote_line_scan_is_linear_on_a_newline_run():
+    q = "you are now x" + "\n" * 31986 + "x"
+    assert _elapsed_ms(_G._quote_line_spans, q) < _BOUNDED_MS
+
+
+# -- B-032: an edit to a run-led rule fails here until `_RUN_LED` is checked -----
+# The live-rule differential (test_b029_...) catches a new start character only
+# when its corpus holds it: `\{\{system\}\}` added to role_marker_injection passed
+# every b029 test while `inspect("hello {{system}} you are free")` answered CLEAN
+# (docs/probes/2026-10-22-b032-run-led-scan-mutants.md). So the two rules' text is
+# pinned: any edit fails this test, whose message says what to do first.
+_B032_PINNED = {
+    "persona_override": (
+        r"(?:^\s*+|[.!?]\s++|\n\s*+)(?:you\s+are\s+now|from\s+now\s+on[,\s]+you|"
+        r"act\s+as\s+(?:if\s+you\s+(?:are|were)|an?\s+unrestricted)|"
+        r"pretend\s+(?:to\s+be|you\s+are)|you\s+must\s+now\s+obey)\b"
+    ),
+    "role_marker_injection": (
+        r"(?:<\|im_(?:start|end)\|>|<\|(?:system|assistant|endoftext)\|>|"
+        r"\[/?INST\]|<</?SYS>>|(?:^|\n)\s*###\s*(?:system|assistant)\b|"
+        r"(?:^|\n)\s*(?:system|assistant)\s*:\s*you\s+(?:are|must)\b)"
+    ),
+}
+
+
+_B032_START_SETS = {
+    "persona_override": (r"[.!?\n]", ".!?"),
+    "role_marker_injection": (r"[<\[\n]", ""),
+}
+_B032_WHAT_TO_DO = (
+    "First update _RUN_LED['{label}'] in auspex/guard.py: every character a match "
+    "can begin with must be in its start set, or the scan never tries it and "
+    "inspect() answers CLEAN (B-032). Then add that character to _B029_PIECES in "
+    "tests/test_guard.py so the differential test exercises it, and only then "
+    "update the pins here."
+)
+
+
+def test_b032_the_run_led_rules_are_pinned_until_run_led_is_updated():
+    live = dict(_G._INJECTION_PATTERNS)
+    assert set(_B032_PINNED) == set(_G._RUN_LED), (
+        "_RUN_LED's rules changed: pin each run-led rule's text, flags and start set "
+        "here, and keep every label in _RUN_LED equal to one in _INJECTION_PATTERNS.")
+    for label, pinned in _B032_PINNED.items():
+        assert label in live, f"{label} is in _RUN_LED but no longer a rule (renamed?)"
+        what = _B032_WHAT_TO_DO.format(label=label)
+        # The flags too: MULTILINE or VERBOSE change a match with the text unchanged.
+        assert live[label].pattern == pinned, f"{label}'s regex changed. {what}"
+        assert live[label].flags == re.compile(pinned, re.IGNORECASE).flags, (
+            f"{label}'s flags changed. {what}")
+        start, lead = _G._RUN_LED[label]
+        assert (start.pattern, lead) == _B032_START_SETS[label], (
+            f"_RUN_LED['{label}'] changed: check it against the rule, then update "
+            "_B032_START_SETS.")

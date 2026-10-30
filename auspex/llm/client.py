@@ -149,6 +149,39 @@ def _extract_error(status: int, content_type: str, text: str) -> LLMError:
     return LLMError(status, message, code=code)
 
 
+def _wire_text(value: Any) -> str:
+    """A tool call's id, name or arguments as text (B-017). The endpoint is the
+    customer's, so a list or an object may arrive where a string belongs: it
+    becomes its JSON text, which names no tool, so the loop answers "unknown
+    tool" instead of crashing the turn. Some servers send `arguments` as an
+    object, and its JSON text is exactly what the model meant."""
+    if value is None:
+        return ""
+    return value if isinstance(value, str) else json.dumps(value)
+
+
+def _wire_index(value: Any) -> int:
+    """A streamed tool call's `index` as an int (B-017). It keys the fold's dict and
+    is sorted at the end, so it must be one type. A numeric string is its number:
+    folding `"1"` into call 0 merged two parallel calls (Burhan's review of PR #50).
+    Only what does not parse (a list, a bool, `None`, `"a"`) folds into call 0."""
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            return 0
+    return 0
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    """A part of a tool call that should be an object, or {} when it is not (B-017)."""
+    return value if isinstance(value, dict) else {}
+
+
 def _thinking(part: dict[str, Any]) -> str:
     """The thinking text of a message or a delta, whichever spelling the endpoint
     uses. A key can be PRESENT and empty — vLLM writes `"reasoning": null`
@@ -264,11 +297,12 @@ class LLMClient:
         message = (choices[0].get("message") or {}) if choices else {}
         tool_calls = [
             ToolCall(
-                id=tc.get("id", ""),
-                name=(tc.get("function") or {}).get("name", ""),
-                arguments=(tc.get("function") or {}).get("arguments", ""),
+                id=_wire_text(tc.get("id")),
+                name=_wire_text(fn.get("name")),
+                arguments=_wire_text(fn.get("arguments")),
             )
-            for tc in (message.get("tool_calls") or [])
+            for tc in map(_as_dict, message.get("tool_calls") or [])
+            for fn in (_as_dict(tc.get("function")),)
         ]
         return ChatResult(
             content=message.get("content") or "",
@@ -346,10 +380,11 @@ def parse_sse_line(line: str) -> list[StreamEvent]:
             events.append(StreamEvent(kind="content", text=delta["content"]))
         if thinking := _thinking(delta):  # thinking models stream it on its own field
             events.append(StreamEvent(kind="reasoning", text=thinking))
-        for tc in delta.get("tool_calls") or []:
-            events.append(
-                StreamEvent(kind="tool_call", tool_index=tc.get("index", 0), tool_delta=tc)
-            )
+        calls = delta.get("tool_calls")
+        for tc in calls if isinstance(calls, list) else []:
+            tc = _as_dict(tc)
+            index = _wire_index(tc.get("index", 0))
+            events.append(StreamEvent(kind="tool_call", tool_index=index, tool_delta=tc))
         if choices[0].get("finish_reason"):
             events.append(StreamEvent(kind="finish", finish_reason=choices[0]["finish_reason"]))
     usage = _usage_from(chunk)
@@ -380,15 +415,15 @@ def fold_stream_event(
     elif event.kind == "reasoning":
         result.reasoning += event.text
     elif event.kind == "tool_call":
-        tc_delta = event.tool_delta or {}
+        tc_delta = _as_dict(event.tool_delta)
         call = calls.setdefault(event.tool_index, ToolCall())
         if tc_delta.get("id"):
-            call.id = tc_delta["id"]
-        fn = tc_delta.get("function") or {}
+            call.id = _wire_text(tc_delta["id"])
+        fn = _as_dict(tc_delta.get("function"))
         if fn.get("name"):
-            call.name = fn["name"]
+            call.name = _wire_text(fn["name"])
         if fn.get("arguments"):
-            call.arguments += fn["arguments"]
+            call.arguments += _wire_text(fn["arguments"])
     elif event.kind == "finish":
         result.finish_reason = event.finish_reason
     elif event.kind == "usage":

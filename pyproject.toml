@@ -11,6 +11,7 @@ dependencies = [
     "PyJWT>=2.8",
     "pydantic-settings>=2.3",
     "email-validator>=2.0",
+    "python-multipart>=0.0.9",  # S32: the connector upload is multipart
 ]
 
 [project.optional-dependencies]
@@ -31,6 +32,10 @@ packages = [
     "auspex.phishing",
     "auspex.llm",
     "auspex.classify",
+    "auspex.connectors",
+    "auspex.edge",
+    "auspex.edge_api",
+    "auspex.integrations",
     "auspex.enrich",
     "auspex.enrich.providers",
     "auspex.ingest",
@@ -49,7 +54,7 @@ auspex = ["static/*.html", "static/css/*.css", "static/js/*.js"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["tests", "sdk/tests"]
 
 [tool.ruff]
 line-length = 100

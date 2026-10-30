@@ -1,0 +1,27 @@
+{
+  "exchanges": [
+    {
+      "request": {
+        "method": "GET",
+        "url": "https://siem.example.test/api/alerts?cursor=c2&limit=100"
+      },
+      "response": {
+        "status": 200,
+        "headers": {},
+        "json": {
+          "alerts": [
+            {
+              "id": "A-1002",
+              "title": "Unusual outbound volume",
+              "severity": "medium",
+              "status": "open",
+              "created": 1792671000,
+              "modified": 1792671000
+            }
+          ],
+          "next": null
+        }
+      }
+    }
+  ]
+}

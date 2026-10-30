@@ -557,6 +557,49 @@ BUGS.md) have their own sections at the end, before "Later".
   - 1687 tests; 133 modules; `STORAGE_REGION`, `JOBS_WORKER_ENABLED` born; no
     engine calls.
 
+- [x] **S32 — The connector contract, the SDK, and the catalogue.**
+  (2026-10-27, Hunaiza, handed fully under D-059) Not a promote milestone; to
+  `staging` as one PR from `s32-connectors`. Record of every call:
+  docs/superpowers/records/2026-10-27-s32-record.md.
+  - **Step 0:** promote #42 shipped B3; baseline
+    docs/probes/2026-10-22-s32-connector-baseline.md.
+  - **Design:** docs/superpowers/specs/2026-10-22-s32-connectors-design.md
+    (Hunaiza's decisions 1–11; builder-checked); D-071.
+  - **Built** (plan docs/superpowers/plans/2026-10-22-s32-connectors.md, 13
+    tasks; 1–10 subagent-driven with a review each, 11–13 inline): the SDK
+    (`sdk/`, `auspex-sdk`: manifest v1, packages, runtime, TLS pinning,
+    redaction, build from Python or YAML, the harness); the reference
+    connector; `compile_action` and fingerprint v2; the catalogue and
+    `/api/connectors`; B-026 fixed; structural tests.
+  - **Live:** a provider's offered connector listed by its clients only, then
+    first-party and listed everywhere
+    (docs/probes/2026-10-22-s32-connectors-live.md).
+  - **Final review** (fresh, whole branch): no Critical or Important; three
+    minors fixed, TD-069 logged.
+  - TD-066…TD-069 logged.
+  - 2058 tests; 139 modules; no env vars born; `python-multipart` added; no
+    engine calls.
+
+- [x] **S33 — Integrations, the Edge Agent, and Test connection.** (2026-10-28,
+  Hunaiza, handed fully under D-059) To `staging` as one PR from
+  `s33-edge-agent`; S33 is the plan's promote milestone (slate: S32, B4, S33).
+  Record: docs/superpowers/records/2026-10-28-s33-record.md.
+  - **Step 0:** PR #43's ten findings fixed (6, 7, 8, 10 reproduced first);
+    D-072 (the SDK version is not identity); the fixes' adversarial review
+    found two gaps, fixed and re-reviewed.
+  - **Design:** docs/superpowers/specs/2026-10-28-s33-edge-agent-design.md
+    (Hunaiza's calls: one agent per integration; actions wait for S34; disable,
+    never delete); nine-task plan, executed inline.
+  - **Built:** integrations; Edge Agents (one-time enrollment, hashed
+    credential, revoke); the edge API (long-poll claim, validated results,
+    heartbeats holding leases, packages by hash); the agent and its image;
+    `auspex_sdk.run`/`validate`; Test connection and health; D-073.
+  - **Live:** ok through the real agent container against a pinned stub SIEM
+    (docs/probes/2026-10-28-s33-live.md).
+  - The build's review was a self-review (no helper agents mid-session); a
+    fresh one is owed at S34's Step 0. TD-068 closed; TD-071…TD-074 logged.
+  - 2183 tests; 153 modules; agent env vars born (agent and dev only).
+
 ## Track: front end (D-051)
 
 - [x] **F1 — Where a deep turn's reasoning loses its speed, measured first.**
@@ -664,8 +707,16 @@ BUGS.md) have their own sections at the end, before "Later".
     announced and keeps the keyboard's place.
   - Re-review: a pending choice blocks Send; the guard scan pinned to the live rules; B-030, B-031 logged.
   - 1707 tests; 133 modules; no new env vars.
-- [ ] **B4 — Burhan's call first:** the open entries (B-005, B-009, B-011…
-  B-020, B-022, B-023, B-025…B-028, B-030…B-032).
+- [x] **B4 — Hunaiza's, fully (D-059; Burhan, 2026-10-28), before S33:**
+  B-018, B-025, B-017, B-027, B-030, B-032, in that order, every one required
+  (GitHub #44–#49). Closed 2026-10-28 as a PR from `b4-bugs`; no promote.
+  Records: docs/probes/2026-10-28-b4-*.md.
+  - Each reproduced first, fixed with a test that failed first and its input
+    pinned, checked live, and reviewed by a fresh agent (B-025 and B-030
+    adversarial). Every review found something: fixed, or logged as B-033,
+    B-034, B-035 and TD-070.
+  - B-027: about 1 s → 23 ms CPU at the cap; B-030: 2.9 s → 20 ms.
+  - 2091 tests; 139 modules; no new env vars or dependencies.
 
 ## Later / explicitly deferred
 Herd Immunity federation (needs k≥3 workspaces + privacy review) · billing ·

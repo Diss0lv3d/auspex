@@ -652,3 +652,43 @@ async def test_run_ends_a_turn_whose_step_was_refused_for_budget_as_run_stream_d
     assert [i.status for i in result.invocations] == ["executed", "error"]
     assert client.turns == 3
     assert result.stopped_reason == "final_answer" and result.steps == 2
+
+
+async def test_a_call_with_an_undeclared_argument_comes_back_as_an_error_naming_it():
+    """B-026 at the loop: the model's call carries a key the action does not
+    declare. The real proposer refuses it (before any dry run or row, so it needs
+    no pool here) and the model gets the code-written sentence, not a class name."""
+    from auspex.actions.settlement import action_proposer
+
+    registry, _ = _make_registry()
+    loop = _loop(registry, InMemoryProposalStore(), actions=_manifest(),
+                 action_proposer=action_proposer(None))
+    client = FakeLLMClient([
+        _tool_call_result("isolate_host", {"host_id": "h-1", "idempotency_key": "x"}),
+        ChatResult(content="It could not be proposed.", finish_reason="stop"),
+    ])
+    result = await loop.run(client, "isolate h-1")
+
+    call = result.invocations[0]
+    assert call.status == "error" and call.proposal_id is None
+    assert "idempotency_key" in call.feedback["error"]
+    assert call.feedback["error"].startswith("not proposed: ")
+
+
+async def test_a_malformed_tool_name_from_the_endpoint_is_an_unknown_tool_not_a_crash():
+    """B-017: the endpoint's raw body, through the real parser, then the loop. The
+    turn survives; the model hears the call was not a tool, and answers."""
+    from pathlib import Path
+
+    from auspex.llm.client import LLMClient
+
+    raw = json.loads((Path(__file__).parent / "fixtures" / "llm"
+                      / "b017_malformed_tool_calls.json").read_text())["completion"]
+    reg, _ = _make_registry()
+    client = FakeLLMClient([LLMClient.parse_completion(raw),
+                            ChatResult(content="Answered without it.", finish_reason="stop")])
+    result = await _loop(reg, InMemoryProposalStore()).run(client, "Is 203.0.113.9 a threat?")
+
+    assert result.stopped_reason == "final_answer"
+    errors = [i for i in result.invocations if i.status == "error"]
+    assert [i.name for i in errors] == ['["lookup_ip"]']

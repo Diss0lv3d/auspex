@@ -256,3 +256,25 @@ def test_a_schedule_refuses_a_non_positive_interval(every):
 
     with pytest.raises(ValueError, match="every_seconds"):
         Schedule(_recording_kind(), every, due)
+
+
+async def test_a_fail_that_raises_never_stops_the_next_job(pool, ws, monkeypatch):
+    """S32: a connector handler failure is recorded by `fail`; if recording itself
+    raises, the tick logs it and still runs the next job."""
+    a = await ws("a")
+
+    async def handler(pool, job):
+        if job.idempotency_key == "bad":
+            raise RuntimeError("handler broke")
+        return {"ran": job.idempotency_key}
+
+    async def broken_fail(*args, **kwargs):
+        raise RuntimeError("the failure could not be written")
+
+    monkeypatch.setattr("auspex.jobs.worker.fail", broken_fail)
+    kind = JobKind("t.s31.worker", handler)
+    await enqueue(pool, workspace_id=a, kind=kind, idempotency_key="bad")
+    good, _ = await enqueue(pool, workspace_id=a, kind=kind, idempotency_key="good")
+    report = await _worker(pool, [kind]).tick()
+    assert report.failed == 1
+    assert (await _status(pool, good.id))["status"] == "done"

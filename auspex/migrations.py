@@ -731,7 +731,10 @@ S30_TENANCY: list[str] = [
             CHECK (action IN ('workspace.enter', 'membership.add', 'membership.role',
                               'membership.remove', 'membership.provider_wide',
                               'org.create', 'org.restricted', 'workspace.create',
-                              'person.rehome'));
+                              'person.rehome', 'connector.registered',
+                              'integration.created', 'integration.updated',
+                              'integration.disabled', 'edge_agent.created',
+                              'edge_agent.enrolled', 'edge_agent.revoked'));
     END $$
     """,
     # The one-time move, guarded on the old column like S16's watcher_id block:
@@ -858,7 +861,100 @@ S31_JOBS: list[str] = [
     """,
 ]
 
-SCHEMA_V0 = [*SCHEMA_V0, *S30_TENANCY, *S31_JOBS]
+# S32 (D-064; docs/superpowers/specs/2026-10-22-s32-connectors-design.md decision 3):
+# the connector catalogue. A package is identified by its content hash (a changed
+# package is a new identity), so the hash is unique per workspace and an id+version
+# names one hash. First-party rows live in `__deployment__` (D-035/D-068).
+# `registered_by` carries no foreign key, as audit_events' actors: purging a person
+# must not erase or block who registered a package.
+S32_CONNECTORS: list[str] = [
+    """
+    CREATE TABLE IF NOT EXISTS connector_packages (
+        id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id        uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        connector_id        text NOT NULL,
+        version             text NOT NULL,
+        content_hash        text NOT NULL,
+        manifest            jsonb NOT NULL,
+        package             bytea NOT NULL,
+        first_party         boolean NOT NULL DEFAULT false,
+        offered_to_clients  boolean NOT NULL DEFAULT false,
+        registered_by       uuid,
+        created_at          timestamptz NOT NULL DEFAULT now(),
+        UNIQUE (workspace_id, content_hash),
+        UNIQUE (workspace_id, connector_id, version)
+    )
+    """,
+    # The listing's two cross-workspace probes: first-party and offered rows.
+    """
+    CREATE INDEX IF NOT EXISTS idx_connector_packages_first_party
+        ON connector_packages (connector_id) WHERE first_party
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_connector_packages_offered
+        ON connector_packages (workspace_id) WHERE offered_to_clients
+    """,
+]
+
+# D-074 (S33, PR #51 review #4): what an undo depends on, recorded when a proposal is
+# filed, so a put-back is refused only when the code it would run changed.
+S33_UNDO: list[str] = [
+    "ALTER TABLE proposals ADD COLUMN IF NOT EXISTS undo_identity text",
+]
+
+# S33: Edge Agents and their one-time enrollments (D-062), then integrations
+# (D-060). An agent belongs to one workspace; its credential is stored hashed only
+# (the api_keys pattern), and is NULL until it enrolls.
+S33_EDGE: list[str] = [
+    """
+    CREATE TABLE IF NOT EXISTS edge_agents (
+        id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id       uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        name               text NOT NULL,
+        credential_hash    text UNIQUE,
+        key_prefix         text,
+        created_by         uuid,
+        created_at         timestamptz NOT NULL DEFAULT now(),
+        enrolled_at        timestamptz,
+        revoked_at         timestamptz,
+        last_heartbeat_at  timestamptz,
+        UNIQUE (workspace_id, name)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS edge_enrollments (
+        id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id  uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        agent_id      uuid NOT NULL REFERENCES edge_agents(id) ON DELETE CASCADE,
+        token_hash    text NOT NULL UNIQUE,
+        created_by    uuid,
+        created_at    timestamptz NOT NULL DEFAULT now(),
+        expires_at    timestamptz NOT NULL,
+        used_at       timestamptz
+    )
+    """,
+    # An integration is disabled, never deleted, and its prefix (the wire name's) is
+    # unique in its workspace for good, disabled rows included: an approval can never
+    # later point at another integration under the same name (Hunaiza's call, S33).
+    """
+    CREATE TABLE IF NOT EXISTS integrations (
+        id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        workspace_id  uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        name          text NOT NULL,
+        prefix        text NOT NULL,
+        connector_id  text NOT NULL,
+        content_hash  text NOT NULL,
+        config        jsonb NOT NULL,
+        agent_id      uuid NOT NULL REFERENCES edge_agents(id),
+        created_by    uuid,
+        created_at    timestamptz NOT NULL DEFAULT now(),
+        disabled_at   timestamptz,
+        UNIQUE (workspace_id, prefix)
+    )
+    """,
+]
+
+SCHEMA_V0 = [*SCHEMA_V0, *S30_TENANCY, *S31_JOBS, *S32_CONNECTORS, *S33_EDGE, *S33_UNDO]
 
 
 async def run_migrations(pool: asyncpg.Pool) -> None:

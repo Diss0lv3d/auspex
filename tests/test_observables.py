@@ -6,6 +6,8 @@ false-positive traps the SARA study flagged (versions-as-IPs, filenames-as-
 domains, hash-length collisions).
 """
 
+import pytest
+
 from auspex.classify import (
     Observable,
     ObservableType,
@@ -165,6 +167,43 @@ def test_url_with_ip_host_suppresses_separate_ip():
         "http://203.0.113.9/mal.exe"
     ]
     assert [o for o in result if o.type is ObservableType.IPV4] == []
+
+
+def _b018(key: str) -> list[dict]:
+    import json
+    from pathlib import Path
+
+    path = Path(__file__).parent / "fixtures" / "classify" / "b018_url_credentials.json"
+    data = json.loads(path.read_text())
+    return data["standard_limit"]["inputs"] if key == "standard_limit" else data[key]
+
+
+def _b018_inputs() -> list[dict]:
+    return _b018("inputs")
+
+
+@pytest.mark.parametrize("case", _b018_inputs(), ids=lambda c: c["url"])
+def test_a_urls_credentials_are_dropped_before_it_is_an_observable(case):
+    """B-018: the value is what is looked up at URLhaus and stored, so `user:pass@`
+    never reaches it. An `@` after the host (path or query) is not userinfo."""
+    url = _one(case["text"], ObservableType.URL)
+    assert url.value == case["url"]
+    assert "PLACEHOLDER" not in url.value
+    assert url.obs_id == observable_id(ObservableType.URL, case["url"])
+
+
+@pytest.mark.parametrize("case", _b018("host_unchanged"), ids=lambda c: c["text"])
+def test_b018_the_host_is_never_taken_from_after_the_authority(case):
+    """Burhan's review of PR #50: text after the first `/ ? #` or `\\` is chosen by
+    whoever wrote the link, so an `@` there never moves the host (the lookup and
+    the verdict would land on a domain the link never reaches)."""
+    assert _one(case["text"], ObservableType.URL).value == case["url"]
+
+
+@pytest.mark.parametrize("case", _b018("standard_limit"), ids=lambda c: c["text"])
+def test_b018_a_password_holding_a_delimiter_parses_by_the_standard(case):
+    """TD-070: by the URL standard `http://u:p/w@host/` is host `u` with a path."""
+    assert _one(case["text"], ObservableType.URL).value == case["url"]
 
 
 def test_hash_inside_url_is_still_extracted():
@@ -454,3 +493,108 @@ def test_b010_each_rule_matches_exactly_what_it_matched_before():
             assert _after_b010(name, text) == [m.span() for m in before.finditer(text)], (
                 name, text,
             )
+
+
+# -- B-027: the overlap checks are O(log spans), and find what they found -------
+# Every span set `extract` checks against is disjoint, so a sorted index answers
+# "does this match overlap one?" by bisection. Before, each check walked every span,
+# about a second for 4,571 emails (docs/probes/2026-10-28-b4-b027.md). Growth, not
+# a wall-clock bound, is what is pinned: the linear rest of the pass (refang,
+# building observables) is not this bug's, and a slow runner scales both sizes
+# alike. 8x the matches, in CPU time (best of 3), so a busy runner does not flake
+# it (the review measured 9-15x wall-clock under heavy load at 4x): the index grows
+# 8.0-8.7x, the old walk 21-37x on these inputs, and the bound sits between.
+B027_MAX_GROWTH = 14
+B027_INPUTS = {
+    "emails": ("a@b.co ", 4571),
+    "url+ip": ("http://a 1.2.3.4 ", 1882),
+    "url+domain": ("http://a b.co ", 2285),
+}
+
+
+def _cpu_ms(fn, arg) -> float:
+    import time
+
+    best = float("inf")
+    for _ in range(3):
+        start = time.process_time()
+        fn(arg)
+        best = min(best, (time.process_time() - start) * 1000)
+    return max(best, 0.5)  # process_time's tick on some platforms
+
+
+@pytest.mark.parametrize("name", sorted(B027_INPUTS))
+def test_b027_extract_grows_linearly_in_its_matches(name):
+    unit, repeat = B027_INPUTS[name]
+    assert len(unit * repeat) <= 32_000
+    growth = _cpu_ms(extract, unit * repeat) / _cpu_ms(extract, unit * (repeat // 8))
+    assert growth < B027_MAX_GROWTH, f"{name}: 8x the input took {growth:.1f}x the time"
+
+
+def test_b027_the_index_answers_each_boundary_as_the_walk_does():
+    """The index on its own, against the walk: touching spans are not overlaps,
+    one shared character is, and an out-of-order `add` keeps it sorted."""
+    from auspex.classify.observables import _Spans
+
+    index, walk = _Spans(), _NaiveSpans()
+    for span in [(10, 15), (0, 5), (20, 30), (5, 8)]:  # out of order, (5, 8) touches
+        index.add(*span)
+        walk.add(*span)
+    for query in [(5, 10), (8, 10), (15, 20), (30, 40), (4, 5), (14, 16), (19, 21),
+                  (29, 30), (0, 1), (7, 9), (9, 10), (-5, 0), (8, 9), (16, 19)]:
+        assert index.overlaps(*query) == walk.overlaps(*query), query
+    merged = index + _Spans([(40, 50), (35, 36)])
+    assert merged.overlaps(35, 36) and merged.overlaps(49, 60) and not merged.overlaps(36, 40)
+
+
+def test_b027_the_index_matches_the_walk_on_shuffled_disjoint_spans():
+    from auspex.classify.observables import _Spans
+
+    rng = random.Random(2027)  # noqa: S311 -- a fixed-seed fuzz, not a secret
+    for _ in range(300):
+        cuts = sorted(rng.sample(range(200), rng.randint(2, 40)))
+        spans = [(cuts[i], cuts[i + 1]) for i in range(0, len(cuts) - 1, 2)]
+        rng.shuffle(spans)
+        index, walk = _Spans(), _NaiveSpans()
+        for span in spans:
+            index.add(*span)
+            walk.add(*span)
+        for _ in range(60):
+            start = rng.randint(-2, 201)
+            query = (start, start + rng.randint(1, 12))
+            assert index.overlaps(*query) == walk.overlaps(*query), (spans, query)
+
+
+class _NaiveSpans:
+    """The pre-B-027 check, kept as the reference: every span, every time."""
+
+    def __init__(self, spans=()):
+        self._spans = list(spans)
+
+    def add(self, start, end):
+        self._spans.append((start, end))
+
+    def overlaps(self, start, end):
+        return any(start < s_end and end > s_start for s_start, s_end in self._spans)
+
+    def __add__(self, other):
+        return _NaiveSpans(self._spans + other._spans)
+
+
+def test_b027_the_index_finds_exactly_what_the_walk_found(monkeypatch):
+    """Differential: random mixes of every observable shape, extracted with the
+    index and with the walk, give the same observables and residual."""
+    import auspex.classify.observables as obs
+
+    pieces = ["a@b.co", "http://a", "http://u@x.co/p", "1.2.3.4", "b.co", "evil.com",
+              "::1", "fe80::1", "d41d8cd98f00b204e9800998ecf8427e", "CVE-2024-1234",
+              "x@evil[.]com", "hxxp://y.io/z", "a" * 64, "0" * 40, " ", "\n", ".", "@",
+              "http://[::1]:80/", "::ffff:1.2.3.4", "http://a@b.co",
+              "http://h.io/d41d8cd98f00b204e9800998ecf8427e", "http://[fe80::1]/x"]
+    rng = random.Random(27)  # noqa: S311 -- a fixed-seed fuzz, not a secret
+    texts = ["".join(rng.choice(pieces) for _ in range(rng.randint(1, 60)))
+             for _ in range(400)]
+    fast = [extract(t) for t in texts]
+    monkeypatch.setattr(obs, "_Spans", _NaiveSpans)
+    slow = [extract(t) for t in texts]
+    assert fast == slow

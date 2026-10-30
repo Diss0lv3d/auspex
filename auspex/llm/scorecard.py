@@ -8,6 +8,7 @@ never in a prompt (ADR: code over prompts for safety-critical behaviour).
 
 import hashlib
 import json
+from uuid import UUID
 
 import asyncpg
 from pydantic import BaseModel, Field
@@ -125,6 +126,16 @@ async def load_latest_scorecard(
 DEPLOYMENT_WORKSPACE = "__deployment__"
 
 
+async def ensure_deployment_workspace(pool: asyncpg.Pool) -> UUID:
+    """The reserved deployment workspace's id, created on first use (D-035). The one
+    upsert for it: the scorecard and the first-party connector CLI (S32) both call it."""
+    return await pool.fetchval(
+        "INSERT INTO workspaces (name) VALUES ($1)"
+        " ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id",
+        DEPLOYMENT_WORKSPACE,
+    )
+
+
 async def save_deployment_scorecard(
     pool: asyncpg.Pool, sc: CapabilityScorecard, *, as_base_url: str | None = None
 ) -> str:
@@ -137,12 +148,7 @@ async def save_deployment_scorecard(
     fingerprint taken from the dialled URL is one the route never looks up."""
     if as_base_url is not None:
         sc = sc.model_copy(update={"base_url": as_base_url})
-    workspace_id = await pool.fetchval(
-        "INSERT INTO workspaces (name) VALUES ($1)"
-        " ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id",
-        DEPLOYMENT_WORKSPACE,
-    )
-    return await save_scorecard(pool, workspace_id, sc)
+    return await save_scorecard(pool, await ensure_deployment_workspace(pool), sc)
 
 
 async def load_deployment_scorecard(

@@ -73,6 +73,34 @@ services:
       retries: 18
       start_period: 30s
 
+  # S33, dev profile only (`docker compose --profile dev up`): an Edge Agent and a stub
+  # SIEM for the live "Test connection" check. Neither starts with a plain `up`.
+  edge:
+    profiles: [dev]
+    build:
+      context: .
+      dockerfile: Dockerfile.edge
+    # The host's secrets file is 0600 and the host user's (D-063), so the dev agent runs
+    # as that user (AGENT_UID/AGENT_GID, default 1000) with its cache in /tmp.
+    user: "${AGENT_UID:-1000}:${AGENT_GID:-1000}"
+    environment:
+      AUSPEX_URL: http://app:8000
+      AUSPEX_AGENT_TOKEN_FILE: /run/agent/token
+      AUSPEX_SECRETS_FILE: /run/agent/secrets.json
+      AUSPEX_AGENT_CACHE: /tmp/auspex-agent
+    volumes:
+      - ./.edge-dev:/run/agent:ro
+    depends_on:
+      app:
+        condition: service_healthy
+
+  mock-siem:
+    profiles: [dev]
+    build: docker/mock-siem
+    volumes:
+      - auspex-mock-certs:/certs
+
 volumes:
   auspex-pgdata:
   auspex-osdata:
+  auspex-mock-certs:

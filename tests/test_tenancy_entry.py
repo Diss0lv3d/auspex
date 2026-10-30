@@ -106,3 +106,89 @@ async def test_a_person_with_no_workspace_left_gets_a_clear_403(world, client):
     resp = client.post("/api/auth/dev-login", json={"email": email})
     assert resp.status_code == 403
     assert "no workspace" in resp.json()["detail"].lower()
+
+
+async def test_a_rehome_racing_a_sign_in_never_names_the_new_home_in_the_old_trail(world):
+    """B-025: a rehome that lands while `enter()` runs must not stamp the NEW home on
+    the `workspace.enter` event in the OLD home's workspace (another customer's name in
+    that organization's audit). The rehome waits for the entry, or the entry sees it."""
+    import asyncio
+
+    from _tenancy import add_membership, make_org, make_user, make_workspace
+
+    from auspex.tenancy import admin, entry
+
+    pool, _ = world
+    client_org = await make_org(pool, f"{PREFIX}-b025-client", "direct")
+    other = await make_org(pool, f"{PREFIX}-b025-other", "direct")
+    ws = await make_workspace(pool, f"{PREFIX}-b025-client", client_org)
+    await make_workspace(pool, f"{PREFIX}-b025-other", other)
+    email = f"b025-{uuid4().hex[:8]}@{PREFIX}.auspex.dev"
+    person = await make_user(pool, email, client_org)
+    await add_membership(pool, ws, person, "analyst")
+
+    async def remove_and_rehome():
+        await pool.execute("DELETE FROM memberships WHERE user_id = $1", person)
+        await admin.rehome_person(pool, email=email, org=f"{PREFIX}-b025-other")
+
+    real_landing = entry.landing
+    racer: list[asyncio.Task] = []
+
+    async def landing_then_race(db, user_id):
+        access = await real_landing(db, user_id)
+        racer.append(asyncio.create_task(remove_and_rehome()))
+        await asyncio.wait(racer, timeout=0.5)  # time for an unblocked rehome to land
+        return access
+
+    entry.landing = landing_then_race
+    try:
+        access = await entry.enter(pool, person, via="login")
+    finally:
+        entry.landing = real_landing
+    await asyncio.wait_for(racer[0], timeout=10)
+
+    assert access.workspace_id == ws
+    event = (await list_events(pool, ws))[0]
+    assert event["action"] == "workspace.enter"
+    assert event["actor"]["organization"] == f"{PREFIX}-b025-client"
+
+
+async def test_a_rehome_racing_a_switch_never_names_the_new_home_in_the_old_trail(world):
+    """B-025, the switch path: the same race, through `via="switch"`."""
+    import asyncio
+
+    from _tenancy import add_membership, make_org, make_user, make_workspace
+
+    from auspex.tenancy import admin, entry
+
+    pool, _ = world
+    client_org = await make_org(pool, f"{PREFIX}-b025s-client", "direct")
+    other = await make_org(pool, f"{PREFIX}-b025s-other", "direct")
+    ws = await make_workspace(pool, f"{PREFIX}-b025s-client", client_org)
+    await make_workspace(pool, f"{PREFIX}-b025s-other", other)
+    email = f"b025s-{uuid4().hex[:8]}@{PREFIX}.auspex.dev"
+    person = await make_user(pool, email, client_org)
+    await add_membership(pool, ws, person, "analyst")
+
+    async def remove_and_rehome():
+        await pool.execute("DELETE FROM memberships WHERE user_id = $1", person)
+        await admin.rehome_person(pool, email=email, org=f"{PREFIX}-b025s-other")
+
+    real = entry.enterable_workspaces
+    racer: list[asyncio.Task] = []
+
+    async def decide_then_race(db, user_id, **kw):
+        found = await real(db, user_id, **kw)
+        racer.append(asyncio.create_task(remove_and_rehome()))
+        await asyncio.wait(racer, timeout=0.5)
+        return found
+
+    entry.enterable_workspaces = decide_then_race
+    try:
+        await entry.enter(pool, person, via="switch", workspace_id=ws)
+    finally:
+        entry.enterable_workspaces = real
+    await asyncio.wait_for(racer[0], timeout=10)
+
+    event = (await list_events(pool, ws))[0]
+    assert event["actor"]["organization"] == f"{PREFIX}-b025s-client"

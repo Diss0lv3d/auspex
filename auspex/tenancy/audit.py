@@ -18,6 +18,14 @@ ACTIONS: frozenset[str] = frozenset({
     "org.restricted",
     "workspace.create",
     "person.rehome",
+    # S33 (D-073): connectors, integrations and Edge Agents.
+    "connector.registered",
+    "integration.created",
+    "integration.updated",
+    "integration.disabled",
+    "edge_agent.created",
+    "edge_agent.enrolled",
+    "edge_agent.revoked",
 })
 AUDIT_PAGE_MAX = 100
 

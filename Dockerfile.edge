@@ -1,0 +1,22 @@
+# The Edge Agent image (S33, D-062): the SDK and the agent, nothing of the core. It runs
+# on the customer's or MSSP's network and only calls out (HTTPS long-poll); no port is
+# exposed. ci.sh proves the core's modules are absent from it.
+FROM python:3.12-slim
+
+RUN useradd --create-home --uid 10001 agent
+WORKDIR /opt/agent
+
+# The SDK, installed as in the app image (R1: from this repo, never PyPI).
+COPY sdk/pyproject.toml sdk/pyproject.toml
+COPY sdk/auspex_sdk sdk/auspex_sdk
+RUN pip install --no-cache-dir ./sdk && rm -rf sdk
+
+# Only the agent's own package: auspex/__init__.py (empty of imports) and auspex/edge.
+COPY auspex/__init__.py auspex/__init__.py
+COPY auspex/edge auspex/edge
+ENV PYTHONPATH=/opt/agent PYTHONDONTWRITEBYTECODE=1 AUSPEX_AGENT_CACHE=/var/lib/auspex-agent
+
+RUN mkdir -p /var/lib/auspex-agent && chown agent:agent /var/lib/auspex-agent \
+    && chmod 0700 /var/lib/auspex-agent
+USER agent
+ENTRYPOINT ["python", "-m", "auspex.edge"]

@@ -27,11 +27,15 @@ ROLE_FREE_WRITES = {
     ("POST", "/api/auth/dev-login"),
     ("POST", "/api/auth/api-keys"),
     ("POST", "/api/auth/switch"),
+    # S33: an Edge Agent's first call; the one-time token it spends is its only proof.
+    ("POST", "/api/edge/enroll"),
 }
 TENANT_ID = re.compile(
     r"(^|_)(wid|ws|workspace|workspaces|tenant|tenants|org|orgs|organization|organizations)(_|$)",
     re.IGNORECASE,
 )
+# S33: what an Edge Agent posts with its own credential, never a person's role.
+AGENT_WRITES = {"/api/edge/claim", "/api/edge/jobs/{job_id}/result", "/api/edge/heartbeat"}
 ID_FROM_INPUT_ALLOWED = {("POST", "/api/auth/switch", "workspace_id")}
 
 
@@ -82,13 +86,21 @@ def _inputs(dependant):
 
 
 def test_every_write_needs_an_analyst_or_an_admin():
+    """S33: an Edge Agent's own calls are writes by an agent, not a person: they need the
+    agent's credential (`resolve_agent`) instead, and nothing else may use it."""
+    from auspex.edge_api.auth import resolve_agent
+
     checked, missing = 0, []
     for ctx in _api_routes():
         for method in ctx.methods - {"GET", "HEAD"}:
             if (method, ctx.path) in ROLE_FREE_WRITES:
                 continue
             checked += 1
-            if not set(_calls(ctx.route.dependant)) & {require_admin, require_analyst}:
+            calls = set(_calls(ctx.route.dependant))
+            if ctx.path in AGENT_WRITES:
+                if resolve_agent not in calls:
+                    missing.append((method, ctx.path, "needs the agent credential"))
+            elif not calls & {require_admin, require_analyst}:
                 missing.append((method, ctx.path))
     assert checked >= 12, f"the walk found only {checked} writes; it is checking nothing"
     assert not missing, f"writes any role may make: {missing}"
@@ -225,3 +237,12 @@ async def test_a_removed_member_s_open_stream_ends(world, client, settings, monk
     timer.join()
     assert {"error": NO_ACCESS} in frames
     assert not any("reconnect" in f for f in frames)
+
+
+def test_every_agent_route_takes_the_agent_credential_and_no_person_route_does():
+    from auspex.edge_api.auth import resolve_agent
+
+    agent_paths = AGENT_WRITES | {"/api/edge/packages/{content_hash}"}
+    for ctx in _api_routes():
+        uses_agent = resolve_agent in set(_calls(ctx.route.dependant))
+        assert uses_agent == (ctx.path in agent_paths), ctx.path

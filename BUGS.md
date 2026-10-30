@@ -344,7 +344,7 @@ are never deleted.
   (`auspex/llm/client.py:388-389`). The endpoint is the customer's, so its
   output is not trusted to be well-formed.
 - **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 15.
-- **Status:** open.
+- **Status:** fixed `59d9a7c`, `0d6f980`, `45314f8` (B4): a tool call's id, name, arguments, index and list are read through `_wire_text`/`_as_dict` (auspex/llm/client.py), so a malformed call is an unknown tool. The wider envelope is B-035. Record: docs/probes/2026-10-28-b4-b017.md.
 
 ## B-018 — a URL pasted with credentials keeps them, and they are sent to a provider and stored
 
@@ -355,7 +355,7 @@ are never deleted.
   a pasted artefact are exactly what the org's data-handling rules say never to
   echo or store. The model cannot invent one (D-039).
 - **Evidence:** docs/probes/2026-10-14-s29-s28-code-review.md, finding 16.
-- **Status:** open.
+- **Status:** fixed `d78bc43`, `42ffd65`, `2837720` (B4): the userinfo is dropped by text before the URL is parsed, following the URL standard: the authority ends at the first `/ ? # \`, the userinfo at its last `@`, and no host is taken from after it (`_drop_userinfo`, auspex/classify/observables.py; Burhan's review of PR #50). Its limit is TD-070; the stored message and pre-fix rows are B-033. Record: docs/probes/2026-10-28-b4-b018.md.
 
 ## B-019 — a call refused for budget reads as a real search on the page and in the turn log
 
@@ -492,7 +492,7 @@ are never deleted.
   workspace.enter actor.organization = t-s31-b021rev-othercustomer`).
 - **Fix sketch (the review's):** read the home and the access in one statement,
   or lock the person's row `FOR SHARE` and re-check inside one transaction.
-- **Status:** open.
+- **Status:** fixed `6310550`, `e145583` (B4): `enter()` runs in one transaction with the person's row locked `FOR SHARE` first (auspex/tenancy/entry.py); login and switch races pinned. The membership API's same-class path is B-034. Record: docs/probes/2026-10-28-b4-b025.md.
 
 ## B-026 — an action argument named like a platform keyword is approved, then the run fails and reads "incomplete"
 
@@ -516,7 +516,9 @@ are never deleted.
   "effects": "unknown"} notes=0`, and the same for `proposal_id`.
 - **Fix sketch (the review's):** refuse or strip undeclared argument keys (at
   least the platform's own keywords) when a proposal is filed.
-- **Status:** open.
+- **Status:** fixed `c0b30de`, `19282ae` (S32). `propose` refuses any argument key the action
+  does not declare (`UndeclaredArgument`, auspex/actions/settlement.py), before the dry
+  run and before any row.
 
 ## B-027 — `extract()` checks every match against every earlier span, so many observables take most of a second
 
@@ -528,7 +530,7 @@ are never deleted.
   (load-dependent); `"http://a 1.2.3.4 " * 1882` 377 ms; `"http://a b.co " *
   2285` 489 ms. All run on the chat route's event loop.
 - **Fix sketch (the review's):** walk the spans in sorted order, or bisect.
-- **Status:** open, not placed. Burhan's.
+- **Status:** fixed `be208f4`, `3ca52d7` (B4): a sorted, disjoint `_Spans` index answers each overlap by bisection (auspex/classify/observables.py); growth pinned in CPU time. Record: docs/probes/2026-10-28-b4-b027.md.
 
 ## B-028 — a failed switch, after a re-check rebuilt the header with one workspace, throws on a null picker
 
@@ -578,7 +580,7 @@ are never deleted.
 - **Note:** the pinned stall inputs (`tests/fixtures/classify/b010_redos.json`)
   never hit a rule, so the carve-out half of `inspect()` is never timed. Add a
   rule-hit input when B-030 is fixed.
-- **Status:** open, not placed. Burhan's.
+- **Status:** fixed `aedb018`, `98cffb7` (B4): `_quote_line_spans` (auspex/guard.py) finds the regex's spans in one pass; the rule-hit input `guard-rule-hit-newlines` joins the stall fixture. Record: docs/probes/2026-10-28-b4-b030.md.
 
 ## B-031 — the workspace switcher's small edges
 
@@ -617,4 +619,185 @@ are never deleted.
   rounds of PR #41's differential fuzz found 0 differences.
 - **Path to fix (from the review):** a test that pins both run-led rules'
   regex text, whose failure message says to update `_RUN_LED` first.
+- **Status:** fixed `f837432`, `7e11b36` (B4): the run-led rules' text, flags and `_RUN_LED` start sets are pinned (tests/test_guard.py); the `{{system}}` mutant now fails it. Record: docs/probes/2026-10-28-b4-b032.md.
+
+## B-033 — a pasted credential stays in the stored message text and in observables saved before B-018's fix
+
+- **Found:** 2026-10-28, B4 (Claude), the fresh review of B-018's fix. Outside
+  B-018: that fix covers the observable's value only.
+- **What happened (by reading, not reproduced):** the chat route stores the
+  message as pasted and sends it to the engine, so `http://user:pass@host/`
+  still reaches the `messages` table and the model's prompt. Rows in
+  `observables` written before B-018's fix keep their credential-bearing
+  value under the old id; nothing scrubs them, and the same URL pasted again
+  is a second row under the new id.
+- **Evidence:** the review of B-018's fix (B4); docs/probes/2026-10-28-b4-b018.md.
+- **Path to fix:** decide whether a message is redacted before it is stored
+  and sent (a product call), and a one-off scrub of old `observables` rows.
+- **Status:** open, not placed. Burhan's.
+
+## B-034 — a membership change stamps the actor's home read at the start of the request
+
+- **Found:** 2026-10-28, B4 (Claude), the fresh adversarial review of B-025's
+  fix. Same class as B-025, a different path; outside B4's scope.
+- **What happened (by reading, not reproduced):** `resolve_user`
+  (`auspex/auth.py:100`) reads the person's home in one statement and decides
+  access in another (`:103`); `auspex/routes/workspace.py:31` stamps that early
+  home on `membership.add`/`role`/`remove` events, and `_hold`
+  (`auspex/tenancy/admin.py:186-191`) re-checks access inside the write but
+  never re-reads the home. Three admin actions inside one request (remove,
+  rehome within the same provider family, re-add) stamp the old home.
+- **Impact:** stale attribution between a provider and its own client, not
+  another customer's name. Needs a re-read of the home `FOR SHARE` inside
+  `_hold`, used for the actor.
+- **Evidence:** the review of B-025's fix (B4); docs/probes/2026-10-28-b4-b025.md.
+- **Status:** open, not placed. Burhan's.
+
+## B-035 — a reply envelope in the wrong shape still crashes the parsers, and an unknown tool's name is echoed unbounded
+
+- **Found:** 2026-10-28, B4 (Claude), the fresh review of B-017's fix. The
+  same trust boundary as B-017 (the customer's endpoint), a wider class:
+  B-017 covered the tool calls themselves.
+- **What happened (executed by the review, throwaway scripts):** in
+  `auspex/llm/client.py`, `choices`, `choices[0]`, `message` or `delta` that
+  is not an object raises (AttributeError/TypeError/KeyError) in both
+  parsers; a streamed `content` or reasoning that is not a string raises on
+  `+=`, and `parse_completion` passes a non-string `content` through; a body
+  or chunk that is a JSON list or string, or a non-object `usage`, raises;
+  non-streaming `tool_calls: 5` raises, and `tool_calls: "abc"` becomes three
+  empty calls. A non-string `finish_reason` passes through unaudited. The
+  loop's unknown-tool feedback (`auspex/agent/loop.py`, and the prompted
+  `<tool_result name="…">`) echoes the name unbounded, control characters and
+  `<tool_result` included.
+- **Path to fix:** one "coerce the envelope" pass at the top of both parsers,
+  fixtures from the review's exact inputs; truncate and escape the echoed
+  name.
+- **Evidence:** the review of B-017's fix (B4); docs/probes/2026-10-28-b4-b017.md.
+- **Status:** open, not placed. Burhan's.
+
+## B-036 — credentials outside an http(s) URL are stored, a bare one as an email
+
+- **Found:** 2026-10-28, Burhan's review of PR #50 (B4). Already true on
+  `staging`; outside B-018, which covers http(s) URLs only.
+- **What happened (the review's examples):** `ftp://admin:S3cret@files.example.com/x`
+  (not matched by `_URL_RE`, http(s) only) and a bare
+  `admin:S3cret@mail.example.com` store the password as the email
+  `s3cret@mail.example.com` (`auspex/classify/observables.py`, the email pass).
+- **Path to fix:** decide which schemes and bare `user:pass@host` shapes are
+  credentials, and drop them before any observable is made; it may sit next to
+  B-033 (the pasted message itself).
+- **Evidence:** Burhan's comment on PR #50.
+- **Status:** open, not placed. Burhan's.
+
+## B-037 — a membership removed while its person signs in still gets an entry event and a first token
+
+- **Found:** 2026-10-28, Burhan's review of PR #50 (B4), from B-025's race
+  test. Same family as B-025; B-025's fix locks only the person's row.
+- **What happened (by reading; B-025's test interleaving shows it):**
+  `enter()` (`auspex/tenancy/entry.py`) locks `users` `FOR SHARE`, not the
+  membership. A membership deleted between the access decision and the event
+  still gets a `workspace.enter` event and the route mints a first token. Every
+  request re-checks access (`resolve_user`), so that token is refused on its
+  next use; the harm is an audit event for an entry that did not hold.
+- **Path to fix:** lock the membership row (or re-check it) inside `enter()`'s
+  transaction before the event, or record the event only once the first
+  authenticated request succeeds.
+- **Evidence:** Burhan's comment on PR #50; docs/probes/2026-10-28-b4-b025.md.
+- **Status:** open, not placed. Burhan's.
+
+## B-038 — a URL with `\` before an `@` is read with a different host downstream than a browser uses
+
+- **Found:** 2026-10-28, B4 (Claude), the fresh review of B-018's third fix.
+  Already true on `staging` (the value is kept as is there too).
+- **What happened (executed by the review):** for http(s) a browser reads `\`
+  as `/`, so `http://10.0.0.5\@evil.com/x` goes to `10.0.0.5`. The extracted
+  value keeps that text, and `auspex/enrich/filters.py:31` and
+  `auspex/phishing/victims.py:30` take its host with `urlsplit(...).hostname`,
+  which does not treat `\` as a delimiter and answers `evil.com`. So an
+  internal URL skips `INTERNAL_URL_SKIP` and is sent to URLhaus. Separately,
+  `_normalize_url` lowercases the whole netloc, which with `\` runs into what
+  a browser reads as path.
+- **Path to fix:** one host-of-URL helper that follows WHATWG for every
+  consumer, or canonicalise `\` to `/` in a URL's scheme and authority in
+  `_normalize_url`.
+- **Evidence:** the review of B-018's third fix (B4).
+- **Status:** open, not placed. Burhan's.
+
+## B-039 — a tab, newline or quote inside a pasted URL cuts its match short
+
+- **Found:** 2026-10-28, B4 (Claude), the fresh review of B-018's third fix.
+  Pre-existing in `_URL_RE` (`auspex/classify/observables.py`, `[^\s<>"']+`).
+- **What happened (executed by the review, and on `staging`):**
+  `http://u:secret\n@evil.com/` extracts the URL `http://u:secret` and the
+  domain `evil.com`, so the user and password reach an observable's value; a
+  browser strips tabs and newlines, so `http://paypal.com\t@evil.com/` goes to
+  `evil.com` while the value says `paypal.com`. `"`, `'` and `<` cut it too
+  (`http://u:p<x@evil.com/` also yields the email `x@evil.com`). `http:/\evil.com/`
+  is not a URL at all (`_URL_RE` requires `://`).
+- **Path to fix:** decide how a pasted URL's boundary is found when it holds
+  WHATWG-stripped characters; it is a regex-boundary question, not B-018's.
+- **Evidence:** the review of B-018's third fix (B4).
+- **Status:** open, not placed. Burhan's.
+
+## B-040 — two edits of one integration at once can lose one
+
+- **Found:** 2026-10-29, the fresh-agent review of PR #51's fixes (S33). Outside
+  that review's findings.
+- **What happened (by reading, not reproduced):** `store.update`
+  (`auspex/integrations/store.py`) reads the current row outside its transaction,
+  merges the change into it, then writes. Two admins editing the same integration at
+  once each merge into the same old row, and the second write silently drops the
+  first's change.
+- **Path to fix:** read the row `FOR UPDATE` inside the update's transaction.
+- **Status:** open, not placed. Burhan's.
+
+## B-041 — a connector that prints while it loads fails every job it runs
+
+- **Found:** 2026-10-29, Burhan's window, the fresh review of PR #51 at `1d64692`,
+  before the merge. Reproduced.
+- **What happened:** `_invoke` (`sdk/auspex_sdk/run.py`) imports the connector's
+  module, and loads its config, before it redirects stdout. Whatever a connector
+  prints at import (a debug `print`, a library's banner) lands on the runner's stdout
+  ahead of its one JSON answer. The agent cannot read the answer, and the job fails
+  although the connector answered correctly. What it printed is not kept in the job's
+  log either.
+- **Evidence:** the mock SIEM connector (`examples/connectors/mock_siem/yaml`) with
+  `print('connector loaded')` added at the top of its module, built and run with
+  `python -I -m auspex_sdk.run`: exit 0, stdout
+  `connector loaded\n{"result": {"detail": "reachable", "ok": true}, "log": []}`. The
+  agent's `_answer` reads it as `the runner answered nothing usable (exit 0)`. It fails
+  closed: no secret reached the answer.
+- **Status:** open, not placed. Burhan's.
+
+## B-042 — a test whose agent is gone keeps reading "running"
+
+- **Found:** 2026-10-29, Burhan's window, the fresh review of PR #51 at `1d64692`.
+- **What happened (by reading, not reproduced):** a `connector.test` gets one attempt
+  (`max_attempts=1`, `auspex/connectors/kinds.py`), and an expired lease is marked
+  `dead` only inside `claim()`, for a claimer whose scope holds that integration
+  (`auspex/jobs/queue.py` `claim`). If the agent dies or is revoked mid-test, or the
+  integration is disabled, no claim covers it. The row stays `claimed`, and the test's
+  poll (`auspex/integrations/testing.py` `state`) says "the Edge Agent is running the
+  test" until an agent claims for that integration again. A live agent sweeps it
+  within a second of the lease expiring, and a new press gives the true reason first
+  (offline, revoked or disabled).
+- **Evidence:** the review's reading, checked against the code by Burhan's window;
+  not run.
+- **Path to fix:** in `press` and `state`, treat a `claimed` row whose lease has
+  expired as not running, or sweep it there first.
+- **Status:** open, not placed. Burhan's.
+
+## B-043 — an integration can be assigned to a revoked Edge Agent
+
+- **Found:** 2026-10-29, Burhan's window, the fresh review of PR #51 at `1d64692`.
+- **What happened (by reading, not reproduced):** `_check_agent`
+  (`auspex/integrations/store.py`) checks only that the agent belongs to the
+  workspace, not `revoked_at`. Creating an integration on a revoked agent, or moving
+  one to it, succeeds (a move also cancels the queued tests). No job of it can ever be
+  claimed, and the admin learns that only when Test connection answers "its Edge Agent
+  was revoked; choose another agent".
+- **Evidence:** the review's reading, checked against the code by Burhan's window;
+  not run.
+- **Path to fix:** add `AND revoked_at IS NULL` to the check and refuse in words at
+  write time.
 - **Status:** open, not placed. Burhan's.

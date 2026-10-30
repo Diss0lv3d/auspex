@@ -1,0 +1,11 @@
+{
+  "_source": "docs/probes/2026-10-16-s31-jobs-live.md (\"Found here, logged\"), script docs/probes/s31-live/probe_platform_keyword_arg.py",
+  "_why": "B-026. A note proposal whose arguments carry a key the action does not declare was dry-run, filed and approved; the approved run then raised TypeError (multiple values for the keyword) and read incomplete with effects unknown, though no note was written.",
+  "action": "annotate_observable",
+  "declared": {"note": "a note"},
+  "offending_arguments": [
+    {"observable_id": "<the recorded observable's short id>", "note": "a note", "idempotency_key": "model-chosen"},
+    {"observable_id": "<the recorded observable's short id>", "note": "a note", "proposal_id": "model-chosen"}
+  ],
+  "_offending_arguments_note": "The probe's two argument sets: the note action's declared arguments plus the extra key. The observable id is filled in by the test from a row it records."
+}

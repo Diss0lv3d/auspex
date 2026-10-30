@@ -2595,3 +2595,117 @@ client's data under the next one's token.
 - A dead token cannot list where else its person may go (`/me` refuses it), so
   lost access means signing in again.
 - A reload costs a page load; TD-047's 304s keep it to revalidations.
+
+## D-071 — A provider and its clients count as one customer for D-062; a certificate pin replaces the chain check (2026-10-22, S32)
+
+**Context.** D-062 says a customer-written connector runs only on that
+customer's own agent (v1). S32's catalogue lets a provider (an MSSP) register
+a connector with `offered_to_clients`, so its clients can use it
+(docs/superpowers/specs/2026-10-22-s32-connectors-design.md, "Hunaiza's two
+security calls"). Read literally, D-062 would forbid that connector from
+running on a client's agent. Separately, many on-prem SIEMs (QRadar is the
+common case) serve a self-signed certificate, which a chain check refuses.
+
+**Decision (Hunaiza's calls, S32; Burhan handed her the session).**
+- **"Customer" in D-062 means a provider together with its clients.** A
+  connector a provider registers with `offered_to_clients` may run on its
+  clients' own agents. This reads D-062; it does not supersede it. The bounds:
+  - the client's admin chooses to configure an integration from it (S33);
+  - the agent runs it only after its content hash matches the one the job
+    names (D-062), so it is byte-for-byte what the provider registered;
+  - it never runs on Auspex's own infrastructure (D-062's sandbox rule
+    stands);
+  - a provider can offer only to its own clients: the relation is read from
+    `organizations.parent_id`, never from a request, and only a workspace
+    whose organization is a provider may offer (S32 Task 10).
+- **A connector's `tls` takes one of three forms:**
+  - `verify`: system trust, with the chain and hostname checked;
+  - a pinned CA PEM: the chain must lead to that CA, and the hostname is
+    checked;
+  - a pinned certificate SHA-256 (of the leaf's DER bytes): the connection is
+    trusted only if the live leaf's hash equals the pin, whoever issued it and
+    whatever name it carries. It replaces the chain and hostname checks, so a
+    self-signed on-prem SIEM is reached securely and every other certificate
+    is refused.
+
+  Changing a pin is a config change made by an admin (S33/F5).
+
+**Bounds, stated.**
+- A provider's offered connector is trusted by its clients as much as the
+  provider is; a client that does not trust it does not configure it.
+- A pin must be rotated when the server's certificate changes; until then the
+  connection fails closed.
+
+## D-072 — The SDK version that built a connector is not part of its identity (2026-10-28, S33)
+
+**Context.** D-064 makes a connector package's identity its content hash over
+the package's files. S32's build wrote the SDK's own version into
+`manifest.json`, one of those files, so the same source built by a newer SDK
+was "other content": registering it under the same version was refused with
+"bump the version" (PR #43's review, finding 10; reproduced in
+docs/probes/2026-10-28-s33-pr43-10.md). S32's spec already called the field
+informational, with `schema_version` as the compatibility gate.
+
+**Decision (Hunaiza's call, S33; Burhan handed her the session).**
+- The build no longer writes its version into `manifest.json`. It records it
+  in the zip archive's own comment (`auspex-sdk <version>`), which the content
+  hash never covers.
+- The content hash's definition is unchanged (D-064): what it covers no
+  longer carries the SDK's version, so the same source is the same package
+  whichever SDK built it.
+- `manifest.json` keeps the optional `sdk_version` field; the build leaves it
+  empty, and an author's connector.yaml may not set it.
+
+**Bounds, stated.**
+- Two builds whose handlers behave differently because the SDK changed under
+  them hash the same. The runtime SDK on the Edge Agent is what runs a
+  package; its compatibility is `schema_version`'s job.
+- A package registered before this change hashes as it did then; rebuilding
+  it gives a new hash once, and so a new identity.
+
+## D-073 — S33's audit actions; an Edge Agent acts as `system`, naming itself (2026-10-28, S33)
+
+**Context.** TD-068: registering a connector wrote no audit event, because the
+audit action list is pinned (code and database) and adding one is a decision.
+S33 adds integrations and Edge Agents, which change what a workspace can run.
+
+**Decision (Hunaiza's session; Claude's call under her standing instruction).**
+- Seven actions join `audit_events_action_check` and `ACTIONS`:
+  `connector.registered`, `integration.created`, `integration.updated`,
+  `integration.disabled`, `edge_agent.created`, `edge_agent.enrolled`,
+  `edge_agent.revoked`.
+- Each is written in the same transaction as the change it records, in the
+  workspace the change belongs to.
+- `connector.registered` is written once, when a package row is inserted; a
+  same-hash re-register writes nothing. The actor is the registering person
+  (their home read under lock in that transaction) or the CLI (first-party).
+- An Edge Agent has no user: its own events are recorded with actor kind
+  `system` and `details.agent_id`. The actor kinds stay `user | cli | system`.
+
+**Bounds, stated.** An agent's events read as "system" in the audit list; the
+agent is named only in the details.
+
+## D-074 — An undo is refused only when what it would run changed (2026-10-28, S33)
+
+**Context.** PR #43's review #5 found that undo never checked the declaration, so
+after a re-upload under a new content hash an undo would run the NEW package's
+handler on the OLD package's change. S33 Step 0 fixed it by checking the whole spec
+fingerprint at undo. PR #51's review #4 found that broader than needed: a reworded
+description, or a `FINGERPRINT_VERSION` bump, blocked undoing every executed
+proposal of that action for good, and the message offered a re-proposal, which
+cannot undo anything. Undo is the safety net.
+
+**Decision (Hunaiza's call, S33).**
+- A proposal records an **undo identity** when it is filed: a hash of the action's
+  connector origin (connector id and content hash) and its undo declaration
+  (`proposals.undo_identity`, `auspex/actions/proposal.py` `undo_identity`).
+- An undo is refused (`undo_changed`) only when that identity changed: the code a
+  put-back would run is not the approved code. The message says what the analyst
+  can do: put the change back by hand, or restore the approved package and undo.
+- A built-in action (no connector origin) ships with the platform's own code; its
+  undo is never blocked by a declaration change.
+- A connector action filed before undo identities existed is refused, not assumed
+  unchanged (none exist: connector actions run from S34).
+- Execute is unchanged: it still checks the whole fingerprint (D-024).
+
+**Bounds, stated.** A built-in's undo runs today's code, as it did before S33.

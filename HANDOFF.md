@@ -11,7 +11,7 @@ the commands._
 
 ## 0. Before you start: Burhan does these
 
-- [ ] Adds your **personal** GitHub account to `bh3082336888-cell/auspex` as a
+- [ ] Adds your **personal** GitHub account to `Diss0lv3d/auspex` as a
       collaborator with write access. You accept the invite.
 - [ ] Sends you the `.env` values you need (the dev engine key, the enrichment
       keys) **through a password manager or another secure channel**. Never in
@@ -195,7 +195,7 @@ commits here, never an employer account or an employer email (such as
 ### 3.3 Clone and configure
 
 ```bash
-git clone git@github-personal:bh3082336888-cell/auspex.git auspex
+git clone git@github-personal:Diss0lv3d/auspex.git auspex
 cd auspex
 git checkout staging                     # all work happens here, never on main
 git config user.name  "<your name>"      # repo-local, not --global
@@ -512,7 +512,7 @@ model reads), so leave that part alone unless you have a reason and a test.
 - **`gh pr merge --squash` prints nothing on success.** Verify with
   `gh pr view <n> --json state,mergeCommit`.
 - **`gh pr edit` fails on this repo** (a GitHub API deprecation). Use
-  `gh api -X PATCH repos/bh3082336888-cell/auspex/pulls/<n> …`.
+  `gh api -X PATCH repos/Diss0lv3d/auspex/pulls/<n> …`.
 - **Your local `main` goes stale after every promote.** To see what a promote
   would ship: `git fetch origin && git diff origin/main..staging --stat`. Read
   the diff, never the commit list.

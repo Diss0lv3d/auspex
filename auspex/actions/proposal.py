@@ -37,7 +37,10 @@ from auspex.actions.types import ActionOutcome, ActionSpec
 
 # Bump when the canonical form changes shape, so old fingerprints compare
 # unequal instead of accidentally matching a differently-computed new one.
-FINGERPRINT_VERSION = 1
+# v2 (S32): the canonical form gains `origin`, the connector and package hash a
+# spec was compiled from (None for a built-in). A built-in proposal approved under
+# v1 and not yet run is refused as a scheme change and re-proposed (D-024).
+FINGERPRINT_VERSION = 2
 
 
 def canonical_spec(spec: ActionSpec, *, version: int | None = None) -> dict:
@@ -61,9 +64,13 @@ def canonical_spec(spec: ActionSpec, *, version: int | None = None) -> dict:
     resolved HERE rather than in the signature: a default argument binds once at
     import time, so `version: int = FINGERPRINT_VERSION` would keep serving the
     value the module had when it was first loaded.
+
+    `origin` exists only from v2: `version=1` must reproduce the v1 form byte for
+    byte, or `matches_older_scheme` could never recognize a stored v1 fingerprint.
     """
-    return {
-        "v": FINGERPRINT_VERSION if version is None else version,
+    resolved = FINGERPRINT_VERSION if version is None else version
+    canon = {
+        "v": resolved,
         "name": spec.name,
         "description": spec.description,
         "risk": spec.risk.value,
@@ -90,6 +97,16 @@ def canonical_spec(spec: ActionSpec, *, version: int | None = None) -> dict:
             }
         ),
     }
+    if resolved >= 2:
+        canon["origin"] = (
+            None
+            if spec.origin is None
+            else {
+                "connector_id": spec.origin.connector_id,
+                "content_hash": spec.origin.content_hash,
+            }
+        )
+    return canon
 
 
 def fingerprint(spec: ActionSpec, *, version: int | None = None) -> str:
@@ -97,6 +114,26 @@ def fingerprint(spec: ActionSpec, *, version: int | None = None) -> str:
     any process; any change an approver would have wanted to know about → a
     different string."""
     blob = json.dumps(canonical_spec(spec, version=version), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def undo_identity(spec: ActionSpec) -> str:
+    """What an undo depends on: the code that would run it (the connector and its
+    package, `origin`) and the undo's own declaration. Not the description, the params
+    or the fingerprint scheme: changing those does not change what a put-back runs, and
+    blocking undo on them would take away the safety net (D-074, PR #51 review #4)."""
+    canon = {
+        "origin": None if spec.origin is None else {
+            "connector_id": spec.origin.connector_id,
+            "content_hash": spec.origin.content_hash,
+        },
+        "undo": None if spec.undo is None else {
+            "description": spec.undo.description,
+            "restores": spec.undo.restores,
+            "cannot_restore": list(spec.undo.cannot_restore),
+        },
+    }
+    blob = json.dumps(canon, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
