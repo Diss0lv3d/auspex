@@ -6,8 +6,11 @@ approvals, with each client's approval policy, and offers them to the
 co-analyst.** S33 closed 2026-10-28 (Hunaiza, handed fully under D-059):
 integrations, Edge Agents and "Test connection" end to end, PR #43's review
 fixed, D-072 and D-073. It reached `staging` as PR #51, merged 2026-10-29 (a
-fast-forward to `1d64692`). **S34 is Burhan's** (2026-10-28): it runs
-in his window. **The promote (S32, B4, S33) landed 2026-10-30 as #52**: Burhan
+fast-forward to `1d64692`). **S34 is Hunaiza's** (Burhan, 2026-10-30; D-059),
+handed fully as S32 and S33 were: every call and new D-entries are hers, on
+her machine under her own identity; re-scoping and the plan's order stay
+Burhan's. It closes as a PR into `staging`, which Burhan reviews and merges.
+**The promote (S32, B4, S33) landed 2026-10-30 as #52**: Burhan
 took it back from Hunaiza and ran it._
 
 _Below the S34 prompt is the **backend plan for the whole phase, S29–S41**.

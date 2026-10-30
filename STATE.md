@@ -8,7 +8,8 @@ GitHub CI was green on the PR, and `main`, rebuilt, serves `/api/health/ready`
 200. **Burhan's GitHub account is now `Diss0lv3d`** (renamed from
 `bh3082336888-cell`): `627cabb` updated his identity row, his commit email and
 the repo's URLs (`Diss0lv3d/auspex`). `gh auth login` once more makes
-`gh auth status` show the new name. Next: **S34** (Burhan's).
+`gh auth status` show the new name. Next: **S34, now Hunaiza's** (Burhan,
+2026-10-30: "assign S34 to Hunaiza"; D-059), handed fully as S32 and S33 were.
 
 2026-10-29 — **PR #51 (S33) merged into `staging`** (fast-forward to
 `1d64692`, Burhan's window). Before the merge, each of the round's 13 fix commits had
@@ -123,10 +124,18 @@ Promote #40 (`09af821`) is the last one._
 
 | Track | Prompt | Last closed | Next | Status |
 |---|---|---|---|---|
-| backend | `NEXT-SESSION-BE.md` | S33 (2026-10-28, Hunaiza; PR #51 merged 2026-10-29, `1d64692`) | S34 | **focus** · **Burhan's** (2026-10-28), in his window · Step 0: promote #52 (S32, B4, S33; 2026-10-30, `bf6e6d2`) landed (checked, not run); then connector actions through approvals |
+| backend | `NEXT-SESSION-BE.md` | S33 (2026-10-28, Hunaiza; PR #51 merged 2026-10-29, `1d64692`) | S34 | **focus** · **Hunaiza's** (Burhan, 2026-10-30; D-059, handed fully), on her machine; closes as a PR into `staging` · Step 0: promote #52 (S32, B4, S33; 2026-10-30, `bf6e6d2`) landed (checked, not run); then connector actions through approvals |
 | front end | `NEXT-SESSION-FE.md` | F4 (2026-10-16) | F5 | waits for S34 (the order table); F4 built the shell F5's admin pages stand on |
 | bugs | `NEXT-SESSION-BUGS.md` | B4 (2026-10-28, Hunaiza; PR #50 merged 2026-10-28) | B5 | unscoped: Burhan picks from the open entries (B-033…B-039 new from B4; B-040…B-043 from S33's PR #51) |
 
+- **S34 is Hunaiza's** (Burhan, 2026-10-30: "assign S34 to Hunaiza"; D-059).
+  It had been recorded as Burhan's (`45a6e4f`).
+  - Handed fully, as S32 and S33 were: every call and new D-entries are hers,
+    on her machine under her own identity. **Re-scoping and the plan's order
+    stay Burhan's.** S34 is not a promote milestone (S36 is next).
+  - It closes as a PR into `staging`, which Burhan reviews and merges; nothing
+    is committed to `staging` from his window while it runs.
+  - Claude told her on PR #51.
 - **B4 closed (2026-10-28) as a PR from `b4-bugs`.** The focus moves to
   S33, which starts only after Burhan merges B4's PR. GitHub #44–#49 are
   commented and closed with the PR.
@@ -1807,7 +1816,8 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 **Pick a track (D-051); the Tracks table at the top has the ids.** Paste the
 prompt file of the track you mean. `/session-start` with no track asks.
 One window at a time (D-051).
-- **S34, backend, the focus** (`NEXT-SESSION-BE.md`). S33's PR is merged and
+- **S34, backend, the focus, Hunaiza's** (`NEXT-SESSION-BE.md`; Burhan,
+  2026-10-30). S33's PR is merged and
   promote #52 carried it to `main`; Step 0 pulls, checks `main` carries S33 and
   reads #33; then connector actions through approvals and per-client policy.
 - **B5, bugs** (`NEXT-SESSION-BUGS.md`) waits for Burhan to scope it from the
