@@ -7,7 +7,8 @@ co-analyst.** S33 closed 2026-10-28 (Hunaiza, handed fully under D-059):
 integrations, Edge Agents and "Test connection" end to end, PR #43's review
 fixed, D-072 and D-073. It reached `staging` as PR #51, merged 2026-10-29 (a
 fast-forward to `1d64692`). **S34 is Burhan's** (2026-10-28): it runs
-in his window. **The promote (S32, B4, S33) is Hunaiza's**, once #51 is merged._
+in his window. **The promote (S32, B4, S33) landed 2026-10-30 as #52**: Burhan
+took it back from Hunaiza and ran it._
 
 _Below the S34 prompt is the **backend plan for the whole phase, S29–S41**.
 **`/session-end` writes the next session's prompt from its entry in the plan,
@@ -28,9 +29,10 @@ Step 0 (do BEFORE new scope):
    closed. If they are missing, stop: wrong window. One session at a time
    (D-051, D-059).
 2. **Check the promote landed; do not run it.** S33 is the plan's promote
-   milestone, and **the promote is Hunaiza's** once #51 is merged (S32, B4 and
-   S33 together; STATE.md #1). Confirm `main` carries S33 (`git log origin/main`)
-   before any S34 code; if it does not, ask her, do not promote from here.
+   milestone: **promote #52** (`bf6e6d2`, 2026-10-30; S32, B4 and S33
+   together, run from Burhan's window; STATE.md #1). Confirm `main` carries S33
+   (`git log origin/main`) before any S34 code; if it does not, stop and tell
+   Burhan.
 3. **S33's fresh review ran at PR #51's review** (recorded in the S33 record);
    read its findings and any it left open before touching the same code. A
    second fresh review, at #51's merge, left two for S34 (STATE.md #33): pick

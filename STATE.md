@@ -1,6 +1,16 @@
 # STATE — Auspex
 
-_Last updated: 2026-10-29 — **PR #51 (S33) merged into `staging`** (fast-forward to
+_Last updated: 2026-10-30 — **Promote #52 merged into `main`** (`bf6e6d2`,
+back-merge `68b511c`): S32, B4 and S33 together. Burhan took the promote back
+from Hunaiza and ran it from his window (she was told on #51). `./ci.sh` ran
+green fresh on `4c70e83` (**2211 passed**, 153 modules, both images checked),
+GitHub CI was green on the PR, and `main`, rebuilt, serves `/api/health/ready`
+200. **Burhan's GitHub account is now `Diss0lv3d`** (renamed from
+`bh3082336888-cell`): `627cabb` updated his identity row, his commit email and
+the repo's URLs (`Diss0lv3d/auspex`). `gh auth login` once more makes
+`gh auth status` show the new name. Next: **S34** (Burhan's).
+
+2026-10-29 — **PR #51 (S33) merged into `staging`** (fast-forward to
 `1d64692`, Burhan's window). Before the merge, each of the round's 13 fix commits had
 its tests run against the code before the fix: all fail (review #6's old code hangs,
 retrying the refused credential). The six changed test files pass on `1d64692` (188),
@@ -113,7 +123,7 @@ Promote #40 (`09af821`) is the last one._
 
 | Track | Prompt | Last closed | Next | Status |
 |---|---|---|---|---|
-| backend | `NEXT-SESSION-BE.md` | S33 (2026-10-28, Hunaiza; PR #51 merged 2026-10-29, `1d64692`) | S34 | **focus** · **Burhan's** (2026-10-28), in his window · Step 0: Hunaiza's promote (S32, B4, S33) landed (checked, not run); then connector actions through approvals |
+| backend | `NEXT-SESSION-BE.md` | S33 (2026-10-28, Hunaiza; PR #51 merged 2026-10-29, `1d64692`) | S34 | **focus** · **Burhan's** (2026-10-28), in his window · Step 0: promote #52 (S32, B4, S33; 2026-10-30, `bf6e6d2`) landed (checked, not run); then connector actions through approvals |
 | front end | `NEXT-SESSION-FE.md` | F4 (2026-10-16) | F5 | waits for S34 (the order table); F4 built the shell F5's admin pages stand on |
 | bugs | `NEXT-SESSION-BUGS.md` | B4 (2026-10-28, Hunaiza; PR #50 merged 2026-10-28) | B5 | unscoped: Burhan picks from the open entries (B-033…B-039 new from B4; B-040…B-043 from S33's PR #51) |
 
@@ -1111,8 +1121,10 @@ scoped by a decision or a bug. **The integration phase (S30–S41, F4–F9) buil
 the spec; S30, F4, S31, S32 and S33 are done.**
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: S32, B4 and S33** (S33 is the plan's promote milestone;
-   **the promote is Hunaiza's: #51 merged 2026-10-29, `1d64692`**; S34 only checks it). Before that, it read:
+1. **Promote slate: empty.** Promote #52 (`bf6e6d2`, back-merge `68b511c`;
+   2026-10-30) shipped S32, B4 and S33, run from Burhan's window after he took
+   it back from Hunaiza (`./ci.sh` green fresh, 2211 tests; GitHub CI green).
+   Before that, it read **S32, B4 and S33**, and before that:
    **all of S32 and, once its PR is merged, all of B4**
    (the six fixes, their tests and records, B-033…B-035, TD-070, the
    session-end docs). S33's promote carries both. S32's, once Burhan merges its PR
@@ -1795,10 +1807,9 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 **Pick a track (D-051); the Tracks table at the top has the ids.** Paste the
 prompt file of the track you mean. `/session-start` with no track asks.
 One window at a time (D-051).
-- **S34, backend, the focus** (`NEXT-SESSION-BE.md`). **First Burhan reviews
-  and merges S33's PR (`s33-edge-agent` → `staging`), then pull**; Step 0 runs
-  the promote S33 is a milestone for (S32, B4, S33) and reads #33; then
-  connector actions through approvals and per-client policy.
+- **S34, backend, the focus** (`NEXT-SESSION-BE.md`). S33's PR is merged and
+  promote #52 carried it to `main`; Step 0 pulls, checks `main` carries S33 and
+  reads #33; then connector actions through approvals and per-client policy.
 - **B5, bugs** (`NEXT-SESSION-BUGS.md`) waits for Burhan to scope it from the
   open entries, B4's new B-033…B-039 among them.
 - **F5, front end** (`NEXT-SESSION-FE.md`) starts only after S34
