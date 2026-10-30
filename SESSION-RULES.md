@@ -36,7 +36,7 @@ Who works here. Personal accounts only; no employer account or email (such as
 
 | Person | GitHub account | Commit email (repo-local `git config user.email`) | Since |
 |---|---|---|---|
-| Burhan (owner) | `bh3082336888-cell` | `bh3082336888-cell@users.noreply.github.com` | D-011 |
+| Burhan (owner) | `Diss0lv3d` (was `bh3082336888-cell`) | `225723366+Diss0lv3d@users.noreply.github.com` | D-011 |
 | Hunaiza (collaborator, F3) | `HunaizaK` | `144267086+HunaizaK@users.noreply.github.com` | D-059, F3 |
 
 - **A collaborator Burhan added to the repo adds their own row in their first
@@ -45,6 +45,12 @@ Who works here. Personal accounts only; no employer account or email (such as
 - The guard (`/session-start` 3b, `/promote` 0) checks that the git email and
   `gh`'s active account are on the same row. It never sets one person's
   identity for another.
+- **Burhan's account was renamed** from `bh3082336888-cell` to `Diss0lv3d`
+  (found 2026-10-30; the repo is now `Diss0lv3d/auspex`, and the old URLs
+  redirect). A `gh` login from before the rename still lists it under the old
+  name until `gh auth login` runs again, so either name passes the guard.
+  Commits made before the rename carry the old noreply email, which GitHub no
+  longer links to the account. D-011 names the old one.
 - Remotes use the `github-personal` SSH alias on every machine; each person
   points it at their own personal key.
 - **Calls go with the handoff (D-059).** Where a rule says "Burhan's call",

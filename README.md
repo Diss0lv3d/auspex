@@ -20,7 +20,7 @@ it can actually do. We never pay for inference, and neither does a pilot.
 Requires Docker, Docker Compose, and Python 3.12+.
 
 ```bash
-git clone git@github.com:bh3082336888-cell/auspex.git
+git clone git@github.com:Diss0lv3d/auspex.git
 cd auspex
 cp .env.example .env          # works as-is for local dev; no secrets needed
 docker compose up -d --wait
