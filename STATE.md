@@ -1529,6 +1529,12 @@ records what the split left). F2 added #20–#22.
   issue is the scorer, now in IDEAS).
 
 ## Blockers / open risks
+0. **The dev engine refuses its key (S34 start, 2026-11-02).** `GET
+   $LLM_BASE_URL/models` answers 401 for `glm-4.5-air` on Z.ai: the key in `.env`
+   is expired, revoked or out of credit. S34 builds and tests without it (tests use
+   a fake engine); only its live chat check needs it. Hunaiza asks Burhan for a
+   working key (his Z.ai account) and sets it in her `.env` herself; never in the
+   chat or the repo.
 1. **TD-001 (OAuth identity keyed on email) and TD-059 (person creation over
    the API is unlimited)** are hard gates before any GOOGLE_CLIENT_ID is
    configured.
