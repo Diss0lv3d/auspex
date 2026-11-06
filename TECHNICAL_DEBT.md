@@ -27,6 +27,8 @@ wrapping it in its capture.
 **Trigger:** S34's first change to how a command is invoked or validated.
 _Found by the fresh review at PR #51's merge (2026-10-29)._
 
+**CLOSED at S34:** one helper, `sdk/auspex_sdk/invoke.py` (`invoke`, `check`), called by the harness and the runner.
+
 ## TD-076 (S33) — the integrations listing reads each agent's health one at a time
 
 **Where:** `auspex/integrations/routes.py` (`listing` awaits `present()` per

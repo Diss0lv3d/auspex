@@ -20,7 +20,6 @@ from it instead of the network (docs/ENV_VARS.md).
 
 from __future__ import annotations
 
-import contextlib
 import io
 import json
 import logging
@@ -30,13 +29,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from auspex_sdk import validate
-from auspex_sdk.build import import_source_module, importable
-from auspex_sdk.harness import DEFAULT_LIMIT, _bind, _resolve, _transport, config_class
+from auspex_sdk.harness import _transport
+from auspex_sdk.invoke import invoke
 from auspex_sdk.manifest import Manifest, parse_manifest
 from auspex_sdk.redact import redacting_filter
-from auspex_sdk.results import encode_result
-from auspex_sdk.runtime import Context, load_config
 
 SECRET_REF = re.compile(r"secret:([A-Za-z0-9_.-]{1,64})")
 FIXTURE_ENV = "AUSPEX_SDK_RUN_FIXTURE"
@@ -102,54 +98,23 @@ def run(package_dir: Path, raw_job: str) -> tuple[int, dict]:
         manifest = parse_manifest(json.loads((package_dir / "manifest.json").read_text()))
         values, resolved = _resolve_secrets(manifest, job["config"], job["secrets"])
         filt = redacting_filter(resolved)
-        result = _invoke(package_dir, manifest, job["command"], values, resolved,
-                         dict(job.get("arguments") or {}), log_lines)
+        fixture = os.environ.get(FIXTURE_ENV)
+        out = io.StringIO()
+        try:
+            result = invoke(
+                package_dir, manifest, job["command"], values=values, secrets=resolved,
+                arguments=dict(job.get("arguments") or {}),
+                transport=_transport(Path(fixture)) if fixture else None,
+                idempotency_key=str(job.get("idempotency_key") or f"run-{job['command']}"),
+                missing=JobError, capture=out)
+        finally:
+            log_lines.extend(x for x in out.getvalue().splitlines() if x.strip())
         return 0, {"result": _redact_value(result, filt),
                    "log": [_redact(x, filt) for x in log_lines]}
     except Exception as e:  # noqa: BLE001 -- every failure is an answer, redacted
         message = str(e) if isinstance(e, JobError) else f"{type(e).__name__}: {e}"
         return 1, {"error": _redact(message, filt),
                    "log": [_redact(x, filt) for x in log_lines]}
-
-
-def _invoke(root: Path, manifest: Manifest, command: str, values: dict, secrets: dict,
-            arguments: dict, log_lines: list[str]) -> Any:
-    ref, action, step = _resolve(manifest, command)
-    cfg = load_config(config_class(manifest), values, secrets)
-    fixture = os.environ.get(FIXTURE_ENV)
-    transport = _transport(Path(fixture)) if fixture else None
-    module_name, _, func_name = ref.partition(":")
-    out = io.StringIO()
-    handler = logging.StreamHandler(out)
-    with importable(root.resolve()):
-        fn = getattr(import_source_module(module_name, root.resolve(), f"command {command}"),
-                     func_name, None)
-        if not callable(fn):
-            raise JobError(f"handler {ref!r} is not in the package")
-        ctx = Context.create(cfg, idempotency_key=f"run-{command}", transport=transport)
-        ctx.log.addHandler(handler)
-        try:
-            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
-                if action is not None:
-                    result = fn(ctx, **_bind(action, arguments))
-                elif command == "fetch":
-                    result = fn(ctx, arguments.get("cursor"),
-                                arguments.get("limit", DEFAULT_LIMIT))
-                else:
-                    result = fn(ctx)
-        finally:
-            ctx.log.removeHandler(handler)
-            ctx.http.close()
-            log_lines.extend(line for line in out.getvalue().splitlines() if line.strip())
-    if command == "test":
-        validate.check_test(result)
-    elif command == "fetch":
-        validate.check_fetch(manifest, result)
-    elif step == "observe":
-        validate.check_observe(action, result)  # type: ignore[arg-type]
-    else:
-        validate.check_envelope(action, step, result)  # type: ignore[arg-type]
-    return json.loads(encode_result(result))
 
 
 def main() -> int:

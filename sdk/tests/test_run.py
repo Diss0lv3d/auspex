@@ -105,3 +105,32 @@ def test_a_secret_echoed_in_the_result_is_redacted(package_dir, tmp_path):
     assert code == 0
     assert TOKEN not in json.dumps(out)
     assert out["result"] == {"ok": False, "detail": "401 for key [secret:api_token]"}
+
+
+def test_the_job_s_idempotency_key_reaches_the_handler(package_dir, tmp_path):
+    """S34: a connector de-duplicates on the vendor's side with `ctx.idempotency_key`
+    (S31's operation key); the runner hands it the job's key, not a made-up one."""
+    keyed = tmp_path / "keyed"
+    shutil.copytree(package_dir, keyed)
+    module = keyed / "mock_siem.py"
+    module.write_text(module.read_text() + (
+        "\n\ndef _key(ctx):\n"
+        "    return {'ok': True, 'detail': ctx.idempotency_key}\n"
+        "check = _key\n"))
+    code, out, _ = _run(keyed, {"command": "test", "config": CONFIG,
+                                "secrets": {"siem_token": TOKEN}, "arguments": {},
+                                "idempotency_key": "proposal:abc:execute"})
+    assert code == 0 and out["result"]["detail"] == "proposal:abc:execute"
+
+
+def test_the_runner_and_the_harness_share_one_invoke():
+    """TD-077: the runner and the harness each resolved, imported, called and validated
+    a command; they now call one helper, so the next contract change is made once."""
+    import inspect
+
+    import auspex_sdk.harness as harness
+    import auspex_sdk.run as run
+
+    assert "invoke(" in inspect.getsource(harness.run_command)
+    assert "invoke(" in inspect.getsource(run.run)
+    assert not hasattr(run, "_invoke")
