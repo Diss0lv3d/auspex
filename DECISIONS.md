@@ -2744,3 +2744,20 @@ stand. Probe: docs/probes/2026-11-06-glm-5.3-flash.md.
 **Consequences.** Earlier measurements (D-034's table, TD-036, TD-044, D-046's
 history behaviour) were taken on glm-4.5-air and are not assumed to hold; TD-044's
 calibration in S34 Task 8 is the first on this model.
+
+## D-077 — A connector action may run against its own connector's system (2026-11-06, S34)
+
+**Context.** `EXECUTABLE_SYSTEMS` was `{"auspex"}`: an action scoped to any other
+system could be proposed and approved, and refused to run (S18). S34 runs connector
+actions on the customer's Edge Agent (D-062).
+
+**Decision (Claude's, S34 design decision 7; reviewed adversarially before the
+close).** An action compiled from a connector may also touch that connector's own
+system (`origin.connector_id`), and nothing else. It reaches the run only through the
+resolver, which refuses, before the claim and each with its own reason:
+`integration_disabled`, `not_granted`, `agent_offline` (offline, never connected or
+revoked); and the fingerprint refuses `spec_changed` when the integration pins
+another package. The same refusals stop an undo.
+
+**Bounds, stated.** A connector action naming any other system is still refused
+(`system_not_executable`). The set itself stays `{"auspex"}` in code.
