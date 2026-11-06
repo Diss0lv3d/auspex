@@ -193,3 +193,50 @@ def _files(zip_bytes: bytes) -> dict[str, bytes]:
 
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
         return {n: z.read(n) for n in z.namelist()}
+
+
+async def test_moving_an_integration_to_another_package_clears_its_grants(world):
+    """Fresh review of S34, #1: a grant approves an action AS DECLARED; a new package
+    may declare the same name differently, so it is granted again or not at all."""
+    from auspex.integrations.store import update
+
+    pool, m, integ = world["pool"], world["m"], world["integ"]
+    files = _files(world["zip"])
+    manifest = json.loads(files["manifest.json"])
+    files["manifest.json"] = json.dumps({**manifest, "version": "1.0.2"}).encode()
+    other = await register(pool, workspace_id=m.direct_ws, data=build_zip(files),
+                           registered_by=m.d_user, offered_to_clients=False)
+    moved = await update(pool, workspace_id=m.direct_ws, actor=world["admin"],
+                         integration_id=integ.id, content_hash=other.content_hash)
+    assert moved.grants == ()
+    assert await world["resolver"].resolve("siem1__close_alert", m.direct_ws) is None
+    audit = await pool.fetchval(
+        "SELECT details FROM audit_events WHERE action = 'integration.updated'"
+        " AND workspace_id = $1 ORDER BY created_at DESC LIMIT 1", m.direct_ws)
+    details = json.loads(audit) if isinstance(audit, str) else audit
+    assert details["grants_cleared"] == ["close_alert"]
+
+
+async def test_a_rename_or_config_edit_keeps_the_grants(world):
+    from auspex.integrations.store import update
+
+    moved = await update(world["pool"], workspace_id=world["m"].direct_ws,
+                         actor=world["admin"], integration_id=world["integ"].id,
+                         name="Main SIEM", config={**CONFIG, "base_url": "https://new.example"})
+    assert moved.grants == ("close_alert",)
+
+
+async def test_an_edit_cancels_a_queued_action_job(world):
+    """Fresh review of S34, #3: a queued action job carries the old agent's config."""
+    from auspex.connectors.kinds import ACTION_KINDS
+    from auspex.integrations.store import update
+    from auspex.jobs.queue import enqueue
+
+    pool, m, integ = world["pool"], world["m"], world["integ"]
+    job, _ = await enqueue(pool, workspace_id=m.direct_ws, kind=ACTION_KINDS["execute"],
+                           idempotency_key="connector.execute:t", integration_id=integ.id,
+                           payload={"config": CONFIG})
+    await update(pool, workspace_id=m.direct_ws, actor=world["admin"],
+                 integration_id=integ.id, config={**CONFIG, "base_url": "https://new.example"})
+    row = await pool.fetchrow("SELECT status, last_error FROM jobs WHERE id = $1", job.id)
+    assert row["status"] == "failed" and "cancelled" in row["last_error"]

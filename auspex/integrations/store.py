@@ -154,10 +154,12 @@ async def _check_agent(conn, workspace_id: UUID, agent_id: UUID) -> None:
 async def cancel_queued_tests(conn, integration_id: UUID, why: str) -> None:
     """Queued tests of an integration that changed under them can no longer run as asked:
     they end now, in the change's transaction. A running one finishes (spec, builder
-    check 5)."""
+    check 5). Queued action jobs too (fresh review of S34, #3): they carry the old
+    agent's config, and the core waiting on one hears that it was cancelled."""
     await conn.execute(
         "UPDATE jobs SET status = 'failed', last_error = $2, finished_at = now()"
-        " WHERE integration_id = $1 AND kind = 'connector.test' AND status = 'queued'",
+        " WHERE integration_id = $1 AND status = 'queued'"
+        " AND (kind = 'connector.test' OR kind LIKE 'connector.action.%')",
         integration_id, f"cancelled: {why}")
 
 
@@ -213,8 +215,12 @@ async def update(pool, *, workspace_id: UUID, actor: audit.Actor, integration_id
     async with pool.acquire() as conn, conn.transaction():
         await _check_agent(conn, workspace_id, agent_id)
         row = await conn.fetchrow(
+            # A grant approves an action AS DECLARED (fresh review of S34, #1): another
+            # package may declare the same name differently, so it is granted again.
             "UPDATE integrations SET name = $3, connector_id = $4, content_hash = $5,"
-            " config = $6::jsonb, agent_id = $7 WHERE id = $1 AND workspace_id = $2"
+            " config = $6::jsonb, agent_id = $7,"
+            " grants = CASE WHEN content_hash = $5 THEN grants ELSE '{}' END"
+            " WHERE id = $1 AND workspace_id = $2"
             " AND disabled_at IS NULL"
             " RETURNING id, workspace_id, name, prefix, connector_id, content_hash,"
             " config, agent_id, created_at, disabled_at, grants",
@@ -228,8 +234,11 @@ async def update(pool, *, workspace_id: UUID, actor: audit.Actor, integration_id
                 or config != current.config):
             await cancel_queued_tests(conn, integration_id,
                                       "the integration's agent, package or config changed")
+        details = {"integration_id": str(integration_id)}
+        if content_hash != current.content_hash and current.grants:
+            details["grants_cleared"] = sorted(current.grants)
         await audit.record(conn, workspace_id=workspace_id, action="integration.updated",
-                           actor=actor, details={"integration_id": str(integration_id)})
+                           actor=actor, details=details)
     return _integration(row)
 
 
