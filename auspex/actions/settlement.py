@@ -22,7 +22,9 @@ of bug rather than a style preference:
    allow-list, not a config value. An action scoped to a third-party system stays
    proposal-only until there is a sandbox to point it at: a real credential and a
    real blast radius is not something to acquire as a side effect of a session
-   about approval flow.
+   about approval flow. Since S34 a connector action may also touch its own
+   connector's system, and runs only through the resolver: its integration enabled,
+   the action granted, its Edge Agent live, its package the one approved.
 
 Nothing here trusts the model for anything. The arguments were captured when the
 proposal was filed, the card was rendered from the spec, and the execute path
@@ -606,10 +608,9 @@ def action_proposer(pool: asyncpg.Pool):
 
 
 def check_fingerprint(spec: ActionSpec, proposal: dict, *, step: str) -> None:
-    """The declaration about to run is the one the human approved. Execute and undo
-    both need it: an undo after a re-upload under a new content hash would run the
-    NEW package's handler on the OLD package's change, the case `ConnectorOrigin`
-    exists to stop (PR #43 review #5). `step` names what is refused."""
+    """The declaration about to run is the one the human approved. Execute only: an
+    undo is checked by `check_undo_identity` (D-074), which refuses a changed package
+    or undo without blocking a reworded built-in. `step` names what is refused."""
     stored = proposal.get("spec_fingerprint")
     if not stored:
         raise ExecutionRefused(
@@ -692,7 +693,10 @@ def check_executable(spec: ActionSpec, proposal: dict) -> None:
 
     check_fingerprint(spec, proposal, step="execute")
 
-    outside = sorted({s.system for s in spec.scope} - EXECUTABLE_SYSTEMS)
+    # S34: a connector action may also touch its OWN connector's system, and reaches
+    # here only through the resolver (enabled, granted, live agent, same package).
+    own = {spec.origin.connector_id} if spec.origin is not None else set()
+    outside = sorted({s.system for s in spec.scope} - EXECUTABLE_SYSTEMS - own)
     if outside:
         raise ExecutionRefused(
             "system_not_executable",
@@ -716,6 +720,15 @@ class ActionExecutor:
         self._registry = registry
         self._settlement = ProposalSettlement(pool)
 
+    async def _resolve(self, name: str, workspace_id) -> ActionSpec | None:
+        """The action as it is now, or its own refusal (S34, design decision 7): a
+        connector action whose integration, grant or agent moved is refused with that
+        reason, before any claim."""
+        refused = await self._registry.refusal(name, workspace_id)
+        if refused is not None:
+            raise ExecutionRefused(*refused)
+        return await self._registry.resolve(name, workspace_id)
+
     async def execute(
         self, *, workspace_id: UUID | str, proposal_id: UUID | str
     ) -> ActionOutcome:
@@ -724,7 +737,7 @@ class ActionExecutor:
         )
         if proposal is None:
             raise ExecutionRefused("not_found", "no such proposal in this workspace")
-        spec = await self._registry.resolve(proposal["tool_name"], workspace_id)
+        spec = await self._resolve(proposal["tool_name"], workspace_id)
         if spec is None:
             raise ExecutionRefused(
                 "unknown_action",
@@ -788,7 +801,7 @@ class ActionExecutor:
                 f"proposal is {proposal['status']} — only an approval that no run has "
                 "started can be run from here",
             )
-        spec = await self._registry.resolve(proposal["tool_name"], workspace_id)
+        spec = await self._resolve(proposal["tool_name"], workspace_id)
         if spec is None:
             raise ExecutionRefused(
                 "unknown_action",
@@ -1011,7 +1024,7 @@ class ActionExecutor:
                 f"proposal is {was} — only an executed, incomplete, kept or "
                 "abandoned action can be put back",
             )
-        spec = await self._registry.resolve(proposal["tool_name"], workspace_id)
+        spec = await self._resolve(proposal["tool_name"], workspace_id)
         if spec is None or spec.undo is None:
             raise ExecutionRefused(
                 "no_undo",

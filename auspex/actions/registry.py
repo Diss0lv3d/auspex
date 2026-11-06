@@ -142,6 +142,11 @@ class ActionRegistry:
         actions by workspace."""
         return self._actions.get(name)
 
+    async def refusal(self, name: str, workspace_id=None) -> tuple[str, str] | None:
+        """Why `name` cannot run in this workspace now, as (reason, words), or None. A
+        built-in always can; the resolver answers for connector actions (S34)."""
+        return None
+
     def names(self) -> list[str]:
         return list(self._actions)
 
