@@ -115,6 +115,8 @@ objects.
 compare the imported objects there and refuse a shared one.
 **Trigger:** S34, before a connector action can run.
 
+**CLOSED at S34 (TD-071):** the build compares the imported role functions (`_refuse_shared_roles`, `sdk/auspex_sdk/build.py`).
+
 ## TD-070 (B4) — a password holding an unencoded / ? # or \ is read as a host and a path, by the URL standard
 
 **Where:** `auspex/classify/observables.py` (`_drop_userinfo`).
