@@ -18,7 +18,7 @@ from uuid import UUID
 import asyncpg
 from auspex_sdk.manifest import parse_manifest
 
-from auspex.actions import ActionRegistry
+from auspex.actions import ActionManifest, ActionRegistry
 from auspex.actions.types import ActionSpec
 from auspex.connectors.compile import Dispatch, compile_action
 from auspex.edge_api.agents import health
@@ -62,6 +62,35 @@ class ActionResolver:
             manifest, action, content_hash=integration.content_hash, prefix=prefix,
             integration_id=integration.id, workspace_id=integration.workspace_id,
             dispatch=self._dispatch(integration))
+
+    async def manifest_for(self, workspace_id: UUID | str, agent_mode: str) -> ActionManifest:
+        """What the co-analyst may propose in this workspace (design decision 11): the
+        built-ins, and each GRANTED action of each ENABLED integration here, compiled
+        like `resolve` does, so its tool text is the code-composed, flattened and capped
+        text of the manifest's typed fields. Never another workspace's."""
+        rows = await self._pool.fetch(
+            "SELECT i.id, i.workspace_id, i.name, i.prefix, i.connector_id, i.content_hash,"
+            " i.config, i.agent_id, i.created_at, i.disabled_at, i.grants,"
+            " (SELECT p.manifest FROM connector_packages p"
+            "   WHERE p.content_hash = i.content_hash LIMIT 1) AS manifest"
+            " FROM integrations i WHERE i.workspace_id = $1 AND i.disabled_at IS NULL"
+            " AND cardinality(i.grants) > 0 ORDER BY i.prefix",
+            UUID(str(workspace_id)))
+        offered = list(self.builtins.manifest(agent_mode).actions)
+        for row in rows:
+            if row["manifest"] is None:
+                continue
+            data = row["manifest"]
+            manifest = parse_manifest(json.loads(data) if isinstance(data, str) else data)
+            integration = _integration(row)
+            declared = {a.name for a in manifest.actions}
+            for action in sorted(set(integration.grants) & declared):
+                offered.append(compile_action(
+                    manifest, action, content_hash=integration.content_hash,
+                    prefix=integration.prefix, integration_id=integration.id,
+                    workspace_id=integration.workspace_id,
+                    dispatch=self._dispatch(integration)))
+        return ActionManifest(mode=agent_mode, actions=tuple(offered))
 
     async def refusal(self, name: str, workspace_id: UUID | str) -> tuple[str, str] | None:
         """Why a connector action cannot run here now (design decision 7), as (reason,

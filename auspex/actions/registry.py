@@ -173,6 +173,11 @@ class ActionRegistry:
         """What the loop may propose, in the form this endpoint can consume."""
         return ActionManifest(mode=agent_mode, actions=tuple(self._actions.values()))
 
+    async def manifest_for(self, workspace_id, agent_mode: str) -> ActionManifest:
+        """`manifest`, in the resolver's shape (S34): the built-ins are the same in every
+        workspace."""
+        return self.manifest(agent_mode)
+
 
 class ActionManifest:
     """The compiled view of a registry for one agent mode.

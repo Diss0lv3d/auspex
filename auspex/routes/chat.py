@@ -916,8 +916,10 @@ async def chat(
             # dry-runs it and files a pending proposal for a human; nothing in
             # this turn can execute it (D-014). The same registry the approvals
             # surface executes from (app.py), so a proposal filed here is one
-            # the executor can find.
-            actions=request.app.state.action_registry.manifest("native_tools"),
+            # the executor can find. S34: per workspace, with its granted
+            # connector actions.
+            actions=await request.app.state.action_registry.manifest_for(
+                auth.workspace_id, "native_tools"),
             action_proposer=request.app.state.action_proposer,
         )
         agent_history = _agent_history(
