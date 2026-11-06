@@ -1985,3 +1985,27 @@ stored turn then holds only the last call's content. The route logs it
 measured comes within half of it. **Trigger:** that log line appearing, or any
 probe measuring narration over 200 chars. Then re-measure and move the number,
 the way SHINGLE_WORDS is moved.
+
+## TD-079 (S34) — a grant revoked after the run's check still runs that one job
+
+**Where:** `auspex/actions/settlement.py` `ActionExecutor._resolve` checks the grant
+before the claim; the edge API's claim (`auspex/edge_api/routes.py` `_integrations_of`)
+filters on the integration being enabled, not on the action being granted.
+**Risk:** LOW. Found by S34's fresh review (#4). A grant revoked in the seconds between
+an approved run's check and the agent's claim still runs that one approved action.
+Disabling the integration in that window is caught (the claim filters on it).
+**Why taken:** the claim knows job kinds, not action names; a per-action filter there is
+a schema change to the job scope.
+**Path to fix:** the claim joins the payload's `action` against `integrations.grants`.
+**Trigger:** any revoke-then-run report, or the claim scope's next change.
+
+## TD-080 (S34) — the rail loses a platform risk sentence when only connector actions carry it
+
+**Where:** `auspex/agent/loop.py` `issued_instructions` drops a connector action's whole
+`planner_description`, which includes the platform's own "RISK …: requires human
+approval" sentence.
+**Risk:** LOW. Found by S34's fresh review (rail). The sentence stays indexed through any
+built-in of the same risk; a workspace offered destructive actions only by connectors
+would not have it on the index, so a recitation of that one sentence is not cut.
+**Path to fix:** compose the connector line's platform part separately and index it.
+**Trigger:** a destructive built-in removed, or the composition of action lines changed.
