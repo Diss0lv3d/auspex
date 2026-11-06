@@ -380,7 +380,8 @@ async def _raise_run_failure(request: Request, auth: AuthContext, proposal_id: U
     row = await _settlement(request).get(
         workspace_id=auth.workspace_id, proposal_id=proposal_id
     )
-    spec = request.app.state.action_registry.get(row["tool_name"]) if row else None
+    spec = (await request.app.state.action_registry.resolve(row["tool_name"], auth.workspace_id)
+            if row else None)
     raise HTTPException(
         status_code=500,
         detail=_failure_detail(row, can_put_back=bool(spec and spec.undo)),

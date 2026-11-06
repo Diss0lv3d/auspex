@@ -136,6 +136,12 @@ class ActionRegistry:
     def get(self, name: str) -> ActionSpec | None:
         return self._actions.get(name)
 
+    async def resolve(self, name: str, workspace_id=None) -> ActionSpec | None:
+        """The same lookup as `get`, in the resolver's shape (S34): a built-in is the same
+        in every workspace. `auspex.connectors.resolve.ActionResolver` adds connector
+        actions by workspace."""
+        return self._actions.get(name)
+
     def names(self) -> list[str]:
         return list(self._actions)
 

@@ -708,7 +708,7 @@ class ActionExecutor:
         )
         if proposal is None:
             raise ExecutionRefused("not_found", "no such proposal in this workspace")
-        spec = self._registry.get(proposal["tool_name"])
+        spec = await self._registry.resolve(proposal["tool_name"], workspace_id)
         if spec is None:
             raise ExecutionRefused(
                 "unknown_action",
@@ -772,7 +772,7 @@ class ActionExecutor:
                 f"proposal is {proposal['status']} — only an approval that no run has "
                 "started can be run from here",
             )
-        spec = self._registry.get(proposal["tool_name"])
+        spec = await self._registry.resolve(proposal["tool_name"], workspace_id)
         if spec is None:
             raise ExecutionRefused(
                 "unknown_action",
@@ -995,7 +995,7 @@ class ActionExecutor:
                 f"proposal is {was} — only an executed, incomplete, kept or "
                 "abandoned action can be put back",
             )
-        spec = self._registry.get(proposal["tool_name"])
+        spec = await self._registry.resolve(proposal["tool_name"], workspace_id)
         if spec is None or spec.undo is None:
             raise ExecutionRefused(
                 "no_undo",
