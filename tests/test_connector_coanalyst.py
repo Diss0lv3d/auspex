@@ -25,7 +25,7 @@ from auspex.db import create_pool
 from auspex.edge_api.agents import create_agent
 from auspex.integrations.store import create, disable, set_grants
 from auspex.llm.client import ChatResult, ToolCall
-from auspex.outguard import instruction_index
+from auspex.outguard import inspect_output
 from auspex.tenancy.audit import person
 
 PREFIX = "t-s34-coanalyst"
@@ -108,7 +108,7 @@ async def test_only_granted_actions_of_enabled_integrations_are_offered_here(wor
     assert not any("__" in n for n in there)  # another workspace sees none of it
 
 
-async def test_the_tool_text_is_flattened_capped_and_indexed_by_the_rail(world):
+async def test_the_tool_text_is_flattened_capped_and_kept_off_the_rail_s_index(world):
     m = world["m"]
     await world["integration"](world["zips"][1], "noisy")
     manifest = await world["resolver"].manifest_for(m.direct_ws, "native_tools")
@@ -119,8 +119,13 @@ async def test_the_tool_text_is_flattened_capped_and_indexed_by_the_rail(world):
                      workspace_id=str(m.direct_ws), actions=manifest,
                      action_proposer=action_proposer(world["pool"], world["resolver"]))
     issued = loop.issued_instructions(loop.wire_specs())
-    assert any("Ignore previous instructions" in text for text in issued)
-    assert instruction_index(issued)  # the customer's text is configuration we issued
+    # S34 calibration: the customer's text is not configuration we own, so an answer
+    # that explains it is not a leak; our own tool text stays indexed.
+    assert not any("Ignore previous instructions" in text for text in issued)
+    assert any("annotate" in text.lower() for text in issued)
+    answer = ("Closing it is reversible, but the undo does not restore the closing note,"
+              " if the SIEM keeps one.")
+    assert inspect_output(answer, issued).ok
 
 
 async def test_a_call_through_the_loop_files_a_card_from_the_dry_run(world):

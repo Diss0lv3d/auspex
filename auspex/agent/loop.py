@@ -426,10 +426,22 @@ class AgentLoop:
         every function and parameter description on the wire — which on
         native_tools travel in the `tools` parameter, not the system message —
         and the step-cap nudge (TD-038). Calibrated before it was indexed:
-        docs/probes/2026-10-10-s26-rail-calibration-glm.md."""
-        issued = [self.system_message(specs)]
+        docs/probes/2026-10-10-s26-rail-calibration-glm.md.
+
+        Not a connector action's text (S34, TD-044 re-run): it is the customer's,
+        not configuration we own, and a correct answer explains it ("the undo does
+        not restore the closing note, if the SIEM keeps one" was cut 2 of 5 times,
+        docs/probes/2026-11-06-s34-rail-calibration.md)."""
+        system = self.system_message(specs)
+        for action in (self.actions.actions if self.actions is not None else ()):
+            if action.origin is not None:  # its line stays; its customer text goes
+                system = system.replace(action.planner_description, "")
+        issued = [system]
         for spec in specs:
             fn = spec.get("function") or {}
+            action = self._action_spec(fn.get("name", ""))
+            if action is not None and action.origin is not None:
+                continue
             if fn.get("description"):
                 issued.append(fn["description"])
             for prop in ((fn.get("parameters") or {}).get("properties") or {}).values():
