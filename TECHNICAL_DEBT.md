@@ -580,6 +580,12 @@ logic.
 
 ## TD-044 (S27) — the rail's index grew and its legitimate ceiling was not re-measured
 
+> **S34: re-run on glm-5.3-flash** (both triggers: model change D-076, and the
+> index's growth). docs/probes/2026-11-06-s34-rail-calibration.md. Customer tool
+> text tripped legitimate answers and is no longer indexed. On our own text the
+> legitimate ceiling is now **9 (answer) and 52 (thinking)** on action-request turns,
+> over the floors 8 and 40 (B-045); other turns stayed at 6 and 20. Still open.
+
 > **S28: the trigger fired again.** D-050 added a mode directive
 > (`action_request`), compiled into every note-only turn and indexed like every
 > mode directive. The calibration was still not re-run. Every live S28 turn read

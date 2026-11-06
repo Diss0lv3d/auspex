@@ -813,3 +813,14 @@ are never deleted.
   our VPN at 3am…") answered well in 64 s (`stop`, contract valid).
 - **Evidence:** docs/probes/2026-11-06-glm-5.3-flash.md ("Through the platform").
 - **Status:** open. Not fixed in S34 (scope lock).
+
+## B-045 — on glm-5.3-flash a legitimate action turn can trip the rail on our own action directive
+
+- **Found:** 2026-11-06, Hunaiza (with Claude), S34, the TD-044 calibration re-run.
+- **What happened:** with a connector action offered, "Can you close alert A-1001 in
+  the SIEM?…" quoted 52 words of D-045's action directive in its thinking (floor 40);
+  "If I ask you to close an alert, what happens before it is actually closed?"
+  repeated 9 words of it in the answer (floor 8). In chat either cuts the turn.
+- **Evidence:** docs/probes/2026-11-06-s34-rail-calibration.md (run 2).
+- **Status:** open. The floors and the directive are D-040/D-045/D-058's; changing
+  them is not S34's scope.
