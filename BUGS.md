@@ -801,3 +801,15 @@ are never deleted.
 - **Path to fix:** add `AND revoked_at IS NULL` to the check and refuse in words at
   write time.
 - **Status:** open, not placed. Burhan's.
+
+## B-044 — on glm-5.3-flash a "how do I detect" question can end with no answer at all
+
+- **Found:** 2026-11-06, Hunaiza (with Claude), S34, checking the new dev model
+  (D-076) through `POST /api/chat` on the running app.
+- **What happened:** "How would I detect a pass-the-hash attack in Windows logs?"
+  took the agent path (mode `threat_intel`), ran 113 s over 2 engine calls and ended
+  `finish_reason: length` with 2933 completion tokens and **no answer text**: the
+  budget went to thinking. The same session's IOC turn ("I saw 185.220.101.1 hitting
+  our VPN at 3am…") answered well in 64 s (`stop`, contract valid).
+- **Evidence:** docs/probes/2026-11-06-glm-5.3-flash.md ("Through the platform").
+- **Status:** open. Not fixed in S34 (scope lock).
