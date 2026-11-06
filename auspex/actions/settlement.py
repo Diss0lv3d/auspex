@@ -96,6 +96,7 @@ class Settlement(StrEnum):
     ALREADY_DECIDED = "already_decided"  # someone else got there first
     NOT_FOUND = "not_found"  # no such proposal in this workspace
     EXPIRED = "expired"  # nobody decided within PROPOSAL_TTL_SECONDS
+    NOT_ALLOWED = "not_allowed"  # the approval policy does not let this person (S34)
 
 
 @dataclass(frozen=True)
@@ -404,6 +405,7 @@ class ProposalSettlement:
         proposal_id: UUID | str,
         decision: str,
         decided_by: UUID | str | None,
+        allowed: dict[str, dict] | None = None,
     ) -> SettleResult:
         """Approve or reject, exactly once.
 
@@ -418,14 +420,21 @@ class ProposalSettlement:
         """
         if decision not in ("approved", "rejected"):
             raise ValueError(f"decision must be 'approved' or 'rejected', got {decision!r}")
+        # S34: `allowed` maps the risk levels this approver may approve to the rule that
+        # allows each (auspex/actions/policy.py). It is part of the claiming UPDATE, so a
+        # refused approver never moves the row, and the rule in force is recorded with
+        # the decision. None (rejections, the expiry sweep) checks nothing.
+        levels = None if allowed is None else list(allowed)
         row = await self._pool.fetchrow(
             """
             UPDATE proposals
-               SET status = $3, decided_at = now(), decided_by = $4::uuid
+               SET status = $3, decided_at = now(), decided_by = $4::uuid,
+                   approval_rule = ($7::jsonb) -> tool_level
              WHERE id = $1::uuid
                AND workspace_id = $2::uuid
                AND status = 'pending_approval'
                AND created_at > now() - make_interval(secs => $5::double precision)
+               AND ($6::text[] IS NULL OR tool_level = ANY($6::text[]))
             RETURNING *
             """,
             str(proposal_id),
@@ -433,6 +442,8 @@ class ProposalSettlement:
             decision,
             str(decided_by) if decided_by is not None else None,
             float(PROPOSAL_TTL_SECONDS),
+            levels,
+            json.dumps(allowed or {}),
         )
         if row is not None:
             return SettleResult(Settlement.CLAIMED, _as_dict(row))
@@ -441,6 +452,11 @@ class ProposalSettlement:
         current = await self.get(workspace_id=workspace_id, proposal_id=proposal_id)
         if current is None:
             return SettleResult(Settlement.NOT_FOUND)
+        if (current["status"] == "pending_approval" and levels is not None
+                and current["tool_level"] not in levels):
+            # S34: still pending, and this approver's policy does not reach its risk.
+            return SettleResult(Settlement.NOT_ALLOWED, current,
+                                current_status="pending_approval")
         if current["status"] == "pending_approval":
             # Still pending, so the TTL refused it: the door that noticed records
             # it, by the sweep's own condition (S31).

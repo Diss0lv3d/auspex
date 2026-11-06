@@ -734,7 +734,8 @@ S30_TENANCY: list[str] = [
                               'person.rehome', 'connector.registered',
                               'integration.created', 'integration.updated',
                               'integration.disabled', 'edge_agent.created',
-                              'edge_agent.enrolled', 'edge_agent.revoked'));
+                              'edge_agent.enrolled', 'edge_agent.revoked',
+                              'approval_policy.updated'));
     END $$
     """,
     # The one-time move, guarded on the old column like S16's watcher_id block:
@@ -906,6 +907,21 @@ S33_UNDO: list[str] = [
 # (Hunaiza's call).
 S34_ACTIONS: list[str] = [
     "ALTER TABLE integrations ADD COLUMN IF NOT EXISTS grants text[] NOT NULL DEFAULT '{}'",
+    # Who may approve, per workspace and risk level. An absent row is the default
+    # (auspex/actions/policy.py DEFAULT): Hunaiza's call, S34.
+    """
+    CREATE TABLE IF NOT EXISTS approval_policies (
+        workspace_id    uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        risk            text NOT NULL CHECK (risk IN ('write', 'destructive')),
+        roles           text[] NOT NULL,
+        provider_staff  boolean NOT NULL,
+        updated_by      uuid,
+        updated_at      timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (workspace_id, risk)
+    )
+    """,
+    # The rule an approval was granted under, recorded with the decision (D-024).
+    "ALTER TABLE proposals ADD COLUMN IF NOT EXISTS approval_rule jsonb",
 ]
 
 # S33: Edge Agents and their one-time enrollments (D-062), then integrations

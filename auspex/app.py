@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from auspex import __version__
-from auspex.actions import ActionRegistry
+from auspex.actions import ActionRegistry, policy
 from auspex.actions.builtin import build_builtin_actions
 from auspex.actions.expiry import EXPIRE, EXPIRE_SCHEDULE
 from auspex.actions.settlement import action_proposer
@@ -142,5 +142,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(connectors.router)
     app.include_router(edge.router)
     app.include_router(integrations.router)
+    app.include_router(policy.router)
     app.include_router(ui.router)
     return app

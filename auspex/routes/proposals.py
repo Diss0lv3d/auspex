@@ -45,6 +45,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
+from auspex.actions import policy
 from auspex.actions.settlement import (
     PROPOSAL_TTL_SECONDS,
     STALE_CLAIM_SECONDS,
@@ -332,14 +333,21 @@ async def keep(request: Request, auth: Analyst, proposal_id: UUID) -> dict:
 async def approve(request: Request, auth: Analyst, proposal_id: UUID) -> dict:
     """Approve and run. The claim is what makes this exactly-once; the re-check
     is what makes it safe to have waited."""
+    pool = request.app.state.pool
     result = await _settlement(request).settle(
         workspace_id=auth.workspace_id,
         proposal_id=proposal_id,
         decision="approved",
         decided_by=auth.user_id,
+        allowed=await policy.approvable(pool, workspace_id=auth.workspace_id, role=auth.role,
+                                        home_org_id=auth.home_org_id),
     )
     if result.outcome is Settlement.NOT_FOUND:
         raise HTTPException(status_code=404, detail="no such proposal")
+    if result.outcome is Settlement.NOT_ALLOWED:  # the approval policy (S34)
+        raise HTTPException(status_code=403, detail=await policy.refusal(
+            pool, workspace_id=auth.workspace_id, risk=result.proposal["tool_level"],
+            role=auth.role, home_org_id=auth.home_org_id))
     if result.outcome is Settlement.EXPIRED:
         raise HTTPException(status_code=409, detail=EXPIRED_DETAIL)
     if result.outcome is Settlement.ALREADY_DECIDED:

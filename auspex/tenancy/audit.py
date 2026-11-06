@@ -26,6 +26,7 @@ ACTIONS: frozenset[str] = frozenset({
     "edge_agent.created",
     "edge_agent.enrolled",
     "edge_agent.revoked",
+    "approval_policy.updated",  # S34
 })
 AUDIT_PAGE_MAX = 100
 
