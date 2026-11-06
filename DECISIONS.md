@@ -2709,3 +2709,74 @@ cannot undo anything. Undo is the safety net.
 - Execute is unchanged: it still checks the whole fingerprint (D-024).
 
 **Bounds, stated.** A built-in's undo runs today's code, as it did before S33.
+
+## D-075 — Who may approve is a rule per workspace and risk level (2026-11-06, S34)
+
+**Context.** Until S34, any analyst or admin of a workspace could approve any
+action there, an MSSP's staff included once switched in. S34 runs actions in
+customer systems, and the plan asks for each client's own approval policy.
+
+**Decision (Hunaiza's calls, S34).**
+- **The default:** `write` actions are approved by an analyst or an admin;
+  `destructive` actions by an admin only; provider staff (a person whose home
+  organization is not the workspace's own) included.
+- **A workspace's admin may set its own rule per risk level:** which roles, and
+  whether provider staff may approve there at all (`approval_policies`;
+  `GET/PUT /api/approval-policy`, audited as `approval_policy.updated`).
+- **The rule is enforced in the claiming UPDATE** (D-024): a refused approver never
+  moves the row, and the approval records the rule in force (`proposals.approval_rule`).
+  It applies to every action, built-in or connector.
+
+**Bounds, stated.** A rule can only narrow who approves within a workspace's own
+roles; it never grants approval to someone who cannot enter the workspace. Rejecting
+is not restricted by the rule.
+
+## D-076 — The dev engine is glm-5.3-flash (2026-11-06, S34)
+
+**Context.** The dev key was refused at S34's start (STATE.md Blockers #0). Burhan
+issued a new key and asked that the dev model change to GLM 5.3 Flash.
+
+**Decision (Burhan's).** `LLM_MODEL=glm-5.3-flash` on the same Z.ai general
+pay-as-you-go endpoint. This replaces D-034's choice of model only; D-034's
+endpoint rules (general API, never the Coding Plan endpoint, no KSA-tenant data)
+stand. Probe: docs/probes/2026-11-06-glm-5.3-flash.md.
+
+**Consequences.** Earlier measurements (D-034's table, TD-036, TD-044, D-046's
+history behaviour) were taken on glm-4.5-air and are not assumed to hold; TD-044's
+calibration in S34 Task 8 is the first on this model.
+
+## D-077 — A connector action may run against its own connector's system (2026-11-06, S34)
+
+**Context.** `EXECUTABLE_SYSTEMS` was `{"auspex"}`: an action scoped to any other
+system could be proposed and approved, and refused to run (S18). S34 runs connector
+actions on the customer's Edge Agent (D-062).
+
+**Decision (Claude's, S34 design decision 7; reviewed adversarially before the
+close).** An action compiled from a connector may also touch that connector's own
+system (`origin.connector_id`), and nothing else. It reaches the run only through the
+resolver, which refuses, before the claim and each with its own reason:
+`integration_disabled`, `not_granted`, `agent_offline` (offline, never connected or
+revoked); and the fingerprint refuses `spec_changed` when the integration pins
+another package. The same refusals stop an undo.
+
+**Bounds, stated.** A connector action naming any other system is still refused
+(`system_not_executable`). The set itself stays `{"auspex"}` in code.
+
+## D-078 — A connector's own text is not on the output rail's index (2026-11-06, S34)
+
+**Context.** S34's plan said customer-written tool text "joins the rail's index;
+TD-044's calibration is re-run with it, and a floor moves only on that measurement".
+The calibration (docs/probes/2026-11-06-s34-rail-calibration.md, glm-5.3-flash) cut 2
+of 5 legitimate action answers on the connector's own words ("the undo does not
+restore the closing note, if the SIEM keeps one").
+
+**Decision (Claude's, S34, under Hunaiza's standing instruction; flagged to Burhan in
+the PR).** The rail indexes configuration the platform owns, as `outguard` always
+said; a connector's descriptions are the customer's, and a correct answer explains
+them. `loop.issued_instructions` drops a connector action's text from the index (its
+wire description, parameters and its line in the system message). No floor moved.
+
+**Bounds, stated.** A model reciting a connector's description is not cut; our own
+configuration still is (the recitation turn tripped at 58). TD-080: the platform's
+risk sentence inside a connector line leaves the index with it. B-045: on this model
+our OWN action directive can trip legitimate turns; open.

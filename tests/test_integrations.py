@@ -185,3 +185,42 @@ async def test_a_malformed_base_url_is_refused_in_words(world):
     with pytest.raises(IntegrationRefused, match="https"):
         await _make(pool, m, content_hash, agent_id,
                     config={**CONFIG, "base_url": "https://[siem.local/api"})
+
+
+# -- S34 Task 2: grants (Hunaiza's call: none by default; an admin picks) --------------
+
+async def test_a_new_integration_may_run_no_action(world):
+    pool, m, content_hash, agent_id = world
+    integ = await _make(pool, m, content_hash, agent_id)
+    assert integ.grants == ()
+
+
+async def test_an_admin_grants_actions_the_manifest_declares(world):
+    from auspex.integrations.store import set_grants
+
+    pool, m, content_hash, agent_id = world
+    integ = await _make(pool, m, content_hash, agent_id)
+    granted = await set_grants(pool, workspace_id=m.direct_ws, actor=_admin(m),
+                               integration_id=integ.id, actions=["close_alert"])
+    assert granted.grants == ("close_alert",)
+    with pytest.raises(IntegrationRefused, match="delete_everything"):
+        await set_grants(pool, workspace_id=m.direct_ws, actor=_admin(m),
+                         integration_id=integ.id, actions=["delete_everything"])
+    actions = [e for e in await list_events(pool, m.direct_ws)
+               if e["action"] == "integration.updated"]
+    assert actions and actions[0]["details"].get("grants") == ["close_alert"]
+
+
+async def test_grants_are_admin_only_and_never_cross_a_workspace(world, client, settings):
+    pool, m, content_hash, agent_id = world
+    integ = await _make(pool, m, content_hash, agent_id)
+    admin = token(settings, m.d_user, m.direct_ws)
+    other = token(settings, m.c1_user, m.client1_ws)
+    res = client.put(f"/api/integrations/{integ.id}/grants", headers=admin,
+                     json={"actions": ["close_alert"]})
+    assert res.status_code == 200, res.text
+    assert res.json()["grants"] == ["close_alert"]
+    assert client.put(f"/api/integrations/{integ.id}/grants", headers=other,
+                      json={"actions": []}).status_code in (403, 404)
+    listed = client.get("/api/integrations", headers=admin).json()["integrations"]
+    assert listed[0]["grants"] == ["close_alert"]

@@ -22,7 +22,9 @@ of bug rather than a style preference:
    allow-list, not a config value. An action scoped to a third-party system stays
    proposal-only until there is a sandbox to point it at: a real credential and a
    real blast radius is not something to acquire as a side effect of a session
-   about approval flow.
+   about approval flow. Since S34 a connector action may also touch its own
+   connector's system, and runs only through the resolver: its integration enabled,
+   the action granted, its Edge Agent live, its package the one approved.
 
 Nothing here trusts the model for anything. The arguments were captured when the
 proposal was filed, the card was rendered from the spec, and the execute path
@@ -96,6 +98,7 @@ class Settlement(StrEnum):
     ALREADY_DECIDED = "already_decided"  # someone else got there first
     NOT_FOUND = "not_found"  # no such proposal in this workspace
     EXPIRED = "expired"  # nobody decided within PROPOSAL_TTL_SECONDS
+    NOT_ALLOWED = "not_allowed"  # the approval policy does not let this person (S34)
 
 
 @dataclass(frozen=True)
@@ -404,6 +407,7 @@ class ProposalSettlement:
         proposal_id: UUID | str,
         decision: str,
         decided_by: UUID | str | None,
+        allowed: dict[str, dict] | None = None,
     ) -> SettleResult:
         """Approve or reject, exactly once.
 
@@ -418,14 +422,21 @@ class ProposalSettlement:
         """
         if decision not in ("approved", "rejected"):
             raise ValueError(f"decision must be 'approved' or 'rejected', got {decision!r}")
+        # S34: `allowed` maps the risk levels this approver may approve to the rule that
+        # allows each (auspex/actions/policy.py). It is part of the claiming UPDATE, so a
+        # refused approver never moves the row, and the rule in force is recorded with
+        # the decision. None (rejections, the expiry sweep) checks nothing.
+        levels = None if allowed is None else list(allowed)
         row = await self._pool.fetchrow(
             """
             UPDATE proposals
-               SET status = $3, decided_at = now(), decided_by = $4::uuid
+               SET status = $3, decided_at = now(), decided_by = $4::uuid,
+                   approval_rule = ($7::jsonb) -> tool_level
              WHERE id = $1::uuid
                AND workspace_id = $2::uuid
                AND status = 'pending_approval'
                AND created_at > now() - make_interval(secs => $5::double precision)
+               AND ($6::text[] IS NULL OR tool_level = ANY($6::text[]))
             RETURNING *
             """,
             str(proposal_id),
@@ -433,6 +444,8 @@ class ProposalSettlement:
             decision,
             str(decided_by) if decided_by is not None else None,
             float(PROPOSAL_TTL_SECONDS),
+            levels,
+            json.dumps(allowed or {}),
         )
         if row is not None:
             return SettleResult(Settlement.CLAIMED, _as_dict(row))
@@ -441,6 +454,11 @@ class ProposalSettlement:
         current = await self.get(workspace_id=workspace_id, proposal_id=proposal_id)
         if current is None:
             return SettleResult(Settlement.NOT_FOUND)
+        if (current["status"] == "pending_approval" and levels is not None
+                and current["tool_level"] not in levels):
+            # S34: still pending, and this approver's policy does not reach its risk.
+            return SettleResult(Settlement.NOT_ALLOWED, current,
+                                current_status="pending_approval")
         if current["status"] == "pending_approval":
             # Still pending, so the TTL refused it: the door that noticed records
             # it, by the sweep's own condition (S31).
@@ -495,6 +513,17 @@ class NothingToPropose(RuntimeError):
     def __init__(self, would: str) -> None:
         super().__init__(would)
         self.model_feedback = f"not proposed: the action would change nothing. {would}"
+
+
+class CannotPropose(RuntimeError):
+    """A connector action that cannot run here now is not proposed (S34): its
+    integration is disabled, the action is not granted, or its Edge Agent is not live.
+    `model_feedback` is the resolver's reason, code-written."""
+
+    def __init__(self, reason: str, words: str) -> None:
+        super().__init__(words)
+        self.reason = reason
+        self.model_feedback = f"not proposed: {words}"
 
 
 _ECHO_KEYS = 5  # how many offending names a sentence echoes
@@ -555,7 +584,7 @@ def _refuse_stored_undeclared(spec: ActionSpec, proposal: dict) -> None:
         ) from None
 
 
-def action_proposer(pool: asyncpg.Pool):
+def action_proposer(pool: asyncpg.Pool, registry: ActionRegistry | None = None):
     """The seam the agent loop calls when a model calls an action.
 
     Returns a coroutine function matching `loop.ActionProposer`: dry-run the
@@ -567,6 +596,10 @@ def action_proposer(pool: asyncpg.Pool):
     could call actions, an argument the workspace does not resolve (an
     observable it has never seen) would file a card a human can only reject and
     whose execution can only fail — a human's decision spent on nothing.
+
+    **Nor one that cannot run now** (S34): `registry.refusal` names why a connector
+    action would be refused (agent offline, integration disabled, not granted), before
+    a dry-run job waits on an agent that will not answer.
     """
     settlement = ProposalSettlement(pool)
 
@@ -575,6 +608,9 @@ def action_proposer(pool: asyncpg.Pool):
         # before any row. The approved run passes the platform's own keywords too,
         # so a key named like one of them would collide there.
         check_declared(spec, arguments)
+        refused = None if registry is None else await registry.refusal(spec.name, workspace_id)
+        if refused is not None:
+            raise CannotPropose(*refused)
         outcome = await spec.dry_run(workspace_id=workspace_id, **arguments)
         if not outcome.affects:
             raise NothingToPropose(outcome.would)
@@ -590,10 +626,9 @@ def action_proposer(pool: asyncpg.Pool):
 
 
 def check_fingerprint(spec: ActionSpec, proposal: dict, *, step: str) -> None:
-    """The declaration about to run is the one the human approved. Execute and undo
-    both need it: an undo after a re-upload under a new content hash would run the
-    NEW package's handler on the OLD package's change, the case `ConnectorOrigin`
-    exists to stop (PR #43 review #5). `step` names what is refused."""
+    """The declaration about to run is the one the human approved. Execute only: an
+    undo is checked by `check_undo_identity` (D-074), which refuses a changed package
+    or undo without blocking a reworded built-in. `step` names what is refused."""
     stored = proposal.get("spec_fingerprint")
     if not stored:
         raise ExecutionRefused(
@@ -676,7 +711,10 @@ def check_executable(spec: ActionSpec, proposal: dict) -> None:
 
     check_fingerprint(spec, proposal, step="execute")
 
-    outside = sorted({s.system for s in spec.scope} - EXECUTABLE_SYSTEMS)
+    # S34: a connector action may also touch its OWN connector's system, and reaches
+    # here only through the resolver (enabled, granted, live agent, same package).
+    own = {spec.origin.connector_id} if spec.origin is not None else set()
+    outside = sorted({s.system for s in spec.scope} - EXECUTABLE_SYSTEMS - own)
     if outside:
         raise ExecutionRefused(
             "system_not_executable",
@@ -700,6 +738,15 @@ class ActionExecutor:
         self._registry = registry
         self._settlement = ProposalSettlement(pool)
 
+    async def _resolve(self, name: str, workspace_id) -> ActionSpec | None:
+        """The action as it is now, or its own refusal (S34, design decision 7): a
+        connector action whose integration, grant or agent moved is refused with that
+        reason, before any claim."""
+        refused = await self._registry.refusal(name, workspace_id)
+        if refused is not None:
+            raise ExecutionRefused(*refused)
+        return await self._registry.resolve(name, workspace_id)
+
     async def execute(
         self, *, workspace_id: UUID | str, proposal_id: UUID | str
     ) -> ActionOutcome:
@@ -708,7 +755,7 @@ class ActionExecutor:
         )
         if proposal is None:
             raise ExecutionRefused("not_found", "no such proposal in this workspace")
-        spec = self._registry.get(proposal["tool_name"])
+        spec = await self._resolve(proposal["tool_name"], workspace_id)
         if spec is None:
             raise ExecutionRefused(
                 "unknown_action",
@@ -772,7 +819,7 @@ class ActionExecutor:
                 f"proposal is {proposal['status']} — only an approval that no run has "
                 "started can be run from here",
             )
-        spec = self._registry.get(proposal["tool_name"])
+        spec = await self._resolve(proposal["tool_name"], workspace_id)
         if spec is None:
             raise ExecutionRefused(
                 "unknown_action",
@@ -834,7 +881,10 @@ class ActionExecutor:
             # written before it died, so ask the action what of THIS proposal's
             # exists. Only a look that found nothing earns `failed`.
             # A refusal before dispatch sent nothing: no look, and nothing landed.
+            # A connector job claimed and unanswered may still be running: a look now
+            # could say 0 over a change that lands later (S34 review #2), so unknown.
             effects = ("none" if isinstance(exc, RefusedBeforeDispatch)
+                       else "unknown" if getattr(exc, "may_have_run", False)
                        else await _effects(spec, workspace_id, proposal_id, args))
             await self._finish_claim(
                 proposal_id,
@@ -995,7 +1045,7 @@ class ActionExecutor:
                 f"proposal is {was} — only an executed, incomplete, kept or "
                 "abandoned action can be put back",
             )
-        spec = self._registry.get(proposal["tool_name"])
+        spec = await self._resolve(proposal["tool_name"], workspace_id)
         if spec is None or spec.undo is None:
             raise ExecutionRefused(
                 "no_undo",
@@ -1116,6 +1166,7 @@ __all__ = [
     "UNDOABLE_FROM",
     "ActionExecutor",
     "ExecutionRefused",
+    "CannotPropose",
     "NothingToPropose",
     "ProposalSettlement",
     "SettleResult",

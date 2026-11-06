@@ -437,3 +437,14 @@ def test_the_sdk_version_is_not_part_of_a_package_s_identity(yaml_twin, monkeypa
     assert built["0.1.0"][0] == built["0.2.0"][0]
     assert built["0.1.0"][1] == b"auspex-sdk 0.1.0"
     assert built["0.2.0"][1] == b"auspex-sdk 0.2.0"
+
+
+def test_two_roles_that_import_as_one_function_are_refused(yaml_twin):
+    """TD-071 (S33, due before S34 runs any action): the manifest check compares the
+    names written, so `observe: sample:close_observe` passed while `close_observe` was
+    the dry run under another name. The build imports the handlers: it compares the
+    objects, so a look that previews is refused whatever it is called."""
+    module = yaml_twin / "sample.py"
+    module.write_text(module.read_text() + "\nclose_observe = close_dry\n")
+    with pytest.raises(BuildError, match="same function"):
+        build(yaml_twin)

@@ -30,7 +30,7 @@ destructive-always-gates, DEFERRED rail), not its code.
   observables search, telemetry; `auspex-*` index prefix. SARA's DO cluster was
   probed read-only for schema conventions and is **never** used by Auspex at
   runtime — its creds stay out of Auspex config.
-- **LLM**: dev endpoint = Z.ai general API, `glm-4.5-air` (D-034; Scout on
+- **LLM**: dev endpoint = Z.ai general API, `glm-5.3-flash` (D-076, model; D-034, endpoint; Scout on
   Northflank is decommissioned). `LLM_BASE_URL` is the provider's documented API
   root (D-033). Prod = whatever the customer configures.
 - Embeddings: probe server-side (OpenSearch ML) first; fallback = in-process

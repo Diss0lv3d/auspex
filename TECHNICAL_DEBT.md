@@ -27,6 +27,8 @@ wrapping it in its capture.
 **Trigger:** S34's first change to how a command is invoked or validated.
 _Found by the fresh review at PR #51's merge (2026-10-29)._
 
+**CLOSED at S34:** one helper, `sdk/auspex_sdk/invoke.py` (`invoke`, `check`), called by the harness and the runner.
+
 ## TD-076 (S33) — the integrations listing reads each agent's health one at a time
 
 **Where:** `auspex/integrations/routes.py` (`listing` awaits `present()` per
@@ -114,6 +116,8 @@ objects.
 **Path to fix:** the build imports every handler already (`check_handlers`);
 compare the imported objects there and refuse a shared one.
 **Trigger:** S34, before a connector action can run.
+
+**CLOSED at S34 (TD-071):** the build compares the imported role functions (`_refuse_shared_roles`, `sdk/auspex_sdk/build.py`).
 
 ## TD-070 (B4) — a password holding an unencoded / ? # or \ is read as a host and a path, by the URL standard
 
@@ -575,6 +579,12 @@ Its own change, with no behaviour change.
 logic.
 
 ## TD-044 (S27) — the rail's index grew and its legitimate ceiling was not re-measured
+
+> **S34: re-run on glm-5.3-flash** (both triggers: model change D-076, and the
+> index's growth). docs/probes/2026-11-06-s34-rail-calibration.md. Customer tool
+> text tripped legitimate answers and is no longer indexed. On our own text the
+> legitimate ceiling is now **9 (answer) and 52 (thinking)** on action-request turns,
+> over the floors 8 and 40 (B-045); other turns stayed at 6 and 20. Still open.
 
 > **S28: the trigger fired again.** D-050 added a mode directive
 > (`action_request`), compiled into every note-only turn and indexed like every
@@ -1975,3 +1985,41 @@ stored turn then holds only the last call's content. The route logs it
 measured comes within half of it. **Trigger:** that log line appearing, or any
 probe measuring narration over 200 chars. Then re-measure and move the number,
 the way SHINGLE_WORDS is moved.
+
+## TD-079 (S34) — a grant revoked after the run's check still runs that one job
+
+**Where:** `auspex/actions/settlement.py` `ActionExecutor._resolve` checks the grant
+before the claim; the edge API's claim (`auspex/edge_api/routes.py` `_integrations_of`)
+filters on the integration being enabled, not on the action being granted.
+**Risk:** LOW. Found by S34's fresh review (#4). A grant revoked in the seconds between
+an approved run's check and the agent's claim still runs that one approved action.
+Disabling the integration in that window is caught (the claim filters on it).
+**Why taken:** the claim knows job kinds, not action names; a per-action filter there is
+a schema change to the job scope.
+**Path to fix:** the claim joins the payload's `action` against `integrations.grants`.
+**Trigger:** any revoke-then-run report, or the claim scope's next change.
+
+## TD-080 (S34) — the rail loses a platform risk sentence when only connector actions carry it
+
+**Where:** `auspex/agent/loop.py` `issued_instructions` drops a connector action's whole
+`planner_description`, which includes the platform's own "RISK …: requires human
+approval" sentence.
+**Risk:** LOW. Found by S34's fresh review (rail). The sentence stays indexed through any
+built-in of the same risk; a workspace offered destructive actions only by connectors
+would not have it on the index, so a recitation of that one sentence is not cut.
+**Path to fix:** compose the connector line's platform part separately and index it.
+**Trigger:** a destructive built-in removed, or the composition of action lines changed.
+
+## TD-081 (S34) — an action's `targets` is not checked against a routing key yet
+
+**Where:** `auspex/actions/settlement.py` `check_executable` / the resolver. S34's exit
+criteria ask that an action on a SHARED integration touch only its item's routing key
+(`targets`, design decision 10).
+**Risk:** NONE today, MEDIUM once S35 ships. No shared integration or routing map exists
+before S35, so every integration is its workspace's own and there is no key to check.
+**Why taken:** S35 builds routing (scope lock); a check against a map that does not
+exist would be untestable.
+**Path to fix:** S35, with routing: refuse before the claim (`outside_routing_key`) when
+the integration is shared and the action's `targets` argument is not an item routed to
+the proposal's workspace. Test per case, cross-tenant included.
+**Trigger:** S35's routing map lands — its plan must carry this.

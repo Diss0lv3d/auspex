@@ -158,6 +158,7 @@ def _check_signature(fn: object, where: str, ref: str, want: tuple[str, ...]) ->
 def check_handlers(manifest: Manifest, source_dir: Path) -> None:
     """Refuse a handler that is missing, or whose parameters differ from the declaration."""
     root = Path(source_dir).resolve()
+    imported: dict[str, object] = {}
     with importable(root):
         for where, ref, want in _handler_refs(manifest):
             module_name, _, func_name = ref.partition(":")
@@ -168,6 +169,24 @@ def check_handlers(manifest: Manifest, source_dir: Path) -> None:
                     f"{where}: handler {ref!r}: {func_name!r} is not in {module_name!r}"
                 )
             _check_signature(fn, where, ref, want)
+            imported[where] = fn
+    _refuse_shared_roles(manifest, imported)
+
+
+def _refuse_shared_roles(manifest: Manifest, imported: dict[str, object]) -> None:
+    """TD-071: an action's roles are distinct as IMPORTED, not only as written. The
+    manifest check compares `module:function` names; `observe = dry_run` under another
+    name, or one function re-exported by two modules, would pass it, and the compiled
+    spec wraps each role in its own closure, so the core could never see it."""
+    for i, _ in enumerate(manifest.actions):
+        roles = [w for w in imported if w.startswith(f"actions[{i}].")]
+        for k, a in enumerate(roles):
+            for b in roles[k + 1:]:
+                if imported[a] is imported[b]:
+                    raise BuildError(
+                        f"{b}: is the same function as {a} under another name; execute,"
+                        " dry_run, undo and observe must each be a different function"
+                    )
 
 
 # --- the two source forms --------------------------------------------------------------------

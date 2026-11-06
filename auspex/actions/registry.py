@@ -136,6 +136,17 @@ class ActionRegistry:
     def get(self, name: str) -> ActionSpec | None:
         return self._actions.get(name)
 
+    async def resolve(self, name: str, workspace_id=None) -> ActionSpec | None:
+        """The same lookup as `get`, in the resolver's shape (S34): a built-in is the same
+        in every workspace. `auspex.connectors.resolve.ActionResolver` adds connector
+        actions by workspace."""
+        return self._actions.get(name)
+
+    async def refusal(self, name: str, workspace_id=None) -> tuple[str, str] | None:
+        """Why `name` cannot run in this workspace now, as (reason, words), or None. A
+        built-in always can; the resolver answers for connector actions (S34)."""
+        return None
+
     def names(self) -> list[str]:
         return list(self._actions)
 
@@ -161,6 +172,11 @@ class ActionRegistry:
     def manifest(self, agent_mode: str) -> ActionManifest:
         """What the loop may propose, in the form this endpoint can consume."""
         return ActionManifest(mode=agent_mode, actions=tuple(self._actions.values()))
+
+    async def manifest_for(self, workspace_id, agent_mode: str) -> ActionManifest:
+        """`manifest`, in the resolver's shape (S34): the built-ins are the same in every
+        workspace."""
+        return self.manifest(agent_mode)
 
 
 class ActionManifest:

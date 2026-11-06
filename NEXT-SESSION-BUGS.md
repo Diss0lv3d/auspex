@@ -3,8 +3,9 @@
 _Paste everything below the line into a fresh Claude Code window opened in
 your clone of the Auspex repo, **once Burhan has scoped B5**. B4 closed
 2026-10-28 (Hunaiza, handed fully under D-059): B-017, B-018, B-025, B-027,
-B-030 and B-032 fixed, as one PR from `b4-bugs` into `staging`. **S34 runs next** (`NEXT-SESSION-BE.md`); B5 waits for Burhan to pick its bugs and its
-owner._
+B-030 and B-032 fixed, as one PR from `b4-bugs` into `staging`. S34 closed 2026-11-06 and logged
+**B-044** and **B-045** (both on the dev engine, now glm-5.3-flash, D-076). B5 waits for
+Burhan to pick its bugs and its owner._
 
 ---
 

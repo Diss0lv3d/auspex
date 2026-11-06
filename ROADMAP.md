@@ -600,6 +600,20 @@ BUGS.md) have their own sections at the end, before "Later".
     fresh one is owed at S34's Step 0. TD-068 closed; TD-071…TD-074 logged.
   - 2183 tests; 153 modules; agent env vars born (agent and dev only).
 
+- [x] **S34 — Integration actions through approvals, per-client policy, and the
+  co-analyst.** (2026-11-06, Hunaiza, handed fully under D-059) To `staging` as one
+  PR from `s34-actions`. Record: docs/superpowers/records/2026-11-06-s34-record.md.
+  - TD-071 and TD-077 closed; grants (none by default); a per-workspace resolver;
+    the approval policy (D-075); dispatch on the Edge Agent, once per key;
+    refusals with reasons before the claim and at propose (D-077); the
+    co-analyst offered granted actions; connector text off the rail's index (D-078).
+  - Dev engine glm-5.3-flash (D-076); TD-044 re-run; B-044, B-045 logged.
+  - **Live:** chat proposed, approved, ran once on the real agent, undone
+    (docs/probes/2026-11-06-s34-live.md).
+  - Fresh adversarial review: #1–#3 fixed test first; TD-079, TD-080 logged.
+  - **Not met, stated:** the routing-key check moves to S35 (TD-081).
+  - 2270 tests; 156 modules; no new env vars.
+
 ## Track: front end (D-051)
 
 - [x] **F1 — Where a deep turn's reasoning loses its speed, measured first.**

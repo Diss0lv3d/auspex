@@ -48,6 +48,7 @@ class Integration:
     agent_id: UUID
     created_at: datetime
     disabled_at: datetime | None
+    grants: tuple[str, ...] = ()  # the actions it may run (S34; none by default)
 
     @property
     def enabled(self) -> bool:
@@ -59,7 +60,8 @@ def _integration(row: asyncpg.Record) -> Integration:
     return Integration(
         row["id"], row["workspace_id"], row["name"], row["prefix"], row["connector_id"],
         row["content_hash"], json.loads(config) if isinstance(config, str) else config,
-        row["agent_id"], row["created_at"], row["disabled_at"])
+        row["agent_id"], row["created_at"], row["disabled_at"],
+        tuple(row["grants"]) if "grants" in row.keys() else ())
 
 
 def check_config(manifest: Manifest, config: Any) -> dict:
@@ -152,10 +154,12 @@ async def _check_agent(conn, workspace_id: UUID, agent_id: UUID) -> None:
 async def cancel_queued_tests(conn, integration_id: UUID, why: str) -> None:
     """Queued tests of an integration that changed under them can no longer run as asked:
     they end now, in the change's transaction. A running one finishes (spec, builder
-    check 5)."""
+    check 5). Queued action jobs too (fresh review of S34, #3): they carry the old
+    agent's config, and the core waiting on one hears that it was cancelled."""
     await conn.execute(
         "UPDATE jobs SET status = 'failed', last_error = $2, finished_at = now()"
-        " WHERE integration_id = $1 AND kind = 'connector.test' AND status = 'queued'",
+        " WHERE integration_id = $1 AND status = 'queued'"
+        " AND (kind = 'connector.test' OR kind LIKE 'connector.action.%')",
         integration_id, f"cancelled: {why}")
 
 
@@ -172,7 +176,7 @@ async def create(pool, *, workspace_id: UUID, actor: audit.Actor, name: str, pre
                 " content_hash, config, agent_id, created_by)"
                 " VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)"
                 " RETURNING id, workspace_id, name, prefix, connector_id, content_hash,"
-                " config, agent_id, created_at, disabled_at",
+                " config, agent_id, created_at, disabled_at, grants",
                 workspace_id, name, prefix, connector_id, content_hash, json.dumps(config),
                 agent_id, actor.user_id)
         except asyncpg.UniqueViolationError as err:
@@ -188,7 +192,7 @@ async def create(pool, *, workspace_id: UUID, actor: audit.Actor, name: str, pre
 async def get(pool, *, workspace_id: UUID, integration_id: UUID) -> Integration | None:
     row = await pool.fetchrow(
         "SELECT id, workspace_id, name, prefix, connector_id, content_hash, config, agent_id,"
-        " created_at, disabled_at FROM integrations WHERE id = $1 AND workspace_id = $2",
+        " created_at, disabled_at, grants FROM integrations WHERE id = $1 AND workspace_id = $2",
         integration_id, workspace_id)
     return _integration(row) if row else None
 
@@ -211,11 +215,15 @@ async def update(pool, *, workspace_id: UUID, actor: audit.Actor, integration_id
     async with pool.acquire() as conn, conn.transaction():
         await _check_agent(conn, workspace_id, agent_id)
         row = await conn.fetchrow(
+            # A grant approves an action AS DECLARED (fresh review of S34, #1): another
+            # package may declare the same name differently, so it is granted again.
             "UPDATE integrations SET name = $3, connector_id = $4, content_hash = $5,"
-            " config = $6::jsonb, agent_id = $7 WHERE id = $1 AND workspace_id = $2"
+            " config = $6::jsonb, agent_id = $7,"
+            " grants = CASE WHEN content_hash = $5 THEN grants ELSE '{}' END"
+            " WHERE id = $1 AND workspace_id = $2"
             " AND disabled_at IS NULL"
             " RETURNING id, workspace_id, name, prefix, connector_id, content_hash,"
-            " config, agent_id, created_at, disabled_at",
+            " config, agent_id, created_at, disabled_at, grants",
             integration_id, workspace_id, name, connector_id, content_hash,
             json.dumps(config), agent_id)
         if row is None:
@@ -226,8 +234,11 @@ async def update(pool, *, workspace_id: UUID, actor: audit.Actor, integration_id
                 or config != current.config):
             await cancel_queued_tests(conn, integration_id,
                                       "the integration's agent, package or config changed")
+        details = {"integration_id": str(integration_id)}
+        if content_hash != current.content_hash and current.grants:
+            details["grants_cleared"] = sorted(current.grants)
         await audit.record(conn, workspace_id=workspace_id, action="integration.updated",
-                           actor=actor, details={"integration_id": str(integration_id)})
+                           actor=actor, details=details)
     return _integration(row)
 
 
@@ -247,6 +258,37 @@ async def disable(pool, *, workspace_id: UUID, actor: audit.Actor,
 async def list_for(pool, *, workspace_id: UUID) -> list[Integration]:
     rows = await pool.fetch(
         "SELECT id, workspace_id, name, prefix, connector_id, content_hash, config, agent_id,"
-        " created_at, disabled_at FROM integrations WHERE workspace_id = $1"
+        " created_at, disabled_at, grants FROM integrations WHERE workspace_id = $1"
         " ORDER BY disabled_at NULLS FIRST, name", workspace_id)
     return [_integration(r) for r in rows]
+
+
+async def set_grants(pool, *, workspace_id: UUID, actor: audit.Actor, integration_id: UUID,
+                     actions: list[str]) -> Integration:
+    """The actions this integration may run, replacing the set (S34). Each must be an
+    action of its pinned manifest; an admin's change is audited."""
+    current = await get(pool, workspace_id=workspace_id, integration_id=integration_id)
+    if current is None:
+        raise LookupError("no such integration in this workspace")
+    if not current.enabled:
+        raise IntegrationRefused("this integration is disabled")
+    _, manifest = await _pinned_manifest(pool, workspace_id, current.content_hash)
+    declared = {a.name for a in manifest.actions}
+    unknown = sorted(set(actions) - declared)
+    if unknown:
+        raise IntegrationRefused(
+            f"grants: {', '.join(unknown)} is not an action of this connector"
+            f" (it declares {', '.join(sorted(declared)) or 'none'})")
+    granted = sorted(set(actions))
+    async with pool.acquire() as conn, conn.transaction():
+        row = await conn.fetchrow(
+            "UPDATE integrations SET grants = $3 WHERE id = $1 AND workspace_id = $2"
+            " AND disabled_at IS NULL RETURNING id, workspace_id, name, prefix,"
+            " connector_id, content_hash, config, agent_id, created_at, disabled_at, grants",
+            integration_id, workspace_id, granted)
+        if row is None:
+            raise IntegrationRefused("this integration is disabled")
+        await audit.record(conn, workspace_id=workspace_id, action="integration.updated",
+                           actor=actor, details={"integration_id": str(integration_id),
+                                                 "grants": granted})
+    return _integration(row)
