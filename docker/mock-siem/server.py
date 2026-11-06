@@ -3,6 +3,11 @@
 It makes a self-signed certificate at start into /certs (a volume the live check reads
 to pin its SHA-256, the D-071 pin path) and serves the reference connector's health
 endpoint: GET /api/health -> {"status": "ok"} when a Bearer token is sent, else 401.
+
+S34 adds the reference connector's `close_alert` routes over synthetic alerts held in
+memory: GET /api/alerts/<id>, POST /api/alerts/<id>/close and /reopen. Every write is
+appended to /certs/writes.log, so the live check can count how often the SIEM was
+actually asked to close.
 """
 
 import json
@@ -12,6 +17,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 CERTS = Path("/certs")
+ALERTS = {f"A-{n}": {"id": f"A-{n}", "title": "Synthetic alert", "severity": "high",
+                     "status": "open", "created": 1792670400, "modified": 1792674000}
+          for n in (1001, 1002, 2002)}
 
 
 def make_cert() -> None:
@@ -31,12 +39,27 @@ def make_cert() -> None:
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802 -- the stdlib's name
-        if self.path != "/api/health":
-            self._send(404, {"error": "not found"})
-        elif not self.headers.get("Authorization", "").startswith("Bearer "):
+        if not self.headers.get("Authorization", "").startswith("Bearer "):
             self._send(401, {"error": "no token"})
-        else:
+        elif self.path == "/api/health":
             self._send(200, {"status": "ok"})
+        elif self.path.startswith("/api/alerts/") and self.path[12:] in ALERTS:
+            self._send(200, ALERTS[self.path[12:]])
+        else:
+            self._send(404, {"error": "not found"})
+
+    def do_POST(self) -> None:  # noqa: N802
+        parts = self.path.strip("/").split("/")  # api, alerts, <id>, close|reopen
+        if not self.headers.get("Authorization", "").startswith("Bearer "):
+            self._send(401, {"error": "no token"})
+        elif (len(parts) == 4 and parts[:2] == ["api", "alerts"] and parts[2] in ALERTS
+              and parts[3] in ("close", "reopen")):
+            ALERTS[parts[2]]["status"] = "closed" if parts[3] == "close" else "open"
+            with (CERTS / "writes.log").open("a") as log:
+                log.write(f"{parts[3]} {parts[2]}\n")
+            self._send(200, ALERTS[parts[2]])
+        else:
+            self._send(404, {"error": "not found"})
 
     def _send(self, status: int, body: dict) -> None:
         data = json.dumps(body).encode()
