@@ -139,7 +139,7 @@ Promote #40 (`09af821`) is the last one._
 | Track | Prompt | Last closed | Next | Status |
 |---|---|---|---|---|
 | backend | `NEXT-SESSION-BE.md` | S34 (2026-11-06, Hunaiza; PR into `staging` open) | S35 | waits for S34's PR to merge; then fetching and routing (owner: Burhan's call). Order table: F5 comes before S35 |
-| front end | `NEXT-SESSION-FE.md` | F4 (2026-10-16) | F5 | **next in the order table** once S34's PR is merged: connectors, integrations, Edge Agents, grants, memberships and approval-policy admin, on F4's shell |
+| front end | `NEXT-SESSION-FE.md` | F4 (2026-10-16) | F5 | **focus** · **next in the order table** once S34's PR is merged: connectors, integrations, Edge Agents, grants, memberships and approval-policy admin, on F4's shell |
 | bugs | `NEXT-SESSION-BUGS.md` | B4 (2026-10-28, Hunaiza; PR #50 merged 2026-10-28) | B5 | unscoped: Burhan picks from the open entries (B-033…B-039 new from B4; B-040…B-043 from S33's PR #51) |
 
 - **S34 is Hunaiza's** (Burhan, 2026-10-30: "assign S34 to Hunaiza"; D-059).
