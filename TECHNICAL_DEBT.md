@@ -2009,3 +2009,17 @@ built-in of the same risk; a workspace offered destructive actions only by conne
 would not have it on the index, so a recitation of that one sentence is not cut.
 **Path to fix:** compose the connector line's platform part separately and index it.
 **Trigger:** a destructive built-in removed, or the composition of action lines changed.
+
+## TD-081 (S34) — an action's `targets` is not checked against a routing key yet
+
+**Where:** `auspex/actions/settlement.py` `check_executable` / the resolver. S34's exit
+criteria ask that an action on a SHARED integration touch only its item's routing key
+(`targets`, design decision 10).
+**Risk:** NONE today, MEDIUM once S35 ships. No shared integration or routing map exists
+before S35, so every integration is its workspace's own and there is no key to check.
+**Why taken:** S35 builds routing (scope lock); a check against a map that does not
+exist would be untestable.
+**Path to fix:** S35, with routing: refuse before the claim (`outside_routing_key`) when
+the integration is shared and the action's `targets` argument is not an item routed to
+the proposal's workspace. Test per case, cross-tenant included.
+**Trigger:** S35's routing map lands — its plan must carry this.

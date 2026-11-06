@@ -2761,3 +2761,22 @@ another package. The same refusals stop an undo.
 
 **Bounds, stated.** A connector action naming any other system is still refused
 (`system_not_executable`). The set itself stays `{"auspex"}` in code.
+
+## D-078 — A connector's own text is not on the output rail's index (2026-11-06, S34)
+
+**Context.** S34's plan said customer-written tool text "joins the rail's index;
+TD-044's calibration is re-run with it, and a floor moves only on that measurement".
+The calibration (docs/probes/2026-11-06-s34-rail-calibration.md, glm-5.3-flash) cut 2
+of 5 legitimate action answers on the connector's own words ("the undo does not
+restore the closing note, if the SIEM keeps one").
+
+**Decision (Claude's, S34, under Hunaiza's standing instruction; flagged to Burhan in
+the PR).** The rail indexes configuration the platform owns, as `outguard` always
+said; a connector's descriptions are the customer's, and a correct answer explains
+them. `loop.issued_instructions` drops a connector action's text from the index (its
+wire description, parameters and its line in the system message). No floor moved.
+
+**Bounds, stated.** A model reciting a connector's description is not cut; our own
+configuration still is (the recitation turn tripped at 58). TD-080: the platform's
+risk sentence inside a connector line leaves the index with it. B-045: on this model
+our OWN action directive can trip legitimate turns; open.
