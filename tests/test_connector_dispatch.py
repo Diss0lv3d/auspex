@@ -240,3 +240,44 @@ def _files(zip_bytes: bytes) -> dict[str, bytes]:
 
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
         return {n: z.read(n) for n in z.namelist()}
+
+
+async def test_a_claimed_job_that_is_not_answered_may_have_run(site, client):
+    """Fresh review of S34, #2: past the wait, a claimed job is not "nothing happened"."""
+    integ = await site["integration"](site["zip"], "siem7")
+    short = dispatch_mod.dispatcher(site["pool"], integ, waits={**WAITS, "execute": 1},
+                                    poll=0.05)
+    spec = await ActionResolver(ActionRegistry(), site["pool"],
+                                dispatch=lambda i: short).resolve("siem7__close_alert",
+                                                                  site["m"].direct_ws)
+    auth = {"Authorization": f"Bearer {site['credential']}"}
+
+    def claim_and_say_nothing():
+        import time
+        for _ in range(100):
+            if client.post("/api/edge/claim", params={"wait": 0},
+                           headers=auth).status_code == 200:
+                return
+            time.sleep(0.05)
+
+    served = asyncio.create_task(asyncio.to_thread(claim_and_say_nothing))
+    with pytest.raises(dispatch_mod.DispatchFailed) as failed:
+        await spec.execute(workspace_id=site["m"].direct_ws, proposal_id=None,
+                           idempotency_key=operation_key(uuid.uuid4(), "execute"),
+                           alert_id="A-1001")
+    await served
+    assert failed.value.may_have_run is True
+
+
+async def test_a_wait_that_ran_out_before_any_claim_did_not_run(site):
+    integ = await site["integration"](site["zip"], "siem8")
+    short = dispatch_mod.dispatcher(site["pool"], integ, waits={**WAITS, "execute": 0.3},
+                                    poll=0.05)
+    spec = await ActionResolver(ActionRegistry(), site["pool"],
+                                dispatch=lambda i: short).resolve("siem8__close_alert",
+                                                                  site["m"].direct_ws)
+    with pytest.raises(dispatch_mod.DispatchFailed) as failed:
+        await spec.execute(workspace_id=site["m"].direct_ws, proposal_id=None,
+                           idempotency_key=operation_key(uuid.uuid4(), "execute"),
+                           alert_id="A-1001")
+    assert failed.value.may_have_run is False

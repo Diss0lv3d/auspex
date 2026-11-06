@@ -38,11 +38,19 @@ _KEYED = frozenset({"execute", "undo"})
 class DispatchFailed(RuntimeError):
     """The Edge Agent did not answer in time, or answered with an error. In words.
     `model_feedback` is the part the agent loop may hand the model: the platform's own
-    sentence, never the agent's or the connector's text (D-045's rule)."""
+    sentence, never the agent's or the connector's text (D-045's rule).
 
-    def __init__(self, message: str, model_feedback: str) -> None:
+    `may_have_run`: an agent claimed the job and no answer came (the wait ran out, or
+    its lease did). The command may have run, or may still be running, so the settlement
+    records its effects as unknown instead of asking observe now (fresh review of S34,
+    #2): a look while execute still runs could say 0 and mark a change that landed
+    `failed`, which cannot be undone."""
+
+    def __init__(self, message: str, model_feedback: str, *,
+                 may_have_run: bool = False) -> None:
         super().__init__(message)
         self.model_feedback = model_feedback
+        self.may_have_run = may_have_run
 
 
 def _step(kind: str) -> str:
@@ -89,16 +97,18 @@ async def _answer(pool: asyncpg.Pool, job_id: uuid.UUID, step: str, bound: float
             result = row["result"]
             return json.loads(result) if isinstance(result, str) else result
         if row["status"] in ("failed", "dead"):
+            # dead: claimed, then the lease ran out unanswered (one attempt).
             raise DispatchFailed(f"the Edge Agent could not run {_what(step)}:"
                                  f" {row['last_error'] or 'no reason given'}",
-                                 f"not proposed: the Edge Agent could not run {_what(step)}")
+                                 f"not proposed: the Edge Agent could not run {_what(step)}",
+                                 may_have_run=row["status"] == "dead")
         if loop.time() >= deadline:
-            await pool.execute(
+            cancelled = await pool.fetchval(
                 "UPDATE jobs SET status = 'failed', finished_at = now(), last_error ="
                 " 'the core stopped waiting before an Edge Agent claimed it'"
-                " WHERE id = $1 AND status = 'queued'", job_id)
+                " WHERE id = $1 AND status = 'queued' RETURNING id", job_id)
             said = f"the Edge Agent did not answer {_what(step)} within {bound:g} s"
-            raise DispatchFailed(said, f"not proposed: {said}")
+            raise DispatchFailed(said, f"not proposed: {said}", may_have_run=cancelled is None)
         await asyncio.sleep(min(poll, max(0.0, deadline - loop.time())))
 
 

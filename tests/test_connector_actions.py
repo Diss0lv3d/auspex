@@ -240,3 +240,30 @@ async def test_an_edit_cancels_a_queued_action_job(world):
                  integration_id=integ.id, config={**CONFIG, "base_url": "https://new.example"})
     row = await pool.fetchrow("SELECT status, last_error FROM jobs WHERE id = $1", job.id)
     assert row["status"] == "failed" and "cancelled" in row["last_error"]
+
+
+async def test_an_execute_that_may_have_run_is_incomplete_not_failed(world):
+    """Fresh review of S34, #2: the agent claimed execute and did not answer in time.
+    Observe, asked now, could say 0 while execute still runs; the row would read
+    `failed`, which cannot be undone, over a change that landed. It is `incomplete`
+    with effects unknown, and observe is not asked."""
+    from auspex.connectors.dispatch import DispatchFailed
+
+    pool, m = world["pool"], world["m"]
+
+    def dispatch(integration):
+        async def run(kind, payload):
+            world["sent"].append(kind)
+            if kind.endswith("execute"):
+                raise DispatchFailed("no answer in 60 s", "not proposed", may_have_run=True)
+            return 0
+        return run
+
+    resolver = ActionResolver(ActionRegistry(), pool, dispatch=dispatch)
+    pid = await _approved(world)
+    with pytest.raises(DispatchFailed):
+        await ActionExecutor(pool, resolver).execute(workspace_id=m.direct_ws, proposal_id=pid)
+    row = await pool.fetchrow("SELECT status, result FROM proposals WHERE id = $1::uuid", pid)
+    assert row["status"] == "incomplete"
+    assert json.loads(row["result"])["effects"] == "unknown"
+    assert world["sent"] == ["connector.action.execute"]  # observe was not asked

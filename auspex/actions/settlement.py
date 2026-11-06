@@ -881,7 +881,10 @@ class ActionExecutor:
             # written before it died, so ask the action what of THIS proposal's
             # exists. Only a look that found nothing earns `failed`.
             # A refusal before dispatch sent nothing: no look, and nothing landed.
+            # A connector job claimed and unanswered may still be running: a look now
+            # could say 0 over a change that lands later (S34 review #2), so unknown.
             effects = ("none" if isinstance(exc, RefusedBeforeDispatch)
+                       else "unknown" if getattr(exc, "may_have_run", False)
                        else await _effects(spec, workspace_id, proposal_id, args))
             await self._finish_claim(
                 proposal_id,
