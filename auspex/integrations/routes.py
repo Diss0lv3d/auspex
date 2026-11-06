@@ -27,6 +27,10 @@ class NewIntegration(BaseModel):
     agent_id: UUID
 
 
+class Grants(BaseModel):
+    actions: list[str]
+
+
 class Change(BaseModel):
     name: str | None = None
     content_hash: str | None = None
@@ -53,6 +57,7 @@ async def present(pool, integration: Integration) -> dict:
         "config": integration.config,  # secret fields hold names only (checked at write)
         "agent_id": str(integration.agent_id),
         "enabled": integration.enabled,
+        "grants": list(integration.grants),
         "health": await _agent_health(pool, integration, datetime.now(UTC)),
         "created_at": integration.created_at.isoformat(),
     }
@@ -134,3 +139,19 @@ async def test_state(integration_id: UUID, job_id: UUID, request: Request,
     if answer is None:
         raise HTTPException(status_code=404, detail="no such test for this integration")
     return answer
+
+
+@router.put("/{integration_id}/grants")
+async def grants(integration_id: UUID, body: Grants, request: Request, auth: Admin) -> dict:
+    """Which of the connector's actions this integration may run (S34). None by default:
+    an action is proposable and runnable only once granted here."""
+    pool = request.app.state.pool
+    try:
+        changed = await store.set_grants(
+            pool, workspace_id=auth.workspace_id, actor=person(auth.user_id, auth.home_org_id),
+            integration_id=integration_id, actions=body.actions)
+    except LookupError as err:
+        raise HTTPException(status_code=404, detail=str(err)) from err
+    except IntegrationRefused as err:
+        raise _refused(err) from err
+    return await present(pool, changed)
