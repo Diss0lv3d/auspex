@@ -1,92 +1,67 @@
-# NEXT-SESSION-BE — track: backend · session: S34
+# NEXT-SESSION-BE — track: backend · session: S35
 
 _Paste everything below the first line of dashes into a fresh Claude Code
-window opened in the Auspex repo. **S34 makes connector actions run through
-approvals, with each client's approval policy, and offers them to the
-co-analyst.** S33 closed 2026-10-28 (Hunaiza, handed fully under D-059):
-integrations, Edge Agents and "Test connection" end to end, PR #43's review
-fixed, D-072 and D-073. It reached `staging` as PR #51, merged 2026-10-29 (a
-fast-forward to `1d64692`). **S34 is Hunaiza's** (Burhan, 2026-10-30; D-059),
-handed fully as S32 and S33 were: every call and new D-entries are hers, on
-her machine under her own identity; re-scoping and the plan's order stay
-Burhan's. It closes as a PR into `staging`, which Burhan reviews and merges.
-**The promote (S32, B4, S33) landed 2026-10-30 as #52**: Burhan
-took it back from Hunaiza and ran it._
+window opened in the Auspex repo. **S35 makes integrations fetch: schedules,
+cursors, alerts, and routing for shared SIEMs.** S34 closed 2026-11-06
+(Hunaiza, handed fully under D-059): connector actions through approvals on the
+Edge Agent, each client's approval policy (D-075), the co-analyst proposing them,
+D-076…D-078. It goes to `staging` as one PR from `s34-actions`; **S35 starts only
+after Burhan merges it.** The order table puts **F5 before S35**: which runs next,
+and who owns S35, is Burhan's call (STATE.md's Tracks table)._
 
-_Below the S34 prompt is the **backend plan for the whole phase, S29–S41**.
+_Below the S35 prompt is the **backend plan for the whole phase, S29–S41**.
 **`/session-end` writes the next session's prompt from its entry in the plan,
 keeps the plan section, and ticks the session it closed.** A change to the
 plan's order is Burhan's call._
 
 ---
 
-SESSION S34 of Auspex, **backend track** (D-051). The working dir is the
-Auspex repo. Run `/session-start be S34` first (the full ritual). It reads
+SESSION S35 of Auspex, **backend track** (D-051). The working dir is the
+Auspex repo. Run `/session-start be S35` first (the full ritual). It reads
 `SESSION-RULES.md` and STATE.md.
 
 Step 0 (do BEFORE new scope):
 
-1. **S33's PR (#51) was merged 2026-10-29 (`1d64692`).** `git fetch` and
-   `git pull --ff-only origin staging`, then confirm `auspex/edge/`,
-   `auspex/edge_api/` and `auspex/integrations/` exist and STATE.md says S33
-   closed. If they are missing, stop: wrong window. One session at a time
-   (D-051, D-059).
-2. **Check the promote landed; do not run it.** S33 is the plan's promote
-   milestone: **promote #52** (`bf6e6d2`, 2026-10-30; S32, B4 and S33
-   together, run from Burhan's window; STATE.md #1). Confirm `main` carries S33
-   (`git log origin/main`) before any S34 code; if it does not, stop and tell
-   Burhan.
-3. **S33's fresh review ran at PR #51's review** (recorded in the S33 record);
-   read its findings and any it left open before touching the same code. A
-   second fresh review, at #51's merge, left two for S34 (STATE.md #33): pick
-   `post_result`'s result check by job kind before `EDGE_KINDS` grows, and fix
-   `check_fingerprint`'s docstring, which still says undo uses it (D-074). It
-   also logged B-041…B-043 and TD-075…TD-077, all in code S34 touches.
-4. **Read what S33 left you, before any code:**
-   docs/superpowers/records/2026-10-28-s33-record.md (§6, what S34 picks up),
-   STATE.md #31 and #33, TD-071 (a manifest's roles distinct as imported:
-   **before any action runs**), D-024, D-048, D-062, D-064 and D-066.
-5. **Probe reality first (CLAUDE.md rule 4).** Save
-   `docs/probes/<date>-s34-baseline.md`: `compile_action` and
-   `WorkspaceMismatch`/`RefusedBeforeDispatch` (`auspex/connectors/compile.py`,
-   `auspex/actions/types.py`); `check_executable`, `check_fingerprint` and
-   `EXECUTABLE_SYSTEMS` (`auspex/actions/settlement.py`); the edge API's claim
-   scope and `post_result` (`auspex/edge_api/routes.py`); `auspex_sdk.run`
-   and `auspex_sdk.validate`; the integrations table, by `file:line`.
+1. **S34's PR (`s34-actions` → `staging`) must be merged.** `git fetch` and
+   `git pull --ff-only origin staging`, then confirm `auspex/connectors/dispatch.py`,
+   `auspex/connectors/resolve.py` and `auspex/actions/policy.py` exist and STATE.md
+   says S34 closed. If not, stop: wrong window. One session at a time (D-051).
+2. **Who owns S35** is in STATE.md's Tracks table. If it names nobody, ask Burhan
+   before any work.
+3. **Read what S34 left you, before any code:**
+   docs/superpowers/records/2026-11-06-s34-record.md (§3–5), STATE.md #34,
+   **TD-081 (the routing-key check is now S35's exit criterion)**, D-075…D-078,
+   and how Burhan answered D-078 at the PR.
+4. **Probe reality first (CLAUDE.md rule 4).** Save
+   `docs/probes/<date>-s35-baseline.md`: the jobs queue and its scheduler
+   (`auspex/jobs/`), the `connector.fetch` kind and `auspex_sdk.validate.check_fetch`,
+   the edge API's claim scope and `post_result` by kind (`auspex/edge_api/routes.py`),
+   `ingest_state`, `AlertEnvelope` and `score_alert`, the integrations table, and the
+   reference connector's `pull` against `examples/connectors/mock_siem/fixtures`,
+   by `file:line`.
 
-Goal: **S34, the plan's entry below, is the contract: its exit criteria are
-the done line.** In short: an integration's action takes the existing path
-(a proposal whose card comes from a dry-run job on the agent, approval,
-claim, an execute job on the agent, the validated result, settle or undo);
-`EXECUTABLE_SYSTEMS` is widened by code and review; `check_executable`
-refuses with a reason (agent offline, integration disabled, package hash
-changed, outside the grants or the routing key, approver not allowed); the
-per-client approval policy; one execution even when a result is lost; every
-door works; the co-analyst is offered integration actions; live through the
-agent; an adversarial review.
+Goal: **S35, the plan's entry below, is the contract: its exit criteria are the
+done line.** In short: each integration's fetch runs on a schedule as jobs on its
+Edge Agent, bounded per client; a cursor advances only after a page is stored;
+items land as `alerts`, each in exactly one workspace; a shared integration routes
+each item by its routing map and quarantines what is unmapped; observables are
+extracted in the alert's own workspace (enrichment off until Burhan decides); the
+alerts API; and **TD-081**: an action on a shared integration is refused outside its
+item's routing key.
 
-**S33's carries are part of S34's work** (record §6, STATE.md #33):
-- an approval bound to its integration (prefixes are never reused, so
-  workspace + prefix is stable);
-- dispatch enqueues `connector.action.*` jobs claimed by the integration's
-  agent, which runs them through `auspex_sdk.run`;
-- the core checks action envelopes and observe counts with
-  `auspex_sdk.validate`, never a rewrite;
-- TD-071 before any action runs.
+**Design first, then a plan.** Brainstorm with whoever owns S35, one question at a
+time, then write `docs/superpowers/plans/<date>-s35-fetching.md` and ask how to
+execute it.
 
-**Design first, then a plan.** Brainstorm with whoever owns S34, one question
-at a time, then write `docs/superpowers/plans/<date>-s34-actions.md` and ask
-how to execute it.
-
-Constraints: everything in `SESSION-RULES.md`, and the plan's "Standing for
-every session in this phase" below.
-- **Every write to a customer system goes through an approval** (D-014,
-  D-024); widening `EXECUTABLE_SYSTEMS` is code plus an adversarial review.
-- **Nothing a connector ships runs in the app process** (D-062).
-- **Tenant isolation is an invariant**; every new table and route gets a
-  cross-tenant test.
+Constraints: everything in `SESSION-RULES.md`, and the plan's "Standing for every
+session in this phase" below.
+- **Nothing a connector ships runs in the app process** (D-062): fetch runs on the
+  agent, and the core checks pages with `auspex_sdk.validate`.
+- **Tenant isolation is an invariant**: an unmapped item never lands in a default or
+  guessed workspace; every new table and route gets a cross-tenant test.
 - A new env var → `.env.example` and `docs/ENV_VARS.md` at birth.
-- Do not start S35's work in S34 (scope lock).
+- The dev engine is glm-5.3-flash (D-076); B-044 and B-045 are open bugs, not S35's.
+- Do not start S36's work in S35 (scope lock).
 
 ---
 
@@ -382,7 +357,7 @@ ticks the closed session._
       file, scoped to the lab domain (D-067); never in the chat or the repo.
     - An adversarial review covers tenancy and agent auth. **Promote.**
 
-- [ ] **S34 — Integration actions through approvals, per-client policy, and
+- [x] **S34 — Integration actions through approvals, per-client policy, and
   the co-analyst.**
   - **Depends on:** S33, D-064, D-066.
   - **Goal:** an integration's actions take the path that exists: proposal (its
@@ -442,6 +417,10 @@ ticks the closed session._
     - **Tests.** A re-fetch is idempotent. The cursor resumes after an agent
       restart. The plan-limit cap holds. Bad items are quarantined. A
       cross-tenant read is refused.
+    - **Carried from S34 (TD-081):** an action on a shared integration is refused
+      before its claim (`outside_routing_key`) when its `targets` argument is not an
+      item routed to the proposal's workspace; tested per case, cross-tenant
+      included.
     - An adversarial review covers tenancy and routing.
 
 - [ ] **S36 — QRadar, the first reference SIEM, on the Edge Agent, live on the
