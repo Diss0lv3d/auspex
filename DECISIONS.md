@@ -2709,3 +2709,24 @@ cannot undo anything. Undo is the safety net.
 - Execute is unchanged: it still checks the whole fingerprint (D-024).
 
 **Bounds, stated.** A built-in's undo runs today's code, as it did before S33.
+
+## D-075 — Who may approve is a rule per workspace and risk level (2026-11-06, S34)
+
+**Context.** Until S34, any analyst or admin of a workspace could approve any
+action there, an MSSP's staff included once switched in. S34 runs actions in
+customer systems, and the plan asks for each client's own approval policy.
+
+**Decision (Hunaiza's calls, S34).**
+- **The default:** `write` actions are approved by an analyst or an admin;
+  `destructive` actions by an admin only; provider staff (a person whose home
+  organization is not the workspace's own) included.
+- **A workspace's admin may set its own rule per risk level:** which roles, and
+  whether provider staff may approve there at all (`approval_policies`;
+  `GET/PUT /api/approval-policy`, audited as `approval_policy.updated`).
+- **The rule is enforced in the claiming UPDATE** (D-024): a refused approver never
+  moves the row, and the approval records the rule in force (`proposals.approval_rule`).
+  It applies to every action, built-in or connector.
+
+**Bounds, stated.** A rule can only narrow who approves within a workspace's own
+roles; it never grants approval to someone who cannot enter the workspace. Rejecting
+is not restricted by the rule.
