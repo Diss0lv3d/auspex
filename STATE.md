@@ -1,6 +1,20 @@
 # STATE — Auspex
 
-_Last updated: 2026-10-30 — **Promote #52 merged into `main`** (`bf6e6d2`,
+_Last updated: 2026-11-06 — **S34 CLOSED** by Hunaiza (D-059, handed fully):
+**connector actions run through approvals on the customer's Edge Agent**, each
+client's **approval policy** decides who approves (D-075), and the **co-analyst**
+proposes them. Live: a chat turn proposed closing a stub-SIEM alert; approved, it
+ran once on the real agent container and was undone
+(docs/probes/2026-11-06-s34-live.md). D-075…D-078; B-044, B-045; TD-079…TD-081
+(TD-081: the routing-key check waits for S35). **Dev engine: glm-5.3-flash** on a
+new Z.ai key (D-076, Burhan's). One fresh adversarial review (Hunaiza agreed): two
+important findings and one minor fixed test first, two logged. Gate green in four
+foreground parts: **2270 tests** (1997 + 1 skipped, SDK 272), **156 modules**, both
+images; `/api/health/ready` 200. **S34 goes to `staging` as one PR from
+`s34-actions`**; Burhan reviews and merges. **Promote slate: S34** once merged.
+Record: docs/superpowers/records/2026-11-06-s34-record.md._
+
+2026-10-30 — **Promote #52 merged into `main`** (`bf6e6d2`,
 back-merge `68b511c`): S32, B4 and S33 together. Burhan took the promote back
 from Hunaiza and ran it from his window (she was told on #51). `./ci.sh` ran
 green fresh on `4c70e83` (**2211 passed**, 153 modules, both images checked),
@@ -19,8 +33,8 @@ and CI is green. A second fresh review of the whole PR found no blocker; Burhan 
 and logged what it found: **B-041** (reproduced: a connector that prints while it
 loads fails every job), **B-042**, **B-043**; **TD-075…TD-078**; TD-074 resolved by
 review #2; two notes for S34 (#33). Next: **Hunaiza's promote** (S32, B4, S33), then
-**S34** (Burhan's). **The dev engine is local Ollama `qwen3:14b`** until the Z.ai
-key, refused 2026-10-29, is rotated (Blockers #8).
+**S34** (Burhan's). The dev engine was local Ollama `qwen3:14b` until the Z.ai
+key was rotated (Blockers #8, resolved at S34).
 
 2026-10-29 — **PR #51's review answered on `s33-edge-agent`**
 (Burhan: changes requested; findings in docs/probes/2026-10-28-pr51-review.md,
@@ -124,8 +138,8 @@ Promote #40 (`09af821`) is the last one._
 
 | Track | Prompt | Last closed | Next | Status |
 |---|---|---|---|---|
-| backend | `NEXT-SESSION-BE.md` | S33 (2026-10-28, Hunaiza; PR #51 merged 2026-10-29, `1d64692`) | S34 | **focus** · **Hunaiza's** (Burhan, 2026-10-30; D-059, handed fully), on her machine; closes as a PR into `staging` · Step 0: promote #52 (S32, B4, S33; 2026-10-30, `bf6e6d2`) landed (checked, not run); then connector actions through approvals |
-| front end | `NEXT-SESSION-FE.md` | F4 (2026-10-16) | F5 | waits for S34 (the order table); F4 built the shell F5's admin pages stand on |
+| backend | `NEXT-SESSION-BE.md` | S34 (2026-11-06, Hunaiza; PR into `staging` open) | S35 | waits for S34's PR to merge; then fetching and routing (owner: Burhan's call). Order table: F5 comes before S35 |
+| front end | `NEXT-SESSION-FE.md` | F4 (2026-10-16) | F5 | **next in the order table** once S34's PR is merged: connectors, integrations, Edge Agents, grants, memberships and approval-policy admin, on F4's shell |
 | bugs | `NEXT-SESSION-BUGS.md` | B4 (2026-10-28, Hunaiza; PR #50 merged 2026-10-28) | B5 | unscoped: Burhan picks from the open entries (B-033…B-039 new from B4; B-040…B-043 from S33's PR #51) |
 
 - **S34 is Hunaiza's** (Burhan, 2026-10-30: "assign S34 to Hunaiza"; D-059).
@@ -281,6 +295,31 @@ deferred minors: docs/superpowers/records/2026-10-27-s32-record.md.
   `02cda97`), one logged (TD-069).
 - **Debt:** TD-066…TD-069. **New dependency:** `python-multipart`.
 - **No new env vars.**
+
+## S34 — what happened (backend track; connector actions through approvals, per-client policy, the co-analyst)
+
+Hunaiza's session (D-059), 2026-11-02…11-06, on the branch `s34-actions`, to
+`staging` by one PR. Full record of calls: docs/superpowers/records/2026-11-06-s34-record.md.
+
+- **Baseline, design, plan:** docs/probes/2026-11-02-s34-baseline.md;
+  docs/superpowers/specs/2026-11-02-s34-actions-design.md (Hunaiza's four calls:
+  default policy, no grants by default, a 30 s preview wait, co-analyst last);
+  docs/superpowers/plans/2026-11-06-s34-actions.md (nine tasks, inline).
+- **Built:** TD-071 and TD-077 closed (`sdk/auspex_sdk/invoke.py`); grants
+  (`integrations.grants`, `PUT /api/integrations/{id}/grants`); the workspace
+  resolver (`auspex/connectors/resolve.py`, `app.state.action_registry`); the approval
+  policy (`auspex/actions/policy.py`, `approval_policies`, `/api/approval-policy`,
+  D-075); dispatch (`auspex/connectors/dispatch.py`, the four action kinds, the edge
+  API checks answers by kind, the agent runs `<action>.<step>` with the key);
+  refusals before the claim and at propose (D-077); the co-analyst offered per
+  workspace; connector text off the rail's index (D-078).
+- **Engine:** glm-5.3-flash (D-076), checked live; TD-044 re-run
+  (docs/probes/2026-11-06-s34-rail-calibration.md); B-044, B-045 logged.
+- **Live:** docs/probes/2026-11-06-s34-live.md (stub SIEM writes: one close, one
+  reopen).
+- **Review:** one fresh adversarial agent (Hunaiza agreed); #1, #2, #3 fixed test
+  first; #4 → TD-079; rail note → TD-080.
+- 2270 tests; 156 modules; no new env vars.
 
 ## S33 — what happened (backend track; integrations, the Edge Agent, Test connection)
 
@@ -1124,13 +1163,18 @@ Phase 4:
 - **S33 (backend, Hunaiza): integrations, Edge Agents that enroll once and
   run connectors from hash-verified packages in a subprocess, and "Test
   connection" end to end; PR #43's review fixed; D-072, D-073.**
+- **S34 (backend, Hunaiza): connector actions through approvals on the Edge
+  Agent — grants, a per-workspace resolver, each client's approval policy
+  (D-075), dispatch that never runs twice, refusals with reasons (D-077), and the
+  co-analyst proposing them; dev engine glm-5.3-flash (D-076); D-078.**
 
 The ROADMAP through S20 is complete; S21–S30, F1–F4 and B1–B3 were each
 scoped by a decision or a bug. **The integration phase (S30–S41, F4–F9) builds
-the spec; S30, F4, S31, S32 and S33 are done.**
+the spec; S30, F4, S31, S32, S33 and S34 are done.**
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: empty.** Promote #52 (`bf6e6d2`, back-merge `68b511c`;
+1. **Promote slate: S34, once its PR (`s34-actions` → `staging`) is merged.**
+   Before that it read: empty. Promote #52 (`bf6e6d2`, back-merge `68b511c`;
    2026-10-30) shipped S32, B4 and S33, run from Burhan's window after he took
    it back from Hunaiza (`./ci.sh` green fresh, 2211 tests; GitHub CI green).
    Before that, it read **S32, B4 and S33**, and before that:
@@ -1473,7 +1517,12 @@ the spec; S30, F4, S31, S32 and S33 are done.**
     (#1), and compiled handlers drop the `workspace_id` they are called with
     (#2). #2, #5 and #9 overlap #31's dispatch, approval and runner bullets.
 
-33. **S33's open ends, for S34** (record §5–6): `check_executable` admits
+33. **Mostly DONE at S34** (2026-11-06): connector systems admitted through the
+    resolver (D-077), approvals bound by workspace + prefix, dispatch on the edge API,
+    envelopes checked by kind, TD-071 and TD-077 closed, both merge-review notes fixed.
+    **Still open:** TD-072, TD-073, TD-075, TD-076, B-041…B-043 (B-041's fix is
+    Burhan's call). Original text:
+    **S33's open ends, for S34** (record §5–6): `check_executable` admits
     connector systems and an approval is bound to its integration (prefixes
     are never reused); dispatch runs `actions[].execute` on the edge API; the
     core checks envelopes with `auspex_sdk.validate`; TD-071 before any action
@@ -1484,6 +1533,19 @@ the spec; S30, F4, S31, S32 and S33 are done.**
     `EDGE_KINDS` grows; and `check_fingerprint`'s docstring
     (`auspex/actions/settlement.py`) still says undo uses it (D-074 moved undo to
     `check_undo_identity`). B-041…B-043 and TD-075…TD-077 sit in code S34 touches.
+
+34. **S34's open ends** (record §3–5; they die by being done):
+    - **TD-081: S35 must refuse an action whose `targets` is outside its item's routing
+      key** on a shared integration (S34's exit criterion, moved; flagged in the PR).
+    - **D-078** reverses the plan's "customer text joins the rail's index": Burhan to
+      confirm or overturn at the PR.
+    - B-044 (an empty answer after a long thinking turn) and B-045 (our action
+      directive trips the rail on glm-5.3-flash) — for a bugs session.
+    - TD-079 (a grant revoked between check and claim), TD-080 (the risk sentence off
+      the index with a connector line).
+    - TD-044 stays open: the ceiling on our own text is 9 / 52 on action turns.
+
+**Closed at S34, so they leave this list:** most of #33 (above). S34 added #34.
 
 **Closed at S33, so they leave this list:** #32 (all ten findings). S33 added #33.
 
@@ -1582,18 +1644,8 @@ records what the split left). F2 added #20–#22.
    budget. B-027 (`extract()`'s overlap checks) and B-030 (the guard's
    quote-line carve-out) were fixed at B4. The
    resolver has not been swept (IDEAS: one stall test for the whole pass).
-8. **The dev engine is local Ollama, not Z.ai (2026-10-29).** Z.ai refuses the
-   dev key: a direct call returned 401 `{"code":"1000","message":"Authentication
-   Failed"}`, so every chat turn answered "the platform's engine refused the
-   platform's credentials". `.env` now points at the D-013 fallback,
-   `LLM_BASE_URL=http://host.docker.internal:11434/v1` and `LLM_MODEL=qwen3:14b`,
-   with the Z.ai lines commented out above them and the key untouched. A test
-   turn streamed end to end. `qwen3:14b` is slower and weaker than
-   `glm-4.5-air`, so anything measured on the engine until then (S34's
-   co-analyst offers included) is qwen3:14b's result, not D-034's model's.
-   **To go back:** Burhan rotates the key in Z.ai's console, puts it in `.env`
-   (never in a chat), uncomments the two Z.ai lines, removes the two Ollama
-   lines, and runs `docker compose up -d --force-recreate app`.
+8. ~~The dev engine is local Ollama, not Z.ai~~ — resolved 2026-11-06 (S34): a new
+   Z.ai key in Hunaiza's `.env`, model glm-5.3-flash (D-076).
 
 ## Host notes (reality snapshot)
 - Postgres 55432; app 8000; OpenSearch 9200. Host runs pin via `auspex.devhost`.
@@ -1818,12 +1870,13 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 **Pick a track (D-051); the Tracks table at the top has the ids.** Paste the
 prompt file of the track you mean. `/session-start` with no track asks.
 One window at a time (D-051).
-- **S34, backend, the focus, Hunaiza's** (`NEXT-SESSION-BE.md`; Burhan,
-  2026-10-30). S33's PR is merged and
-  promote #52 carried it to `main`; Step 0 pulls, checks `main` carries S33 and
-  reads #33; then connector actions through approvals and per-client policy.
-- **B5, bugs** (`NEXT-SESSION-BUGS.md`) waits for Burhan to scope it from the
-  open entries, B4's new B-033…B-039 among them.
-- **F5, front end** (`NEXT-SESSION-FE.md`) starts only after S34
-  close (the order table): connectors, integrations, Edge Agents, memberships
-  and approval-policy admin, on F4's shell and Members page.
+- **First: Burhan reviews and merges S34's PR** (`s34-actions` → `staging`). Two
+  calls are flagged in it for him: D-078 (customer text off the rail's index) and
+  TD-081 (the routing-key check moved to S35).
+- **F5, front end** (`NEXT-SESSION-FE.md`), next in the order table: the admin pages
+  for connectors, integrations, Edge Agents, grants, memberships and the approval
+  policy, on F4's shell.
+- **S35, backend** (`NEXT-SESSION-BE.md`): fetching, cursors, alerts and routing for
+  shared SIEMs; it carries TD-081.
+- **B5, bugs** (`NEXT-SESSION-BUGS.md`) waits for Burhan to scope it; B-044 and B-045
+  are new.
