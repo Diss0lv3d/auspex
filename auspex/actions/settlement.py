@@ -515,6 +515,17 @@ class NothingToPropose(RuntimeError):
         self.model_feedback = f"not proposed: the action would change nothing. {would}"
 
 
+class CannotPropose(RuntimeError):
+    """A connector action that cannot run here now is not proposed (S34): its
+    integration is disabled, the action is not granted, or its Edge Agent is not live.
+    `model_feedback` is the resolver's reason, code-written."""
+
+    def __init__(self, reason: str, words: str) -> None:
+        super().__init__(words)
+        self.reason = reason
+        self.model_feedback = f"not proposed: {words}"
+
+
 _ECHO_KEYS = 5  # how many offending names a sentence echoes
 _ECHO_NAME_CAP = 40  # characters of one name; a key comes from a model's tool call
 
@@ -573,7 +584,7 @@ def _refuse_stored_undeclared(spec: ActionSpec, proposal: dict) -> None:
         ) from None
 
 
-def action_proposer(pool: asyncpg.Pool):
+def action_proposer(pool: asyncpg.Pool, registry: ActionRegistry | None = None):
     """The seam the agent loop calls when a model calls an action.
 
     Returns a coroutine function matching `loop.ActionProposer`: dry-run the
@@ -585,6 +596,10 @@ def action_proposer(pool: asyncpg.Pool):
     could call actions, an argument the workspace does not resolve (an
     observable it has never seen) would file a card a human can only reject and
     whose execution can only fail — a human's decision spent on nothing.
+
+    **Nor one that cannot run now** (S34): `registry.refusal` names why a connector
+    action would be refused (agent offline, integration disabled, not granted), before
+    a dry-run job waits on an agent that will not answer.
     """
     settlement = ProposalSettlement(pool)
 
@@ -593,6 +608,9 @@ def action_proposer(pool: asyncpg.Pool):
         # before any row. The approved run passes the platform's own keywords too,
         # so a key named like one of them would collide there.
         check_declared(spec, arguments)
+        refused = None if registry is None else await registry.refusal(spec.name, workspace_id)
+        if refused is not None:
+            raise CannotPropose(*refused)
         outcome = await spec.dry_run(workspace_id=workspace_id, **arguments)
         if not outcome.affects:
             raise NothingToPropose(outcome.would)
@@ -1145,6 +1163,7 @@ __all__ = [
     "UNDOABLE_FROM",
     "ActionExecutor",
     "ExecutionRefused",
+    "CannotPropose",
     "NothingToPropose",
     "ProposalSettlement",
     "SettleResult",

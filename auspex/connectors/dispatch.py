@@ -36,7 +36,13 @@ _KEYED = frozenset({"execute", "undo"})
 
 
 class DispatchFailed(RuntimeError):
-    """The Edge Agent did not answer in time, or answered with an error. In words."""
+    """The Edge Agent did not answer in time, or answered with an error. In words.
+    `model_feedback` is the part the agent loop may hand the model: the platform's own
+    sentence, never the agent's or the connector's text (D-045's rule)."""
+
+    def __init__(self, message: str, model_feedback: str) -> None:
+        super().__init__(message)
+        self.model_feedback = model_feedback
 
 
 def _step(kind: str) -> str:
@@ -84,14 +90,15 @@ async def _answer(pool: asyncpg.Pool, job_id: uuid.UUID, step: str, bound: float
             return json.loads(result) if isinstance(result, str) else result
         if row["status"] in ("failed", "dead"):
             raise DispatchFailed(f"the Edge Agent could not run {_what(step)}:"
-                                 f" {row['last_error'] or 'no reason given'}")
+                                 f" {row['last_error'] or 'no reason given'}",
+                                 f"not proposed: the Edge Agent could not run {_what(step)}")
         if loop.time() >= deadline:
             await pool.execute(
                 "UPDATE jobs SET status = 'failed', finished_at = now(), last_error ="
                 " 'the core stopped waiting before an Edge Agent claimed it'"
                 " WHERE id = $1 AND status = 'queued'", job_id)
-            raise DispatchFailed(f"the Edge Agent did not answer {_what(step)}"
-                                 f" within {bound:g} s")
+            said = f"the Edge Agent did not answer {_what(step)} within {bound:g} s"
+            raise DispatchFailed(said, f"not proposed: {said}")
         await asyncio.sleep(min(poll, max(0.0, deadline - loop.time())))
 
 

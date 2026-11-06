@@ -85,7 +85,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.action_registry = ActionResolver(
                 builtins, app.state.pool,
                 dispatch=lambda integration: dispatcher(app.state.pool, integration))
-            app.state.action_proposer = action_proposer(app.state.pool)
+            app.state.action_proposer = action_proposer(app.state.pool, app.state.action_registry)
             # Feed ingestion (S7): one background task owns KB bootstrap +
             # watermark catch-up + the hourly cycle. Inert (bootstrap-only)
             # when INGEST_ENABLED=false or the KB is off.
