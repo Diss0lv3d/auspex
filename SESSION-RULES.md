@@ -9,7 +9,7 @@ it changes, in its own commit._
 
 ## LLM endpoints
 
-- The primary dev LLM is **glm-4.5-air on Z.ai's general API (D-034)**:
+- The primary dev LLM is **glm-5.3-flash on Z.ai's general API (D-076; endpoint D-034)**:
   `LLM_BASE_URL=https://api.z.ai/api/paas/v4`, key in `.env` as `LLM_API_KEY`.
 - Local Ollama `qwen3:14b` at `http://localhost:11434/v1` is the
   secondary/offline endpoint (D-013), and it is what the session-start
@@ -105,7 +105,8 @@ Who works here. Personal accounts only; no employer account or email (such as
 
 ## Inference costs real money
 
-- Z.ai is pay-as-you-go: glm-4.5-air is $0.20/$1.10 per 1M tokens, and thinking
+- Z.ai is pay-as-you-go: glm-5.3-flash's price is not yet recorded (glm-4.5-air's was
+  $0.20/$1.10 per 1M tokens), and thinking
   is billed inside `completion_tokens`. A thin-topic agent turn is at most ~5
   calls (D-046). Budget probes.
 - General endpoint only, pay-as-you-go only, dev only. Never

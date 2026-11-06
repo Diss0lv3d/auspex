@@ -1529,12 +1529,8 @@ records what the split left). F2 added #20–#22.
   issue is the scorer, now in IDEAS).
 
 ## Blockers / open risks
-0. **The dev engine refuses its key (S34 start, 2026-11-02).** `GET
-   $LLM_BASE_URL/models` answers 401 for `glm-4.5-air` on Z.ai: the key in `.env`
-   is expired, revoked or out of credit. S34 builds and tests without it (tests use
-   a fake engine); only its live chat check needs it. Hunaiza asks Burhan for a
-   working key (his Z.ai account) and sets it in her `.env` herself; never in the
-   chat or the repo.
+0. ~~The dev engine refused its key~~ — resolved 2026-11-06: a new key answers
+   200, and the dev model is glm-5.3-flash (D-076; docs/probes/2026-11-06-glm-5.3-flash.md).
 1. **TD-001 (OAuth identity keyed on email) and TD-059 (person creation over
    the API is unlimited)** are hard gates before any GOOGLE_CLIENT_ID is
    configured.
@@ -1603,7 +1599,7 @@ records what the split left). F2 added #20–#22.
 - Postgres 55432; app 8000; OpenSearch 9200. Host runs pin via `auspex.devhost`.
 - Ollama 0.34.0 on :11434 (root `http://localhost:11434/v1`, D-033); models
   qwen3:14b / llama3.1:8b / mistral:latest. The S28 start gate passed.
-- **Primary dev LLM is glm-4.5-air on Z.ai (D-034)** — `https://api.z.ai/api/paas/v4`,
+- **Primary dev LLM is glm-5.3-flash on Z.ai (D-076; endpoint D-034)** — `https://api.z.ai/api/paas/v4`,
   pay-as-you-go key in `.env` as both `GLM_API_KEY` and `LLM_API_KEY`. **Never the
   Coding Plan endpoint.**
   - Thinking is on by default and billed inside `completion_tokens`.

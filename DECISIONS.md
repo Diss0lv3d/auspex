@@ -2730,3 +2730,17 @@ customer systems, and the plan asks for each client's own approval policy.
 **Bounds, stated.** A rule can only narrow who approves within a workspace's own
 roles; it never grants approval to someone who cannot enter the workspace. Rejecting
 is not restricted by the rule.
+
+## D-076 — The dev engine is glm-5.3-flash (2026-11-06, S34)
+
+**Context.** The dev key was refused at S34's start (STATE.md Blockers #0). Burhan
+issued a new key and asked that the dev model change to GLM 5.3 Flash.
+
+**Decision (Burhan's).** `LLM_MODEL=glm-5.3-flash` on the same Z.ai general
+pay-as-you-go endpoint. This replaces D-034's choice of model only; D-034's
+endpoint rules (general API, never the Coding Plan endpoint, no KSA-tenant data)
+stand. Probe: docs/probes/2026-11-06-glm-5.3-flash.md.
+
+**Consequences.** Earlier measurements (D-034's table, TD-036, TD-044, D-046's
+history behaviour) were taken on glm-4.5-air and are not assumed to hold; TD-044's
+calibration in S34 Task 8 is the first on this model.

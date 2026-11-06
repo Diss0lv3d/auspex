@@ -209,7 +209,7 @@ cp dev-endpoints.example.json dev-endpoints.json   # gitignored; only needed for
 | Variable | What to put |
 |---|---|
 | `LLM_BASE_URL` | `https://api.z.ai/api/paas/v4` (the dev engine, D-034). **Only this general endpoint, never `api/coding/paas/v4`.** |
-| `LLM_MODEL` | `glm-4.5-air` |
+| `LLM_MODEL` | `glm-5.3-flash` (D-076) |
 | `LLM_API_KEY`, `GLM_API_KEY` | the dev engine key from Burhan (the same key in both) |
 | `ABUSEIPDB_API_KEY`, `OTX_API_KEY`, `ABUSECH_AUTH_KEY`, `GREYNOISE_API_KEY`, `NVD_API_KEY` | from Burhan if he shares them; each is optional and the platform degrades honestly without it |
 | everything else | leave as in `.env.example` |
