@@ -2,8 +2,11 @@
 
 _Paste everything below the first line of dashes into a fresh Claude Code
 window opened in the Auspex repo. **F5 starts only after S32, S33 and S34
-close** (the order table in `NEXT-SESSION-BE.md`, row 8); until then the focus
-is the backend, S34 next (STATE.md; S33 closed 2026-10-28). F4 closed 2026-10-16: one shell for every page,
+close** (the order table in `NEXT-SESSION-BE.md`, row 8). **S34 closed
+2026-11-06** (Hunaiza); F5 starts once Burhan merges its PR into `staging`. S34 added
+the routes F5 shows: `PUT /api/integrations/{id}/grants` (Admin) and
+`GET`/`PUT /api/approval-policy` (D-075); actions refused at execute carry a reason
+(`agent_offline`, `integration_disabled`, `not_granted`, `spec_changed`, D-077). F4 closed 2026-10-16: one shell for every page,
 D-070, a read-only Members page._
 
 _Below the F5 prompt is **Burhan's front-end plan for the whole phase,
