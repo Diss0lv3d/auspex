@@ -32,7 +32,9 @@ from auspex.edge import cache, secrets
 
 logger = logging.getLogger("auspex.edge")
 
-COMMAND_TIMEOUTS = {"test": 60}  # seconds; under the job's 90 s lease
+# Seconds; under every job's 90 s lease. A preview and an observe stay under the core's
+# 30 s wait for them (S34), so a slow one is stopped here, not left running unheard.
+COMMAND_TIMEOUTS = {"test": 60, "dry_run": 25, "observe": 25, "execute": 60, "undo": 60}
 # A failed result post is retried, then given up (the job's lease then expires): the
 # heartbeat renews only jobs still running here, so a lost answer never holds a job
 # "running" for ever (PR #51 review #1).
@@ -137,9 +139,12 @@ class Agent:
         config = payload.get("config") or {}
         wanted = {m.group(1) for v in config.values() if isinstance(v, str)
                   for m in [SECRET_REF.fullmatch(v)] if m}
-        job = {"command": command, "config": config,
+        # An action's step runs as `<action>.<step>`, the runner's name for it (S34).
+        action = payload.get("action")
+        job = {"command": f"{action}.{command}" if action else command, "config": config,
                "secrets": {k: v for k, v in held.items() if k in wanted},
-               "arguments": payload.get("arguments") or {}}
+               "arguments": payload.get("arguments") or {},
+               "idempotency_key": payload.get("idempotency_key")}
         timeout = COMMAND_TIMEOUTS.get(command, DEFAULT_TIMEOUT)
         env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}
         env.update({k: os.environ[k] for k in PASS_THROUGH if k in os.environ})

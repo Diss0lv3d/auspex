@@ -35,6 +35,14 @@ class ActionResolver:
         self._pool = pool
         self._dispatch = dispatch
 
+    # The built-ins' own reads, for callers that name a built-in or list them (the chat
+    # manifest offers connector actions in Task 8).
+    def get(self, name: str) -> ActionSpec | None:
+        return self.builtins.get(name)
+
+    def manifest(self, agent_mode: str):
+        return self.builtins.manifest(agent_mode)
+
     async def resolve(self, name: str, workspace_id: UUID | str) -> ActionSpec | None:
         builtin = self.builtins.get(name)
         if builtin is not None:

@@ -9,11 +9,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
 from auspex_sdk import validate
+from auspex_sdk.manifest import parse_manifest
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -153,8 +155,8 @@ async def post_result(job_id: UUID, body: Answer, request: Request, agent: Agent
     agent's error, fails the job in words."""
     pool = request.app.state.pool
     row = await pool.fetchrow(
-        "SELECT kind FROM jobs WHERE id = $1 AND workspace_id = $2 AND claimed_by = $3",
-        job_id, agent.workspace_id, _claimer(agent))
+        "SELECT kind, payload FROM jobs WHERE id = $1 AND workspace_id = $2"
+        " AND claimed_by = $3", job_id, agent.workspace_id, _claimer(agent))
     if row is None or row["kind"] not in EDGE_KINDS:
         raise HTTPException(status_code=404, detail="no such job for this agent")
     try:
@@ -162,13 +164,36 @@ async def post_result(job_id: UUID, body: Answer, request: Request, agent: Agent
             await fail(pool, job_id, body.token, body.error, permanent=True)
             return
         try:
-            validate.check_test(body.result)
+            await _check(pool, row["kind"], row["payload"], body.result)
         except validate.ResultInvalid as err:
             await fail(pool, job_id, body.token, f"invalid result: {err}", permanent=True)
             return
         await complete(pool, job_id, body.token, body.result)
     except JobLost as err:
         raise HTTPException(status_code=409, detail="this job is no longer held") from err
+
+
+async def _check(pool, kind: str, payload, result: Any) -> None:
+    """The answer against its contract, picked by the job's kind (the S33 merge review):
+    a test's `{ok, detail}`; an action step's envelope against the manifest action's
+    declared output, from the package the job pinned; observe's count."""
+    if kind == "connector.test":
+        validate.check_test(result)
+        return
+    payload = json.loads(payload) if isinstance(payload, str) else payload
+    data = await pool.fetchval("SELECT manifest FROM connector_packages WHERE content_hash = $1"
+                               " LIMIT 1", payload.get("content_hash"))
+    if data is None:
+        raise validate.ResultInvalid("the job's package is no longer in the catalogue")
+    manifest = parse_manifest(json.loads(data) if isinstance(data, str) else data)
+    action = next((a for a in manifest.actions if a.name == payload.get("action")), None)
+    if action is None:
+        raise validate.ResultInvalid(f"the package declares no action {payload.get('action')!r}")
+    step = kind.rsplit(".", 1)[1]
+    if step == "observe":
+        validate.check_observe(action, result)
+    else:
+        validate.check_envelope(action, step, result)
 
 
 class Beat(BaseModel):

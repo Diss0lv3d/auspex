@@ -15,6 +15,8 @@ from auspex.actions.expiry import EXPIRE, EXPIRE_SCHEDULE
 from auspex.actions.settlement import action_proposer
 from auspex.config import Settings, get_settings
 from auspex.connectors import routes as connectors
+from auspex.connectors.dispatch import dispatcher
+from auspex.connectors.resolve import ActionResolver
 from auspex.db import create_pool
 from auspex.edge_api import routes as edge
 from auspex.enrich import EnrichmentService
@@ -76,8 +78,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # and built from a single place so the loop's manifest and the
             # approval surface's executor can never hold different registries —
             # which would let a model propose an action the executor cannot find.
-            app.state.action_registry = ActionRegistry()
-            app.state.action_registry.register_all(build_builtin_actions(app.state.pool))
+            # S34: the resolver answers the built-ins and each workspace's granted
+            # connector actions, whose roles run as jobs on the integration's agent.
+            builtins = ActionRegistry()
+            builtins.register_all(build_builtin_actions(app.state.pool))
+            app.state.action_registry = ActionResolver(
+                builtins, app.state.pool,
+                dispatch=lambda integration: dispatcher(app.state.pool, integration))
             app.state.action_proposer = action_proposer(app.state.pool)
             # Feed ingestion (S7): one background task owns KB bootstrap +
             # watermark catch-up + the hourly cycle. Inert (bootstrap-only)
