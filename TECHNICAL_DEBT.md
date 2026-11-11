@@ -2023,3 +2023,16 @@ exist would be untestable.
 the integration is shared and the action's `targets` argument is not an item routed to
 the proposal's workspace. Test per case, cross-tenant included.
 **Trigger:** S35's routing map lands — its plan must carry this.
+
+## TD-082 (S34) — a connector's roles are not checked across its actions
+
+**Where:** `sdk/auspex_sdk/build.py` (`_refuse_shared_roles`, TD-071) refuses two roles of
+ONE action that import as the same function; `auspex/actions/registry.py:100-111` refuses
+a role shared across actions for built-ins only. Compiled connector actions never pass
+through the registry.
+**Risk:** LOW. Found by PR #53's review (s5); true before S34. Action A's undo could be
+action B's execute: undoing A would then run B's write. Every run is still approved
+and fingerprinted, and the manifest is the admin's to read.
+**Path to fix:** extend `_refuse_shared_roles` to every role of every action in the
+manifest (one function, one role), and test it like TD-071.
+**Trigger:** a connector built from shared helper functions, or the next change to build.
