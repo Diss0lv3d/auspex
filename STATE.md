@@ -1,6 +1,15 @@
 # STATE — Auspex
 
-_Last updated: 2026-11-06 — **S34 CLOSED** by Hunaiza (D-059, handed fully):
+_Last updated: 2026-11-11 — **PR #53's review answered on `s34-actions`**
+(Burhan: changes requested; docs/probes/2026-11-11-pr53-review.md, each row marked
+with its fix). Fixed, one commit each, test first: a failed undo can be retried (#1);
+the stale Run door follows the approval policy (#2); grants are held to the checked
+package (#3); s1–s4 fixed (s4: read actions refused at the grant); s5 → TD-082. A fresh
+review of the fixes (Hunaiza agreed) found a malformed answer could be retried; fixed.
+**Open for Burhan:** should D-075's policy cover undo? Gate green in parts: **2281 tests**
+(2008 + 1 skipped, SDK 272), 156 modules, both images; ready 200. Pushed to the same PR.
+
+2026-11-06 — **S34 CLOSED** by Hunaiza (D-059, handed fully):
 **connector actions run through approvals on the customer's Edge Agent**, each
 client's **approval policy** decides who approves (D-075), and the **co-analyst**
 proposes them. Live: a chat turn proposed closing a stub-SIEM alert; approved, it
@@ -1544,6 +1553,8 @@ the spec; S30, F4, S31, S32, S33 and S34 are done.**
     - TD-079 (a grant revoked between check and claim), TD-080 (the risk sentence off
       the index with a connector line).
     - TD-044 stays open: the ceiling on our own text is 9 / 52 on action turns.
+    - PR #53 review: TD-082 (roles across actions); **Burhan to decide whether D-075's
+      policy covers undo** (raised by the fresh review of the fixes).
 
 **Closed at S34, so they leave this list:** most of #33 (above). S34 added #34.
 
