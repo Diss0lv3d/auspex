@@ -32,9 +32,10 @@ from auspex.edge import cache, secrets
 
 logger = logging.getLogger("auspex.edge")
 
-# Seconds; under every job's 90 s lease. A preview and an observe stay under the core's
-# 30 s wait for them (S34), so a slow one is stopped here, not left running unheard.
-COMMAND_TIMEOUTS = {"test": 60, "dry_run": 25, "observe": 25, "execute": 60, "undo": 60}
+# Seconds; under every job's 90 s lease, and each action step under the core's wait for
+# it (30 s preview and observe, 60 s execute and undo; S34), so a slow command is stopped
+# here and said so, never answered after the core stopped listening (PR #53 review s1).
+COMMAND_TIMEOUTS = {"test": 60, "dry_run": 25, "observe": 25, "execute": 50, "undo": 50}
 # A failed result post is retried, then given up (the job's lease then expires): the
 # heartbeat renews only jobs still running here, so a lost answer never holds a job
 # "running" for ever (PR #51 review #1).

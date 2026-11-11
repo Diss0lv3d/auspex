@@ -332,3 +332,13 @@ async def test_an_undo_that_may_have_run_is_not_run_again(site):
     assert failed.value.may_have_run is True
     assert 1 == await pool.fetchval("SELECT count(*) FROM jobs WHERE integration_id = $1",
                                     integ.id)
+
+
+def test_each_agent_timeout_is_under_the_core_s_wait_and_the_lease():
+    """PR #53 review s1: an execute timed out at the agent at 60 s while the core waited
+    60 s from enqueue, so a slow success read as unknown effects."""
+    from auspex.connectors.kinds import ACTION_KINDS
+    from auspex.edge.agent import COMMAND_TIMEOUTS
+
+    for step, kind in ACTION_KINDS.items():
+        assert COMMAND_TIMEOUTS[step] + 5 <= dispatch_mod.WAITS[step] < kind.lease_seconds
