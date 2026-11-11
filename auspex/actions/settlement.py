@@ -792,8 +792,13 @@ class ActionExecutor:
         workspace_id: UUID | str,
         proposal_id: UUID | str,
         run_by: UUID | str | None,
+        allowed: Iterable[str] | None = None,
     ) -> ActionOutcome:
         """Run an approval that no run ever started (TD-042, D-048).
+
+        `allowed`: the risk levels the PRESSER may approve under the workspace's policy
+        (S34, D-075). Running an old approval is a decision made now, so it follows the
+        same rule approve does (PR #53 review #2): checked first, and again in the claim.
 
         The row is `approved` with no claim, older than `STALE_CLAIM_SECONDS`:
         the process died between approve's settle and its run, or the run was
@@ -819,6 +824,13 @@ class ActionExecutor:
                 f"proposal is {proposal['status']} — only an approval that no run has "
                 "started can be run from here",
             )
+        allowed = None if allowed is None else list(allowed)
+        if allowed is not None and proposal["tool_level"] not in allowed:
+            raise ExecutionRefused(
+                "not_allowed",
+                f"the workspace's approval policy does not let you run a "
+                f"{proposal['tool_level']} action",
+            )
         spec = await self._resolve(proposal["tool_name"], workspace_id)
         if spec is None:
             raise ExecutionRefused(
@@ -835,12 +847,14 @@ class ActionExecutor:
              WHERE id = $1::uuid AND workspace_id = $2::uuid
                AND status = 'approved' AND claimed_at IS NULL
                AND decided_at < now() - make_interval(secs => $4::double precision)
+               AND ($5::text[] IS NULL OR tool_level = ANY($5::text[]))
             RETURNING claim_token
             """,
             str(proposal_id),
             str(workspace_id),
             str(run_by) if run_by is not None else None,
             float(STALE_CLAIM_SECONDS),
+            allowed,
         )
         if claimed is None:
             # Lost, or early. One more read to say which — after the fact, so it
@@ -848,6 +862,13 @@ class ActionExecutor:
             now = await self._settlement.get(workspace_id=workspace_id, proposal_id=proposal_id)
             if now is None:
                 raise ExecutionRefused("not_found", "no such proposal in this workspace")
+            if now["status"] == "approved" and allowed is not None \
+                    and now["tool_level"] not in allowed:
+                raise ExecutionRefused(  # the claim's own policy guard (review #2)
+                    "not_allowed",
+                    f"the workspace's approval policy does not let you run a "
+                    f"{now['tool_level']} action",
+                )
             if now["status"] == "approved":
                 raise ExecutionRefused(
                     "not_stale",

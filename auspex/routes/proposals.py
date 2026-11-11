@@ -421,12 +421,22 @@ async def execute_stale_approval(request: Request, auth: Analyst, proposal_id: U
     run; the human pressing this is recorded as the one who ran it. A refusal
     is a 409 here, not approve's 200 — nothing else happened in this request.
     """
+    pool = request.app.state.pool
     try:
         outcome = await _executor(request).run_stale_approval(
-            workspace_id=auth.workspace_id, proposal_id=proposal_id, run_by=auth.user_id
+            workspace_id=auth.workspace_id, proposal_id=proposal_id, run_by=auth.user_id,
+            # PR #53 review #2: the presser's own approval policy, as approve's (D-075).
+            allowed=await policy.approvable(pool, workspace_id=auth.workspace_id,
+                                            role=auth.role, home_org_id=auth.home_org_id),
         )
     except ExecutionRefused as refused:
         logger.info("stale-approval run refused for %s: %s", proposal_id, refused.reason)
+        if refused.reason == "not_allowed":
+            row = await _settlement(request).get(workspace_id=auth.workspace_id,
+                                                 proposal_id=proposal_id)
+            raise HTTPException(status_code=403, detail=await policy.refusal(
+                pool, workspace_id=auth.workspace_id, risk=row["tool_level"],
+                role=auth.role, home_org_id=auth.home_org_id)) from None
         status = 404 if refused.reason == "not_found" else 409
         raise HTTPException(status_code=status, detail=refused.detail) from None
     except Exception:

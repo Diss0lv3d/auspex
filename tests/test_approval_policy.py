@@ -122,3 +122,43 @@ async def test_a_policy_that_makes_no_sense_is_refused(world, client, settings, 
     res = client.put("/api/approval-policy", headers=token(settings, m.d_user, m.direct_ws),
                      json=body)
     assert res.status_code == 422
+
+
+async def _stale_approved(pool, ws, level, approver) -> uuid.UUID:
+    """An approval no run ever started, older than the stale threshold (D-048)."""
+    return await pool.fetchval(
+        "INSERT INTO proposals (workspace_id, tool_name, tool_level, tool_input,"
+        " spec_fingerprint, card, status, decided_at, decided_by)"
+        " VALUES ($1, 'annotate_observable', $2, '{}', 'fp', '{}', 'approved',"
+        " now() - interval '1 hour', $3) RETURNING id", ws, level, approver)
+
+
+async def test_the_stale_run_door_follows_the_policy_for_an_analyst(world, client, settings):
+    """PR #53 review #2: with write set to admins only, an analyst refused at approve
+    could still press Run on an admin's stale approval and execute it."""
+    pool, m = world
+    analyst = await _analyst(pool, m)
+    client.put("/api/approval-policy", headers=token(settings, m.d_user, m.direct_ws),
+               json={"risk": "write", "roles": ["admin"], "provider_staff": True})
+    pid = await _stale_approved(pool, m.direct_ws, "write", m.d_user)
+    ran = client.post(f"/api/proposals/{pid}/execute",
+                      headers=token(settings, analyst, m.direct_ws))
+    assert ran.status_code == 403 and "admin" in ran.json()["detail"]
+    row = await pool.fetchrow("SELECT status, claimed_at FROM proposals WHERE id = $1", pid)
+    assert row["status"] == "approved" and row["claimed_at"] is None
+
+
+async def test_the_stale_run_door_follows_the_policy_for_provider_staff(world, client,
+                                                                          settings):
+    pool, m = world
+    c1_admin = await pool.fetchval("INSERT INTO users (email, home_org_id) VALUES ($1, $2)"
+                                   " RETURNING id", f"c1s@{PREFIX}.dev", m.client1)
+    await pool.execute("INSERT INTO memberships (workspace_id, user_id, role)"
+                       " VALUES ($1, $2, 'admin')", m.client1_ws, c1_admin)
+    client.put("/api/approval-policy", headers=token(settings, c1_admin, m.client1_ws),
+               json={"risk": "write", "roles": ["admin", "analyst"], "provider_staff": False})
+    pid = await _stale_approved(pool, m.client1_ws, "write", c1_admin)
+    ran = client.post(f"/api/proposals/{pid}/execute",
+                      headers=token(settings, m.p_admin, m.client1_ws))
+    assert ran.status_code == 403 and "provider" in ran.json()["detail"]
+    assert "approved" == await pool.fetchval("SELECT status FROM proposals WHERE id = $1", pid)
