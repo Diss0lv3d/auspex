@@ -2780,3 +2780,28 @@ wire description, parameters and its line in the system message). No floor moved
 configuration still is (the recitation turn tripped at 58). TD-080: the platform's
 risk sentence inside a connector line leaves the index with it. B-045: on this model
 our OWN action directive can trip legitimate turns; open.
+
+## D-079 — Undo follows the approval policy, and a workspace's rule only narrows (2026-11-11, PR #53's merge review)
+
+**Context.** D-075 made who may approve a rule per workspace and risk level, applied at
+approve and (PR #53 review #2) at D-048's stale Run door. Both fresh reviews of PR #53
+asked whether it also governs Undo: for a connector action an undo is a fresh write to
+the customer's system, and any Analyst could press it. The merge review also found
+`PUT /api/approval-policy` accepting a rule wider than the default (analysts approving
+destructive actions), where S34's spec (decision 1) says an admin "may tighten it" and
+D-075 says "a rule can only narrow who approves".
+
+**Decision (Burhan's, 2026-11-11).**
+- **Undo follows the policy.** Putting an action back needs the same rule as approving
+  that action's risk level in that workspace, for the person pressing it: checked
+  before the undo claim and in it, refused 403 in the policy's words. It applies to
+  every action, built-in or connector. Not built yet: **B-048**.
+- **A rule only narrows.** A workspace's rule for a risk level is a subset of the
+  default's roles for it (`write`: analyst, admin; `destructive`: admin), and may bar
+  provider staff. D-075's bound holds as written; the code that accepts a wider rule is
+  **B-047**.
+
+**Bounds, stated.** Withdraw, keep, abandon and observe are unchanged (any Analyst).
+Burhan also kept a provider admin's power to lift a client's `provider_staff` rule
+(consistent with D-061, where provider admins already manage a client's members) and
+confirmed D-078 (2026-11-11, on PR #53).
