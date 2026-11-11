@@ -1,13 +1,28 @@
 # STATE — Auspex
 
-_Last updated: 2026-11-11 — **PR #53's review answered on `s34-actions`**
+_Last updated: 2026-11-11 — **PR #53 (S34) merged into `staging`** (fast-forward
+to `d19a5ef`, Burhan's window). Before the merge: each fix commit's new test fails
+against the code before its fix (the `5acc710` refactor excepted); the round-1
+reproductions now pass (an undo retried after a failure is `undone`; a barred
+analyst's stale Run is 403; a grant racing a package change is refused); full suite on
+`d19a5ef` 2280 passed + 1 skipped (2281), SDK 272, ruff clean; GitHub CI green. A second
+fresh review found no blocker; Burhan merged and logged it: **B-046** (reproduced
+through the real runner: a retried undo can re-run a handler that ran and answered
+malformed, or was stopped; `71e208f` covers only a hand-posted answer), **B-047**…
+**B-050**, **TD-083…TD-087**. **D-079** (Burhan's): Undo follows the approval policy
+(B-048 builds it) and a workspace's rule only narrows (B-047). Burhan confirmed D-078
+and kept a provider admin's power to lift `provider_staff`. TD-081 (to S35) and B-041
+stay his. **Promote slate: S34.**
+
+2026-11-11 — **PR #53's review answered on `s34-actions`**
 (Burhan: changes requested; docs/probes/2026-11-11-pr53-review.md, each row marked
 with its fix). Fixed, one commit each, test first: a failed undo can be retried (#1);
 the stale Run door follows the approval policy (#2); grants are held to the checked
 package (#3); s1–s4 fixed (s4: read actions refused at the grant); s5 → TD-082. A fresh
 review of the fixes (Hunaiza agreed) found a malformed answer could be retried; fixed.
-**Open for Burhan:** should D-075's policy cover undo? Gate green in parts: **2281 tests**
-(2008 + 1 skipped, SDK 272), 156 modules, both images; ready 200. Pushed to the same PR.
+**Open for Burhan:** should D-075's policy cover undo? (Answered at the merge: yes,
+D-079.) Gate green in parts: **2281 tests** (2008 + 1 skipped, SDK 272), 156 modules,
+both images; ready 200. Pushed to the same PR.
 
 2026-11-06 — **S34 CLOSED** by Hunaiza (D-059, handed fully):
 **connector actions run through approvals on the customer's Edge Agent**, each
@@ -147,9 +162,9 @@ Promote #40 (`09af821`) is the last one._
 
 | Track | Prompt | Last closed | Next | Status |
 |---|---|---|---|---|
-| backend | `NEXT-SESSION-BE.md` | S34 (2026-11-06, Hunaiza; PR into `staging` open) | S35 | waits for S34's PR to merge; then fetching and routing (owner: Burhan's call). Order table: F5 comes before S35 |
-| front end | `NEXT-SESSION-FE.md` | F4 (2026-10-16) | F5 | **focus** · **next in the order table** once S34's PR is merged: connectors, integrations, Edge Agents, grants, memberships and approval-policy admin, on F4's shell |
-| bugs | `NEXT-SESSION-BUGS.md` | B4 (2026-10-28, Hunaiza; PR #50 merged 2026-10-28) | B5 | unscoped: Burhan picks from the open entries (B-033…B-039 new from B4; B-040…B-043 from S33's PR #51) |
+| backend | `NEXT-SESSION-BE.md` | S34 (2026-11-06, Hunaiza; PR #53 merged 2026-11-11) | S35 | fetching and routing (owner: Burhan's call). Order table: F5 comes before S35 |
+| front end | `NEXT-SESSION-FE.md` | F4 (2026-10-16) | F5 | **focus** · **next in the order table** (S34's PR merged 2026-11-11): connectors, integrations, Edge Agents, grants, memberships and approval-policy admin, on F4's shell |
+| bugs | `NEXT-SESSION-BUGS.md` | B4 (2026-10-28, Hunaiza; PR #50 merged 2026-10-28) | B5 | unscoped: Burhan picks from the open entries (B-033…B-039 new from B4; B-040…B-043 from S33's PR #51; B-044, B-045 from S34; B-046…B-050 from PR #53's merge review) |
 
 - **S34 is Hunaiza's** (Burhan, 2026-10-30: "assign S34 to Hunaiza"; D-059).
   It had been recorded as Burhan's (`45a6e4f`).
@@ -1182,8 +1197,9 @@ scoped by a decision or a bug. **The integration phase (S30–S41, F4–F9) buil
 the spec; S30, F4, S31, S32, S33 and S34 are done.**
 
 ## In-flight / standing follow-ups (carry forward until DONE)
-1. **Promote slate: S34, once its PR (`s34-actions` → `staging`) is merged.**
-   Before that it read: empty. Promote #52 (`bf6e6d2`, back-merge `68b511c`;
+1. **Promote slate: S34** (PR #53 merged into `staging` 2026-11-11, fast-forward to
+   `d19a5ef`; then its merge review's B-046…B-050, TD-083…TD-087 and D-079).
+   Before that it read: S34, once its PR is merged; and before that: empty. Promote #52 (`bf6e6d2`, back-merge `68b511c`;
    2026-10-30) shipped S32, B4 and S33, run from Burhan's window after he took
    it back from Hunaiza (`./ci.sh` green fresh, 2211 tests; GitHub CI green).
    Before that, it read **S32, B4 and S33**, and before that:
@@ -1881,13 +1897,13 @@ Base: `/home/burhan/sara-open/` — key snapshots in docs/probes/:
 **Pick a track (D-051); the Tracks table at the top has the ids.** Paste the
 prompt file of the track you mean. `/session-start` with no track asks.
 One window at a time (D-051).
-- **First: Burhan reviews and merges S34's PR** (`s34-actions` → `staging`). Two
-  calls are flagged in it for him: D-078 (customer text off the rail's index) and
-  TD-081 (the routing-key check moved to S35).
+- S34's PR #53 is merged (2026-11-11). Still Burhan's from it: TD-081 (the
+  routing-key check moved to S35) and B-041's fix.
 - **F5, front end** (`NEXT-SESSION-FE.md`), next in the order table: the admin pages
   for connectors, integrations, Edge Agents, grants, memberships and the approval
-  policy, on F4's shell.
+  policy, on F4's shell. The policy page offers only narrowing (D-079).
 - **S35, backend** (`NEXT-SESSION-BE.md`): fetching, cursors, alerts and routing for
   shared SIEMs; it carries TD-081.
 - **B5, bugs** (`NEXT-SESSION-BUGS.md`) waits for Burhan to scope it; B-044 and B-045
-  are new.
+  are new from S34, and B-046…B-050 from PR #53's merge review (B-047 and B-048
+  build D-079).

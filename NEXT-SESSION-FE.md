@@ -3,7 +3,7 @@
 _Paste everything below the first line of dashes into a fresh Claude Code
 window opened in the Auspex repo. **F5 starts only after S32, S33 and S34
 close** (the order table in `NEXT-SESSION-BE.md`, row 8). **S34 closed
-2026-11-06** (Hunaiza); F5 starts once Burhan merges its PR into `staging`. S34 added
+2026-11-06** (Hunaiza); its PR #53 was merged into `staging` 2026-11-11. S34 added
 the routes F5 shows: `PUT /api/integrations/{id}/grants` (Admin) and
 `GET`/`PUT /api/approval-policy` (D-075); actions refused at execute carry a reason
 (`agent_offline`, `integration_disabled`, `not_granted`, `spec_changed`, D-077). F4 closed 2026-10-16: one shell for every page,
@@ -218,7 +218,9 @@ session starts only after the backend sessions it depends on have closed.**
       call 1): a page control for it needs a backend route first — Burhan's
       call before F5._
     - **The approval policy** for each client workspace (S34) can be read and
-      edited by an admin who may edit it, and only by them.
+      edited by an admin who may edit it, and only by them. A rule only narrows
+      the default (D-079): the page offers no wider choice (B-047 makes the
+      route refuse one).
     - Live end to end against the rebuilt container, as an MSSP admin, a
       client admin, an analyst and a viewer.
 

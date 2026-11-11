@@ -5,8 +5,8 @@ window opened in the Auspex repo. **S35 makes integrations fetch: schedules,
 cursors, alerts, and routing for shared SIEMs.** S34 closed 2026-11-06
 (Hunaiza, handed fully under D-059): connector actions through approvals on the
 Edge Agent, each client's approval policy (D-075), the co-analyst proposing them,
-D-076…D-078. It goes to `staging` as one PR from `s34-actions`; **S35 starts only
-after Burhan merges it.** The order table puts **F5 before S35**: which runs next,
+D-076…D-078. Its PR #53 was merged into `staging` 2026-11-11 (D-079 and
+B-046…B-050 from its merge review). The order table puts **F5 before S35**: which runs next,
 and who owns S35, is Burhan's call (STATE.md's Tracks table)._
 
 _Below the S35 prompt is the **backend plan for the whole phase, S29–S41**.
@@ -22,7 +22,7 @@ Auspex repo. Run `/session-start be S35` first (the full ritual). It reads
 
 Step 0 (do BEFORE new scope):
 
-1. **S34's PR (`s34-actions` → `staging`) must be merged.** `git fetch` and
+1. **S34's PR (`s34-actions` → `staging`) is merged (PR #53, 2026-11-11).** `git fetch` and
    `git pull --ff-only origin staging`, then confirm `auspex/connectors/dispatch.py`,
    `auspex/connectors/resolve.py` and `auspex/actions/policy.py` exist and STATE.md
    says S34 closed. If not, stop: wrong window. One session at a time (D-051).
