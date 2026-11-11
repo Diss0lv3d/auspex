@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from auspex_sdk import validate
+from auspex_sdk import invoke, validate
 from auspex_sdk.manifest import parse_manifest
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
@@ -174,9 +174,10 @@ async def post_result(job_id: UUID, body: Answer, request: Request, agent: Agent
 
 
 async def _check(pool, kind: str, payload, result: Any) -> None:
-    """The answer against its contract, picked by the job's kind (the S33 merge review):
-    a test's `{ok, detail}`; an action step's envelope against the manifest action's
-    declared output, from the package the job pinned; observe's count."""
+    """The answer against its contract, picked by the job's kind (the S33 merge review),
+    with the SDK's own `invoke.check`, the runner's and the harness's (TD-077; PR #53
+    review s3): a test's `{ok, detail}`; an action step against the manifest of the
+    package the job pinned."""
     if kind == "connector.test":
         validate.check_test(result)
         return
@@ -186,14 +187,11 @@ async def _check(pool, kind: str, payload, result: Any) -> None:
     if data is None:
         raise validate.ResultInvalid("the job's package is no longer in the catalogue")
     manifest = parse_manifest(json.loads(data) if isinstance(data, str) else data)
-    action = next((a for a in manifest.actions if a.name == payload.get("action")), None)
-    if action is None:
-        raise validate.ResultInvalid(f"the package declares no action {payload.get('action')!r}")
-    step = kind.rsplit(".", 1)[1]
-    if step == "observe":
-        validate.check_observe(action, result)
-    else:
-        validate.check_envelope(action, step, result)
+    command = f"{payload.get('action')}.{kind.rsplit('.', 1)[1]}"
+    try:
+        invoke.check(manifest, command, result)
+    except invoke.CommandError as err:  # no such action in the pinned package
+        raise validate.ResultInvalid(str(err)) from err
 
 
 class Beat(BaseModel):

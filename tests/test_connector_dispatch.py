@@ -342,3 +342,23 @@ def test_each_agent_timeout_is_under_the_core_s_wait_and_the_lease():
 
     for step, kind in ACTION_KINDS.items():
         assert COMMAND_TIMEOUTS[step] + 5 <= dispatch_mod.WAITS[step] < kind.lease_seconds
+
+
+async def test_an_answer_for_an_action_the_package_lacks_is_failed_in_words(site, client):
+    """PR #53 review s3: the edge API checks with the SDK's `invoke.check`; an action
+    the pinned package does not declare fails the job, never passes unchecked."""
+    from auspex.connectors.kinds import ACTION_KINDS
+    from auspex.jobs.queue import enqueue
+
+    pool, ws = site["pool"], site["m"].direct_ws
+    integ = await site["integration"](site["zip"], "siemnoact")
+    job, _ = await enqueue(pool, workspace_id=ws, kind=ACTION_KINDS["dry_run"],
+                           idempotency_key=f"t:{uuid.uuid4()}", integration_id=integ.id,
+                           payload={"content_hash": integ.content_hash, "action": "wipe"})
+    auth = {"Authorization": f"Bearer {site['credential']}"}
+    claimed = client.post("/api/edge/claim", params={"wait": 0}, headers=auth).json()["job"]
+    client.post(f"/api/edge/jobs/{claimed['id']}/result", headers=auth, json={
+        "token": claimed["token"],
+        "result": {"would": "x", "affects": [], "reversible": True, "detail": {}}})
+    row = await pool.fetchrow("SELECT status, last_error FROM jobs WHERE id = $1", job.id)
+    assert row["status"] == "failed" and "wipe" in row["last_error"]
