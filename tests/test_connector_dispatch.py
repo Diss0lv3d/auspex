@@ -281,3 +281,54 @@ async def test_a_wait_that_ran_out_before_any_claim_did_not_run(site):
                            idempotency_key=operation_key(uuid.uuid4(), "execute"),
                            alert_id="A-1001")
     assert failed.value.may_have_run is False
+
+
+@pytest.mark.parametrize("ended", ["agent_error", "never_claimed"])
+async def test_a_failed_undo_can_be_tried_again(site, ended):
+    """PR #53 review #1: a failed undo returns its row for another try, but the job key
+    was the same each time, so the retry got the old failure back in 70 ms and the
+    change could never be put back. A job that failed (the agent said so, or nobody
+    claimed it) lets a retry enqueue a fresh job; the handler keeps the operation key."""
+    pool, ws = site["pool"], site["m"].direct_ws
+    integ = await site["integration"](site["zip"], f"siemu{ended[:3]}")
+    key = operation_key(uuid.uuid4(), "undo")
+    from auspex.connectors.kinds import ACTION_KINDS
+    from auspex.jobs.queue import enqueue
+
+    first, _ = await enqueue(pool, workspace_id=ws, kind=ACTION_KINDS["undo"],
+                             idempotency_key=f"connector.undo:{key}", integration_id=integ.id,
+                             payload={})
+    reason = ("the core stopped waiting before an Edge Agent claimed it"
+              if ended == "never_claimed" else "RuntimeError: no reopen recorded")
+    await pool.execute("UPDATE jobs SET status = 'failed', last_error = $2, finished_at ="
+                       " now() WHERE id = $1", first.id, reason)
+    spec = await site["resolver"].resolve(f"siemu{ended[:3]}__close_alert", ws)
+    outcome = await _with_agent(site["agent"], spec.undo.handler(
+        workspace_id=ws, proposal_id=None, idempotency_key=key, alert_id="A-1001"))
+    assert outcome.would == "reopen alert A-1001"
+    rows = await pool.fetch("SELECT status, payload FROM jobs WHERE integration_id = $1"
+                            " ORDER BY created_at", integ.id)
+    assert [r["status"] for r in rows] == ["failed", "done"]
+    assert json.loads(rows[1]["payload"])["idempotency_key"] == key  # the handler's key
+
+
+async def test_an_undo_that_may_have_run_is_not_run_again(site):
+    """The other half of #1: a dead job (claimed, unanswered) may have run; no retry."""
+    pool, ws = site["pool"], site["m"].direct_ws
+    integ = await site["integration"](site["zip"], "siemudead")
+    key = operation_key(uuid.uuid4(), "undo")
+    from auspex.connectors.kinds import ACTION_KINDS
+    from auspex.jobs.queue import enqueue
+
+    first, _ = await enqueue(pool, workspace_id=ws, kind=ACTION_KINDS["undo"],
+                             idempotency_key=f"connector.undo:{key}", integration_id=integ.id,
+                             payload={})
+    await pool.execute("UPDATE jobs SET status = 'dead', last_error = 'lease expired' WHERE"
+                       " id = $1", first.id)
+    spec = await site["resolver"].resolve("siemudead__close_alert", ws)
+    with pytest.raises(dispatch_mod.DispatchFailed) as failed:
+        await spec.undo.handler(workspace_id=ws, proposal_id=None, idempotency_key=key,
+                                alert_id="A-1001")
+    assert failed.value.may_have_run is True
+    assert 1 == await pool.fetchval("SELECT count(*) FROM jobs WHERE integration_id = $1",
+                                    integ.id)

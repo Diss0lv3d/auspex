@@ -217,3 +217,17 @@ async def test_a_preview_nobody_answers_is_refused_in_words_and_nothing_is_filed
     assert "did not answer the preview" in refused.value.model_feedback
     assert 0 == await world["pool"].fetchval("SELECT count(*) FROM proposals"
                                              " WHERE workspace_id = $1", world["m"].direct_ws)
+
+
+async def test_an_undo_that_failed_can_be_pressed_again(world, client):
+    """PR #53 review #1, end to end: the SIEM has no reopen recorded the first time, so
+    the undo fails and the row goes back to `executed`; pressed again with the SIEM
+    answering, it runs as a fresh job and the row is `undone`."""
+    pid = (await world["propose"]("alert_open"))["id"]
+    assert (await asyncio.to_thread(_post, client, world, pid, "approve", "close")
+            ).status_code == 200
+    first = await asyncio.to_thread(_post, client, world, pid, "undo", "alert_closed")
+    assert first.status_code == 500 and await _status(world, pid) == "executed"
+    again = await asyncio.to_thread(_post, client, world, pid, "undo", "reopen")
+    assert again.status_code == 200, again.text
+    assert await _status(world, pid) == "undone"

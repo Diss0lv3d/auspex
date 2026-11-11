@@ -33,6 +33,7 @@ from auspex.jobs.queue import enqueue
 WAITS = {"dry_run": 30.0, "execute": 60.0, "undo": 60.0, "observe": 30.0}
 POLL_SECONDS = 0.25
 _KEYED = frozenset({"execute", "undo"})
+MAX_RETRIES = 20  # fresh jobs after failed ones, per operation key
 
 
 class DispatchFailed(RuntimeError):
@@ -74,13 +75,24 @@ def dispatcher(pool: asyncpg.Pool, integration: Integration, *,
                waits: dict[str, float] = WAITS, poll: float = POLL_SECONDS) -> Dispatch:
     async def dispatch(kind: str, job: ConnectorJobPayload) -> Any:
         step = _step(kind)
-        key = (f"connector.{step}:{job.idempotency_key}"
-               if step in _KEYED and job.idempotency_key
-               else f"connector.{step}:{uuid.uuid4()}")
-        queued, _ = await enqueue(pool, workspace_id=integration.workspace_id,
-                                  kind=ACTION_KINDS[step], idempotency_key=key,
-                                  integration_id=integration.id,
-                                  payload=_payload(job, integration))
+        base = (f"connector.{step}:{job.idempotency_key}"
+                if step in _KEYED and job.idempotency_key
+                else f"connector.{step}:{uuid.uuid4()}")
+        # A job under this key that FAILED did not run, or ran and said it failed: a
+        # retry gets a fresh job (PR #53 review #1), the handler keeping the operation
+        # key so the vendor side still drops a repeat. One that is done, or dead (it may
+        # have run), keeps answering for the key: never a second run.
+        for attempt in range(MAX_RETRIES + 1):
+            key = base if attempt == 0 else f"{base}#retry{attempt}"
+            queued, _ = await enqueue(pool, workspace_id=integration.workspace_id,
+                                      kind=ACTION_KINDS[step], idempotency_key=key,
+                                      integration_id=integration.id,
+                                      payload=_payload(job, integration))
+            if queued.status != "failed":
+                break
+        else:
+            raise DispatchFailed(f"{_what(step)} failed {MAX_RETRIES + 1} times; ask an admin",
+                                 f"not proposed: {_what(step)} failed too many times")
         return await _answer(pool, queued.id, step, waits[step], poll)
 
     return dispatch
