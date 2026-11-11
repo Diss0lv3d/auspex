@@ -165,8 +165,10 @@ def test_an_undeclared_argument_is_refused_by_name(src, tmp_path):
 
 
 def test_a_missing_required_argument_is_refused(src, tmp_path):
-    with pytest.raises(HarnessError, match="'alert_id' is required"):
+    """PR #53 review s2: the caller's mistake, not the handler's: no "handler raised"."""
+    with pytest.raises(HarnessError, match="'alert_id' is required") as refused:
         run(src, tmp_path, "close_alert.dry_run", arguments={})
+    assert "handler raised" not in str(refused.value)
 
 
 def test_an_omitted_optional_param_arrives_as_none(src, tmp_path):

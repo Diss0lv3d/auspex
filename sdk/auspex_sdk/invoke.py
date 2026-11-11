@@ -122,6 +122,9 @@ def invoke(
     given, replaces an exception the handler itself raised; `capture`, when given,
     receives everything the handler prints or logs."""
     ref, action, _ = resolve(manifest, command)
+    # The caller's arguments, checked before the handler runs: a missing or undeclared
+    # one is the caller's mistake, never reported as the handler's (PR #53 review s2).
+    bound = bind(action, arguments) if action is not None else None
     cfg = load_config(config_class(manifest), values, secrets)
     where = f"command {command}"
     root = Path(root).resolve()
@@ -140,7 +143,7 @@ def invoke(
             with quiet:
                 try:
                     if action is not None:
-                        result = fn(ctx, **bind(action, arguments))
+                        result = fn(ctx, **bound)
                     elif command == "fetch":
                         result = fn(ctx, arguments.get("cursor"),
                                     arguments.get("limit", DEFAULT_LIMIT))
