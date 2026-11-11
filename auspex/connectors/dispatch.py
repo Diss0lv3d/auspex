@@ -91,8 +91,10 @@ def dispatcher(pool: asyncpg.Pool, integration: Integration, *,
             if queued.status != "failed":
                 break
         else:
-            raise DispatchFailed(f"{_what(step)} failed {MAX_RETRIES + 1} times; ask an admin",
-                                 f"not proposed: {_what(step)} failed too many times")
+            raise DispatchFailed(
+                f"{_what(step)} has failed or been cancelled {MAX_RETRIES + 1} times; read the"
+                " integration's jobs for why (a connector error, or edits cancelling them)",
+                f"not proposed: {_what(step)} failed too many times")
         return await _answer(pool, queued.id, step, waits[step], poll)
 
     return dispatch

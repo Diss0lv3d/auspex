@@ -157,7 +157,8 @@ async def test_an_envelope_that_breaks_the_manifest_s_output_is_failed(site, cli
     await served
     row = await site["pool"].fetchrow("SELECT status, last_error FROM jobs"
                                       " WHERE integration_id = $1", integ.id)
-    assert row["status"] == "failed" and "not declared" in row["last_error"]
+    # dead, not failed: the handler ran to answer, so it may have run (PR #53 fixes, #1)
+    assert row["status"] == "dead" and "not declared" in row["last_error"]
 
 
 async def test_a_lost_execute_result_never_runs_the_action_twice(site, tmp_path):
@@ -361,4 +362,39 @@ async def test_an_answer_for_an_action_the_package_lacks_is_failed_in_words(site
         "token": claimed["token"],
         "result": {"would": "x", "affects": [], "reversible": True, "detail": {}}})
     row = await pool.fetchrow("SELECT status, last_error FROM jobs WHERE id = $1", job.id)
-    assert row["status"] == "failed" and "wipe" in row["last_error"]
+    assert row["status"] == "dead" and "wipe" in row["last_error"]
+
+
+async def test_an_undo_answered_malformed_may_have_run_and_is_not_retried(site, client):
+    """Fresh review of the PR #53 fixes, #1: an invalid answer means the handler RAN,
+    and may have written, only its answer was bad. It ends `dead` (may have run), so a
+    second undo press does not run the handler again."""
+    pool, ws = site["pool"], site["m"].direct_ws
+    integ = await site["integration"](site["zip"], "siembadans")
+    spec = await site["resolver"].resolve("siembadans__close_alert", ws)
+    key = operation_key(uuid.uuid4(), "undo")
+    auth = {"Authorization": f"Bearer {site['credential']}"}
+
+    def answer_malformed():
+        import time
+        for _ in range(200):
+            res = client.post("/api/edge/claim", params={"wait": 0}, headers=auth)
+            if res.status_code == 200:
+                job = res.json()["job"]
+                client.post(f"/api/edge/jobs/{job['id']}/result", headers=auth,
+                            json={"token": job["token"], "result": {"would": "reopened"}})
+                return
+            time.sleep(0.05)
+
+    served = asyncio.create_task(asyncio.to_thread(answer_malformed))
+    with pytest.raises(dispatch_mod.DispatchFailed) as first:
+        await spec.undo.handler(workspace_id=ws, proposal_id=None, idempotency_key=key,
+                                alert_id="A-1001")
+    await served
+    assert first.value.may_have_run is True
+    with pytest.raises(dispatch_mod.DispatchFailed):
+        await spec.undo.handler(workspace_id=ws, proposal_id=None, idempotency_key=key,
+                                alert_id="A-1001")
+    statuses = [r["status"] for r in await pool.fetch(
+        "SELECT status FROM jobs WHERE integration_id = $1", integ.id)]
+    assert statuses == ["dead"]

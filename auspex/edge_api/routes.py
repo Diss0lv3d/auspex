@@ -166,7 +166,12 @@ async def post_result(job_id: UUID, body: Answer, request: Request, agent: Agent
         try:
             await _check(pool, row["kind"], row["payload"], body.result)
         except validate.ResultInvalid as err:
-            await fail(pool, job_id, body.token, f"invalid result: {err}", permanent=True)
+            # An action's handler RAN to give this answer and may have written: its job
+            # ends dead ("may have run", one attempt), never failed, so no retry runs it
+            # again (fresh review of the PR #53 fixes, #1). A test changes nothing.
+            permanent = row["kind"] == "connector.test"
+            await fail(pool, job_id, body.token, f"invalid result: {err}",
+                       permanent=permanent)
             return
         await complete(pool, job_id, body.token, body.result)
     except JobLost as err:
