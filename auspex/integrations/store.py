@@ -279,6 +279,13 @@ async def set_grants(pool, *, workspace_id: UUID, actor: audit.Actor, integratio
         raise IntegrationRefused(
             f"grants: {', '.join(unknown)} is not an action of this connector"
             f" (it declares {', '.join(sorted(declared)) or 'none'})")
+    # A read action needs no approval, and S34 runs actions only through approvals:
+    # granted, it was offered and then could not be filed (PR #53 review s4).
+    reads = sorted(a.name for a in manifest.actions if a.name in actions and a.risk == "read")
+    if reads:
+        raise IntegrationRefused(
+            f"grants: {', '.join(reads)} is a read action; actions run through approvals,"
+            " and a read action has none to go through")
     granted = sorted(set(actions))
     async with pool.acquire() as conn, conn.transaction():
         # Only onto the package the names were checked against (PR #53 review #3): a

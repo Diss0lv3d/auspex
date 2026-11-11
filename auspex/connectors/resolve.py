@@ -56,7 +56,8 @@ class ActionResolver:
         if found is None or action not in found[0].grants:
             return None
         integration, manifest = found
-        if not any(a.name == action for a in manifest.actions):
+        declared = next((a for a in manifest.actions if a.name == action), None)
+        if declared is None or declared.risk == "read":  # never through approvals (s4)
             return None
         return compile_action(
             manifest, action, content_hash=integration.content_hash, prefix=prefix,
@@ -83,7 +84,7 @@ class ActionResolver:
             data = row["manifest"]
             manifest = parse_manifest(json.loads(data) if isinstance(data, str) else data)
             integration = _integration(row)
-            declared = {a.name for a in manifest.actions}
+            declared = {a.name for a in manifest.actions if a.risk != "read"}  # s4
             for action in sorted(set(integration.grants) & declared):
                 offered.append(compile_action(
                     manifest, action, content_hash=integration.content_hash,

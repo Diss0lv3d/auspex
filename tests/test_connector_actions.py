@@ -298,3 +298,41 @@ async def test_a_grant_is_refused_when_the_package_changed_under_it(world, monke
     row = await pool.fetchrow("SELECT content_hash, grants FROM integrations WHERE id = $1",
                               integ.id)
     assert row["content_hash"] == other.content_hash and list(row["grants"]) == []
+
+
+def _read_variant(tmp_path) -> bytes:
+    """The reference connector with close_alert declared as a READ action (no undo)."""
+    import re
+
+    copy = tmp_path / "readc"
+    shutil.copytree(REFERENCE, copy, ignore=shutil.ignore_patterns("dist", "__pycache__"))
+    yaml = copy / "connector.yaml"
+    text = yaml.read_text().replace("version: 1.0.0", "version: 1.0.9")
+    text = text.replace("    risk: write", "    risk: read")
+    text = re.sub(r"    undo:\n(      .*\n)+", "", text)
+    yaml.write_text(text)
+    zip_path, _ = build(copy)
+    return zip_path.read_bytes()
+
+
+async def test_a_read_action_is_not_granted_nor_offered(world, tmp_path):
+    """PR #53 review s4: a granted read action was offered to the co-analyst, ran its
+    dry-run job, then failed to file (proposals hold write or destructive only) with a
+    database error the model read. A read action needs no approval and has no other path
+    in S34: it is refused at the grant, in words."""
+    from auspex.integrations import store
+
+    pool, m = world["pool"], world["m"]
+    entry = await register(pool, workspace_id=m.direct_ws, data=_read_variant(tmp_path),
+                           registered_by=m.d_user, offered_to_clients=False)
+    integ = await create(pool, workspace_id=m.direct_ws, actor=world["admin"], name="R",
+                         prefix="read1", content_hash=entry.content_hash, config=CONFIG,
+                         agent_id=world["agent"].id)
+    with pytest.raises(store.IntegrationRefused, match="read"):
+        await set_grants(pool, workspace_id=m.direct_ws, actor=world["admin"],
+                         integration_id=integ.id, actions=["close_alert"])
+    await pool.execute("UPDATE integrations SET grants = '{close_alert}' WHERE id = $1",
+                       integ.id)  # granted before this rule: still never offered
+    offered = await world["resolver"].manifest_for(m.direct_ws, "native_tools")
+    assert "read1__close_alert" not in {a.name for a in offered.actions}
+    assert await world["resolver"].resolve("read1__close_alert", m.direct_ws) is None
