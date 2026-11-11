@@ -2036,3 +2036,69 @@ and fingerprinted, and the manifest is the admin's to read.
 **Path to fix:** extend `_refuse_shared_roles` to every role of every action in the
 manifest (one function, one role), and test it like TD-071.
 **Trigger:** a connector built from shared helper functions, or the next change to build.
+
+## TD-083 (S34) — the agent's command timeout does not cover a job's time in the queue
+
+**Where:** `auspex/edge/agent.py` `COMMAND_TIMEOUTS` counts from the subprocess start;
+`auspex/connectors/dispatch.py` `WAITS` counts from the enqueue. The agent runs one job
+at a time.
+**Risk:** LOW. Found by the fresh review of PR #53 (merge review). A job queued behind a
+long one (an execute claimed at 45 s that takes 30 s) is answered after the core stopped
+listening at 60 s: the proposal reads `incomplete` with effects `unknown` although the
+change landed, and nothing reconciles it. The outcome is never wrong, only less precise;
+the comment over `COMMAND_TIMEOUTS` ("never answered after the core stopped listening")
+overstates it.
+**Path to fix:** the agent stops a command at the core's deadline (enqueue time + wait,
+carried in the payload), not at a fixed span; or a late answer reconciles the row.
+**Trigger:** agents serving several integrations, or any `incomplete` that observe shows
+landed.
+
+## TD-084 (S34) — the approval policy is read just before the claim, not inside it
+
+**Where:** `auspex/routes/proposals.py` (`approve`, `execute_stale_approval`) calls
+`policy.approvable` and passes the levels to the claiming UPDATE
+(`auspex/actions/settlement.py`).
+**Risk:** LOW. Found by the fresh review of PR #53. A policy tightened in the
+milliseconds between the read and the claim is not applied to that one approval, and the
+old rule is recorded in `approval_rule`. D-075 and `policy.py`'s docstring say the rule
+is enforced "in the claiming UPDATE"; the levels are, the rule's read is not.
+**Path to fix:** join `approval_policies` and `workspaces` inside the claiming UPDATE.
+**Trigger:** the next change to `settle` or the policy's shape.
+
+## TD-085 (S34) — one stored manifest the SDK refuses breaks chat for its whole workspace
+
+**Where:** `auspex/connectors/resolve.py` `manifest_for` and `integration` call
+`parse_manifest` and `compile_action` on every granted, enabled integration, with no
+error handling.
+**Risk:** LOW today (every stored manifest was parsed by this SDK at registration).
+Found by the fresh review of PR #53. An SDK upgrade that tightens a manifest rule would
+make every `POST /api/chat` in a workspace holding such a package fail before the loop
+starts, chats that never touch it included; resolve, execute and undo of its actions
+likewise.
+**Path to fix:** a manifest that no longer parses drops that integration's actions from
+the offer and refuses its runs in words (a reason like `package_unreadable`).
+**Trigger:** any SDK change to `parse_manifest`'s rules.
+
+## TD-086 (S34) — connector text leaves the rail's index by string replacement
+
+**Where:** `auspex/agent/loop.py` `issued_instructions` removes each connector action's
+`planner_description` from the rendered system message with `str.replace`.
+**Risk:** LOW. Found by the fresh review of PR #53. A connector line identical to
+platform text (a built-in's whole line) removes that platform text from the index too,
+so a recitation of it is not cut. Needs a customer to declare such a description.
+Related: TD-080.
+**Path to fix:** render the system message twice, with and without connector lines,
+and index the second; or index the platform parts as they are composed.
+**Trigger:** with TD-080, the next change to how action lines are composed.
+
+## TD-087 (S34) — the core polls each action job every 0.25 s inside the request; the integration row's columns are listed seven times
+
+**Where:** `auspex/connectors/dispatch.py` `_answer`; the integration column lists in
+`auspex/integrations/store.py` (5) and `auspex/connectors/resolve.py` (2).
+**Risk:** LOW. Found by the fresh review of PR #53. An approve whose agent never answers
+costs about 240 pool round-trips for execute and 120 for the observe after it, and holds
+the request about 90 s; ten at once are a steady load. Adding `grants` touched seven
+column lists.
+**Path to fix:** `LISTEN`/`NOTIFY` on a job's end, or a backoff; one column list and
+row reader in the store, used by the resolver.
+**Trigger:** pool pressure in the live checks, or the next column on `integrations`.
