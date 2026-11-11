@@ -267,3 +267,34 @@ async def test_an_execute_that_may_have_run_is_incomplete_not_failed(world):
     assert row["status"] == "incomplete"
     assert json.loads(row["result"])["effects"] == "unknown"
     assert world["sent"] == ["connector.action.execute"]  # observe was not asked
+
+
+async def test_a_grant_is_refused_when_the_package_changed_under_it(world, monkeypatch):
+    """PR #53 review #3: `set_grants` checked the names against the package it read, then
+    wrote without checking it again. A package change in between gave the NEW package
+    grants checked against the old one. The write now holds the checked hash."""
+    from auspex.integrations import store
+
+    pool, m, integ = world["pool"], world["m"], world["integ"]
+    await set_grants(pool, workspace_id=m.direct_ws, actor=world["admin"],
+                     integration_id=integ.id, actions=[])
+    files = _files(world["zip"])
+    manifest = json.loads(files["manifest.json"])
+    files["manifest.json"] = json.dumps({**manifest, "version": "1.0.3"}).encode()
+    other = await register(pool, workspace_id=m.direct_ws, data=build_zip(files),
+                           registered_by=m.d_user, offered_to_clients=False)
+    real = store._pinned_manifest
+
+    async def then_moved(*args, **kwargs):
+        found = await real(*args, **kwargs)
+        await pool.execute("UPDATE integrations SET content_hash = $2 WHERE id = $1",
+                           integ.id, other.content_hash)  # an admin's edit, in the gap
+        return found
+
+    monkeypatch.setattr(store, "_pinned_manifest", then_moved)
+    with pytest.raises(store.IntegrationRefused, match="package changed"):
+        await set_grants(pool, workspace_id=m.direct_ws, actor=world["admin"],
+                         integration_id=integ.id, actions=["close_alert"])
+    row = await pool.fetchrow("SELECT content_hash, grants FROM integrations WHERE id = $1",
+                              integ.id)
+    assert row["content_hash"] == other.content_hash and list(row["grants"]) == []

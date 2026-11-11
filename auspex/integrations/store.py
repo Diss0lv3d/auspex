@@ -281,12 +281,18 @@ async def set_grants(pool, *, workspace_id: UUID, actor: audit.Actor, integratio
             f" (it declares {', '.join(sorted(declared)) or 'none'})")
     granted = sorted(set(actions))
     async with pool.acquire() as conn, conn.transaction():
+        # Only onto the package the names were checked against (PR #53 review #3): a
+        # package change in between would hand the new one grants nobody checked.
         row = await conn.fetchrow(
             "UPDATE integrations SET grants = $3 WHERE id = $1 AND workspace_id = $2"
-            " AND disabled_at IS NULL RETURNING id, workspace_id, name, prefix,"
-            " connector_id, content_hash, config, agent_id, created_at, disabled_at, grants",
-            integration_id, workspace_id, granted)
+            " AND disabled_at IS NULL AND content_hash = $4 RETURNING id, workspace_id,"
+            " name, prefix, connector_id, content_hash, config, agent_id, created_at,"
+            " disabled_at, grants",
+            integration_id, workspace_id, granted, current.content_hash)
         if row is None:
+            now = await get(conn, workspace_id=workspace_id, integration_id=integration_id)
+            if now is not None and now.enabled:
+                raise IntegrationRefused("the integration's package changed; grant again")
             raise IntegrationRefused("this integration is disabled")
         await audit.record(conn, workspace_id=workspace_id, action="integration.updated",
                            actor=actor, details={"integration_id": str(integration_id),
