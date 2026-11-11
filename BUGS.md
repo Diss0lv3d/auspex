@@ -824,3 +824,85 @@ are never deleted.
 - **Evidence:** docs/probes/2026-11-06-s34-rail-calibration.md (run 2).
 - **Status:** open. The floors and the directive are D-040/D-045/D-058's; changing
   them is not S34's scope.
+
+## B-046 — a retried undo can run a handler that already ran, when it answered malformed or was stopped
+
+- **Found:** 2026-11-11, Burhan's window, the fresh review of PR #53 at `d19a5ef`,
+  before the merge. Reproduced.
+- **What happened:** `71e208f` (PR #53, after the fresh review of its fixes) ends an
+  action job `dead` ("may have run") when the CORE refuses its answer, so a retry never
+  runs that handler again. The real runner never sends the core a malformed answer:
+  `invoke` checks the result itself (`sdk/auspex_sdk/invoke.py:160`) and `run.py:114`
+  turns the refusal into `{"error": …}`. The edge API fails every error answer
+  permanently (`auspex/edge_api/routes.py:163`), so the job is `failed`, and since PR
+  #53's review #1 fix a `failed` job lets a retry enqueue a fresh one
+  (`auspex/connectors/dispatch.py`). The agent's 50 s stop of a command midway takes the
+  same path (`auspex/edge/agent.py`, `TimeoutExpired` → `{"error"}`). Both may have
+  written. The handler gets the same `ctx.idempotency_key` each time, so a connector
+  that honours the key drops the repeat; one that does not runs its undo twice.
+  `71e208f`'s own test posts the malformed answer straight to the edge API, past the
+  runner. The PR #53 review record (row 1) and the S34 record §7 overstate the fix.
+- **Evidence:** the mock SIEM connector with `reopen` answering only `{would}` (it
+  still POSTs the reopen), run through the real `Agent` and `auspex_sdk.run`, undo
+  called twice with one operation key: `ResultInvalid … must return exactly {would,
+  affects, reversible, detail}` both times, `may_have_run=False`, jobs `…:undo failed`
+  then `…:undo#retry1 failed` — the handler ran twice.
+- **Path to fix:** the runner says when its handler returned (or was stopped) before the
+  failure, and the agent passes it on, so the edge API ends those jobs `dead`; a handler
+  that raised stays `failed` and retryable (PR #53 review #1). Test through the real
+  runner, not a hand-posted answer.
+- **Status:** open, not placed. Burhan's. Merged with PR #53 (merge and log, Burhan,
+  2026-11-11).
+
+## B-047 — a workspace's approval rule can widen who approves, which D-075 says only narrows
+
+- **Found:** 2026-11-11, Burhan's window, the fresh review of PR #53 at `d19a5ef`.
+- **What happened (by reading, not run):** `PUT /api/approval-policy`
+  (`auspex/actions/policy.py`) accepts any non-empty subset of `admin`, `analyst` for
+  either risk, so `{risk: destructive, roles: [admin, analyst]}` lets analysts approve
+  destructive actions, wider than the default (admins only). The S34 spec (decision 1)
+  says an admin "may tighten it", D-075 says "a rule can only narrow who approves", and
+  Burhan ruled (2026-11-11, D-079) that a rule only narrows.
+- **Path to fix:** refuse (422, in words) roles that are not a subset of
+  `policy.DEFAULT[risk]`'s; test both risks. F5's policy page offers only narrowing.
+- **Status:** open, not placed. Burhan's.
+
+## B-048 — the Undo door does not follow the approval policy (D-079)
+
+- **Found:** 2026-11-11, raised by both fresh reviews of PR #53 (Hunaiza's and Burhan's
+  window); decided by Burhan the same day (D-079).
+- **What happened:** `POST /api/proposals/{id}/undo` (`auspex/routes/proposals.py`)
+  needs only the Analyst role. For a connector action an undo is a fresh write to the
+  customer's system, so a person the workspace's policy bars from approving that risk
+  (an analyst under `destructive: [admin]`, or provider staff under
+  `provider_staff: false`) can still put it back.
+- **Path to fix (D-079):** the undo applies the presser's policy for the action's risk
+  (`policy.approvable`), checked first and again in the undo claim, as PR #53 review #2
+  did for the stale Run door; 403 with `policy.refusal`'s words. Tests for a barred
+  analyst and barred provider staff, built-in and connector actions.
+- **Status:** open, not placed. Burhan's.
+
+## B-049 — an expired proposal pressed by a barred approver answers "not allowed", and its expiry is not recorded
+
+- **Found:** 2026-11-11, Burhan's window, the fresh review of PR #53 at `d19a5ef`.
+- **What happened (by reading, not run):** `ProposalSettlement.settle`
+  (`auspex/actions/settlement.py`) checks `NOT_ALLOWED` before the TTL. A
+  `pending_approval` row past `PROPOSAL_TTL_SECONDS`, approved by someone whose policy
+  does not reach its risk, answers 403 "needs the role …" instead of 409 expired, and
+  this door does not record the expiry (S31's rule: the door that notices records it).
+  The sweep still expires it later.
+- **Path to fix:** test the TTL first in the after-claim read; test both orders.
+- **Status:** open, not placed. Burhan's.
+
+## B-050 — admin-entered names reach the model in a connector action's refusal
+
+- **Found:** 2026-11-11, Burhan's window, the fresh review of PR #53 at `d19a5ef`.
+- **What happened (by reading, not run):** `ActionResolver.refusal`
+  (`auspex/connectors/resolve.py`) words its reasons with the integration's name and
+  the Edge Agent's name (free text, up to 80 characters, entered by an admin), and
+  `CannotPropose.model_feedback` hands them to the model as the tool result. The rule
+  stated in `auspex/connectors/dispatch.py` (`DispatchFailed`, D-045) is that model
+  feedback is the platform's own sentence, never the agent's or the connector's text.
+- **Path to fix:** the model's sentence names the action and the reason only (or the
+  integration's wire prefix); the names stay in the words a human reads.
+- **Status:** open, not placed. Burhan's.
